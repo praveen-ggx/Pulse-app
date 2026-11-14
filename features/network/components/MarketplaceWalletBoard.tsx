@@ -41,7 +41,7 @@ export function MarketplaceHomeBoard({
   hiddenCount,
   onOpenWallet,
   onOpenTransactions,
-  onShowAllLanes,
+  onShowAllLanes: _onShowAllLanes,
 }: {
   orgName: string;
   bids: readonly MyOrgMarketBidRow[];
@@ -166,7 +166,6 @@ export function MarketplaceWalletBoard({
       }),
     [statement, statusTag, monthTag, laneTag],
   );
-  const filtersActive = statusTag !== "all" || monthTag !== "all" || laneTag !== "all";
 
   useEffect(() => {
     setVisibleCount(WALLET_PAGE_SIZE);

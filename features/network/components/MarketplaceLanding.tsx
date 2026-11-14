@@ -390,7 +390,7 @@ export function MarketplaceLanding({
   loadCount,
   laneCount,
   showing,
-  hiddenCount,
+  hiddenCount: _hiddenCount,
   isDesktop,
   part = "all",
   onOpenBids,

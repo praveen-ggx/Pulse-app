@@ -990,17 +990,14 @@ export function TripAssignmentBlock({
           : "";
       setPhoneVehicleInput(vehiclePrefill);
       setShowPhoneModal(true);
-      if (!showAssignByPhone) {
-        getVehiclesByOrganization(organizationId).then((r) =>
-          setPhoneModalVehicles(r.error ? [] : (r.vehicles ?? [])),
-        );
-      } else {
-        setPhoneModalVehicles([]);
-      }
+      // Aggregate trips too: a typed plate that is in the assigner's fleet must
+      // save vehicle_id, not just vehicle_display_number (TRP002015).
+      getVehiclesByOrganization(organizationId).then((r) =>
+        setPhoneModalVehicles(r.error ? [] : (r.vehicles ?? [])),
+      );
     },
     [
       organizationId,
-      showAssignByPhone,
       propsDriverName,
       trip.driver_display_name,
       trip.driver_id,

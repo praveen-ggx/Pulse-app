@@ -11,15 +11,20 @@ TRP002015 (GOGOVAN, supplier SMK LOGISTICS, TN52AF9048): the vehicle checklist s
 ## What changed
 - Vehicle tab actions (upload, approve, decline prefill, preview, change log) use `trip.vehicle_id ?? vaultVehicleId`.
 - Read side also loads viewer-org vehicle docs for plate-matched trucks (one extra query, only when such trips exist).
+- Trip assign popup: aggregate trips now load the assigner's fleet too, so a typed plate in their fleet saves `vehicle_id` (the popup emptied the list since 1a9f1456c, which is how TRP002015 lost its link).
+- Permanent DB fix (migration `20261114111733_link_trip_vehicle_by_plate`): any trip saved with only a plate gets `vehicle_id` from the supplier's linked-org fleet, then the trip org's fleet (exactly one match, else no link). When a truck is added later, unlinked trips with its plate are linked. One-time backfill of existing trips. Cancelled/deleted/owner-vehicle trips and explicit unlinks are left alone.
 
 ## Migrations
-None.
+- `20261114111733_link_trip_vehicle_by_plate.sql` (functions + 2 triggers + backfill). Prod read-only dry run: backfill links 17 trips (TRP005, 007, 009, 011, 013, 015, 017, 019, 025, 029, 055, 121, 143, 543, 565, 571, 575), none ambiguous. TRP002015 was already linked by hand on prod 14 Nov. Release set `link-trip-vehicle-by-plate` (sha-pinned, Jest-guarded). Prod apply needs Vasanth's GO; preprod push by Nihas.
 
 ## Tested
 - `vehicleViewerTripDedup.test.ts`: 2 new tests (plate-matched truck reads back its uploaded doc; vehicle_id trips make no extra read). The read-back test fails without the fix.
 - `npx jest features/tripCompliance`: 801 passed.
+- Migration run on a scratch local Postgres 17 with a minimal schema: links supplier-fleet, trip-org-fleet, plate-set-later and truck-added-later cases; skips cancelled, ambiguous plate, explicit unlink.
+- `linkTripVehicleByPlate.migration.contract.test.ts` (static contract).
 - `ci-baseline typecheck`: 346 = baseline. eslint on the workspace: same 7 warnings as before, 0 errors.
 
 ## Not tested
 - A real upload click-through on preprod/prod.
-- Linking the trip to the fleet truck (data fix) — not done; needs a decision.
+- Migration not yet applied to preprod (real schema/triggers) — Nihas pushes.
+- 122 trips whose truck is in no fleet stay unlinked by design (nothing to link to).

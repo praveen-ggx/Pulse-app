@@ -201,7 +201,7 @@ describe("P0 submission guard", () => {
     expect(poolSubmissionBlockReason(["a", "b"], members)).toBeNull();
   });
 
-  it("submits the same rate per member sequentially and reports failures per load", async () => {
+  it("submits the same rate per member in a short burst and reports failures per load", async () => {
     const calls: string[] = [];
     let inFlight = 0;
     let maxInFlight = 0;
@@ -220,7 +220,8 @@ describe("P0 submission guard", () => {
       },
     });
     expect(calls).toEqual(["a", "b", "c"]);
-    expect(maxInFlight).toBe(1);
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(maxInFlight).toBeLessThanOrEqual(4);
     expect(result).toEqual({
       blocked: null,
       attempted: 3,

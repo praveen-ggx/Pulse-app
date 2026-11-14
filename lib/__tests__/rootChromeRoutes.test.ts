@@ -16,10 +16,12 @@ describe('root chrome overlay', () => {
   });
 
   it('highlights Load vs Compliance from the overlay pathname', () => {
-    expect(overlayActiveTab(ROUTES.PULSE_LOADS)).toBe('loadCenter');
+    expect(overlayActiveTab(ROUTES.PULSE_LOADS)).toBe('trips');
+    expect(overlayActiveTab(ROUTES.FIND_LOADS)).toBe('loadCenter');
     expect(overlayActiveTab(ROUTES.COMPLIANCE)).toBe('compliance');
     expect(overlayActiveTab(ROUTES.PULSE_INVOICE)).toBe('invoice');
-    expect(overlayPathForTab('loadCenter')).toBe(ROUTES.PULSE_LOADS);
+    expect(overlayPathForTab('trips')).toBe(`${ROUTES.TABS.TRIPS}?hub=active`);
+    expect(overlayPathForTab('loadCenter')).toBe(ROUTES.FIND_LOADS);
     expect(overlayPathForTab('compliance')).toBe(ROUTES.COMPLIANCE);
     expect(overlayPathForTab('invoice')).toBe(ROUTES.PULSE_INVOICE);
   });

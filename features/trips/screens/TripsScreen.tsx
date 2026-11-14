@@ -60,7 +60,7 @@ import { useGiveLoadIndentActions } from "@/features/network/hooks/useGiveLoadIn
 import { useShipperPoolIndentView } from "@/features/network/hooks/useShipperPoolIndentView";
 import { extractCommercePlanIds } from "@/features/network/utils/commercePlanIds.util";
 import { giveLoadIndentAvatarProps, resolveMergedOrderCardTitle } from "@/features/network/utils/indentCardAvatar.util";
-import { isIndentStageDone, isIndentUnallocated } from "@/features/network/utils/loadCenter.model";
+import { isIndentStageDone, isIndentUnallocated, isGetLoadMarketCirculation } from "@/features/network/utils/loadCenter.model";
 import { GroundOpsWarehouseNotice } from "@/features/organization/components/GroundOpsWarehouseNotice";
 import { useGroundOpsWarehouseGap } from "@/features/organization/hooks/useGroundOpsWarehouseGap";
 import { useSourcingScope } from "@/features/organization/hooks/useSourcingScope";
@@ -255,6 +255,8 @@ import {
     resolveTripsPromoVariant,
 } from "@/lib/tripsPromoAssets";
 import { useLinkedOrgProfileMap } from "@/lib/useLinkedOrgProfileMap";
+import { useMarketIndentsQuery } from "@/lib/queries/useIndentsQuery";
+import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useMemberCapabilities } from "@/lib/useMemberCapabilities";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
@@ -493,11 +495,17 @@ export default function TripsScreen() {
       ? 12
       : layout.scrollBottomPadding(40);
   const router = useRouter();
-  /** Deep-link into the INDENT stage, e.g. `/(tabs)/trips?stage=indent`. */
-  const { stage: tripsStageParam } = useLocalSearchParams<{
+  /**
+   * `?hub=active` is the Trips top-nav landing. It must win over a restored
+   * indent, which otherwise opens the load list.
+   * `?stage=indent` still deep-links the indent stage from create-load.
+   */
+  const { stage: tripsStageParam, hub: tripsHubParam } = useLocalSearchParams<{
     stage?: string;
+    hub?: string;
   }>();
-  const indentDeepLink = tripsStageParam === "indent";
+  const landOnActiveTrips = tripsHubParam === "active";
+  const indentDeepLink = tripsStageParam === "indent" && !landOnActiveTrips;
   const { openTripDetail: openTripDetailRaw } = useOpenTripDetail();
   const restoredHubItem = getLastOpenedHubItem();
   const [lastOpenedTripId, setLastOpenedTripId] = useState<string | null>(
@@ -517,14 +525,16 @@ export default function TripsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const lastFocusRefreshRef = useRef<number>(0);
   const [tripFilter, setTripFilter] = useState<"Active" | "History">(
-    restoredHubItem?.tripFilter === "History" ? "History" : "Active",
+    landOnActiveTrips || restoredHubItem?.tripFilter !== "History" ? "Active" : "History",
   );
   const [searchQuery, setSearchQuery] = useState("");
   const queryClient = useQueryClient();
   const [activeMetricTab, setActiveMetricTab] = useState<ActiveMetricTabId>(
-    indentDeepLink
-      ? "indent"
-      : (asRestoredMetricTab(restoredHubItem?.metricTab) ?? "assigned"),
+    landOnActiveTrips
+      ? "all"
+      : indentDeepLink
+        ? "indent"
+        : (asRestoredMetricTab(restoredHubItem?.metricTab) ?? "assigned"),
   );
   // Deep-link re-entry: expo-router can update params on an already-mounted
   // screen (e.g. navigating here again from another post-create success
@@ -682,6 +692,7 @@ export default function TripsScreen() {
     (canSurface("tripops.trips.create_asset") ||
       canSurface("tripops.trips.create_aggregate"));
   const canAddLoad = canSurface("tripops.indents.create");
+  const canOpenLoadNetwork = canSurface("tripops.pulse_loads");
   const canUnifiedAdd = canAddTrip || canAddLoad;
   const attributionRequests = useMemo(
     () =>
@@ -705,6 +716,16 @@ export default function TripsScreen() {
     (workspaceCtx!.isLoading || !workspaceCtx!.membershipResolved);
   const orgBootPending = orgLoading || workspaceResolving;
   const orgId = canAccess ? (currentOrganization?.id ?? null) : null;
+  const networkLoadsQ = useMarketIndentsQuery(canOpenLoadNetwork ? orgId : null);
+  const networkLoadCount = useMemo(() => {
+    let count = 0;
+    for (const indent of networkLoadsQ.data ?? []) {
+      const status = (indent.status || "").toLowerCase();
+      if (status === "awarded" || status === "completed" || status === "cancelled") continue;
+      if (isGetLoadMarketCirculation(indent.circulation_target)) count += 1;
+    }
+    return count;
+  }, [networkLoadsQ.data]);
   const cachedTripsForOrg = orgId
     ? (queryClient.getQueryData(queryKeys.trips.finite(orgId)) as TripRow[] | undefined)
     : undefined;
@@ -1568,8 +1589,24 @@ export default function TripsScreen() {
     orgId,
   ]);
 
+  const skipHubRestoreAfterLandingRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
+      if (landOnActiveTrips) {
+        skipHubRestoreAfterLandingRef.current = true;
+        setTripFilter("Active");
+        setActiveMetricTab("all");
+        setActiveHistoryMetricTab(null);
+        router.setParams({ hub: "", stage: "" });
+        return;
+      }
+      if (skipHubRestoreAfterLandingRef.current) {
+        skipHubRestoreAfterLandingRef.current = false;
+        setTripFilter("Active");
+        setActiveMetricTab("all");
+        setActiveHistoryMetricTab(null);
+        return;
+      }
       const saved = getLastOpenedHubItem();
       if (saved?.id) {
         setLastOpenedTripId(saved.id);
@@ -1593,7 +1630,7 @@ export default function TripsScreen() {
           void refetchTrips();
         });
       }
-    }, [refetchTrips, indentDeepLink]),
+    }, [refetchTrips, indentDeepLink, landOnActiveTrips, router]),
   );
 
   const loading = tripsLoading && trips.length === 0 && !(cachedTripsForOrg?.length);
@@ -3316,6 +3353,10 @@ export default function TripsScreen() {
           lastOpenedTabSearchDoneRef.current = lastOpenedTripId;
           setTripFilter("Active");
           setActiveHistoryMetricTab(null);
+          // The tab count is active trips. Leaving the indent stage selected
+          // would show loads again instead of that trip list.
+          setActiveMetricTab("all");
+          if (indentDeepLink) router.setParams({ stage: "" });
         },
       },
       {
@@ -3338,6 +3379,8 @@ export default function TripsScreen() {
       lastOpenedTripId,
       searchMatchedActiveTab,
       searchMatchedHistoryTab,
+      indentDeepLink,
+      router,
     ],
   );
 
@@ -4197,6 +4240,7 @@ export default function TripsScreen() {
                       chatChrome.filterHeaderRow,
                       styles.tripsFilterHeaderRowCompact,
                       isCompactWeb && styles.tripsFilterHeaderCompact,
+                      styles.tripsFilterHeaderAnchor,
                     ]}
                   >
                     {!isMobile ? (
@@ -4240,12 +4284,28 @@ export default function TripsScreen() {
                         ))}
                       </View>
                     ) : null}
-                    <View
-                      style={[
-                        chatChrome.filterHeaderRight,
-                        isCompactWeb && styles.tripsFilterHeaderRightCompact,
-                      ]}
-                    >
+                    <View style={styles.loadNetworkSlot} pointerEvents="box-none">
+                      <Pressable
+                        onPress={() => router.push(`${ROUTES.PULSE_LOADS}?from=trips` as never)}
+                        style={({ pressed }) => [
+                          styles.loadNetworkBtn,
+                          pressed && styles.loadNetworkBtnPressed,
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          networkLoadsQ.data
+                            ? `Load from network, ${networkLoadCount}`
+                            : "Load from network"
+                        }
+                      >
+                        <Text style={styles.loadNetworkBtnText}>
+                          {networkLoadsQ.data
+                            ? `Load from network (${networkLoadCount})`
+                            : "Load from network"}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    <View style={chatChrome.filterHeaderRight}>
                       <View
                         style={[
                           chatChrome.tabRow,
@@ -5703,6 +5763,35 @@ const styles = StyleSheet.create({
   tripsFilterTabLabelCompact: {
     fontSize: 7.5,
     letterSpacing: 0.45,
+  },
+  tripsFilterHeaderAnchor: {
+    position: "relative",
+  },
+  loadNetworkSlot: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+  },
+  loadNetworkBtn: {
+    backgroundColor: Theme.primaryText,
+    borderRadius: 999,
+    minHeight: 30,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadNetworkBtnPressed: { opacity: 0.88 },
+  loadNetworkBtnText: {
+    color: Theme.textOnPrimary,
+    fontSize: 7.5,
+    fontWeight: "600",
+    letterSpacing: 0.45,
+    textTransform: "uppercase",
   },
   tripsFilterIconTrayCompact: {
     gap: 3,

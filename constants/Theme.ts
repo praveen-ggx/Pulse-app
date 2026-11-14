@@ -14,6 +14,8 @@ export const Theme = {
   brandBlueWash: "rgba(205, 233, 247, 0.55)",
   brandBlueWashSubtle: "rgba(205, 233, 247, 0.35)",
   brandBlueSoft: "#E5F4FB",
+  /** Near-white wash for pooled lane cards. */
+  brandBlueMist: "#F7FCFF",
   brandBlueShadow: "rgba(77, 54, 54, 0.12)",
 
   // ---- Primary (ink accent on light UI; fills use buttonPrimary / brandBlue) ----

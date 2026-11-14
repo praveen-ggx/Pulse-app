@@ -32,7 +32,6 @@ import {
   submitOrgPoolBid,
   type OrgOpenMarketplaceLoad,
 } from "@/features/network/services/findLoadsForOrg.service";
-import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplaceLoadsPage.util";
 import { isMarketplaceSearchReady } from "@/features/network/utils/marketplaceSearch.util";
 import {
   POOL_STATE_COPY,
@@ -58,8 +57,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
-import { Layers, X } from "lucide-react-native";
-import { useMemo, useState } from "react";
+import { ChevronLeft, Layers } from "lucide-react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -76,8 +75,6 @@ const WEB_COPY = Platform.select({
 });
 
 const TWO_COLUMN_MIN_WIDTH = 900;
-/** list_my_org_market_bids caps p_limit at 100. */
-const POOL_BIDS_LIMIT = 100;
 
 function paramString(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
@@ -114,6 +111,7 @@ export function PooledOpportunityScreen() {
     pickup?: string;
     drop?: string;
     vehicle?: string;
+    bid?: string;
   }>();
   const key = useMemo(
     () =>
@@ -126,7 +124,6 @@ export function PooledOpportunityScreen() {
   );
   const keyReady = isMarketplaceSearchReady(key);
   const poolId = keyReady ? poolKeyId(key) : "";
-  const searchKey = keyReady ? `pool:${poolId}` : "";
 
   const orgCtx = useOptionalOrganization();
   const organization = orgCtx?.currentOrganization ?? null;
@@ -164,20 +161,18 @@ export function PooledOpportunityScreen() {
     [poolQ.data],
   );
 
-  /** Org bids beyond the manifest, so awards on loads that left the pool this session stay attributable. */
+  /** Same cache as the marketplace list, so opening a pool does not refetch bids. */
   const myBidsQ = useQuery({
-    queryKey: [
-      ...queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
-      "pool",
-      POOL_BIDS_LIMIT,
-    ],
-    queryFn: () => listMyOrgMarketBids(orgId as string, POOL_BIDS_LIMIT),
+    queryKey: queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
+    queryFn: () => listMyOrgMarketBids(orgId as string, 100),
     enabled: !!orgId,
+    staleTime: STALE.frequent,
   });
   const vehiclesQ = useQuery({
     queryKey: queryKeys.vehicles.all(orgId ?? ""),
     queryFn: () => getVehiclesByOrganization(orgId as string),
     enabled: !!orgId,
+    staleTime: STALE.moderate,
   });
 
   const myBids = useMemo(
@@ -210,8 +205,28 @@ export function PooledOpportunityScreen() {
   const eligibleCount = summary.biddableIds.length;
   const readiness = poolBidReadiness({ fetch: fetchProgress, eligibleCount });
   const preparing = !loadsError && poolQ.data == null;
+  const bidNow = paramString(params.bid) === "1";
+  const openedDirectBid = useRef(false);
+  const directBidIds = summary.biddableIds.join(",");
+
+  useEffect(() => {
+    if (!bidNow || openedDirectBid.current || !readiness.ready || !directBidIds) return;
+    openedDirectBid.current = true;
+    setBidTargets(directBidIds.split(","));
+  }, [bidNow, readiness.ready, directBidIds]);
 
   const handleBack = () => {
+    router.replace(ROUTES.FIND_LOADS as Href);
+  };
+
+  const closeBid = () => {
+    setBidError(undefined);
+    if (!bidNow) {
+      setBidTargets(null);
+      return;
+    }
+    // The card pushed this screen. Pop back to that list so the same card
+    // is still in place. replace() opens a new Marketplace and loses it.
     if (router.canGoBack()) {
       router.back();
       return;
@@ -228,11 +243,7 @@ export function PooledOpportunityScreen() {
       queryKey: queryKeys.findLoadsForOrg.pool(orgId, poolId),
     });
     queryClient.invalidateQueries({
-      queryKey: queryKeys.findLoadsForOrg.infinite(
-        orgId,
-        MARKETPLACE_LOAD_PAGE_SIZE,
-        searchKey,
-      ),
+      queryKey: queryKeys.findLoadsForOrg.searchLanes(orgId),
     });
   };
 
@@ -325,32 +336,34 @@ export function PooledOpportunityScreen() {
 
   const header = (
     <View style={styles.header}>
-      <View style={styles.headerCopy}>
-        <View style={styles.headerEyebrow}>
-          <Layers size={13} color={Theme.primary} strokeWidth={2.4} />
-          <Text style={styles.eyebrow}>Pooled opportunity</Text>
+      <Pressable
+        onPress={handleBack}
+        style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
+        accessibilityRole="button"
+        accessibilityLabel="Back to marketplace"
+        hitSlop={Layout.touchTargetHitSlop}
+      >
+        <ChevronLeft size={18} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
+        <Text style={styles.backBtnText}>Marketplace</Text>
+      </Pressable>
+      <View style={styles.headerBody}>
+        <View style={styles.headerCopy}>
+          <View style={styles.headerEyebrow}>
+            <Layers size={13} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
+            <Text style={styles.eyebrow}>Pooled opportunity</Text>
+          </View>
+          <Text style={styles.title} numberOfLines={2}>
+            {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
+          </Text>
+          <Text style={styles.subtitle} numberOfLines={2}>
+            {vehicleLabel}
+            {poolQ.data != null ? ` · ${countLabel}` : ""} · one rate for the pool
+          </Text>
+          <Text style={styles.stateDetail} numberOfLines={2}>
+            {POOL_STATE_COPY[summary.state].detail}
+          </Text>
         </View>
-        <Text style={styles.title} numberOfLines={2}>
-          {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
-        </Text>
-        <Text style={styles.subtitle} numberOfLines={2}>
-          {vehicleLabel} · {countLabel} · one rate for the pool
-        </Text>
-        <Text style={styles.stateDetail} numberOfLines={2}>
-          {POOL_STATE_COPY[summary.state].detail}
-        </Text>
-      </View>
-      <View style={styles.headerActions}>
         <PoolStatusPill state={summary.state} label={summary.stateLabel} />
-        <Pressable
-          onPress={handleBack}
-          style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
-          accessibilityRole="button"
-          accessibilityLabel="Close pooled opportunity"
-          hitSlop={Layout.touchTargetHitSlop}
-        >
-          <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.4} />
-        </Pressable>
       </View>
     </View>
   );
@@ -369,7 +382,7 @@ export function PooledOpportunityScreen() {
       </View>
       <View style={styles.facts}>
         <Fact label="Vehicle" value={vehicleLabel || "—"} />
-        <Fact label="Loads in pool" value={String(poolCount)} />
+        <Fact label="Loads in pool" value={poolQ.data != null ? String(poolCount) : "…"} />
         <Fact label="Pickup window" value={dates ?? "Not listed"} />
         <Fact
           label="Material"
@@ -468,8 +481,30 @@ export function PooledOpportunityScreen() {
         style={styles.backdrop}
         onPress={handleBack}
         accessibilityRole="button"
-        accessibilityLabel="Close pooled opportunity"
+        accessibilityLabel="Back to marketplace"
       />
+      {bidNow || bidTargets != null ? (
+        bidTargets == null ? (
+          <View style={[styles.dialog, styles.dialogNarrow, styles.directBidWait]}>
+            <Text style={styles.title} numberOfLines={2}>
+              {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
+            </Text>
+            <Text style={styles.message}>
+              {preparing
+                ? "Opening the bid…"
+                : readiness.blocked ?? "This pool is not open for a bid."}
+            </Text>
+            <Pressable
+              onPress={handleBack}
+              style={({ pressed }) => [styles.retryBtn, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Back to marketplace"
+            >
+              <Text style={styles.retryBtnText}>Back</Text>
+            </Pressable>
+          </View>
+        ) : null
+      ) : (
       <View
         style={[
           styles.dialog,
@@ -505,13 +540,11 @@ export function PooledOpportunityScreen() {
           )}
         </ScrollView>
       </View>
+      )}
 
       <MarketLoadBidSheet
         visible={bidTargets != null}
-        onClose={() => {
-          setBidTargets(null);
-          setBidError(undefined);
-        }}
+        onClose={closeBid}
         onSubmitAmount={submitPoolRate}
         onSuccessDone={refreshAfterBid}
         shipperName={`Pooled opportunity · ${countLabel}`}
@@ -557,6 +590,7 @@ const styles = StyleSheet.create({
   },
   dialogWide: { maxWidth: 1080 },
   dialogNarrow: { maxWidth: 560 },
+  directBidWait: { padding: 24, gap: 16, alignItems: "center" },
   scroll: { flexGrow: 0, flexShrink: 1, width: "100%" },
   content: {
     paddingHorizontal: 20,
@@ -571,30 +605,30 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   header: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
+    gap: 10,
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 14,
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.borderLight,
   },
-  headerActions: {
+  backBtn: {
+    alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    flexShrink: 0,
+    gap: 2,
+    minHeight: 36,
+    paddingRight: 8,
   },
-  closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Theme.actionBtnGhostBorder,
-    backgroundColor: Theme.cardWhite,
-    alignItems: "center",
-    justifyContent: "center",
+  backBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.buttonPrimaryText,
+  },
+  headerBody: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
   },
   headerCopy: { flex: 1, minWidth: 0, gap: 4 },
   headerEyebrow: {
@@ -698,8 +732,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     minHeight: Layout.minTouchTargetSize,
     justifyContent: "center",
-    borderRadius: 10,
     backgroundColor: Theme.buttonPrimary,
+    borderWidth: Theme.buttonPrimaryBorderWidth,
+    borderColor: Theme.buttonPrimaryBorder,
+    borderRadius: Theme.buttonPrimaryRadius,
   },
   retryBtnText: {
     fontSize: 14,

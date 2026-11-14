@@ -5,7 +5,8 @@
 import { GiveLoadIndentActionSheets } from "@/features/network/components/GiveLoadIndentActionSheets";
 import { useAwardQuote } from "@/features/network/hooks/useAwardQuote";
 import { useSuccessToast } from "@/features/network/hooks/useSuccessToast";
-import { indentCanBroadcastToPulseNetwork } from "@/features/network/utils/indentBroadcastEligibility.util";
+import { previewStandingLaneBids } from "@/features/network/services/standingLaneBids.service";
+import { standingLaneShareMessage } from "@/features/network/utils/standingLaneBids.util";
 import { isIndentStageDone } from "@/features/network/utils/loadCenter.model";
 import {
   getIndentDisplayNumber,
@@ -118,11 +119,22 @@ export function useGiveLoadIndentActions(opts: {
       if (!orgId) return;
       const target = load.circulation_target ?? "integrated_supplier";
       const isShared = target === "marketplace" || target === "both";
+      let shareMessage =
+        "This load will also become visible to verified fleet owners in the open Marketplace, alongside your supplier network.";
+      if (!isShared) {
+        const preview = await previewStandingLaneBids(
+          load.pickup_area ?? "",
+          load.drop_location ?? "",
+          load.vehicle_type ?? "",
+          load.id,
+        );
+        if (!preview.error) shareMessage = standingLaneShareMessage(preview.bids);
+      }
       const confirmed = await confirmDialog({
         title: isShared ? "Stop sharing to Marketplace?" : "Share to Marketplace?",
         message: isShared
-          ? "This load will stop appearing to DCO / fleet owners in the open Marketplace. Your integrated supplier network is unaffected."
-          : "This load will also become visible to verified DCO / fleet owners in the open Marketplace, alongside your integrated supplier network.",
+          ? "This load will stop appearing to fleet owners in the open Marketplace. Your supplier network is unaffected."
+          : shareMessage,
         confirmLabel: isShared ? "Stop sharing" : "Share",
         destructive: isShared,
       });
@@ -137,6 +149,9 @@ export function useGiveLoadIndentActions(opts: {
           return;
         }
         invalidateIndents(orgId);
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.bids.marketForIndent(load.id),
+        });
         triggerSuccess(
           isShared
             ? "Stopped sharing to Marketplace."
@@ -146,7 +161,7 @@ export function useGiveLoadIndentActions(opts: {
         setMarketplaceToggleBusyId(null);
       }
     },
-    [orgId, invalidateIndents, triggerSuccess],
+    [orgId, invalidateIndents, queryClient, triggerSuccess],
   );
 
   const handleShareIndent = useCallback(async (load: IndentRow) => {

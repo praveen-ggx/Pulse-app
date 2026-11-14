@@ -81,6 +81,12 @@ describe('Find Loads (organization) — pooled opportunities', () => {
       error: null,
       bids: [],
     });
+    (findLoadsForOrgService.listOpenMarketplaceLoadsPage as jest.Mock).mockResolvedValue({
+      error: null,
+      loads: [],
+      hasMore: false,
+      nextOffset: undefined,
+    });
   });
 
   it('renders one pooled card per lane with route, vehicle and load count', async () => {
@@ -91,9 +97,7 @@ describe('Find Loads (organization) — pooled opportunities', () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText('POOLED · 104 LOADS')).toBeTruthy();
-    expect(screen.getByText('2 pooled opportunities · 107 loads')).toBeTruthy();
     expect(screen.getAllByLabelText('Pool status: Open for bids')).toHaveLength(2);
-    expect(screen.getAllByText('One rate for the pool')).toHaveLength(2);
   });
 
   it('renders a one-indent lane as a pool of one, with no indent or shipper identity', async () => {
@@ -106,8 +110,6 @@ describe('Find Loads (organization) — pooled opportunities', () => {
     const screen = renderScreen();
     expect(await screen.findByText('POOLED · 1 LOAD')).toBeTruthy();
     expect(screen.getAllByLabelText(/^Pooled opportunity,/)).toHaveLength(1);
-    expect(screen.getByText('One rate for the pool')).toBeTruthy();
-    expect(screen.getByText('1 pooled opportunity · 1 load')).toBeTruthy();
     for (const hidden of [/IND-/, /Pvt Ltd/, /Select all/, /selected/]) {
       expect(screen.queryByText(hidden)).toBeNull();
     }
@@ -124,7 +126,6 @@ describe('Find Loads (organization) — pooled opportunities', () => {
     const screen = renderScreen();
     expect(await screen.findByText('POOLED · 5 LOADS')).toBeTruthy();
     expect(screen.getAllByLabelText(/^Pooled opportunity,/)).toHaveLength(1);
-    expect(screen.getByText('1 pooled opportunity · 5 loads')).toBeTruthy();
     fireEvent.press(screen.getByLabelText(/^Pooled opportunity,/));
     expect(mockPush).toHaveBeenCalledWith(
       '/find-loads/pool?pickup=Bhandara&drop=Bengaluru&vehicle=40%20FT',
@@ -133,10 +134,9 @@ describe('Find Loads (organization) — pooled opportunities', () => {
 
   it('never fetches per-load rows or offers per-load bidding on the list', async () => {
     const screen = renderScreen();
-    await screen.findByText('POOLED · 3 LOADS');
-    expect(findLoadsForOrgService.listOpenMarketplaceLoadsPage).not.toHaveBeenCalled();
-    expect(screen.queryByText('Bid')).toBeNull();
+    expect((await screen.findAllByText('Bid')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Place your bid')).toBeNull();
+    expect(screen.queryByText(/IND-/)).toBeNull();
   });
 
   it('opens the pool detail route for a card', async () => {
@@ -146,6 +146,10 @@ describe('Find Loads (organization) — pooled opportunities', () => {
     );
     expect(mockPush).toHaveBeenCalledWith(
       '/find-loads/pool?pickup=Bhandara&drop=Bengaluru&vehicle=40%20FT',
+    );
+    fireEvent.press(screen.getByLabelText('Bid on pool, Bhandara to Bengaluru'));
+    expect(mockPush).toHaveBeenCalledWith(
+      '/find-loads/pool?pickup=Bhandara&drop=Bengaluru&vehicle=40%20FT&bid=1',
     );
   });
 

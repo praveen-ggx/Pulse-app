@@ -46,12 +46,11 @@ export function pathnameHasRootTopNav(pathname: string): boolean {
 }
 
 export function overlayActiveTab(pathname: string): OverlayDockTabId {
-  if (
-    pathname === ROUTES.PULSE_LOADS ||
-    pathname === ROUTES.FIND_LOADS ||
-    pathname.startsWith(`${ROUTES.FIND_LOADS}/`)
-  ) {
+  if (pathname === ROUTES.FIND_LOADS || pathname.startsWith(`${ROUTES.FIND_LOADS}/`)) {
     return 'loadCenter';
+  }
+  if (pathname === ROUTES.PULSE_LOADS) {
+    return 'trips';
   }
   if (pathname === ROUTES.COMPLIANCE || pathname.startsWith(`${ROUTES.COMPLIANCE}/`)) {
     return 'compliance';
@@ -65,9 +64,9 @@ export function overlayActiveTab(pathname: string): OverlayDockTabId {
 
 export function overlayPathForTab(tab: OverlayDockTabId): string {
   if (tab === 'finance') return ROUTES.TABS.FINANCE;
-  if (tab === 'trips') return ROUTES.TABS.TRIPS;
+  if (tab === 'trips') return `${ROUTES.TABS.TRIPS}?hub=active`;
   if (tab === 'network') return ROUTES.TABS.NETWORK;
-  if (tab === 'loadCenter') return ROUTES.PULSE_LOADS;
+  if (tab === 'loadCenter') return ROUTES.FIND_LOADS;
   if (tab === 'compliance') return ROUTES.COMPLIANCE;
   if (tab === 'invoice') return ROUTES.PULSE_INVOICE;
   return ROUTES.TABS.RESOURCES;

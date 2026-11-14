@@ -110,7 +110,7 @@ export type SignedInHomeAccess = {
  */
 export function resolveSignedInHomeRoute(access: SignedInHomeAccess): string {
   if (access.trips) return '/(tabs)/trips';
-  if (access.loadCenter) return '/pulse-loads';
+  if (access.loadCenter) return '/find-loads';
   if (access.finance) return '/(tabs)/finance';
   if (access.compliance) return '/compliance';
   if (access.network) return '/(tabs)/network';

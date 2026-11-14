@@ -421,10 +421,13 @@ export const ROUTES = {
   /** Find Loads opened on its My Bids segment (awarded → fee → allocation). */
   FIND_LOADS_MY_BIDS: '/find-loads?segment=my-bids' as const,
   /** One pooled Marketplace opportunity = one live lane (pickup × drop × vehicle). */
-  findLoadsPool: (pool: { pickup: string; drop: string; vehicleType: string }) =>
+  findLoadsPool: (
+    pool: { pickup: string; drop: string; vehicleType: string },
+    options?: { bid?: boolean },
+  ) =>
     `/find-loads/pool?pickup=${encodeURIComponent(pool.pickup)}&drop=${encodeURIComponent(
       pool.drop,
-    )}&vehicle=${encodeURIComponent(pool.vehicleType)}` as const,
+    )}&vehicle=${encodeURIComponent(pool.vehicleType)}${options?.bid ? "&bid=1" : ""}` as const,
   /** DBA audit tool — web only. */
   DBA_AUDIT:     '/audit'          as const,
   /** Workspace audit trail — who changed what (KYC, members, branding, trips). */

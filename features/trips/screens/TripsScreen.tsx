@@ -2920,7 +2920,7 @@ export default function TripsScreen() {
         trips: scopedTrips,
         indents: scopedIndents,
         partyMetaByTripId: tripHubPartyMetaByTripId,
-        driverPhoneByTripId: loadDriverPhonesByTripId(catalog.trips),
+        driverPhoneByTripId,
         stageLabelForTrip: getStageLabelForTrip,
       });
       if (error) {

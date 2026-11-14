@@ -491,6 +491,7 @@ function SliceTab({
       style={[styles.sliceTab, selected && styles.sliceTabOn]}
       accessibilityRole="tab"
       accessibilityState={{ selected }}
+      accessibilityLabel={`${label}, ${count}`}
     >
       <Text style={[styles.sliceLabel, selected && styles.sliceLabelOn]}>{label}</Text>
       <Text style={[styles.sliceCount, selected && styles.sliceLabelOn]}>{count}</Text>
@@ -515,6 +516,7 @@ function FocusTab({
       style={[styles.focusTab, selected && styles.focusTabOn]}
       accessibilityRole="tab"
       accessibilityState={{ selected }}
+      accessibilityLabel={`${label}, ${count}`}
     >
       <Text style={[styles.focusCount, selected && styles.focusOnText]}>{count}</Text>
       <Text style={[styles.focusLabel, selected && styles.focusOnText]}>{label}</Text>

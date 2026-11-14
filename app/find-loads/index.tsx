@@ -32,7 +32,6 @@ import {
   marketBidsFromQueryData,
 } from "@/features/network/services/findLoadsForOrg.service";
 import {
-  isMarketplaceSearchReady,
   normalizeMarketplaceSearch,
   positiveLaneTarget,
   type MarketplaceLoadSearch,
@@ -120,7 +119,6 @@ export default function FindLoadsScreen() {
   );
   const [browseAllLanes, setBrowseAllLanes] = useState(false);
   const [pickupOpenToken, setPickupOpenToken] = useState(0);
-  const searchReady = isMarketplaceSearchReady(appliedSearch);
   const searchActive = Object.values(normalizeMarketplaceSearch(appliedSearch)).some(Boolean);
   const searchHydrated = useRef<string | null>(null);
 

@@ -15,6 +15,7 @@ import {
   poolFieldOptions,
   poolKey,
 } from "@/features/network/utils/pooledOpportunity.util";
+import { routeEndpointLines } from "@/features/network/utils/storyDisplay";
 import { Check, ChevronDown, Flag, MapPin, Search, Truck, X } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -36,6 +37,7 @@ const FIELD_META: Record<
   {
     step: string;
     label: string;
+    boardName: string;
     listTitle: string;
     placeholder: string;
     search: string;
@@ -50,6 +52,7 @@ const FIELD_META: Record<
   pickup: {
     step: "01",
     label: "Pickup",
+    boardName: "From",
     listTitle: "Pickup locations",
     placeholder: "Where it starts",
     search: "Search pickup",
@@ -63,6 +66,7 @@ const FIELD_META: Record<
   drop: {
     step: "02",
     label: "Drop",
+    boardName: "To",
     listTitle: "Drop locations",
     placeholder: "Where it ends",
     search: "Search drop",
@@ -76,6 +80,7 @@ const FIELD_META: Record<
   vehicle: {
     step: "03",
     label: "Vehicle",
+    boardName: "Vehicle",
     listTitle: "Vehicle types",
     placeholder: "What can haul it",
     search: "Search vehicle",
@@ -97,6 +102,15 @@ type Props = {
   stacked?: boolean;
   /** Dense 44pt fields for embedded, data-heavy surfaces (Indent Pool). */
   density?: "comfortable" | "compact";
+  /** Flat fields for the Marketplace Loads board. Logic is unchanged. */
+  appearance?: "default" | "board";
+  /** Increment to open the From field. Search still covers every lane. */
+  openPickupToken?: number;
+  /**
+   * Shown in the board fields when this org has no saved search.
+   * It does not filter the list until a field is chosen.
+   */
+  suggestion?: MarketplaceLoadSearch | null;
 };
 
 export function MarketplaceLaneFilters({
@@ -106,7 +120,11 @@ export function MarketplaceLaneFilters({
   autoOpenFirst = false,
   stacked = false,
   density = "comfortable",
+  appearance = "default",
+  openPickupToken = 0,
+  suggestion = null,
 }: Props) {
+  const board = appearance === "board";
   const compact = density === "compact";
   const insets = useSafeAreaInsets();
   const draft = poolKey(value);
@@ -117,6 +135,10 @@ export function MarketplaceLaneFilters({
     if (!autoOpenFirst) return;
     if (!draft.pickup) setOpenField("pickup");
   }, [autoOpenFirst, draft.pickup]);
+
+  useEffect(() => {
+    if (openPickupToken > 0) setOpenField("pickup");
+  }, [openPickupToken]);
 
   const options = useMemo(
     () =>
@@ -176,37 +198,57 @@ export function MarketplaceLaneFilters({
         styles.bar,
         stacked && styles.barStacked,
         compact && styles.barCompact,
+        board && styles.barBoard,
+        board && stacked && styles.barBoardStacked,
       ]}
     >
       <FilterChip
         field="pickup"
         value={draft.pickup}
+        suggestion={suggestion?.pickup ?? ""}
+        suggestionDraft={suggestion}
         locked={pickupLocked}
         open={openField === "pickup"}
+        accent={board && (openField === "pickup" || (openField == null && Boolean(draft.pickup || suggestion?.pickup)))}
         stacked={stacked}
         compact={compact}
+        board={board}
+        lanes={lanes}
+        draft={draft}
         onOpen={() => open("pickup", pickupLocked)}
         onClear={() => clearField("pickup")}
       />
-      {!stacked ? <LaneRail filled={Boolean(draft.pickup)} /> : null}
+      {!stacked && !board ? <LaneRail filled={Boolean(draft.pickup)} /> : null}
       <FilterChip
         field="drop"
         value={draft.drop}
+        suggestion={suggestion?.drop ?? ""}
+        suggestionDraft={suggestion}
         locked={dropLocked}
         open={openField === "drop"}
+        accent={openField === "drop"}
         stacked={stacked}
         compact={compact}
+        board={board}
+        lanes={lanes}
+        draft={draft}
         onOpen={() => open("drop", dropLocked)}
         onClear={() => clearField("drop")}
       />
-      {!stacked ? <LaneRail filled={Boolean(draft.drop)} /> : null}
+      {!stacked && !board ? <LaneRail filled={Boolean(draft.drop)} /> : null}
       <FilterChip
         field="vehicle"
         value={draft.vehicleType}
+        suggestion={suggestion?.vehicleType ?? ""}
+        suggestionDraft={suggestion}
         locked={vehicleLocked}
         open={openField === "vehicle"}
+        accent={openField === "vehicle"}
         stacked={stacked}
         compact={compact}
+        board={board}
+        lanes={lanes}
+        draft={draft}
         onOpen={() => open("vehicle", vehicleLocked)}
         onClear={() => clearField("vehicle")}
       />
@@ -234,10 +276,12 @@ export function MarketplaceLaneFilters({
           >
             <View style={styles.sheetHead}>
               <View style={styles.sheetHeadCopy}>
-                {openField ? (
+                {openField && !board ? (
                   <Text style={styles.sheetStep}>Step {FIELD_META[openField].step}</Text>
                 ) : null}
-                <Text style={styles.sheetTitle}>{copy?.listTitle}</Text>
+                <Text style={styles.sheetTitle}>
+                  {board && openField ? FIELD_META[openField].boardName : copy?.listTitle}
+                </Text>
               </View>
               <Pressable
                 onPress={() => setOpenField(null)}
@@ -264,10 +308,39 @@ export function MarketplaceLaneFilters({
             </View>
             <ScrollView
               style={styles.menuList}
+              contentContainerStyle={board ? styles.suggestWrap : undefined}
               keyboardShouldPersistTaps="handled"
             >
               {options.length === 0 ? (
                 <Text style={styles.emptyOption}>No matching live loads</Text>
+              ) : board ? (
+                options.map((option) => {
+                  const current =
+                    openField === "pickup"
+                      ? draft.pickup
+                      : openField === "drop"
+                        ? draft.drop
+                        : draft.vehicleType;
+                  const selected =
+                    canonicalPoolField(option.label) === canonicalPoolField(current);
+                  return (
+                    <Pressable
+                      key={`${openField}-${option.label}`}
+                      onPress={() => openField && pick(openField, option.label)}
+                      style={({ pressed }) => [
+                        styles.suggestChip,
+                        selected && styles.suggestChipOn,
+                        pressed && styles.pressed,
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${copy?.noun} ${option.label}, ${option.count} available`}
+                    >
+                      <Text style={[styles.suggestChipText, selected && styles.suggestChipTextOn]}>
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })
               ) : (
                 options.map((option) => {
                   const current =
@@ -348,27 +421,85 @@ function LaneRail({ filled }: { filled: boolean }) {
   );
 }
 
+function boardFieldCopy(
+  field: Field,
+  value: string,
+  suggestion: string,
+  locked: boolean,
+  lanes: MarketplaceSearchLane[],
+  draft: MarketplaceLoadSearch,
+  suggestionDraft: MarketplaceLoadSearch | null,
+): { headline: string; caption: string | null; suggested: boolean } {
+  const meta = FIELD_META[field];
+  const shown = value || suggestion;
+  if (!shown) {
+    return {
+      headline: meta.placeholder,
+      caption: locked ? (field === "drop" ? "Choose pickup first" : "Choose drop first") : null,
+      suggested: false,
+    };
+  }
+  const lines = field === "vehicle" ? [shown] : routeEndpointLines(shown);
+  const headline = lines[0] || shown;
+  const count = poolFieldOptions(lanes, value ? draft : suggestionDraft ?? draft, field).find(
+    (option) => canonicalPoolField(option.label) === canonicalPoolField(shown),
+  )?.count;
+  const loadCaption = count != null ? `${count} load${count === 1 ? "" : "s"}` : null;
+  const caption =
+    !value && suggestion
+      ? lines[1] || loadCaption || "Suggested"
+      : locked
+        ? field === "drop"
+          ? "Choose pickup first"
+          : "Choose drop first"
+        : lines[1] || loadCaption;
+  return { headline, caption, suggested: !value && Boolean(suggestion) };
+}
+
 function FilterChip({
   field,
   value,
+  suggestion = "",
+  suggestionDraft = null,
   locked,
   open,
+  accent = false,
   stacked,
   compact = false,
+  board = false,
+  lanes = [],
+  draft,
   onOpen,
   onClear,
 }: {
   field: Field;
   value: string;
+  suggestion?: string;
+  suggestionDraft?: MarketplaceLoadSearch | null;
   locked: boolean;
   open: boolean;
+  accent?: boolean;
   stacked: boolean;
   compact?: boolean;
+  board?: boolean;
+  lanes?: MarketplaceSearchLane[];
+  draft?: MarketplaceLoadSearch;
   onOpen: () => void;
   onClear: () => void;
 }) {
   const meta = FIELD_META[field];
   const filled = Boolean(value) && !locked;
+  const boardCopy = board
+    ? boardFieldCopy(
+        field,
+        value,
+        suggestion,
+        locked,
+        lanes,
+        draft ?? { pickup: "", drop: "", vehicleType: "" },
+        suggestionDraft,
+      )
+    : null;
   return (
     <View
       style={[
@@ -377,17 +508,24 @@ function FilterChip({
         compact && styles.chipCompact,
         filled && { backgroundColor: meta.chipOn, borderColor: Theme.borderLight },
         open && { borderColor: meta.borderOn, backgroundColor: meta.chipOn },
-        locked && styles.chipLocked,
+        filled && !board && { backgroundColor: meta.chipOn, borderColor: Theme.borderLight },
+        open && { borderColor: meta.borderOn, backgroundColor: board ? Theme.cardWhite : meta.chipOn },
+        locked && !boardCopy?.suggested && styles.chipLocked,
+        board && styles.chipBoard,
+        board && accent && styles.chipBoardAccent,
+        board && !stacked && styles.chipBoardSplit,
+        board && stacked && styles.chipBoardStack,
       ]}
     >
       <Pressable
         onPress={onOpen}
         disabled={locked}
-        style={[styles.chipMain, compact && styles.chipMainCompact]}
+        style={[styles.chipMain, compact && styles.chipMainCompact, board && styles.chipMainBoard]}
         accessibilityRole="button"
         accessibilityLabel={meta.a11y}
         accessibilityState={{ disabled: locked, expanded: open }}
       >
+        {board ? null : (
         <View
           style={[
             styles.chipIcon,
@@ -397,27 +535,41 @@ function FilterChip({
         >
           <FieldIcon field={field} size={compact ? 13 : 15} />
         </View>
+        )}
         <View style={styles.chipCopy}>
+          {board ? (
+            <Text style={styles.boardFieldLabel}>{meta.boardName}</Text>
+          ) : (
           <View style={styles.chipLabelRow}>
             <Text style={[styles.chipStep, compact && styles.chipStepCompact]}>{meta.step}</Text>
             <Text style={[styles.chipLabel, compact && styles.chipLabelCompact]}>
               {meta.label}
             </Text>
           </View>
+          )}
           <Text
             style={[
               styles.chipValue,
               compact && styles.chipValueCompact,
-              !value && styles.chipPlaceholder,
+              board && styles.boardFieldValue,
+              !value && !boardCopy?.suggested && styles.chipPlaceholder,
+              board && !value && !boardCopy?.suggested && styles.boardFieldPlaceholder,
             ]}
-            numberOfLines={stacked && !compact ? 2 : 1}
+            numberOfLines={1}
           >
-            {locked
-              ? field === "drop"
-                ? "Choose pickup first"
-                : "Choose drop first"
-              : value || meta.placeholder}
+            {boardCopy
+              ? boardCopy.headline
+              : locked
+                ? field === "drop"
+                  ? "Choose pickup first"
+                  : "Choose drop first"
+                : value || meta.placeholder}
           </Text>
+          {boardCopy?.caption ? (
+            <Text style={styles.boardFieldCaption} numberOfLines={1}>
+              {boardCopy.caption}
+            </Text>
+          ) : null}
         </View>
         <ChevronDown size={14} color={Theme.textMuted} strokeWidth={2.2} />
       </Pressable>
@@ -448,6 +600,14 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     flexWrap: "nowrap",
     gap: 8,
+  },
+  barBoard: {
+    flexWrap: "nowrap",
+    gap: 0,
+    alignItems: "stretch",
+  },
+  barBoardStacked: {
+    flexDirection: "column",
   },
   chip: {
     flexGrow: 1,
@@ -497,7 +657,76 @@ const styles = StyleSheet.create({
     borderColor: Theme.primary,
     backgroundColor: Theme.brandBlueWashSubtle,
   },
-  chipLocked: { opacity: 0.5 },
+  chipLocked: { opacity: 0.55 },
+  chipBoardSplit: {
+    borderRightWidth: 1,
+    borderRightColor: Theme.borderLight,
+  },
+  chipBoardStack: {
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.borderLight,
+  },
+  chipBoardAccent: {
+    backgroundColor: Theme.buttonPrimary,
+  },
+  boardFieldCaption: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+  },
+  chipBoard: {
+    minHeight: 78,
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    borderColor: "transparent",
+  },
+  boardFieldLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    color: Theme.textMuted,
+  },
+  boardFieldValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+    lineHeight: 22,
+    color: Theme.textPrimaryDark,
+  },
+  boardFieldPlaceholder: {
+    fontSize: 15,
+    fontWeight: "600",
+    letterSpacing: 0,
+  },
+  suggestWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingBottom: 16,
+  },
+  suggestChip: {
+    minHeight: 36,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  suggestChipOn: {
+    borderColor: Theme.buttonPrimaryBorder,
+    backgroundColor: Theme.buttonPrimary,
+  },
+  suggestChipText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
+  suggestChipTextOn: { color: Theme.buttonPrimaryText },
+  chipMainBoard: { minHeight: 68, paddingHorizontal: 14 },
   chipMain: {
     flex: 1,
     minWidth: 0,

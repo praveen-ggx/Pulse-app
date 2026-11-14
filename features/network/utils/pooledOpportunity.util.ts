@@ -14,9 +14,11 @@
  * every count and submission works from members — never raw rows. A sponsored
  * Reach load is never a member: it stays an individual opportunity.
  */
-import type {
-  MarketplaceLoadSearch,
-  MarketplaceSearchLane,
+import {
+  combineLaneTarget,
+  positiveLaneTarget,
+  type MarketplaceLoadSearch,
+  type MarketplaceSearchLane,
 } from "@/features/network/utils/marketplaceSearch.util";
 import { isSponsoredReachLoad } from "@/features/network/utils/sponsoredReach.util";
 
@@ -135,7 +137,7 @@ export function poolKey(
 }
 
 export function poolKeyFromLane(
-  lane: MarketplaceSearchLane,
+  lane: Pick<MarketplaceSearchLane, "pickup_area" | "drop_location" | "vehicle_type">,
 ): MarketplaceLoadSearch {
   return poolKey({
     pickup: lane.pickup_area,
@@ -197,17 +199,25 @@ export function canonicalPoolLanes(
     const prev = byId.get(poolId);
     if (!prev) {
       byId.set(poolId, {
-        lane: { ...lane, load_count: count, poolId },
+        lane: {
+          ...lane,
+          load_count: count,
+          poolId,
+          target_rate_min: positiveLaneTarget(lane.target_rate_min),
+          target_rate_max: positiveLaneTarget(lane.target_rate_max),
+        },
         topCount: count,
       });
       continue;
     }
     const total = prev.lane.load_count + count;
+    const targetMin = combineLaneTarget(prev.lane.target_rate_min, lane.target_rate_min, "min");
+    const targetMax = combineLaneTarget(prev.lane.target_rate_max, lane.target_rate_max, "max");
     if (count > prev.topCount) {
-      prev.lane = { ...lane, load_count: total, poolId };
+      prev.lane = { ...lane, load_count: total, poolId, target_rate_min: targetMin, target_rate_max: targetMax };
       prev.topCount = count;
     } else {
-      prev.lane = { ...prev.lane, load_count: total };
+      prev.lane = { ...prev.lane, load_count: total, target_rate_min: targetMin, target_rate_max: targetMax };
     }
   }
   return [...byId.values()].map((v) => v.lane);
@@ -600,9 +610,12 @@ export function poolSubmissionBlockReason(
   return null;
 }
 
+/** A pool bid stays bounded: a few writes at once, never one round trip per load. */
+const POOL_BID_CONCURRENCY = 4;
+
 /**
- * Sequential on purpose: one request in flight at a time keeps a pool bid to
- * the same database load profile as a bidder submitting loads one by one.
+ * Submits one rate per member. Up to four writes run at once so a pool of
+ * loads does not wait on a single-file queue. Results stay in member order.
  */
 export async function runPoolBidSubmission(input: {
   indentIds: readonly string[];
@@ -613,23 +626,41 @@ export async function runPoolBidSubmission(input: {
   const blocked = poolSubmissionBlockReason(indentIds, memberIds);
   if (blocked) return { blocked, attempted: 0, succeeded: [], failed: [] };
 
+  const outcomes: ({ ok: string } | { failed: { indentId: string; message: string } })[] =
+    new Array(indentIds.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < indentIds.length) {
+      const index = cursor;
+      cursor += 1;
+      const indentId = indentIds[index];
+      try {
+        const { error } = await submitOne(indentId);
+        outcomes[index] = error
+          ? { failed: { indentId, message: error.message } }
+          : { ok: indentId };
+      } catch (e) {
+        outcomes[index] = {
+          failed: {
+            indentId,
+            message: e instanceof Error ? e.message : String(e),
+          },
+        };
+      }
+    }
+  };
+  const workers = Math.min(POOL_BID_CONCURRENCY, indentIds.length);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+
   const result: PoolBidSubmissionResult = {
     blocked: null,
     attempted: indentIds.length,
     succeeded: [],
     failed: [],
   };
-  for (const indentId of indentIds) {
-    try {
-      const { error } = await submitOne(indentId);
-      if (error) result.failed.push({ indentId, message: error.message });
-      else result.succeeded.push(indentId);
-    } catch (e) {
-      result.failed.push({
-        indentId,
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
+  for (const outcome of outcomes) {
+    if ("ok" in outcome) result.succeeded.push(outcome.ok);
+    else result.failed.push(outcome.failed);
   }
   return result;
 }

@@ -19,7 +19,7 @@ import Animated, {
 const PADDING = 6;
 const GAP = 6;
 const INACTIVE_W = 44;
-const ACTIVE_W = 172;
+const ACTIVE_W = 210;
 const HEIGHT = 44;
 
 const WIDTH_MOTION = {

@@ -6877,8 +6877,8 @@ export function ComplianceDocumentWorkspace({
                       {commerceLayout ? null : previewTabs}
                       {!commerceLayout && previewingDocument ? (
                         <View style={styles.previewNavTools}>
-                          <Pressable
-                            style={[
+                      <Pressable
+                        style={[
                               styles.previewNavTool,
                           !toolsEnabled && styles.previewToolBtnDisabled,
                         ]}
@@ -6966,8 +6966,8 @@ export function ComplianceDocumentWorkspace({
                             <Text style={styles.rowDeclineReasonText} numberOfLines={2}>
                               {previewDeclineReason}
                             </Text>
-                          </View>
-                        ) : null}
+                  </View>
+                ) : null}
                         <View style={styles.rowDecisionActions}>
                         {showRowReplace ? (
                           <TouchableOpacity
@@ -9227,8 +9227,8 @@ function ChecklistTripDetailsPanel({
                           pairCards
                             ? styles.tripDetailMissingChipFill
                             : missingChipColumns === 3
-                              ? styles.tripDetailMissingChipThird
-                              : styles.tripDetailMissingChipHalf,
+                            ? styles.tripDetailMissingChipThird
+                            : styles.tripDetailMissingChipHalf,
                           chipTone === "accepted"
                             ? styles.tripDetailMissingChipAccepted
                             : chipTone === "required"

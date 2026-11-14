@@ -652,8 +652,8 @@ export function DemoTabBar({
       },
       {
         id: "loadCenter",
-        title: "LOAD",
-        subtitle: "CENTER",
+        title: "MARKETPLACE",
+        subtitle: "LOAD FROM PLATFORM",
         Icon: Truck,
         active: isLoadCenter,
       },

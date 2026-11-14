@@ -1813,6 +1813,11 @@ export default function CreateIndentScreen() {
                 compact={compactWizard}
                 value={form.circulation_target}
                 onChange={(value) => update({ circulation_target: value })}
+                lane={{
+                  pickup: form.pickup_area,
+                  drop: form.drop_location,
+                  vehicleType: form.vehicle_type,
+                }}
               />
             ) : null}
           </View>

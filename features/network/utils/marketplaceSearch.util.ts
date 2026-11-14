@@ -48,7 +48,28 @@ export type MarketplaceSearchLane = {
   drop_location: string;
   vehicle_type: string;
   load_count: number;
+  /** Lowest supplier target on the lane. Null when none is set. */
+  target_rate_min?: number | null;
+  /** Highest supplier target on the lane. Null when none is set. */
+  target_rate_max?: number | null;
 };
+
+export function positiveLaneTarget(value: number | string | null | undefined): number | null {
+  const n = typeof value === "string" ? Number(value) : value;
+  return n != null && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function combineLaneTarget(
+  current: number | null | undefined,
+  next: number | string | null | undefined,
+  mode: "min" | "max",
+): number | null {
+  const left = positiveLaneTarget(current);
+  const right = positiveLaneTarget(next);
+  if (left == null) return right;
+  if (right == null) return left;
+  return mode === "min" ? Math.min(left, right) : Math.max(left, right);
+}
 
 export type MarketplaceSearchOption = {
   label: string;
@@ -137,6 +158,7 @@ export function lanesFromMarketplaceLoads(
     pickup_area?: string | null;
     drop_location?: string | null;
     vehicle_type?: string | null;
+    rate_offer?: number | null;
   }[],
 ): MarketplaceSearchLane[] {
   const counts = new Map<string, MarketplaceSearchLane>();
@@ -147,8 +169,21 @@ export function lanesFromMarketplaceLoads(
     if (!pickup_area || !drop_location) continue;
     const key = `${pickup_area.toLowerCase()}|${drop_location.toLowerCase()}|${vehicle_type.toLowerCase()}`;
     const prev = counts.get(key);
-    if (prev) prev.load_count += 1;
-    else counts.set(key, { pickup_area, drop_location, vehicle_type, load_count: 1 });
+    if (prev) {
+      prev.load_count += 1;
+      prev.target_rate_min = combineLaneTarget(prev.target_rate_min, load.rate_offer, "min");
+      prev.target_rate_max = combineLaneTarget(prev.target_rate_max, load.rate_offer, "max");
+    } else {
+      const rate = positiveLaneTarget(load.rate_offer);
+      counts.set(key, {
+        pickup_area,
+        drop_location,
+        vehicle_type,
+        load_count: 1,
+        target_rate_min: rate,
+        target_rate_max: rate,
+      });
+    }
   }
   return [...counts.values()].sort(
     (a, b) => b.load_count - a.load_count || a.pickup_area.localeCompare(b.pickup_area),

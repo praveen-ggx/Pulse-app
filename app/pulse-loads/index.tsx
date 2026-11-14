@@ -12,13 +12,15 @@ import { useOptionalOrganization } from "@/contexts/OrganizationContext";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import Theme from "@/constants/Theme";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, Redirect } from "expo-router";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 export default function PulseLoadsScreen() {
   const layout = useLayoutInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{ from?: string | string[] }>();
+  const openedFromTrips = (Array.isArray(params.from) ? params.from[0] : params.from) === "trips";
   // PublicAuthTree can paint this route for one frame with no org provider.
   const orgCtx = useOptionalOrganization();
   const organization = orgCtx?.currentOrganization ?? null;
@@ -31,6 +33,12 @@ export default function PulseLoadsScreen() {
   const contentTopInset = layout.isDesktopWeb
     ? Layout.desktopTopNavOffset
     : layout.top;
+
+  // The network load board belongs to the trips-page button only.
+  // The top-nav Load item opens Marketplace.
+  if (!openedFromTrips) {
+    return <Redirect href={ROUTES.FIND_LOADS} />;
+  }
 
   // Surfaces hydrate async — deciding before they land bounces permitted members.
   if (accessLoading) {

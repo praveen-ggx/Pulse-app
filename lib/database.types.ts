@@ -19657,6 +19657,21 @@ export type Database = {
         }
         Returns: Json
       }
+      preview_standing_lane_bids: {
+        Args: {
+          p_drop: string
+          p_indent_id?: string
+          p_pickup: string
+          p_vehicle_type: string
+        }
+        Returns: {
+          already_on_indent: boolean
+          amount: number
+          bidder_organization_id: string
+          bidder_organization_name: string
+          updated_at: string
+        }[]
+      }
       list_market_bids_for_indent: {
         Args: { p_indent_id: string }
         Returns: {

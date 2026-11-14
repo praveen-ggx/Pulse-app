@@ -18,6 +18,10 @@ import {
   titleCaseWord,
 } from "@/features/network/components/MarketplaceLoadCardChrome";
 import {
+  PoolBidCommitSheet,
+  type PoolBidCommitValue,
+} from "@/features/network/components/bidding/PoolBidCommitSheet";
+import {
   PoolBidPanel,
   plural,
 } from "@/features/network/components/pooled/PoolBidPanel";
@@ -32,6 +36,15 @@ import {
   submitOrgPoolBid,
   type OrgOpenMarketplaceLoad,
 } from "@/features/network/services/findLoadsForOrg.service";
+import { commitMarketplaceLaneRate } from "@/features/network/services/standingLaneBids.service";
+import {
+  MARKETPLACE_LANE_RATE_COPY,
+  laneRateConfirmation,
+} from "@/features/network/utils/marketplaceLaneRate.util";
+import {
+  clampPoolVehicleCommit,
+  endOfLocalDayIso,
+} from "@/features/network/utils/networkPoolBidCommit.util";
 import { isMarketplaceSearchReady } from "@/features/network/utils/marketplaceSearch.util";
 import {
   POOL_STATE_COPY,
@@ -46,6 +59,7 @@ import {
 } from "@/features/network/utils/pooledOpportunity.util";
 import { formatStoryDate } from "@/features/network/utils/storyDisplay";
 import { getVehiclesByOrganization } from "@/features/vehicles/services/vehicles.service";
+import { showAppAlert } from "@/lib/appAlert";
 import { formatINR } from "@/lib/format";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import { STALE } from "@/lib/queryClient";
@@ -142,6 +156,11 @@ export function PooledOpportunityScreen() {
   const [bidTargets, setBidTargets] = useState<string[] | null>(null);
   const [bidError, setBidError] = useState<string | undefined>();
   const [result, setResult] = useState<PoolBidSubmissionResult | null>(null);
+  /** Rate the carrier just placed on the whole pool; offered as a lane rate after Done. */
+  const [laneRateAmount, setLaneRateAmount] = useState<number | null>(null);
+  const [laneRateOpen, setLaneRateOpen] = useState(false);
+  const [laneRateSubmitting, setLaneRateSubmitting] = useState(false);
+  const [laneRateError, setLaneRateError] = useState<string | undefined>();
 
   const poolQueryKey = queryKeys.findLoadsForOrg.pool(orgId ?? "", poolId);
   const poolQ = useQuery({
@@ -299,7 +318,51 @@ export function PooledOpportunityScreen() {
       refreshAfterBid();
       return false;
     }
+    setLaneRateAmount(amount);
     return true;
+  };
+
+  const closeLaneRate = () => {
+    if (laneRateSubmitting) return;
+    setLaneRateOpen(false);
+    setLaneRateAmount(null);
+    setLaneRateError(undefined);
+  };
+
+  const commitLaneRate = async ({ vehicleLimit, validUntilDate }: PoolBidCommitValue) => {
+    if (!orgId || laneRateAmount == null) return;
+    const validUntilIso = endOfLocalDayIso(validUntilDate);
+    if (!validUntilIso) {
+      setLaneRateError("Pick a valid date.");
+      return;
+    }
+    const limit = clampPoolVehicleCommit(vehicleLimit);
+    setLaneRateSubmitting(true);
+    setLaneRateError(undefined);
+    const { error, commit } = await commitMarketplaceLaneRate({
+      orgId,
+      pickup: key.pickup,
+      drop: key.drop,
+      vehicleType: key.vehicleType,
+      amount: laneRateAmount,
+      vehicleLimit: limit,
+      validUntilIso,
+    });
+    setLaneRateSubmitting(false);
+    if (error || !commit) {
+      setLaneRateError(formatMarketplaceTransactionError(error?.message ?? ""));
+      return;
+    }
+    const notice = laneRateConfirmation({
+      amountLabel: formatINR(laneRateAmount),
+      attached: commit.attached,
+      vehicleLimit: limit,
+      validUntilDate,
+    });
+    setLaneRateOpen(false);
+    setLaneRateAmount(null);
+    refreshAfterBid();
+    showAppAlert(notice.title, notice.message);
   };
 
   const contentTopInset = layout.isDesktopWeb
@@ -571,7 +634,10 @@ export function PooledOpportunityScreen() {
         visible={bidTargets != null}
         onClose={closeBid}
         onSubmitAmount={submitPoolRate}
-        onSuccessDone={refreshAfterBid}
+        onSuccessDone={() => {
+          refreshAfterBid();
+          if (laneRateAmount != null && viewerCanBidCapability) setLaneRateOpen(true);
+        }}
         shipperName={`Pooled opportunity · ${countLabel}`}
         pickup={key.pickup}
         drop={key.drop}
@@ -589,6 +655,18 @@ export function PooledOpportunityScreen() {
         }}
         validationError={bidError}
         onClearValidationError={() => setBidError(undefined)}
+      />
+
+      <PoolBidCommitSheet
+        visible={laneRateOpen && laneRateAmount != null}
+        onClose={closeLaneRate}
+        onSubmit={(value) => void commitLaneRate(value)}
+        amount={laneRateAmount ?? 0}
+        poolSize={poolCount}
+        routeLabel={`${titleCaseWord(key.pickup)} → ${titleCaseWord(key.drop)} · ${key.vehicleType}`}
+        submitting={laneRateSubmitting}
+        error={laneRateError}
+        copy={MARKETPLACE_LANE_RATE_COPY}
       />
     </View>
   );

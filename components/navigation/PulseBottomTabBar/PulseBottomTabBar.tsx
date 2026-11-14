@@ -1,35 +1,34 @@
 /**
- * Compact mobile bottom navigation — flat tab row with underline selection.
+ * Mobile bottom navigation — solid dark floating dock. Main tabs share one
+ * pill with a sliding highlight; Marketplace and Chat each sit in their own pill.
  * Each slot follows the same member access as the desktop top nav.
  */
-import { memo, useCallback } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { memo, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import {
   DollarSign,
   Home,
   MessageSquare,
   ShieldCheck,
   Signpost,
-  Truck,
-  User,
+  Store,
   type LucideIcon,
 } from 'lucide-react-native';
 
-import { WEB_TOP_NAV_ICON } from '@/components/demo/webTopNavIcon.tokens';
 import type { DemoTabId, DemoTabVisibility } from '@/components/demo/DemoTabBar';
 import Theme from '@/constants/Theme';
 import { pe } from '@/lib/platformViewStyle.util';
 import { preloadPulseLoadsRoute, preloadTabScreen } from '@/lib/preloadRoutes';
 import type { PreloadableTab } from '@/lib/preloadRoutes';
 
-import {
-  MOBILE_TAB_ICON_SIZE,
-  MOBILE_TAB_ICON_SIZE_COMPACT,
-} from './constants';
-import {
-  PULSE_BOTTOM_TAB_DOCK,
-  pulseTabBarBodyHeight,
-} from './dockMetrics';
+import { PULSE_BOTTOM_TAB_DOCK, pulseTabBarBodyHeight } from './dockMetrics';
 import { PulseBottomTabSlot } from './PulseBottomTabSlot';
 
 export type PulseBottomTabBarProps = {
@@ -50,24 +49,66 @@ export type PulseBottomTabBarProps = {
   onOpenChatWarm?: () => void;
   onCollapseNetworkDock: () => void;
   onWarmTab?: (tab: DemoTabId) => void;
-  onProfilePress?: () => void;
 };
 
-function TabOutlineIcon({
+type DockTab = {
+  id: DemoTabId;
+  label: string;
+  Icon: LucideIcon;
+  badgeCount?: number;
+  /** Solid fill when active (Home). */
+  fillWhenActive?: boolean;
+};
+
+const HIGHLIGHT_SPRING = { damping: 20, stiffness: 220, mass: 0.7 } as const;
+const HIGHLIGHT_FADE = { duration: 220, easing: Easing.out(Easing.cubic) } as const;
+const HIGHLIGHT_INSET = 3;
+
+function DockIcon({
   Icon,
   active,
   size,
+  fill,
+  tint,
 }: {
   Icon: LucideIcon;
   active: boolean;
   size: number;
+  fill?: boolean;
+  /** Resting colour for a feature pill (Marketplace); active is always white. */
+  tint?: string;
 }) {
   return (
     <Icon
       size={size}
-      color={active ? WEB_TOP_NAV_ICON.active : WEB_TOP_NAV_ICON.muted}
-      strokeWidth={WEB_TOP_NAV_ICON.stroke}
+      color={active ? Theme.dockIconActive : (tint ?? Theme.dockIconMuted)}
+      fill={fill && active ? Theme.dockIconActive : 'transparent'}
+      strokeWidth={active ? 2.2 : 1.8}
     />
+  );
+}
+
+/** Side pill selection fades in so it matches the sliding highlight. */
+function SideTrack({ active, children }: { active: boolean; children: ReactNode }) {
+  const fill = useSharedValue(active ? 1 : 0);
+  useEffect(() => {
+    fill.value = withTiming(active ? 1 : 0, HIGHLIGHT_FADE);
+  }, [active, fill]);
+  const fillStyle = useAnimatedStyle(() => ({ opacity: fill.value }));
+  return (
+    <View style={styles.sideTrack}>
+      <Animated.View style={[styles.sideFill, fillStyle, pe('none')]} />
+      {children}
+    </View>
+  );
+}
+
+/** Shadow on the outer view so the solid pill can float without a tray behind it. */
+function DockPill({ children, style }: { children: ReactNode; style?: object }) {
+  return (
+    <View style={[styles.pillShadow, style]}>
+      <View style={styles.pill}>{children}</View>
+    </View>
   );
 }
 
@@ -86,14 +127,53 @@ function PulseBottomTabBarInner({
   onOpenChatWarm,
   onCollapseNetworkDock,
   onWarmTab,
-  onProfilePress,
 }: PulseBottomTabBarProps) {
-  const iconSize = isCompactMobile ? MOBILE_TAB_ICON_SIZE_COMPACT : MOBILE_TAB_ICON_SIZE;
-  const showFinance = visibility?.finance ?? true;
-  const showTrips = visibility?.trips ?? true;
-  const showNetwork = visibility?.network ?? true;
-  const showLoadCenter = visibility?.loadCenter ?? true;
-  const showCompliance = visibility?.compliance ?? true;
+  const iconSize = PULSE_BOTTOM_TAB_DOCK.dockIconSize;
+
+  const tabs: DockTab[] = [
+    (visibility?.network ?? true) && {
+      id: 'network' as const,
+      label: 'Home',
+      Icon: Home,
+      badgeCount: pendingInvites,
+      fillWhenActive: true,
+    },
+    (visibility?.finance ?? true) && { id: 'finance' as const, label: 'Cash', Icon: DollarSign },
+    (visibility?.trips ?? true) && { id: 'trips' as const, label: 'Trips', Icon: Signpost },
+    (visibility?.compliance ?? true) && {
+      id: 'compliance' as const,
+      label: 'Comply',
+      Icon: ShieldCheck,
+    },
+  ].filter(Boolean) as DockTab[];
+  const showMarketplace = visibility?.loadCenter ?? true;
+  const marketplaceActive = !isChatRoute && activeTab === 'loadCenter';
+
+  const activeIndex = isChatRoute ? -1 : tabs.findIndex((tab) => tab.id === activeTab);
+
+  const [trackWidth, setTrackWidth] = useState(0);
+  const slotWidth = tabs.length > 0 ? trackWidth / tabs.length : 0;
+  const highlightX = useSharedValue(0);
+  const highlightOpacity = useSharedValue(activeIndex >= 0 ? 1 : 0);
+  const [placed, setPlaced] = useState(false);
+
+  useEffect(() => {
+    if (slotWidth <= 0) return;
+    const target = Math.max(activeIndex, 0) * slotWidth + HIGHLIGHT_INSET;
+    // First measure snaps into place; later tab changes ease across.
+    highlightX.value = placed ? withSpring(target, HIGHLIGHT_SPRING) : target;
+    highlightOpacity.value = withTiming(activeIndex >= 0 ? 1 : 0, HIGHLIGHT_FADE);
+    if (!placed) setPlaced(true);
+  }, [activeIndex, slotWidth, placed, highlightX, highlightOpacity]);
+
+  const highlightStyle = useAnimatedStyle(() => ({
+    opacity: highlightOpacity.value,
+    transform: [{ translateX: highlightX.value }],
+  }));
+
+  const onTrackLayout = useCallback((event: LayoutChangeEvent) => {
+    setTrackWidth(event.nativeEvent.layout.width);
+  }, []);
 
   const switchTab = useCallback(
     (tab: DemoTabId) => {
@@ -115,127 +195,89 @@ function PulseBottomTabBarInner({
     [onWarmTab],
   );
 
-  const shellSurface =
-    Platform.OS === 'android'
-      ? styles.shellAndroid
-      : Platform.OS === 'ios'
-        ? styles.shellIos
-        : styles.shellWeb;
+  const rowHeight = pulseTabBarBodyHeight(isCompactMobile);
 
   return (
-    <View
-      style={[styles.footerWrap, shellSurface, { paddingBottom: footerPadBottom }, pe('box-none')]}
-    >
-      <View style={[styles.bar, isCompactMobile && styles.barCompact]}>
-        {showNetwork ? (
-          <PulseBottomTabSlot
-            label="Home"
-            active={activeTab === 'network'}
-            badgeCount={pendingInvites}
-            compact={isCompactMobile}
-            onPress={() => switchTab('network')}
-            onPressIn={() => warmTab('network')}
-            icon={
-              <Home
-                size={iconSize}
-                color={
-                  activeTab === 'network'
-                    ? WEB_TOP_NAV_ICON.active
-                    : WEB_TOP_NAV_ICON.muted
+    <View style={[styles.footerWrap, { paddingBottom: footerPadBottom }, pe('box-none')]}>
+      <View style={[styles.row, { height: rowHeight }, pe('box-none')]}>
+        {tabs.length > 0 ? (
+          <DockPill style={styles.mainPill}>
+            <View style={styles.track} onLayout={onTrackLayout}>
+              {slotWidth > 0 ? (
+                <Animated.View
+                  style={[
+                    styles.highlight,
+                    { width: Math.max(slotWidth - HIGHLIGHT_INSET * 2, 0) },
+                    highlightStyle,
+                    pe('none'),
+                  ]}
+                />
+              ) : null}
+              {tabs.map((tab) => {
+                const active = !isChatRoute && activeTab === tab.id;
+                return (
+                  <PulseBottomTabSlot
+                    key={tab.id}
+                    label={tab.label}
+                    active={active}
+                    badgeCount={tab.badgeCount}
+                    compact={isCompactMobile}
+                    onPress={() => switchTab(tab.id)}
+                    onPressIn={tab.id === 'compliance' ? undefined : () => warmTab(tab.id)}
+                    icon={
+                      <DockIcon
+                        Icon={tab.Icon}
+                        active={active}
+                        size={iconSize}
+                        fill={tab.fillWhenActive}
+                      />
+                    }
+                  />
+                );
+              })}
+            </View>
+          </DockPill>
+        ) : null}
+        {showMarketplace ? (
+          <DockPill style={styles.featurePill}>
+            <SideTrack active={marketplaceActive}>
+              <PulseBottomTabSlot
+                label="Marketplace"
+                active={marketplaceActive}
+                badgeCount={activeLoadCount}
+                compact={isCompactMobile}
+                onPressIn={() => warmTab('loadCenter')}
+                onPress={() => switchTab('loadCenter')}
+                icon={
+                  <DockIcon
+                    Icon={Store}
+                    active={marketplaceActive}
+                    size={iconSize}
+                    tint={Theme.dockAccent}
+                  />
                 }
-                fill={activeTab === 'network' ? WEB_TOP_NAV_ICON.active : 'transparent'}
-                strokeWidth={WEB_TOP_NAV_ICON.stroke}
               />
-            }
-          />
-        ) : null}
-        {showFinance ? (
-          <PulseBottomTabSlot
-            label="Cash"
-            active={activeTab === 'finance'}
-            compact={isCompactMobile}
-            onPress={() => switchTab('finance')}
-            onPressIn={() => warmTab('finance')}
-            icon={
-              <TabOutlineIcon
-                Icon={DollarSign}
-                active={activeTab === 'finance'}
-                size={iconSize}
-              />
-            }
-          />
-        ) : null}
-        {showTrips ? (
-          <PulseBottomTabSlot
-            label="Trips"
-            active={activeTab === 'trips'}
-            compact={isCompactMobile}
-            onPress={() => switchTab('trips')}
-            onPressIn={() => warmTab('trips')}
-            icon={
-              <TabOutlineIcon
-                Icon={Signpost}
-                active={activeTab === 'trips'}
-                size={iconSize}
-              />
-            }
-          />
-        ) : null}
-        {showLoadCenter ? (
-          <PulseBottomTabSlot
-            label="Loads"
-            active={activeTab === 'loadCenter'}
-            badgeCount={activeLoadCount}
-            compact={isCompactMobile}
-            onPress={() => switchTab('loadCenter')}
-            onPressIn={() => warmTab('loadCenter')}
-            icon={
-              <TabOutlineIcon
-                Icon={Truck}
-                active={activeTab === 'loadCenter'}
-                size={iconSize}
-              />
-            }
-          />
-        ) : null}
-        {showCompliance ? (
-          <PulseBottomTabSlot
-            label="Comply"
-            active={activeTab === 'compliance'}
-            compact={isCompactMobile}
-            onPress={() => switchTab('compliance')}
-            icon={
-              <TabOutlineIcon
-                Icon={ShieldCheck}
-                active={activeTab === 'compliance'}
-                size={iconSize}
-              />
-            }
-          />
+            </SideTrack>
+          </DockPill>
         ) : null}
         {showChat ? (
-          <PulseBottomTabSlot
-            label="Chat"
-            active={isChatRoute}
-            badgeCount={messageUnreadCount}
-            compact={isCompactMobile}
-            onPressIn={onOpenChatWarm}
-            onPress={() => {
-              onCollapseNetworkDock();
-              onOpenChat();
-            }}
-            icon={
-              <TabOutlineIcon Icon={MessageSquare} active={isChatRoute} size={iconSize} />
-            }
-          />
+          <DockPill style={styles.sidePill}>
+            <SideTrack active={isChatRoute}>
+              <PulseBottomTabSlot
+                label="Chat"
+                active={isChatRoute}
+                badgeCount={messageUnreadCount}
+                compact={isCompactMobile}
+                onPressIn={onOpenChatWarm}
+                onPress={() => {
+                  onCollapseNetworkDock();
+                  onOpenChat();
+                }}
+                icon={<DockIcon Icon={MessageSquare} active={isChatRoute} size={iconSize} />}
+              />
+            </SideTrack>
+          </DockPill>
         ) : null}
-        <PulseBottomTabSlot
-          label="Profile"
-          active={false}
-          compact={isCompactMobile}
-          onPress={() => onProfilePress?.()}
-          icon={<TabOutlineIcon Icon={User} active={false} size={iconSize} />}
-        />
       </View>
     </View>
   );
@@ -260,48 +302,80 @@ function propsEqual(prev: PulseBottomTabBarProps, next: PulseBottomTabBarProps):
     prev.onOpenChat === next.onOpenChat &&
     prev.onOpenChatWarm === next.onOpenChatWarm &&
     prev.onCollapseNetworkDock === next.onCollapseNetworkDock &&
-    prev.onWarmTab === next.onWarmTab &&
-    prev.onProfilePress === next.onProfilePress
+    prev.onWarmTab === next.onWarmTab
   );
 }
 
 export const PulseBottomTabBar = memo(PulseBottomTabBarInner, propsEqual);
 
+const D = PULSE_BOTTOM_TAB_DOCK;
+
 const styles = StyleSheet.create({
   footerWrap: {
     width: '100%',
     alignSelf: 'stretch',
-    backgroundColor: Theme.tabBarBg,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.borderLight,
-    paddingTop: PULSE_BOTTOM_TAB_DOCK.shellPaddingTop,
-    paddingHorizontal: 0,
+    backgroundColor: 'transparent',
+    paddingTop: D.shellPaddingTop,
+    paddingHorizontal: D.dockHorizontalMargin,
   },
-  shellIos: {
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: -1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-  },
-  shellAndroid: {
-    elevation: 6,
-  },
-  shellWeb: {
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: -1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-  },
-  bar: {
+  row: {
+    width: '100%',
+    maxWidth: D.dockMaxWidth,
+    alignSelf: 'center',
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    height: pulseTabBarBodyHeight(false),
-    paddingHorizontal: 4,
-    paddingTop: PULSE_BOTTOM_TAB_DOCK.barPaddingTop,
+    alignItems: 'stretch',
+    gap: D.dockSideGap,
   },
-  barCompact: {
-    height: pulseTabBarBodyHeight(true),
-    paddingHorizontal: 2,
+  pillShadow: {
+    borderRadius: 999,
+    shadowColor: Theme.dockShadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.24,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  pill: {
+    flex: 1,
+    flexDirection: 'row',
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: Theme.dockFill,
+    padding: D.dockPillInset,
+  },
+  mainPill: {
+    flex: 1,
+    minWidth: 0,
+  },
+  featurePill: {
+    width: 96,
+    flexShrink: 0,
+  },
+  track: {
+    flex: 1,
+    flexDirection: 'row',
+    position: 'relative',
+  },
+  highlight: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 999,
+    backgroundColor: Theme.dockActiveFill,
+  },
+  sidePill: {
+    width: 62,
+    flexShrink: 0,
+  },
+  sideTrack: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+  },
+  sideFill: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 999,
+    backgroundColor: Theme.dockActiveFill,
   },
 });

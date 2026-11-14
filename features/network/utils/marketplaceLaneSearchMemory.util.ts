@@ -3,7 +3,11 @@ import { normalizeMarketplaceSearch } from "@/features/network/utils/marketplace
 import {
   canonicalPoolField,
   canonicalPoolLanes,
+  laneSelectionActive,
+  normalizeLaneSelection,
   poolFieldOptions,
+  selectionFieldOptions,
+  type LaneSelection,
 } from "@/features/network/utils/pooledOpportunity.util";
 
 export function marketplaceLaneSearchKey(orgId: string): string {
@@ -27,34 +31,58 @@ export function presetMarketplaceSearch(
 }
 
 /**
- * Last search, kept only for fields that still exist on live lanes.
- * Pickup is required. A drop or vehicle that is no longer offered is dropped.
+ * Last search, kept only for fields that still exist on live lanes. Any
+ * field may be set on its own. Fields are checked pickup → drop → vehicle,
+ * each against the fields already kept; one that no longer matches is dropped.
  */
 export function liveMarketplaceSearch(
   lanes: readonly MarketplaceSearchLane[],
   saved: Partial<MarketplaceLoadSearch> | null | undefined,
 ): MarketplaceLoadSearch | null {
   const draft = normalizeMarketplaceSearch(saved);
-  if (!draft.pickup) return null;
-  const pickup = poolFieldOptions(lanes, {}, "pickup").find(
-    (option) => canonicalPoolField(option.label) === canonicalPoolField(draft.pickup),
-  );
-  if (!pickup) return null;
-  if (!draft.drop) {
-    return { pickup: pickup.label, drop: "", vehicleType: "" };
+  const kept: MarketplaceLoadSearch = { pickup: "", drop: "", vehicleType: "" };
+  const fields = [
+    ["pickup", "pickup"],
+    ["drop", "drop"],
+    ["vehicle", "vehicleType"],
+  ] as const;
+  for (const [field, prop] of fields) {
+    const wanted = draft[prop];
+    if (!wanted) continue;
+    const match = poolFieldOptions(lanes, kept, field).find(
+      (option) => canonicalPoolField(option.label) === canonicalPoolField(wanted),
+    );
+    if (match) kept[prop] = match.label;
   }
-  const drop = poolFieldOptions(lanes, { pickup: pickup.label }, "drop").find(
-    (option) => canonicalPoolField(option.label) === canonicalPoolField(draft.drop),
-  );
-  if (!drop) return { pickup: pickup.label, drop: "", vehicleType: "" };
-  const vehicle = poolFieldOptions(lanes, { pickup: pickup.label, drop: drop.label }, "vehicle").find(
-    (option) => canonicalPoolField(option.label) === canonicalPoolField(draft.vehicleType),
-  );
-  return {
-    pickup: pickup.label,
-    drop: drop.label,
-    vehicleType: vehicle?.label ?? "",
-  };
+  return kept.pickup || kept.drop || kept.vehicleType ? kept : null;
+}
+
+/**
+ * Saved multi-value search, kept only for values that still exist on live
+ * lanes. Fields are checked pickup → drop → vehicle against what is already
+ * kept. Reads the older one-string-per-field shape too.
+ */
+export function liveLaneSelection(
+  lanes: readonly MarketplaceSearchLane[],
+  saved: unknown,
+): LaneSelection | null {
+  const wanted = normalizeLaneSelection(saved);
+  const kept: LaneSelection = { pickup: [], drop: [], vehicleType: [] };
+  const fields = [
+    ["pickup", "pickup"],
+    ["drop", "drop"],
+    ["vehicle", "vehicleType"],
+  ] as const;
+  for (const [field, prop] of fields) {
+    if (wanted[prop].length === 0) continue;
+    const live = new Map(
+      selectionFieldOptions(lanes, kept, field).map((o) => [canonicalPoolField(o.label), o.label]),
+    );
+    kept[prop] = wanted[prop]
+      .map((value) => live.get(canonicalPoolField(value)))
+      .filter((label): label is string => Boolean(label));
+  }
+  return laneSelectionActive(kept) ? kept : null;
 }
 
 export function marketplaceLaneCountKey(orgId: string): string {

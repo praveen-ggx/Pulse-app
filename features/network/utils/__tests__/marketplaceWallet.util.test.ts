@@ -33,7 +33,7 @@ describe("marketplace wallet figures", () => {
       bid({ id: "open", status: "pending", platform_fee_amount: 100 }),
     ]);
     expect(figures.due).toBe(500);
-    expect(figures.transactions).toBe(3);
+    expect(figures.ratesSent).toBe(3);
     expect(figures.awarded).toBe(2);
   });
 });

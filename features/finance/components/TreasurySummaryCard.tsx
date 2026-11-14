@@ -19,6 +19,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import {
     useCallback,
     useEffect,
+    useLayoutEffect,
     useRef,
     useState,
     type ComponentProps,
@@ -54,6 +55,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { FinancePeriodFilter, LedgerCategory } from '../types';
+import { useFinanceFilterDock } from './financeFilterDock';
 
 export type EntityListFilter = 'all' | 'has_due' | 'no_due';
 
@@ -66,6 +68,8 @@ export interface TreasurySummaryCardProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   searchPlaceholder?: string;
+  /** Finance header: the search lives on the filter row, not in this card. */
+  hideSearch?: boolean;
   /** Omitted when the viewer lacks `finance.reports` — hides the Report action. */
   onReportPress?: () => void;
   entityFilter?: EntityListFilter;
@@ -314,6 +318,7 @@ export function TreasurySummaryCard({
   searchQuery,
   onSearchChange,
   searchPlaceholder = 'Search entities…',
+  hideSearch = false,
   onReportPress,
   entityFilter = 'all',
   onEntityFilterChange,
@@ -353,6 +358,8 @@ export function TreasurySummaryCard({
   containerStyle,
   toolbarTheme = 'dark',
 }: TreasurySummaryCardProps) {
+  const dockFilters = useFinanceFilterDock();
+  const tripPills = dockFilters != null;
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   /** Stack search + filters; horizontal scroll for filters on narrow widths */
@@ -414,6 +421,7 @@ export function TreasurySummaryCard({
             style={(state: HoverPressState) => [
               styles.reportIconBtn,
               isLightToolbar && styles.reportIconBtnLight,
+              tripPills && styles.reportIconBtnTrip,
               partyAnalyticsActive && styles.analyticsIconBtnActive,
               WEB_POINTER,
               WEB_TRANSITION,
@@ -426,7 +434,9 @@ export function TreasurySummaryCard({
               color={
                 partyAnalyticsActive
                   ? Theme.primary
-                  : isLightToolbar
+                  : tripPills
+                    ? Theme.textRouteCard
+                    : isLightToolbar
                     ? Theme.textPrimary
                     : Theme.textOnDark
               }
@@ -437,12 +447,19 @@ export function TreasurySummaryCard({
           <PressableIcon
             name="file-text-o"
             size={11}
-            color={isLightToolbar ? Theme.textPrimary : Theme.textOnDark}
+            color={
+              tripPills
+                ? Theme.textRouteCard
+                : isLightToolbar
+                  ? Theme.textPrimary
+                  : Theme.textOnDark
+            }
             onPress={onReportPress}
             pulse
             style={[
               styles.reportIconBtn,
               isLightToolbar && styles.reportIconBtnLight,
+              tripPills && styles.reportIconBtnTrip,
             ]}
           />
         ) : null}
@@ -481,6 +498,30 @@ export function TreasurySummaryCard({
           ? LEDGER_CATEGORY_LABELS[ledgerCategory]
           : null;
   const sourceFilterLabel = onSourceFilterChange != null ? SOURCE_FILTER_LABELS[sourceFilter] : null;
+  const filterTriggerLabel =
+    filterLabel == null
+      ? null
+      : !tripPills
+        ? filterLabel
+        : onEntityFilterChange != null
+          ? entityFilter === "all"
+            ? "STATUS"
+            : `STATUS · ${filterLabel}`
+          : showPeriodFilter && onPeriodFilterChange
+            ? periodFilter === "RANGE"
+              ? "PERIOD"
+              : `PERIOD · ${filterLabel}`
+            : ledgerCategory === "all"
+              ? "TYPE"
+              : `TYPE · ${filterLabel}`;
+  const sourceTriggerLabel =
+    sourceFilterLabel == null
+      ? null
+      : !tripPills
+        ? sourceFilterLabel
+        : sourceFilter === "all"
+          ? "SOURCE"
+          : `SOURCE · ${sourceFilterLabel}`;
   const showFilterDropdownOpen =
     (onEntityFilterChange != null && showFilterDropdown) ||
     (showPeriodFilter && onPeriodFilterChange && showPeriodDropdown) ||
@@ -507,14 +548,13 @@ export function TreasurySummaryCard({
       {filterLabel != null && !hideEntityFilterDropdown && (
         <View
           ref={refPeriodFilter}
-          style={styles.filterBlock as ViewStyle}
+          style={[styles.filterBlock, tripPills && styles.filterBlockTrip] as ViewStyle}
           collapsable={false}
         >
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={() => {
-              refPeriodFilter.current?.measureInWindow((_x, y, _w, h) => {
-                setDropdownAnchorY(y + h + 6);
+              const toggleType = () => {
                 if (onEntityFilterChange) {
                   setShowPeriodDropdown(false);
                   setShowSourceDropdown(false);
@@ -535,6 +575,14 @@ export function TreasurySummaryCard({
                   setShowSourceDropdown(false);
                   setShowLedgerCategoryDropdown((v) => !v);
                 }
+              };
+              if (tripPills) {
+                toggleType();
+                return;
+              }
+              refPeriodFilter.current?.measureInWindow((_x, y, _w, h) => {
+                setDropdownAnchorY(y + h + 6);
+                toggleType();
               });
             }}
             onPressIn={() => {
@@ -543,32 +591,76 @@ export function TreasurySummaryCard({
             onPressOut={() => {
               filterBtnScale.value = withSpring(1, springConfig);
             }}
-            style={styles.filterTrigger as ViewStyle}
+            style={[styles.filterTrigger, tripPills && styles.filterTriggerTrip] as ViewStyle}
           >
             <Animated.View
               style={[
                 styles.filterTriggerInner as ViewStyle,
                 isLightToolbar && (styles.filterTriggerInnerLight as ViewStyle),
+                tripPills && (styles.filterTriggerInnerTrip as ViewStyle),
+                tripPills && showLedgerCategoryDropdown && styles.inlineChipActive,
                 filterAnimatedStyle,
               ]}
             >
               <FontAwesome
                 name="filter"
                 size={11}
-                color={isLightToolbar ? Theme.textPrimary : Theme.textOnDark}
+                color={
+                  tripPills
+                    ? Theme.textRouteCard
+                    : isLightToolbar
+                      ? Theme.textPrimary
+                      : Theme.textOnDark
+                }
               />
               <Text
                 style={[
                   styles.filterTriggerText as TextStyle,
                   isLightToolbar && (styles.filterTriggerTextLight as TextStyle),
+                  tripPills && (styles.filterTriggerTextTrip as TextStyle),
+                  tripPills && showLedgerCategoryDropdown && styles.inlineChipTextActive,
                 ]}
                 numberOfLines={1}
               >
-                {filterLabel}
+                {filterTriggerLabel}
               </Text>
+              {tripPills ? (
+                <FontAwesome
+                  name="chevron-down"
+                  size={9}
+                  color={showLedgerCategoryDropdown ? Theme.primary : Theme.textRouteCard}
+                  style={{
+                    transform: [{ rotate: showLedgerCategoryDropdown ? "180deg" : "0deg" }],
+                  }}
+                />
+              ) : null}
             </Animated.View>
           </TouchableOpacity>
-          {showFilterDropdownOpen && (
+          {tripPills && showLedgerCategoryDropdown && onLedgerCategoryChange
+            ? ledgerCategoryOptions.map((category) => {
+                const selected = ledgerCategory === category;
+                return (
+                  <Pressable
+                    key={category}
+                    style={[styles.inlineChip, selected && styles.inlineChipActive]}
+                    onPress={() => {
+                      onLedgerCategoryChange(category);
+                      setShowLedgerCategoryDropdown(false);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                  >
+                    <Text
+                      style={[styles.inlineChipText, selected && styles.inlineChipTextActive]}
+                      numberOfLines={1}
+                    >
+                      {LEDGER_CATEGORY_LABELS[category]}
+                    </Text>
+                  </Pressable>
+                );
+              })
+            : null}
+          {showFilterDropdownOpen && !tripPills && (
             <Modal
               visible
               transparent
@@ -970,18 +1062,25 @@ export function TreasurySummaryCard({
       {sourceFilterLabel != null && !showInlineSourceChips && (
         <View
           ref={refSourceFilter}
-          style={styles.filterBlock as ViewStyle}
+          style={[styles.filterBlock, tripPills && styles.filterBlockTrip] as ViewStyle}
           collapsable={false}
         >
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={() => {
-              refSourceFilter.current?.measureInWindow((_x, y, _w, h) => {
-                setDropdownAnchorY(y + h + 6);
+              const toggleSource = () => {
                 setShowFilterDropdown(false);
                 setShowPeriodDropdown(false);
                 setShowLedgerCategoryDropdown(false);
                 setShowSourceDropdown((v) => !v);
+              };
+              if (tripPills) {
+                toggleSource();
+                return;
+              }
+              refSourceFilter.current?.measureInWindow((_x, y, _w, h) => {
+                setDropdownAnchorY(y + h + 6);
+                toggleSource();
               });
             }}
             onPressIn={() => {
@@ -990,35 +1089,136 @@ export function TreasurySummaryCard({
             onPressOut={() => {
               filterBtnScale.value = withSpring(1, springConfig);
             }}
-            style={styles.filterTrigger as ViewStyle}
+            style={[styles.filterTrigger, tripPills && styles.filterTriggerTrip] as ViewStyle}
           >
             <Animated.View
               style={[
                 styles.filterTriggerInner as ViewStyle,
                 isLightToolbar && (styles.filterTriggerInnerLight as ViewStyle),
+                tripPills && (styles.filterTriggerInnerTrip as ViewStyle),
+                tripPills && showSourceDropdown && styles.inlineChipActive,
                 filterAnimatedStyle,
               ]}
             >
               <FontAwesome
                 name="database"
                 size={11}
-                color={isLightToolbar ? Theme.textPrimary : Theme.textOnDark}
+                color={
+                  tripPills
+                    ? Theme.textRouteCard
+                    : isLightToolbar
+                      ? Theme.textPrimary
+                      : Theme.textOnDark
+                }
               />
               <Text
                 style={[
                   styles.filterTriggerText as TextStyle,
                   isLightToolbar && (styles.filterTriggerTextLight as TextStyle),
+                  tripPills && (styles.filterTriggerTextTrip as TextStyle),
+                  tripPills && showSourceDropdown && styles.inlineChipTextActive,
                 ]}
                 numberOfLines={1}
               >
-                {sourceFilterLabel}
+                {sourceTriggerLabel}
               </Text>
+              {tripPills ? (
+                <FontAwesome
+                  name="chevron-down"
+                  size={9}
+                  color={showSourceDropdown ? Theme.primary : Theme.textRouteCard}
+                  style={{
+                    transform: [{ rotate: showSourceDropdown ? "180deg" : "0deg" }],
+                  }}
+                />
+              ) : null}
             </Animated.View>
           </TouchableOpacity>
+          {tripPills && showSourceDropdown
+            ? (["all", "asset", "aggregate"] as const).map((source) => {
+                const selected = sourceFilter === source;
+                return (
+                  <Pressable
+                    key={source}
+                    style={[styles.inlineChip, selected && styles.inlineChipActive]}
+                    onPress={() => {
+                      onSourceFilterChange?.(source);
+                      setShowSourceDropdown(false);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                  >
+                    <Text
+                      style={[styles.inlineChipText, selected && styles.inlineChipTextActive]}
+                      numberOfLines={1}
+                    >
+                      {SOURCE_FILTER_LABELS[source]}
+                    </Text>
+                  </Pressable>
+                );
+              })
+            : null}
         </View>
       )}
     </>
   );
+
+  const filterDockSignature = [
+    tripPills ? "1" : "0",
+    filterTriggerLabel ?? "",
+    sourceTriggerLabel ?? "",
+    showFilterDropdown ? "1" : "0",
+    showPeriodDropdown ? "1" : "0",
+    showLedgerCategoryDropdown ? "1" : "0",
+    showSourceDropdown ? "1" : "0",
+    partyAnalyticsActive ? "1" : "0",
+    isAnyFilterActive ? "1" : "0",
+  ].join("|");
+  const filterDockSignatureRef = useRef("");
+  const filterDockPayloadRef = useRef({
+    periodAndSourceFilters,
+    toolbarActionIcons,
+    isAnyFilterActive,
+    onClearFilters,
+  });
+  filterDockPayloadRef.current = {
+    periodAndSourceFilters,
+    toolbarActionIcons,
+    isAnyFilterActive,
+    onClearFilters,
+  };
+  useLayoutEffect(() => {
+    if (!dockFilters) return;
+    if (filterDockSignatureRef.current === filterDockSignature) return;
+    filterDockSignatureRef.current = filterDockSignature;
+    const payload = filterDockPayloadRef.current;
+    dockFilters({
+      filters: (
+        <View style={styles.dockedFilterRow}>
+          {payload.periodAndSourceFilters}
+          {payload.isAnyFilterActive ? (
+            <TouchableOpacity
+              onPress={payload.onClearFilters}
+              activeOpacity={0.7}
+              style={[styles.clearFiltersBtn, styles.clearFiltersBtnTrip]}
+              accessibilityRole="button"
+              accessibilityLabel="Clear filters"
+            >
+              <FontAwesome name="times" size={10} color={Theme.textRouteCard} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ),
+      actions: payload.toolbarActionIcons,
+    });
+  }, [dockFilters, filterDockSignature]);
+  useLayoutEffect(() => {
+    if (!dockFilters) return;
+    return () => {
+      filterDockSignatureRef.current = "";
+      dockFilters(null);
+    };
+  }, [dockFilters]);
 
   const toolbarOnly = fullWidth && !showSummary;
   return (
@@ -1029,7 +1229,7 @@ export function TreasurySummaryCard({
       containerStyle,
     ]}>
       {topContent != null && (
-        <View style={[styles.topContent, cashNetworkLayout && styles.topContentNetwork]}>
+        <View style={[styles.topContent, cashNetworkLayout && styles.topContentNetwork, hideSearch && styles.topContentFlush]}>
           {topContent}
         </View>
       )}
@@ -1090,6 +1290,7 @@ export function TreasurySummaryCard({
             style={[
               styles.summaryRow,
               cashNetworkLayout && showSummary && styles.summaryRowNetwork,
+              hideSearch && styles.summaryRowFlush,
               cashNetworkLayout && showSummary && styles.summaryOrderAfterToolbar,
             ]}
           >
@@ -1195,7 +1396,7 @@ export function TreasurySummaryCard({
         </>
       )}
 
-      {cashNetworkToolbar ? (
+      {cashNetworkToolbar && !tripPills ? (
         <View
           style={[
             styles.toolbarRow,
@@ -1230,6 +1431,7 @@ export function TreasurySummaryCard({
                   showInlineSourceChips && styles.toolbarStackInlineChipsSearch,
                 ]}
               >
+                {hideSearch ? null : (
                 <View style={chatChrome.searchWrap}>
                   <AnimatedIcon
                     name="search"
@@ -1266,8 +1468,9 @@ export function TreasurySummaryCard({
                     </TouchableOpacity>
                   ) : null}
                 </View>
+                )}
 
-                {onEntityFilterChange != null ? (
+                {onEntityFilterChange != null && !tripPills ? (
                   <View style={chatChrome.scopeSegment}>
                     {(["all", "has_due", "no_due"] as const).map((f) => {
                       const active = entityFilter === f;
@@ -1300,9 +1503,9 @@ export function TreasurySummaryCard({
                   </View>
                 ) : null}
 
-                {onEntityFilterChange == null ? periodAndSourceFilters : null}
+                {onEntityFilterChange == null && !tripPills ? periodAndSourceFilters : null}
 
-                {isAnyFilterActive ? (
+                {isAnyFilterActive && !tripPills ? (
                   <TouchableOpacity
                     onPress={onClearFilters}
                     activeOpacity={0.7}
@@ -1321,13 +1524,14 @@ export function TreasurySummaryCard({
               </View>
             </View>
 
-            {onEntityFilterChange != null ? periodAndSourceFilters : null}
+            {onEntityFilterChange != null && !tripPills ? periodAndSourceFilters : null}
           </View>
 
-          {toolbarActionIcons}
+          {!tripPills ? toolbarActionIcons : null}
         </View>
-      ) : (
+      ) : !tripPills ? (
         <View style={[styles.toolbarRow, compactToolbar && styles.toolbarRowStacked]}>
+          {hideSearch ? null : (
           <View style={[styles.searchWrap, compactToolbar && styles.searchWrapStacked]}>
             <AnimatedIcon name="search" size={11} color={Theme.textMutedDemo} style={styles.searchIcon} />
             <TextInput
@@ -1347,6 +1551,7 @@ export function TreasurySummaryCard({
               autoComplete="off"
             />
           </View>
+          )}
 
           <ScrollView
             horizontal
@@ -1354,8 +1559,8 @@ export function TreasurySummaryCard({
             style={[styles.toolbarFiltersScroll, compactToolbar && styles.toolbarFiltersScrollStacked]}
             contentContainerStyle={styles.toolbarFiltersContent}
           >
-            {periodAndSourceFilters}
-            {isAnyFilterActive && (
+            {!tripPills ? periodAndSourceFilters : null}
+            {!tripPills && isAnyFilterActive && (
               <TouchableOpacity
                 onPress={onClearFilters}
                 activeOpacity={0.7}
@@ -1379,10 +1584,10 @@ export function TreasurySummaryCard({
                 </Text>
               </TouchableOpacity>
             )}
-            {toolbarActionIcons}
+            {!tripPills ? toolbarActionIcons : null}
           </ScrollView>
         </View>
-      )}
+      ) : null}
       </View>
     </View>
   );
@@ -1428,6 +1633,13 @@ const styles = StyleSheet.create({
   topContentNetwork: {
     marginBottom: 8,
     paddingTop: 8,
+  },
+  topContentFlush: {
+    marginBottom: 0,
+  },
+  summaryRowFlush: {
+    marginTop: 8,
+    paddingTop: 10,
   },
   /** Wraps summary + divider + toolbar so Cash can reorder like Network (search before totals). */
   summaryToolbarStack: {
@@ -1747,6 +1959,81 @@ const styles = StyleSheet.create({
   reportIconBtnLight: {
     backgroundColor: Theme.screenBackground,
     borderColor: Theme.borderLight,
+  },
+  reportIconBtnTrip: {
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    borderColor: Theme.borderLight,
+  },
+  dockedFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  clearFiltersBtnTrip: {
+    minWidth: 30,
+    minHeight: 30,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    borderColor: Theme.borderLight,
+    justifyContent: "center",
+  },
+  filterBlockTrip: {
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  inlineChip: {
+    minHeight: 30,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inlineChipActive: {
+    borderColor: Theme.primary,
+    backgroundColor: Theme.pulseIndigoWash,
+  },
+  inlineChipText: {
+    fontSize: 8,
+    fontWeight: "600",
+    color: Theme.textRouteCard,
+    letterSpacing: 0.55,
+    textTransform: "uppercase",
+  },
+  inlineChipTextActive: {
+    color: Theme.primary,
+  },
+  filterTriggerTrip: {
+    borderRadius: 999,
+    overflow: "visible",
+  },
+  filterTriggerInnerTrip: {
+    backgroundColor: Theme.cardWhite,
+    borderColor: Theme.borderLight,
+    borderRadius: 999,
+    minHeight: 30,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    gap: 5,
+    shadowOpacity: 0,
+    elevation: 0,
+    ...(Platform.OS === "web"
+      ? ({ boxShadow: "none" } as ViewStyle)
+      : null),
+  },
+  filterTriggerTextTrip: {
+    fontSize: 8,
+    fontWeight: "600",
+    color: Theme.textRouteCard,
+    letterSpacing: 0.55,
   },
   toolbarActionIcons: {
     flexDirection: 'row',

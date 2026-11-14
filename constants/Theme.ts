@@ -316,6 +316,14 @@ export const Theme = {
   tabBarBorderTop: "rgba(205, 233, 247, 0.55)",
   tabBarPillActiveBg: "#F4F4F4",
   tabBarActiveIconBorder: "#E82127",
+  /** Mobile floating dock — solid dark pills, readable on any page. */
+  dockFill: "#1C1C1E",
+  dockActiveFill: "#3A3A3C",
+  dockAccent: "#FFCE44",
+  dockIconActive: "#FFFFFF",
+  dockIconMuted: "rgba(255,255,255,0.78)",
+  dockShadow: "#0f172a",
+  dockBadgeRing: "#111827",
 
   // ---- Driver app (reference: Qu Neural Link) ----
   /** CTAs / filled pills — emerald-600 (deeper than legacy neon green) */

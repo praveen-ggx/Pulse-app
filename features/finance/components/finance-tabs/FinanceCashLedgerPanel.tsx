@@ -1,5 +1,4 @@
 import type { FinanceTabBodyProps } from "../FinanceTabBody.types";
-import { FinanceAIInsights } from "../FinanceAIInsights";
 import { styles } from "../FinanceScreen.styles";
 import { LedgerTab } from "../LedgerTab";
 import { Text, View } from "react-native";
@@ -24,10 +23,6 @@ export function FinanceCashLedgerPanel({
   topContent,
   embedInParentScroll = false,
 }: FinanceTabBodyProps) {
-  const header =
-    topContent ??
-    (orgId != null ? <FinanceAIInsights organizationId={orgId} /> : null);
-
   const ledgerEmpty =
     ledgerTransactions !== null && ledgerTransactions.length === 0;
   const filteredEmpty =
@@ -43,7 +38,7 @@ export function FinanceCashLedgerPanel({
           : styles.tableBodyWrapLedgerFlat
       }
     >
-      {header}
+      {topContent ?? null}
       {ledgerLoading && ledgerTransactions === null ? (
         <Text style={styles.ledgerLoading}>Loading…</Text>
       ) : ledgerFetchError ? (

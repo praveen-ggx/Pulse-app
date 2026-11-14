@@ -47,7 +47,7 @@ import { networkLaneDetail } from "@/lib/globalSync/networkLaneNotifications.uti
 import { useMarkNetworkNotificationRead } from "@/lib/queries/useNetworkNotificationsQuery";
 import { useLinkedOrgDisplayMap } from "@/lib/queries/useLinkedOrgDisplayQuery";
 import { ROUTES } from "@/lib/routes";
-import { useMemberAccess } from "@/lib/useMemberAccess";
+import { useRegistryNotificationAccess } from "@/lib/alertRegistry/useRegistryNotificationAccess";
 import {
   canOpenOpsAlert,
   entryAllowedByAccess,
@@ -381,7 +381,11 @@ function RegistryFeedList({
             }
             finance.onOpenOps(ops);
           };
-          const detailLines = splitOpsDetailLines(ops, presentation.detail);
+          const detailLines = presentation.detailTitle
+            ? { title: presentation.detailTitle }
+            : splitOpsDetailLines(ops, presentation.detail);
+          const isPayment =
+            ops.category === "payment_paid" || ops.category === "payment_received";
           return (
             <AlertRegistrySignalCard
               key={entry.id}
@@ -396,14 +400,15 @@ function RegistryFeedList({
               detailMeta={presentation.detailMeta}
               detailSubtitle={detailLines.subtitle}
               detail={detailLines.body}
+              detailProgress={presentation.detailProgress}
               timeLabel={formatRelativeTime(ops.created_at)}
-              contextLabel={opsContextLabel(ops)}
+              contextLabel={presentation.hideContextLabel ? undefined : opsContextLabel(ops)}
               tags={opsTags}
               isUnread={isActiveView}
               footer={
                 <RegistryCardActions>
                   <RegistryGhostButton
-                    label="Decline"
+                    label={isPayment ? "Dismiss" : "Decline"}
                     onPress={() => finance.onDismissOps(ops)}
                   />
                   {openOps ? (
@@ -678,48 +683,7 @@ export function AlertRegistryPanel({
     setDetail(null);
   }, [filterTab]);
 
-  const memberAccess = useMemberAccess();
-  const notificationAccess = useMemo((): RegistryNotificationAccess => {
-    if (memberAccess.isLoading) return {
-      trips: false,
-      tripDetail: false,
-      tripAssign: false,
-      tripFinance: false,
-      indents: false,
-      indentBid: false,
-      indentAward: false,
-      findLoads: false,
-      received: false,
-      paid: false,
-      driverPay: false,
-    };
-    const can = memberAccess.can;
-    const tripFinance = can("tripops.trips.finance") || can("finance.view");
-    return {
-      trips: can("tripops.trips.view"),
-      tripDetail: can("tripops.trips.detail"),
-      tripAssign: can("tripops.trips.assign"),
-      tripFinance,
-      indents: can("tripops.indents.view"),
-      indentBid: can("tripops.indents.bid"),
-      indentAward: can("tripops.indents.award"),
-      findLoads: can("tripops.pulse_loads"),
-      received:
-        can("finance.ledger.customers") ||
-        can("finance.subtab.customers") ||
-        tripFinance,
-      paid:
-        can("finance.ledger.suppliers") ||
-        can("finance.subtab.suppliers") ||
-        can("finance.ledger.driver") ||
-        can("finance.subtab.drivers") ||
-        tripFinance,
-      driverPay:
-        can("finance.ledger.driver") ||
-        can("finance.subtab.drivers") ||
-        tripFinance,
-    };
-  }, [memberAccess.isLoading, memberAccess.can]);
+  const { access: notificationAccess } = useRegistryNotificationAccess();
   const visibleTabs = useMemo(
     () => FILTER_TABS.filter((tab) => registryTabVisible(tab.id, notificationAccess)),
     [notificationAccess],

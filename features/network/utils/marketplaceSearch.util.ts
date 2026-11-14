@@ -52,6 +52,14 @@ export type MarketplaceSearchLane = {
   target_rate_min?: number | null;
   /** Highest supplier target on the lane. Null when none is set. */
   target_rate_max?: number | null;
+  /** Loads paid per trip. Absent until the lane RPC returns it. */
+  per_trip_count?: number | null;
+  /** Loads paid per MT. */
+  per_mt_count?: number | null;
+  /** Loads with more than one pickup or drop. */
+  multi_stop_count?: number | null;
+  /** Extra load requirements to tag on the lane card. */
+  requirements?: readonly string[] | null;
 };
 
 export function positiveLaneTarget(value: number | string | null | undefined): number | null {

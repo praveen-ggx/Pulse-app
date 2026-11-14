@@ -693,8 +693,8 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
               disabled={revokingAward || marketBidsLoading}
               accessibilityLabel={revokePresentation.buttonLabel}
             >
-              <Text style={styles.modalSubmitText}>{awardCtaLabel}</Text>
-            </TouchableOpacity>
+            <Text style={styles.modalSubmitText} numberOfLines={1}>{awardCtaLabel}</Text>
+          </TouchableOpacity>
           ) : needsInvite ? (
             <TouchableOpacity
               style={[
@@ -705,7 +705,7 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
               activeOpacity={0.9}
               disabled={inviteDisabled}
             >
-              <Text style={styles.modalSubmitText}>
+              <Text style={styles.modalSubmitText} numberOfLines={1}>
                 {inviteSending
                   ? "Sending invite…"
                   : invitePending
@@ -723,7 +723,7 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
               activeOpacity={0.9}
               disabled={awardDisabled}
             >
-              <Text style={styles.modalSubmitText}>{awardCtaLabel}</Text>
+              <Text style={styles.modalSubmitText} numberOfLines={1}>{awardCtaLabel}</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity
@@ -934,6 +934,8 @@ const styles = StyleSheet.create({
     borderTopColor: Theme.borderLight,
     gap: 8,
     flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "stretch",
   },
   modalSubmit: {
     flexDirection: "row",
@@ -944,9 +946,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.actionBtnInk,
-    alignSelf: "stretch",
+    flex: 1,
     minWidth: 0,
-    minHeight: 42,
+    minHeight: 44,
+    paddingHorizontal: 12,
   },
   modalSubmitDisabled: {
     opacity: 0.38,
@@ -957,7 +960,7 @@ const styles = StyleSheet.create({
     color: Theme.buttonDarkText,
     letterSpacing: 0,
     ...Platform.select({
-      web: { whiteSpace: "pre-wrap" } as object,
+      web: { whiteSpace: "nowrap" } as object,
       default: {},
     }),
   },
@@ -981,13 +984,15 @@ const styles = StyleSheet.create({
   },
   viewIndentBtn: {
     paddingVertical: 11,
+    paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     borderColor: Theme.actionBtnGhostBorder,
     borderRadius: 10,
     backgroundColor: Theme.cardWhite,
-    minHeight: 42,
+    minHeight: 44,
+    flexShrink: 0,
   },
   viewIndentBtnText: {
     fontSize: 13,

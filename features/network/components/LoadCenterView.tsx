@@ -41,6 +41,7 @@ import {
 } from "@/constants/ChatFilterChrome";
 import Layout from "@/constants/Layout";
 import { useLayoutInsets } from "@/lib/layoutInsets";
+import { PulsePillButton } from "@/components/PulsePillButton";
 import Theme from "@/constants/Theme";
 import { useOptionalAwardedIndentDeployModal } from "@/contexts/AwardedIndentDeployModalContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -165,7 +166,7 @@ import {
     prefetchTripDetailBundle,
 } from "@/lib/queries";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { Search } from "lucide-react-native";
+import { ChevronLeft, Search, Truck } from "lucide-react-native";
 import { type FlashListRef } from "@shopify/flash-list";
 import { useQueryClient } from "@tanstack/react-query";
 import * as Linking from "expo-linking";
@@ -233,6 +234,37 @@ interface LoadCenterViewProps {
 }
 
 const TESLA_BLACK = "#171A20";
+
+function LoadHeaderActions({
+  onBackToTrips,
+  onOpenMarketplace,
+}: {
+  onBackToTrips: () => void;
+  onOpenMarketplace: () => void;
+}) {
+  return (
+    <View style={styles.loadHeaderActions}>
+      <PulsePillButton
+        label="Back to trips"
+        icon={<ChevronLeft size={13} color={Theme.primaryText} strokeWidth={2.4} />}
+        size="compact"
+        onPress={onBackToTrips}
+        accessibilityLabel="Back to trips"
+        labelStyle={styles.headerPillLabel}
+        style={[styles.headerPill, styles.backToTripsBtn]}
+      />
+      <PulsePillButton
+        label="Marketplace Loads"
+        icon={<Truck size={13} color={Theme.primaryText} strokeWidth={2.4} />}
+        size="compact"
+        onPress={onOpenMarketplace}
+        accessibilityLabel="Marketplace Loads — open Marketplace opportunities"
+        labelStyle={styles.headerPillLabel}
+        style={[styles.headerPill, styles.marketplaceLoadsBtn]}
+      />
+    </View>
+  );
+}
 
 export function LoadCenterView({
   contentTopPadding = 0,
@@ -1267,40 +1299,14 @@ export function LoadCenterView({
                   />
                 </View>
                 {loadSubTab !== "GIVE_LOAD" ? (
-                  <View style={styles.loadHeaderActions}>
-                    <Pressable
-                      onPress={() =>
-                        router.push(`${ROUTES.TABS.TRIPS}?hub=active` as import("expo-router").Href)
-                      }
-                      style={({ pressed }) => [
-                        styles.backToTripsBtn,
-                        pressed && styles.findVehiclesBtnPressed,
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel="Back to trips"
-                    >
-                      <Text style={styles.backToTripsBtnText}>Back to trips</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() =>
-                        router.push(ROUTES.FIND_LOADS as import("expo-router").Href)
-                      }
-                      style={({ pressed }) => [
-                        styles.findVehiclesBtn,
-                        pressed && styles.findVehiclesBtnPressed,
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel="Marketplace Loads — open Marketplace opportunities"
-                    >
-                      <FontAwesome
-                        name="cube"
-                        size={12}
-                        color={Theme.textOnDark}
-                        style={{ marginRight: 8 }}
-                      />
-                      <Text style={styles.findVehiclesBtnText}>Marketplace Loads</Text>
-                    </Pressable>
-                  </View>
+                  <LoadHeaderActions
+                    onBackToTrips={() =>
+                      router.push(`${ROUTES.TABS.TRIPS}?hub=active` as import("expo-router").Href)
+                    }
+                    onOpenMarketplace={() =>
+                      router.push(ROUTES.FIND_LOADS as import("expo-router").Href)
+                    }
+                  />
                 ) : null}
               </View>
             </View>
@@ -2312,40 +2318,14 @@ export function LoadCenterView({
                 onDoneSubTabChange={(id) => setDoneSubTab(id as DoneSubTab)}
                 findLoadsAction={
                   loadSubTab === "GIVE_LOAD" ? undefined : (
-                  <View style={styles.loadHeaderActions}>
-                    <Pressable
-                      onPress={() =>
-                        router.push(`${ROUTES.TABS.TRIPS}?hub=active` as import("expo-router").Href)
-                      }
-                      style={({ pressed }) => [
-                        styles.backToTripsBtn,
-                        pressed && styles.findVehiclesBtnPressed,
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel="Back to trips"
-                    >
-                      <Text style={styles.backToTripsBtnText}>Back to trips</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() =>
-                        router.push(ROUTES.FIND_LOADS as import("expo-router").Href)
-                      }
-                      style={({ pressed }) => [
-                        styles.findVehiclesBtn,
-                        pressed && styles.findVehiclesBtnPressed,
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel="Marketplace Loads — open Marketplace opportunities"
-                    >
-                      <FontAwesome
-                        name="cube"
-                        size={12}
-                        color={Theme.textOnDark}
-                        style={{ marginRight: 8 }}
-                      />
-                      <Text style={styles.findVehiclesBtnText}>Marketplace Loads</Text>
-                    </Pressable>
-                  </View>
+                  <LoadHeaderActions
+                    onBackToTrips={() =>
+                      router.push(`${ROUTES.TABS.TRIPS}?hub=active` as import("expo-router").Href)
+                    }
+                    onOpenMarketplace={() =>
+                      router.push(ROUTES.FIND_LOADS as import("expo-router").Href)
+                    }
+                  />
                   )
                 }
               />
@@ -3210,23 +3190,10 @@ const styles = StyleSheet.create({
     gap: 8,
     flexShrink: 0,
   },
-  backToTripsBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: Theme.cardWhite,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-    flexShrink: 0,
-  },
-  backToTripsBtnText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Theme.textPrimaryDark,
-    letterSpacing: 0.15,
-  },
+  headerPill: { flexShrink: 0, marginBottom: 0, borderWidth: 0 },
+  headerPillLabel: { color: Theme.primaryText },
+  backToTripsBtn: { backgroundColor: Theme.brandBlue },
+  marketplaceLoadsBtn: { backgroundColor: Theme.loadMainTabBg },
   loadsStatusTabRow: {
     flexWrap: "wrap",
   },

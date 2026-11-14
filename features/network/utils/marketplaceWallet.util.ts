@@ -7,10 +7,14 @@ import type {
   MyOrgMarketBidRow,
 } from "@/features/network/services/findLoadsForOrg.service";
 
-/** Figures for the marketplace wallet. Fees count only while an award is still locked. */
+/**
+ * Figures for the marketplace wallet. Fees count only while an award is still locked.
+ * `ratesSent` counts every bid, including failed ones; it is not a transaction count.
+ * A transaction exists only once an awarded bid is allocated to a trip.
+ */
 export function marketplaceWalletFigures(bids: readonly MyOrgMarketBidRow[]): {
   due: number;
-  transactions: number;
+  ratesSent: number;
   awarded: number;
 } {
   const due = bids.reduce((sum, bid) => {
@@ -21,7 +25,7 @@ export function marketplaceWalletFigures(bids: readonly MyOrgMarketBidRow[]): {
   }, 0);
   return {
     due,
-    transactions: bids.length,
+    ratesSent: bids.length,
     awarded: bids.filter((bid) => bid.status === "accepted").length,
   };
 }

@@ -20,6 +20,33 @@ export function formatBareRupeeTokens(text: string): string {
   });
 }
 
+export type TripPaymentProgress = { ratio: number; caption: string };
+
+/**
+ * How much of the trip's payable/receivable is covered, counting this payment.
+ * The money snapshot can lag the event, so this payment is a floor for "paid".
+ */
+export function tripPaymentProgress(
+  lane: "received" | "paid",
+  money: TripMoneySnapshot | null | undefined,
+  paymentAmount: number | null | undefined,
+): TripPaymentProgress | null {
+  if (!money) return null;
+  const total = lane === "received" ? money.clientTotal : money.supplierTotal;
+  if (!(total > 0)) return null;
+  const snapshotPaid = lane === "received" ? money.clientPaid : money.supplierPaid;
+  const thisPayment = Number.isFinite(Number(paymentAmount)) ? Math.abs(Number(paymentAmount)) : 0;
+  const paid = Math.min(total, Math.max(snapshotPaid, thisPayment));
+  const left = total - paid;
+  return {
+    ratio: paid / total,
+    caption:
+      left <= 0.5
+        ? `${formatInrAmount(total)} settled`
+        : `${formatInrAmount(left)} left of ${formatInrAmount(total)}`,
+  };
+}
+
 /**
  * Short balance when the trip has a total.
  * Paid progress when we know it; otherwise just the trip total.

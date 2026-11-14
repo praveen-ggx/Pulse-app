@@ -53,7 +53,7 @@ import { showAppAlert } from "@/lib/appAlert";
 import { confirmDialog } from "@/lib/confirmDialog";
 import { ROUTES } from "@/lib/routes";
 import { useRouter } from "expo-router";
-import { ArrowRight, ChevronRight, Inbox, Layers, Package } from "lucide-react-native";
+import { ArrowRight, ChevronRight, Gavel, Inbox, Layers, Package, Trophy } from "lucide-react-native";
 import { useMemo, useState, type ReactNode } from "react";
 import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
@@ -177,6 +177,8 @@ export function OrgMyBidsList({
   lanes = [],
   laneTargets = {},
   lanesReady = false,
+  actionSlot,
+  footerSlot,
 }: {
   bids: MyOrgMarketBidRow[];
   isLoading: boolean;
@@ -191,7 +193,13 @@ export function OrgMyBidsList({
   lanes?: readonly MarketplaceSearchLane[];
   laneTargets?: Readonly<Record<string, { min: number | null; max: number | null }>>;
   lanesReady?: boolean;
+  /** Needs-response content placed under the summary (rate requests). */
+  actionSlot?: ReactNode;
+  /** Secondary content after the Marketplace list (network quotes). */
+  footerSlot?: ReactNode;
 }) {
+  const { width } = useWindowDimensions();
+  const isDesktop = Platform.OS === "web" && width >= 1024;
   const [bidSlice, setBidSlice] = useState<"active" | "failed">("active");
   const [wonSlice, setWonSlice] = useState<"trips" | "you" | "client">("trips");
   const groups = useMemo(() => {
@@ -216,22 +224,24 @@ export function OrgMyBidsList({
     return { pending, awarded, failed, trips, cancelledByYou, cancelledByClient };
   }, [awardIndents, awardTrips, bids]);
 
-  if (isLoading) {
+  if (isLoading || bids.length === 0) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.message}>Loading your bids…</Text>
-      </View>
-    );
-  }
-
-  if (bids.length === 0) {
-    return (
-      <View style={styles.empty}>
-        <Inbox size={22} color={Theme.primary} />
-        <Text style={styles.emptyTitle}>No Marketplace bids yet</Text>
-        <Text style={styles.emptyBody}>
-          Bid on an open Marketplace load and it will show up here. Network quotes are listed separately and stay pending until the shipper awards them.
-        </Text>
+      <View style={styles.listContent}>
+        {actionSlot}
+        {isLoading ? (
+          <View style={styles.centered}>
+            <Text style={styles.message}>Loading your bids…</Text>
+          </View>
+        ) : (
+          <View style={styles.empty}>
+            <Inbox size={22} color={Theme.textSecondary} />
+            <Text style={styles.emptyTitle}>No Marketplace bids yet</Text>
+            <Text style={styles.emptyBody}>
+              Bid on an open Marketplace load and it will show up here. Network quotes are listed separately and stay pending until the shipper awards them.
+            </Text>
+          </View>
+        )}
+        {footerSlot}
       </View>
     );
   }
@@ -269,20 +279,25 @@ export function OrgMyBidsList({
 
   return (
     <View style={styles.listContent}>
-      <View style={styles.focusRow}>
+      <View style={[styles.focusRow, isDesktop && styles.focusRowDesktop]}>
         <FocusTab
           count={bids.length}
           label="Bids"
+          caption={`${groups.pending.length} active`}
+          icon={<Gavel size={15} strokeWidth={2.2} color={focus === "bids" ? Theme.textOnPrimary : Theme.textSecondary} />}
           selected={focus === "bids"}
           onPress={() => onFocusChange?.("bids")}
         />
         <FocusTab
           count={groups.awarded.length}
           label="Won"
+          caption={`${groups.trips.length} on trips`}
+          icon={<Trophy size={15} strokeWidth={2.2} color={focus === "won" ? Theme.textOnPrimary : Theme.textSecondary} />}
           selected={focus === "won"}
           onPress={() => onFocusChange?.("won")}
         />
       </View>
+      {actionSlot}
       <View style={styles.sliceRow}>
         {focus === "won" ? (
           <>
@@ -329,6 +344,7 @@ export function OrgMyBidsList({
           )}
         </Section>
       )}
+      {footerSlot}
     </View>
   );
 }
@@ -502,24 +518,34 @@ function SliceTab({
 function FocusTab({
   count,
   label,
+  caption,
+  icon,
   selected,
   onPress,
 }: {
   count: number;
   label: string;
+  caption: string;
+  icon: ReactNode;
   selected: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.focusTab, selected && styles.focusTabOn]}
+      style={({ pressed }) => [styles.focusTab, selected && styles.focusTabOn, pressed && styles.focusTabPressed]}
       accessibilityRole="tab"
       accessibilityState={{ selected }}
       accessibilityLabel={`${label}, ${count}`}
     >
+      <View style={styles.focusHead}>
+        <Text style={[styles.focusLabel, selected && styles.focusOnMuted]}>{label}</Text>
+        <View style={[styles.focusIcon, selected && styles.focusIconOn]}>{icon}</View>
+      </View>
       <Text style={[styles.focusCount, selected && styles.focusOnText]}>{count}</Text>
-      <Text style={[styles.focusLabel, selected && styles.focusOnText]}>{label}</Text>
+      <Text style={[styles.focusCaption, selected && styles.focusOnMuted]} numberOfLines={1}>
+        {caption}
+      </Text>
     </Pressable>
   );
 }
@@ -1009,30 +1035,49 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
-  emptyTitle: { fontSize: 15, fontWeight: "800", color: Theme.primaryText },
-  emptyBody: { fontSize: 13, color: Theme.textSecondary, textAlign: "center" },
-  listContent: { paddingTop: 4, paddingBottom: 32, gap: 14 },
+  emptyTitle: { fontSize: 15, fontWeight: "800", color: Theme.textPrimaryDark },
+  emptyBody: { fontSize: 13, lineHeight: 18, color: Theme.textSecondary, textAlign: "center" },
+  listContent: { paddingTop: 4, paddingBottom: 32, gap: 16 },
   focusRow: { flexDirection: "row", gap: 10, alignItems: "stretch" },
+  focusRowDesktop: { maxWidth: 480 },
   focusTab: {
     flex: 1,
-    maxWidth: 180,
-    minHeight: 72,
+    minWidth: 0,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    justifyContent: "center",
-    gap: 2,
+    gap: 4,
   },
   focusTabOn: {
-    backgroundColor: Theme.buttonPrimary,
-    borderColor: Theme.buttonPrimaryBorder,
+    backgroundColor: Theme.darkBackground,
+    borderColor: Theme.darkBackground,
   },
-  focusCount: { fontSize: 22, lineHeight: 26, fontWeight: "600", color: Theme.textPrimaryDark },
-  focusLabel: { fontSize: 12, lineHeight: 16, fontWeight: "500", color: Theme.textSecondary },
-  focusOnText: { color: Theme.buttonPrimaryText },
+  focusTabPressed: { opacity: 0.85 },
+  focusHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  focusIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Theme.surfaceGray,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  focusIconOn: { backgroundColor: Theme.separatorDark },
+  focusCount: {
+    fontSize: 26,
+    lineHeight: 30,
+    fontWeight: "700",
+    letterSpacing: -0.6,
+    color: Theme.textPrimaryDark,
+    fontVariant: ["tabular-nums"],
+  },
+  focusLabel: { fontSize: 13, lineHeight: 17, fontWeight: "600", color: Theme.textSecondary },
+  focusCaption: { fontSize: 12, lineHeight: 16, fontWeight: "500", color: Theme.textMuted },
+  focusOnText: { color: Theme.textOnPrimary },
+  focusOnMuted: { color: Theme.textOnDarkMuted },
   sliceRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   sliceTab: {
     flexDirection: "row",
@@ -1046,12 +1091,12 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
   },
   sliceTabOn: {
-    backgroundColor: Theme.buttonPrimary,
-    borderColor: Theme.buttonPrimaryBorder,
+    backgroundColor: Theme.darkBackground,
+    borderColor: Theme.darkBackground,
   },
   sliceLabel: { fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
-  sliceCount: { fontSize: 12, fontWeight: "600", color: Theme.textSecondary },
-  sliceLabelOn: { color: Theme.buttonPrimaryText },
+  sliceCount: { fontSize: 12, fontWeight: "600", color: Theme.textSecondary, fontVariant: ["tabular-nums"] },
+  sliceLabelOn: { color: Theme.textOnPrimary },
   section: { gap: 8 },
   sectionGrid: { gap: 12 },
   sectionGridDesktop: {

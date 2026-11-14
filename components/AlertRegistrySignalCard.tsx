@@ -58,6 +58,8 @@ export type AlertRegistrySignalCardProps = {
   detailSubtitle?: string;
   /** Route and date, smaller than the detail title. */
   detailMeta?: string;
+  /** Thin settled-vs-total bar at the bottom of the gray card. */
+  detailProgress?: { ratio: number; caption: string };
   /** Optional media inside the gray quote card (uploaded document thumb). */
   detailMedia?: React.ReactNode;
   timeLabel: string;
@@ -183,6 +185,7 @@ export function AlertRegistrySignalCard({
   detailTitle,
   detailSubtitle,
   detailMeta,
+  detailProgress,
   detailMedia,
   timeLabel,
   contextLabel,
@@ -197,7 +200,12 @@ export function AlertRegistrySignalCard({
   compact = false,
   avatarSlot,
 }: AlertRegistrySignalCardProps) {
-  const showDetailCard = Boolean(detailTitle || detailSubtitle || detailMeta || detail || detailMedia);
+  const showDetailCard = Boolean(
+    detailTitle || detailSubtitle || detailMeta || detail || detailMedia || detailProgress,
+  );
+  const progressPct = detailProgress
+    ? Math.round(Math.min(1, Math.max(0, detailProgress.ratio)) * 100)
+    : 0;
   const avatarSize = compact ? COMPACT_AVATAR_SIZE : AVATAR_SIZE;
 
   const content = (
@@ -299,6 +307,27 @@ export function AlertRegistrySignalCard({
               <Text style={styles.detailBody} numberOfLines={4}>
                 {detail}
               </Text>
+            ) : null}
+            {detailProgress ? (
+              <View
+                style={styles.progressRow}
+                accessibilityRole="progressbar"
+                accessibilityLabel={detailProgress.caption}
+                accessibilityValue={{ min: 0, max: 100, now: progressPct }}
+              >
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      progressPct >= 100 && styles.progressFillDone,
+                      { width: `${progressPct}%` },
+                    ]}
+                  />
+                </View>
+                <Text style={[styles.progressCaption, WEB_COPY]} numberOfLines={1}>
+                  {detailProgress.caption}
+                </Text>
+              </View>
             ) : null}
           </View>
         ) : null}
@@ -538,6 +567,35 @@ const stylesDef = {
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "400",
+    color: "#78829D",
+  }),
+  progressRow: view({
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+  }),
+  progressTrack: view({
+    flex: 1,
+    minWidth: 0,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Theme.borderMedium,
+    overflow: "hidden",
+  }),
+  progressFill: view({
+    height: "100%",
+    borderRadius: 2,
+    backgroundColor: METRONIC.primaryBtn,
+  }),
+  progressFillDone: view({
+    backgroundColor: Theme.positive,
+  }),
+  progressCaption: text({
+    flexShrink: 0,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "500",
     color: "#78829D",
   }),
   tagPill: view({

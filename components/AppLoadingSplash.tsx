@@ -9,6 +9,7 @@ import { MotiView } from 'moti';
 import LottieView from 'lottie-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Platform,
   StyleSheet,
   Text,
   View,
@@ -86,6 +87,10 @@ function AppLoadingSplashView({
 }: AppLoadingSplashProps & { translate: (key: string) => string }) {
   const insets = useSafeAreaInsets();
   const resolvedMessage = useSplashCopy(variant, message, translate);
+  // Moti's looping driver setStates from layout effects. On web that nests
+  // until React aborts with "maximum update depth". The planet clip itself
+  // still plays; only the Moti pulse stays on native.
+  const pulse = Platform.OS !== 'web';
 
   return (
     <View
@@ -100,27 +105,41 @@ function AppLoadingSplashView({
       accessibilityRole="none"
       accessibilityState={{ busy: true }}
     >
-      <MotiView
-        from={{ opacity: 0.88, scale: 0.96 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{
-          type: 'timing',
-          duration: 1400,
-          loop: true,
-          repeatReverse: true,
-        }}
-        style={styles.logoWrap}
-      >
-        <LottieView
-          source={SPLASH_ANIMATION}
-          autoPlay
-          loop
-          speed={0.9}
-          resizeMode="contain"
-          style={styles.logo}
-        />
-      </MotiView>
+      {pulse ? (
+        <MotiView
+          from={{ opacity: 0.88, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{
+            type: 'timing',
+            duration: 1400,
+            loop: true,
+            repeatReverse: true,
+          }}
+          style={styles.logoWrap}
+        >
+          <LottieView
+            source={SPLASH_ANIMATION}
+            autoPlay
+            loop
+            speed={0.9}
+            resizeMode="contain"
+            style={styles.logo}
+          />
+        </MotiView>
+      ) : (
+        <View style={styles.logoWrap}>
+          <LottieView
+            source={SPLASH_ANIMATION}
+            autoPlay
+            loop
+            speed={0.9}
+            resizeMode="contain"
+            style={styles.logo}
+          />
+        </View>
+      )}
 
+      {pulse ? (
       <MotiView
         key={resolvedMessage}
         from={{ opacity: 0, translateY: 6 }}
@@ -137,9 +156,22 @@ function AppLoadingSplashView({
         </Text>
         <Text style={styles.subtitle}>{translate('splashCalmFooter')}</Text>
       </MotiView>
+      ) : (
+        <View style={styles.messageWrap}>
+          <Text
+            style={styles.title}
+            accessibilityRole="text"
+            accessibilityLiveRegion="polite"
+          >
+            {resolvedMessage}
+          </Text>
+          <Text style={styles.subtitle}>{translate('splashCalmFooter')}</Text>
+        </View>
+      )}
 
       <View style={styles.dotsRow} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        {[0, 1, 2].map((i) => (
+        {[0, 1, 2].map((i) =>
+          pulse ? (
           <MotiView
             key={i}
             from={{ opacity: 0.35 }}
@@ -153,7 +185,10 @@ function AppLoadingSplashView({
             }}
             style={[styles.dot, { backgroundColor: accentColor }]}
           />
-        ))}
+          ) : (
+            <View key={i} style={[styles.dot, { backgroundColor: accentColor }]} />
+          ),
+        )}
       </View>
     </View>
   );

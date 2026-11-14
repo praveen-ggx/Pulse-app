@@ -13,6 +13,8 @@ import { ThemedAlertModal } from "@/components/ThemedAlertModal";
 import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
+import { useLayoutInsets } from "@/lib/layoutInsets";
 import {
   deleteComplianceDocument,
   rejectDocument,
@@ -248,6 +250,8 @@ import {
   useWindowDimensions,
   View,
   type GestureResponderEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   type StyleProp,
   type TextStyle,
   type ViewStyle,
@@ -4083,8 +4087,15 @@ export function ComplianceDocumentWorkspace({
     fillListIfShort();
   }, [fillListIfShort, listWindowItems.length]);
 
+  const tabBarScrollProps = useTabBarAwareScrollProps();
+  const mobileTabBarScrollProps = mobileExclusive ? tabBarScrollProps : null;
+  const layoutInsets = useLayoutInsets();
+  const mobileListBottomPad = mobileExclusive
+    ? { paddingBottom: layoutInsets.scrollBottomPadding(16) }
+    : null;
   const onListScroll = useCallback(
-    (event: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      mobileTabBarScrollProps?.onScroll?.(event);
       const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
       listContentH.current = contentSize.height;
       listViewportH.current = layoutMeasurement.height;
@@ -4093,7 +4104,7 @@ export function ComplianceDocumentWorkspace({
         loadMoreList();
       }
     },
-    [listHasMore, listLoadingMore, loadMoreList],
+    [listHasMore, listLoadingMore, loadMoreList, mobileTabBarScrollProps],
   );
 
   const selectListTrip = useCallback(
@@ -6075,9 +6086,10 @@ export function ComplianceDocumentWorkspace({
           mobileExclusive ? (
             <ScrollView
               style={styles.listScroll}
-              contentContainerStyle={styles.listEmptyMobileContent}
+              contentContainerStyle={[styles.listEmptyMobileContent, mobileListBottomPad]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
+              {...tabBarScrollProps}
             >
               {listHeader}
               <View style={styles.listEmptyMobileBody}>
@@ -6095,8 +6107,15 @@ export function ComplianceDocumentWorkspace({
           style={[styles.listScroll, mobileExclusive && styles.listScrollMobile]}
           nestedScrollEnabled
           showsVerticalScrollIndicator
-          contentContainerStyle={[styles.listContent, mobileExclusive && styles.listContentMobile]}
+          contentContainerStyle={[
+            styles.listContent,
+            mobileExclusive && styles.listContentMobile,
+            mobileListBottomPad,
+          ]}
           scrollEventThrottle={16}
+          onScrollBeginDrag={mobileTabBarScrollProps?.onScrollBeginDrag}
+          onScrollEndDrag={mobileTabBarScrollProps?.onScrollEndDrag}
+          onMomentumScrollEnd={mobileTabBarScrollProps?.onMomentumScrollEnd}
           onScroll={onListScroll}
           onLayout={(event) => {
             listViewportH.current = event.nativeEvent.layout.height;

@@ -185,6 +185,28 @@ export function poolMembers<L extends PoolRouteFields & { id: string }>(
 
 export type PoolLane = MarketplaceSearchLane & { poolId: string };
 
+/** Null stays null when neither side reported the count (older lane RPC). */
+function sumLaneTagCount(
+  a: number | null | undefined,
+  b: number | null | undefined,
+): number | null {
+  if (a == null && b == null) return null;
+  return (Number(a) || 0) + (Number(b) || 0);
+}
+
+function mergeLaneRequirements(
+  a: readonly string[] | null | undefined,
+  b: readonly string[] | null | undefined,
+): string[] | null {
+  if (!a?.length && !b?.length) return null;
+  const seen = new Map<string, string>();
+  for (const item of [...(a ?? []), ...(b ?? [])]) {
+    const label = item.trim();
+    if (label && !seen.has(label.toLowerCase())) seen.set(label.toLowerCase(), label);
+  }
+  return [...seen.values()];
+}
+
 /**
  * One entry per canonical pool. Case-only lane variants are merged: counts are
  * summed and the display value is the variant carrying the most loads.
@@ -210,14 +232,20 @@ export function canonicalPoolLanes(
       });
       continue;
     }
-    const total = prev.lane.load_count + count;
-    const targetMin = combineLaneTarget(prev.lane.target_rate_min, lane.target_rate_min, "min");
-    const targetMax = combineLaneTarget(prev.lane.target_rate_max, lane.target_rate_max, "max");
+    const merged = {
+      load_count: prev.lane.load_count + count,
+      target_rate_min: combineLaneTarget(prev.lane.target_rate_min, lane.target_rate_min, "min"),
+      target_rate_max: combineLaneTarget(prev.lane.target_rate_max, lane.target_rate_max, "max"),
+      per_trip_count: sumLaneTagCount(prev.lane.per_trip_count, lane.per_trip_count),
+      per_mt_count: sumLaneTagCount(prev.lane.per_mt_count, lane.per_mt_count),
+      multi_stop_count: sumLaneTagCount(prev.lane.multi_stop_count, lane.multi_stop_count),
+      requirements: mergeLaneRequirements(prev.lane.requirements, lane.requirements),
+    };
     if (count > prev.topCount) {
-      prev.lane = { ...lane, load_count: total, poolId, target_rate_min: targetMin, target_rate_max: targetMax };
+      prev.lane = { ...lane, ...merged, poolId };
       prev.topCount = count;
     } else {
-      prev.lane = { ...prev.lane, load_count: total, target_rate_min: targetMin, target_rate_max: targetMax };
+      prev.lane = { ...prev.lane, ...merged };
     }
   }
   return [...byId.values()].map((v) => v.lane);
@@ -228,19 +256,7 @@ export function filterPoolLanes(
   lanes: readonly MarketplaceSearchLane[],
   search: Partial<MarketplaceLoadSearch> | null | undefined,
 ): PoolLane[] {
-  const n = poolKey(search);
-  return canonicalPoolLanes(lanes).filter(
-    (lane) =>
-      (!n.pickup ||
-        canonicalPoolField(lane.pickup_area) ===
-          canonicalPoolField(n.pickup)) &&
-      (!n.drop ||
-        canonicalPoolField(lane.drop_location) ===
-          canonicalPoolField(n.drop)) &&
-      (!n.vehicleType ||
-        canonicalPoolField(lane.vehicle_type) ===
-          canonicalPoolField(n.vehicleType)),
-  );
+  return filterLanesBySelection(lanes, laneSelectionFromSearch(search));
 }
 
 export type PoolField = "pickup" | "drop" | "vehicle";
@@ -254,8 +270,8 @@ function poolFieldValue(lane: MarketplaceSearchLane, field: PoolField): string {
 
 /**
  * Pickup / drop / vehicle picker options, one per canonical value, counted
- * from canonical pool membership. Drop is narrowed to the chosen pickup and
- * vehicle to the chosen pickup + drop by exact canonical equality.
+ * from canonical pool membership. Each field is narrowed by whichever of the
+ * other two fields are set, in any order, by exact canonical equality.
  * `menuQuery` only narrows the visible option list; it never groups or
  * decides membership.
  */
@@ -265,18 +281,110 @@ export function poolFieldOptions(
   field: PoolField,
   menuQuery = "",
 ): PoolFieldOption[] {
-  const key = poolKey(draft);
-  const pickup = canonicalPoolField(key.pickup);
-  const drop = canonicalPoolField(key.drop);
+  return selectionFieldOptions(lanes, laneSelectionFromSearch(draft), field, menuQuery);
+}
+
+/** Any number of values per field. An empty field matches every lane. */
+export type LaneSelection = {
+  pickup: string[];
+  drop: string[];
+  vehicleType: string[];
+};
+
+export const EMPTY_LANE_SELECTION: LaneSelection = { pickup: [], drop: [], vehicleType: [] };
+
+export function laneSelectionFromSearch(
+  search: Partial<MarketplaceLoadSearch> | null | undefined,
+): LaneSelection {
+  const key = poolKey(search);
+  return {
+    pickup: key.pickup ? [key.pickup] : [],
+    drop: key.drop ? [key.drop] : [],
+    vehicleType: key.vehicleType ? [key.vehicleType] : [],
+  };
+}
+
+/** First value per field, for single-value callers. */
+export function laneSelectionToSearch(selection: LaneSelection): MarketplaceLoadSearch {
+  return {
+    pickup: selection.pickup[0] ?? "",
+    drop: selection.drop[0] ?? "",
+    vehicleType: selection.vehicleType[0] ?? "",
+  };
+}
+
+export function laneSelectionActive(selection: LaneSelection | null | undefined): boolean {
+  return Boolean(
+    selection && (selection.pickup.length || selection.drop.length || selection.vehicleType.length),
+  );
+}
+
+/** Trims, drops blanks and canonical duplicates. Accepts the older one-string shape. */
+export function normalizeLaneSelection(raw: unknown): LaneSelection {
+  const read = (value: unknown): string[] => {
+    const list = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const item of list) {
+      if (typeof item !== "string") continue;
+      const label = item.trim().replace(/\s+/g, " ");
+      const id = canonicalPoolField(label);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(label);
+    }
+    return out;
+  };
+  const source = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    pickup: read(source.pickup),
+    drop: read(source.drop),
+    vehicleType: read(source.vehicleType),
+  };
+}
+
+function matchesAny(value: string, wanted: ReadonlySet<string>): boolean {
+  return wanted.size === 0 || wanted.has(canonicalPoolField(value));
+}
+
+function canonicalSet(values: readonly string[]): Set<string> {
+  return new Set(values.map(canonicalPoolField).filter(Boolean));
+}
+
+export function filterLanesBySelection(
+  lanes: readonly MarketplaceSearchLane[],
+  selection: LaneSelection | null | undefined,
+): PoolLane[] {
+  const pickup = canonicalSet(selection?.pickup ?? []);
+  const drop = canonicalSet(selection?.drop ?? []);
+  const vehicle = canonicalSet(selection?.vehicleType ?? []);
+  return canonicalPoolLanes(lanes).filter(
+    (lane) =>
+      matchesAny(lane.pickup_area, pickup) &&
+      matchesAny(lane.drop_location, drop) &&
+      matchesAny(lane.vehicle_type, vehicle),
+  );
+}
+
+/**
+ * Picker options for one field, narrowed by any of the values chosen in the
+ * other two fields. The field's own choices never narrow its options.
+ */
+export function selectionFieldOptions(
+  lanes: readonly MarketplaceSearchLane[],
+  selection: LaneSelection | null | undefined,
+  field: PoolField,
+  menuQuery = "",
+): PoolFieldOption[] {
+  const pickup = canonicalSet(selection?.pickup ?? []);
+  const drop = canonicalSet(selection?.drop ?? []);
+  const vehicle = canonicalSet(selection?.vehicleType ?? []);
   const query = canonicalPoolField(menuQuery);
   const byValue = new Map<string, PoolFieldOption & { top: number }>();
   for (const lane of canonicalPoolLanes(lanes)) {
-    if (field !== "pickup" && canonicalPoolField(lane.pickup_area) !== pickup) {
-      continue;
-    }
-    if (field === "vehicle" && canonicalPoolField(lane.drop_location) !== drop) {
-      continue;
-    }
+    if (field !== "pickup" && !matchesAny(lane.pickup_area, pickup)) continue;
+    if (field !== "drop" && !matchesAny(lane.drop_location, drop)) continue;
+    if (field !== "vehicle" && !matchesAny(lane.vehicle_type, vehicle)) continue;
     const label = poolFieldValue(lane, field).trim();
     const id = canonicalPoolField(label);
     if (!id || (query && !id.includes(query))) continue;

@@ -34,6 +34,7 @@ jest.mock("@/lib/layoutInsets", () => ({
     left: 0,
     right: 0,
     isDesktopWeb: mockDesktop,
+    scrollBottomPadding: (extra = 0) => extra,
   }),
 }));
 let mockCanBid = true;

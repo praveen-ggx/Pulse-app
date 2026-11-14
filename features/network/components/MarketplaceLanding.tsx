@@ -12,13 +12,19 @@ import { titleCaseWord } from "@/features/network/components/MarketplaceLoadCard
 import {
   ArrowLeftRight,
   ArrowRight,
+  ChevronLeft,
   ClipboardList,
+  Gavel,
+  Lock,
+  MapPin,
   Search,
+  ShieldCheck,
   Truck,
   X,
 } from "lucide-react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AccessibilityInfo, Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const TILES = [
   { id: "bids", title: "My Bids", body: "Active and past", icon: ClipboardList },
@@ -205,7 +211,7 @@ function AwardVehicleAlert({
       accessibilityRole="button"
       accessibilityLabel={`Bid awarded, assign a vehicle, ${(bid.pickup_area ?? "Pickup").trim()} to ${(bid.drop_location ?? "Drop").trim()}`}
     >
-      <View style={[styles.laneSlide, styles.awardCard, !wide && styles.laneSlideScroll]}>
+      <View style={[styles.laneSlide, styles.awardCard]}>
         <View style={styles.tileTop}>
           <View style={styles.awardKicker}>
             <Animated.View style={[styles.awardDot, { opacity: glow }]} />
@@ -271,6 +277,7 @@ function HotLaneSlide({
   const shown = Array.from({ length: Math.min(visibleCount, lanes.length) }, (_, offset) => {
     return lanes[(index + offset) % lanes.length];
   });
+  const showDots = !wide && lanes.length > 1;
   return (
     <Animated.View style={[styles.laneRow, wide && styles.laneRowWide, { opacity: fade }]}>
       {shown.map((lane) => {
@@ -281,13 +288,18 @@ function HotLaneSlide({
             onPress={() => onOpen(lane)}
             onPressIn={() => onWarm?.(lane)}
             onHoverIn={() => onWarm?.(lane)}
-            style={({ pressed }) => [styles.laneSlide, !wide && styles.laneSlideScroll, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.laneSlide, styles.hotLaneCard, pressed && styles.pressed]}
             accessibilityRole="button"
             accessibilityLabel={`Hot lane, ${lane.pickup_area} to ${lane.drop_location}, ${count} pooled loads`}
           >
             <View style={styles.tileTop}>
-              <Text style={styles.tileTitle}>Hot lane</Text>
-              <Text style={styles.laneSlideMeta}>{count} pooled</Text>
+              <View style={styles.hotLaneBadge}>
+                <View style={styles.hotLaneBadgeDot} />
+                <Text style={styles.hotLaneBadgeText}>HOT LANE</Text>
+              </View>
+              <Text style={styles.hotLaneCount}>
+                {count} load{count === 1 ? "" : "s"} pooled
+              </Text>
             </View>
             <Text style={styles.laneSlideRoute} numberOfLines={1}>
               {(lane.pickup_area ?? "Pickup").trim()}
@@ -298,9 +310,28 @@ function HotLaneSlide({
                 {(lane.drop_location ?? "Drop").trim()}
               </Text>
             </View>
-            <Text style={styles.tileBody} numberOfLines={1}>
-              {titleCaseWord(lane.vehicle_type) || "Any vehicle"}
-            </Text>
+            <View style={styles.hotLaneFoot}>
+              <View style={styles.hotLaneVehicle}>
+                <Truck size={12} color={Theme.textSecondary} strokeWidth={2} />
+                <Text style={styles.hotLaneVehicleText} numberOfLines={1}>
+                  {titleCaseWord(lane.vehicle_type) || "Any vehicle"}
+                </Text>
+              </View>
+              {showDots ? (
+                <View style={styles.hotLaneDots}>
+                  {lanes.slice(0, 5).map((dotLane, dot) => (
+                    <View
+                      key={dotLane.poolId}
+                      style={[styles.hotLaneDot, dot === index % Math.min(lanes.length, 5) && styles.hotLaneDotOn]}
+                    />
+                  ))}
+                </View>
+              ) : null}
+              <View style={styles.hotLaneCta}>
+                <Text style={styles.hotLaneCtaText}>View lane</Text>
+                <ArrowRight size={14} color={Theme.primaryText} strokeWidth={2.4} />
+              </View>
+            </View>
           </Pressable>
         );
       })}
@@ -328,27 +359,40 @@ function HeroLineArt({ wide }: { wide: boolean }) {
       loop?.stop();
     };
   }, [travel]);
-  const shift = travel.interpolate({ inputRange: [0, 1], outputRange: [0, wide ? 22 : 12] });
+  const shift = travel.interpolate({ inputRange: [0, 1], outputRange: [0, wide ? 132 : 88] });
   return (
-    <View style={styles.lineArt} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <View style={styles.lineCrate}>
-        <View style={styles.lineCrateLid} />
+    <View style={styles.routeArt} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <View style={styles.routeArtHead}>
+        <View style={styles.routeArtBadge}>
+          <Truck size={16} color={Theme.loadMainTabBg} strokeWidth={2.2} />
+        </View>
+        <View style={styles.routeArtCopy}>
+          <Text style={styles.routeArtTitle}>Open lanes</Text>
+          <Text style={styles.routeArtSub}>Bids open now</Text>
+        </View>
       </View>
-      <View style={styles.lineLane}>
-        <View style={styles.lineGround} />
-        <Animated.View style={[styles.lineTruck, { transform: [{ translateX: shift }] }]}>
-          <Truck size={wide ? 28 : 22} color={Theme.primaryText} strokeWidth={1.4} />
-        </Animated.View>
+      <View style={styles.routeTrack}>
+        <View style={styles.routeDot} />
+        <View style={styles.routeLine}>
+          <Animated.View style={[styles.routeTruck, { transform: [{ translateX: shift }] }]}>
+            <Truck size={18} color={Theme.primaryText} strokeWidth={1.8} />
+          </Animated.View>
+        </View>
+        <MapPin size={16} color={Theme.primaryText} strokeWidth={2.2} />
       </View>
-      <View style={styles.lineBoard}>
-        <View style={styles.lineBoardDot} />
-        <View style={styles.lineBoardRow} />
-        <View style={styles.lineBoardRow} />
-        <View style={[styles.lineBoardRow, styles.lineBoardRowShort]} />
+      <View style={styles.routeLabels}>
+        <Text style={styles.routeLabel}>Pickup</Text>
+        <Text style={styles.routeLabel}>Drop</Text>
       </View>
     </View>
   );
 }
+
+const HERO_POINTS = [
+  { label: "Verified loads", Icon: ShieldCheck },
+  { label: "Competitive bids", Icon: Gavel },
+  { label: "Secure payments", Icon: Lock },
+] as const;
 
 function LiveMark() {
   const pulse = useRef(new Animated.Value(0)).current;
@@ -370,14 +414,15 @@ function LiveMark() {
       loop?.stop();
     };
   }, [pulse]);
-  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.45] });
-  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.55, 0] });
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] });
   return (
-    <View style={styles.mark} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <Animated.View style={[styles.markRing, { opacity, transform: [{ scale }] }]} />
-      <View style={styles.markCore}>
-        <Truck size={20} color={Theme.loadMainTabBg} strokeWidth={2.2} />
+    <View style={styles.livePill}>
+      <View style={styles.liveDotWrap} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <Animated.View style={[styles.liveDotRing, { opacity, transform: [{ scale }] }]} />
+        <View style={styles.liveDot} />
       </View>
+      <Text style={styles.livePillText}>LIVE</Text>
     </View>
   );
 }
@@ -489,6 +534,63 @@ export function MarketplaceLanding({
         </Pressable>
         <Pressable onPress={onOpenWallet} style={styles.walletPill} accessibilityRole="button" accessibilityLabel="Open wallet">
           <Text style={styles.walletLink}>Wallet</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+
+  const summaryStats: readonly { label: string; value: string; onPress: () => void; a11y: string }[] = [
+    { label: "Active bids", value: String(activeBids.length), onPress: () => onOpenBids("bids"), a11y: "Open active bids" },
+    { label: "Won", value: String(figures.awarded), onPress: () => onOpenBids("won"), a11y: "Open won bids" },
+    { label: "Rates sent", value: formatINR(ratesSent), onPress: () => onOpenBids("bids"), a11y: "Open bids you sent" },
+    {
+      label: "Trips",
+      value: transactionsReady ? String(transactionBids.length) : "—",
+      onPress: onOpenTransactions,
+      a11y: "Open marketplace transactions",
+    },
+  ];
+
+  const mobileSummary = (
+    <View style={styles.summary}>
+      <View style={styles.summaryTop}>
+        <View style={styles.summaryCopy}>
+          <Text style={styles.walletKicker}>Marketplace wallet</Text>
+          <Text style={styles.walletValue}>{figures.due > 0 ? formatINR(figures.due) : "Clear"}</Text>
+          <Text style={styles.walletHint}>{figures.due > 0 ? "Fees due on awarded loads" : "Nothing due right now"}</Text>
+        </View>
+        <Pressable
+          onPress={onOpenWallet}
+          style={({ pressed }) => [styles.summaryWalletBtn, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Open wallet"
+        >
+          <Text style={styles.summaryWalletBtnText}>Wallet</Text>
+          <ArrowRight size={14} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
+        </Pressable>
+      </View>
+      <View style={styles.summaryStats}>
+        {summaryStats.map((stat) => (
+          <Pressable
+            key={stat.label}
+            onPress={stat.onPress}
+            style={({ pressed }) => [styles.summaryStat, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`${stat.a11y}, ${stat.value}`}
+          >
+            <Text style={styles.summaryStatValue} numberOfLines={1}>{stat.value}</Text>
+            <Text style={styles.summaryStatLabel} numberOfLines={1}>{stat.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <View style={styles.walletActions}>
+        <Pressable onPress={() => onOpenBids()} style={styles.walletPill} accessibilityRole="button" accessibilityLabel="Open my bids">
+          <ClipboardList size={14} color={Theme.buttonPrimaryText} strokeWidth={2.2} />
+          <Text style={styles.walletLink}>My bids</Text>
+        </Pressable>
+        <Pressable onPress={onOpenTransactions} style={styles.walletPill} accessibilityRole="button" accessibilityLabel="Open transactions">
+          <ArrowLeftRight size={14} color={Theme.buttonPrimaryText} strokeWidth={2.2} />
+          <Text style={styles.walletLink}>Transactions</Text>
         </Pressable>
       </View>
     </View>
@@ -653,19 +755,33 @@ export function MarketplaceLanding({
       <View style={[styles.heroRow, isDesktop && styles.heroRowDesktop]}>
         <View style={[styles.hero, isDesktop && styles.heroDesktop]}>
           <View style={styles.heroIdentity}>
-            <Text style={styles.heroKicker} numberOfLines={1}>
-              {orgName.trim() ? `LIVE MARKETPLACE · ${orgName.trim()}` : "LIVE MARKETPLACE"}
-            </Text>
-            <View style={styles.heroNameRow}>
-              <Text style={[styles.heroName, isDesktop && styles.heroNameDesktop]}>Marketplace Loads</Text>
+            <View style={styles.heroKickerRow}>
               <LiveMark />
+              <Text style={styles.heroKicker} numberOfLines={1}>
+                {orgName.trim() ? orgName.trim().toUpperCase() : "MARKETPLACE"}
+              </Text>
             </View>
+            <Text
+              style={[styles.heroName, isDesktop && styles.heroNameDesktop, !isDesktop && width < 420 && styles.heroNameCompact]}
+              accessibilityRole="header"
+            >
+              Marketplace Loads
+            </Text>
             <Text style={styles.heroTitle}>Find, bid and move more loads</Text>
-            <Text style={styles.heroBody}>Verified loads. Competitive bids. Secure payments.</Text>
+            <View style={styles.heroPoints}>
+              {HERO_POINTS.map(({ label, Icon }) => (
+                <View key={label} style={styles.heroPoint}>
+                  <Icon size={13} color={Theme.primaryText} strokeWidth={2.4} />
+                  <Text style={styles.heroPointText}>{label}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-          <View style={[styles.heroArt, isDesktop && styles.heroArtDesktop]} pointerEvents="none">
-            <HeroLineArt wide={isDesktop} />
-          </View>
+          {isDesktop || width >= 600 ? (
+            <View style={[styles.heroArt, isDesktop && styles.heroArtDesktop]} pointerEvents="none">
+              <HeroLineArt wide={isDesktop} />
+            </View>
+          ) : null}
         </View>
         {part === "main" ? null : isDesktop ? walletCard : null}
       </View>
@@ -688,25 +804,15 @@ export function MarketplaceLanding({
           ))}
         </View>
       ) : (
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tiles}>
-        {assignBids.length > 0 && onAssignVehicle ? (
-          <AwardVehicleAlert bids={assignBids} wide={false} onAssign={onAssignVehicle} />
-        ) : featuredLanes.length > 0 && onOpenFeaturedLane ? (
-          <HotLaneSlide lanes={featuredLanes} wide={false} onOpen={onOpenFeaturedLane} onWarm={onWarmFeaturedLane} />
-        ) : null}
-        {TILES.map((tile) => (
-          <MetricTile
-            key={tile.id}
-            tile={tile}
-            fact={tileFacts[tile.id]}
-            onPress={actions[tile.id]}
-            fill={false}
-          />
-        ))}
-      </ScrollView>
+        <View style={styles.tilesMobile}>
+          {assignBids.length > 0 && onAssignVehicle ? (
+            <AwardVehicleAlert bids={assignBids} wide={false} onAssign={onAssignVehicle} />
+          ) : featuredLanes.length > 0 && onOpenFeaturedLane ? (
+            <HotLaneSlide lanes={featuredLanes} wide={false} onOpen={onOpenFeaturedLane} onWarm={onWarmFeaturedLane} />
+          ) : null}
+          {part === "main" ? null : mobileSummary}
+        </View>
       )}
-
-      {part === "main" || isDesktop ? null : walletCard}
 
       {promo ? (
         <View style={styles.promo}>
@@ -724,7 +830,10 @@ export function MarketplaceLanding({
 
       <View style={styles.loadBoard}>
         <View style={styles.loadBoardHead}>
-          <Text style={styles.section}>Available loads ({loadCount})</Text>
+          <View style={styles.loadBoardTitle}>
+            <Text style={styles.section}>Available loads ({loadCount})</Text>
+            {isDesktop ? null : <Text style={styles.sectionMeta}>{showing} lanes showing</Text>}
+          </View>
           <View style={styles.loadBoardMeta}>
             <Pressable
               onPress={onSearchLoads}
@@ -735,7 +844,7 @@ export function MarketplaceLanding({
               <Search size={14} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
               <Text style={styles.searchChipText}>Search a load</Text>
             </Pressable>
-            <Text style={styles.sectionMeta}>{showing} showing</Text>
+            {isDesktop ? <Text style={styles.sectionMeta}>{showing} showing</Text> : null}
           </View>
         </View>
         {filters ? <View style={styles.loadBoardFilters}>{filters}</View> : null}
@@ -801,25 +910,63 @@ function BidReceiptModal({
   ];
   if (bid.note?.trim()) details.push({ label: "Note", value: bid.note.trim() });
 
+  const receipt = (
+    <LedgerEntryReceiptCard
+      desktop={desktop}
+      heroAnimation={bid.status === "accepted" ? "success" : false}
+      statusLabel={statusLabel}
+      title={feeDue ? "Marketplace fee" : "Marketplace rate"}
+      amount={feeDue ? fee : Number(bid.amount) || 0}
+      isIn={!feeDue}
+      partyAvatar={{ name: pickup, entityType: "client" }}
+      details={details}
+      secondaryAction={{ label: "Close", onPress: onClose }}
+      primaryAction={{ label: "Open bids", onPress: onOpenBids }}
+    />
+  );
+
+  if (!desktop) {
+    return (
+      <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+        <BidReceiptPage onClose={onClose}>{receipt}</BidReceiptPage>
+      </Modal>
+    );
+  }
+
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={styles.receiptOverlay} onPress={onClose} accessibilityLabel="Close bid receipt">
         <View style={styles.receiptShell} onStartShouldSetResponder={() => true}>
-          <LedgerEntryReceiptCard
-            desktop={desktop}
-            heroAnimation={bid.status === "accepted" ? "success" : false}
-            statusLabel={statusLabel}
-            title={feeDue ? "Marketplace fee" : "Marketplace rate"}
-            amount={feeDue ? fee : Number(bid.amount) || 0}
-            isIn={!feeDue}
-            partyAvatar={{ name: pickup, entityType: "client" }}
-            details={details}
-            secondaryAction={{ label: "Close", onPress: onClose }}
-            primaryAction={{ label: "Open bids", onPress: onOpenBids }}
-          />
+          {receipt}
         </View>
       </Pressable>
     </Modal>
+  );
+}
+
+function BidReceiptPage({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.receiptPage, { paddingTop: insets.top }]}>
+      <View style={styles.receiptPageHead}>
+        <Pressable
+          onPress={onClose}
+          style={styles.receiptPageBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back to marketplace"
+          hitSlop={8}
+        >
+          <ChevronLeft size={20} color={Theme.textPrimaryDark} strokeWidth={2.4} />
+        </Pressable>
+        <Text style={styles.receiptPageTitle}>Bid receipt</Text>
+      </View>
+      <ScrollView
+        style={styles.receiptPageScroll}
+        contentContainerStyle={[styles.receiptPageContent, { paddingBottom: insets.bottom + 24 }]}
+      >
+        {children}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -839,6 +986,21 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
   },
   receiptShell: { width: "100%", maxWidth: 380, alignSelf: "center" },
+  receiptPage: { flex: 1, backgroundColor: Theme.surfaceLight },
+  receiptPageHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+    backgroundColor: Theme.cardWhite,
+  },
+  receiptPageBack: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  receiptPageTitle: { fontSize: 18, fontWeight: "800", color: Theme.textPrimaryDark },
+  receiptPageScroll: { flex: 1 },
+  receiptPageContent: { paddingHorizontal: 16, paddingTop: 16 },
   wrap: { paddingBottom: 4, gap: 16 },
   side: { width: 400, alignSelf: "stretch", gap: 12, paddingTop: 0, paddingBottom: 0 },
   sideCard: {
@@ -888,88 +1050,99 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     backgroundColor: Theme.loadMainTabBg,
     borderRadius: 16,
-    paddingLeft: 20,
-    paddingVertical: 8,
-    paddingRight: 8,
-    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    gap: 16,
     overflow: "hidden",
-    minHeight: 148,
   },
   heroDesktop: {
-    minHeight: 168,
-    paddingLeft: 24,
-    paddingRight: 12,
-    gap: 16,
+    paddingHorizontal: 28,
+    paddingVertical: 24,
+    gap: 24,
   },
-  heroIdentity: { flex: 1, flexShrink: 1, minWidth: 0, gap: 6, justifyContent: "center", zIndex: 1 },
-  heroArt: {
-    width: 188,
-    height: 88,
-    justifyContent: "center",
-    flexShrink: 0,
+  heroIdentity: { flex: 1, flexShrink: 1, minWidth: 0, gap: 8, justifyContent: "center" },
+  heroArt: { width: 188, flexShrink: 0 },
+  heroArtDesktop: { width: 280 },
+  routeArt: {
+    backgroundColor: Theme.loadMainTabBgIdle,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.accentGoldBorder,
+    padding: 14,
+    gap: 14,
   },
-  heroArtDesktop: { width: 280, height: 120 },
-  lineArt: { flex: 1, flexDirection: "row", alignItems: "center", gap: 14 },
-  lineCrate: {
-    width: 28,
-    height: 24,
-    borderWidth: 1.25,
-    borderColor: Theme.primaryText,
-    borderRadius: 3,
-    justifyContent: "flex-start",
-  },
-  lineCrateLid: {
-    height: 6,
-    borderBottomWidth: 1.25,
-    borderBottomColor: Theme.primaryText,
-  },
-  lineLane: { flex: 1, height: 36, justifyContent: "flex-end" },
-  lineGround: { height: 1, backgroundColor: Theme.primaryText, opacity: 0.45 },
-  lineTruck: { position: "absolute", left: 0, bottom: 2 },
-  lineBoard: {
-    width: 64,
-    height: 52,
-    borderWidth: 1.25,
-    borderColor: Theme.primaryText,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    gap: 5,
-  },
-  lineBoardDot: { width: 10, height: 3, borderRadius: 2, backgroundColor: Theme.primaryText },
-  lineBoardRow: { height: 2, borderRadius: 1, backgroundColor: Theme.primaryText, opacity: 0.28 },
-  lineBoardRowShort: { width: "58%" },
-  heroNameRow: { flexDirection: "row", alignItems: "center", gap: 14 },
-  heroKicker: {
-    color: Theme.primaryText,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-  },
-  heroName: { color: Theme.primaryText, fontSize: 34, fontWeight: "800", letterSpacing: -0.8, lineHeight: 38 },
-  heroNameDesktop: { fontSize: 36, lineHeight: 40, letterSpacing: -0.9 },
-  heroOffer: { gap: 4, minWidth: 0 },
-  heroOfferDesktop: { alignItems: "flex-end", maxWidth: 460 },
-  heroOfferText: { textAlign: "right" },
-  heroTitle: { color: Theme.primaryText, fontSize: 16, fontWeight: "500" },
-  mark: { width: 64, height: 64, alignItems: "center", justifyContent: "center" },
-  markRing: {
-    position: "absolute",
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 1.5,
-    borderColor: Theme.primaryText,
-  },
-  markCore: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  routeArtHead: { flexDirection: "row", alignItems: "center", gap: 10 },
+  routeArtBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     backgroundColor: Theme.primaryText,
     alignItems: "center",
     justifyContent: "center",
   },
-  heroBody: { color: Theme.primaryText, fontSize: 14, lineHeight: 20, maxWidth: 520 },
+  routeArtCopy: { flex: 1, minWidth: 0, gap: 1 },
+  routeArtTitle: { color: Theme.primaryText, fontSize: 13, fontWeight: "800" },
+  routeArtSub: { color: Theme.primaryText, opacity: 0.65, fontSize: 11, fontWeight: "600" },
+  routeTrack: { flexDirection: "row", alignItems: "center", gap: 8 },
+  routeDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: Theme.primaryText,
+  },
+  routeLine: {
+    flex: 1,
+    height: 22,
+    justifyContent: "center",
+    borderBottomWidth: 1.5,
+    borderBottomColor: Theme.primaryText,
+    borderStyle: "dashed",
+  },
+  routeTruck: { position: "absolute", left: 0, bottom: 2 },
+  routeLabels: { flexDirection: "row", justifyContent: "space-between" },
+  routeLabel: { color: Theme.primaryText, opacity: 0.6, fontSize: 10, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase" },
+  heroKickerRow: { flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0 },
+  heroKicker: {
+    flexShrink: 1,
+    color: Theme.primaryText,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.1,
+    opacity: 0.72,
+  },
+  livePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: Theme.primaryText,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    flexShrink: 0,
+  },
+  livePillText: { color: Theme.loadMainTabBg, fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  liveDotWrap: { width: 8, height: 8, alignItems: "center", justifyContent: "center" },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Theme.driverPrimary },
+  liveDotRing: { position: "absolute", width: 7, height: 7, borderRadius: 4, backgroundColor: Theme.driverPrimary },
+  heroName: { color: Theme.primaryText, fontSize: 32, fontWeight: "800", letterSpacing: -0.8, lineHeight: 36 },
+  heroNameDesktop: { fontSize: 36, lineHeight: 40, letterSpacing: -0.9 },
+  heroNameCompact: { fontSize: 28, lineHeight: 32, letterSpacing: -0.6 },
+  heroPoints: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
+  heroPoint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: Theme.loadMainTabBgIdle,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  heroPointText: { color: Theme.primaryText, fontSize: 12, fontWeight: "600" },
+  heroOffer: { gap: 4, minWidth: 0 },
+  heroOfferDesktop: { alignItems: "flex-end", maxWidth: 460 },
+  heroOfferText: { textAlign: "right" },
+  heroTitle: { color: Theme.primaryText, fontSize: 15, fontWeight: "500", lineHeight: 20 },
   heroActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8 },
   heroActionsDesktop: { justifyContent: "flex-end" },
   heroPrimary: {
@@ -991,7 +1164,74 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   heroSecondaryText: { color: Theme.primaryText, fontWeight: "700", fontSize: 14 },
-  tiles: { gap: 10, paddingRight: 8 },
+  tilesMobile: { gap: 12 },
+  hotLaneCard: { borderColor: Theme.accentGoldBorder, gap: 2 },
+  hotLaneBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: Theme.loadMainTabBg,
+  },
+  hotLaneBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Theme.primaryText },
+  hotLaneBadgeText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.8, color: Theme.primaryText },
+  hotLaneCount: { marginLeft: "auto", fontSize: 12, fontWeight: "600", color: Theme.textMuted },
+  hotLaneFoot: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
+  hotLaneVehicle: {
+    flexShrink: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Theme.surfaceLight,
+  },
+  hotLaneVehicleText: { flexShrink: 1, fontSize: 12, fontWeight: "600", color: Theme.textSecondary },
+  hotLaneDots: { flexDirection: "row", alignItems: "center", gap: 4 },
+  hotLaneDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: Theme.borderLight },
+  hotLaneDotOn: { width: 14, backgroundColor: Theme.primaryText },
+  hotLaneCta: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32 },
+  hotLaneCtaText: { fontSize: 13, fontWeight: "700", color: Theme.primaryText },
+  summary: {
+    backgroundColor: Theme.buttonPrimary,
+    borderWidth: Theme.buttonPrimaryBorderWidth,
+    borderColor: Theme.buttonPrimaryBorder,
+    borderRadius: 18,
+    padding: 16,
+    gap: 12,
+  },
+  summaryTop: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  summaryCopy: { flex: 1, minWidth: 0, gap: 2 },
+  summaryWalletBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.buttonPrimaryBorder,
+  },
+  summaryWalletBtnText: { fontSize: 13, fontWeight: "800", color: Theme.buttonPrimaryText },
+  summaryStats: { flexDirection: "row", gap: 8 },
+  summaryStat: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 56,
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
+    gap: 2,
+  },
+  summaryStatValue: { fontSize: 15, fontWeight: "800", color: Theme.buttonPrimaryText, letterSpacing: -0.2 },
+  summaryStatLabel: { fontSize: 11, fontWeight: "600", color: Theme.textSecondary },
   tilesDesktop: { flexDirection: "row", alignItems: "stretch", gap: 12 },
   tileScroll: { width: 168 },
   tileFill: { flex: 1, minWidth: 0 },
@@ -1010,7 +1250,6 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     justifyContent: "space-between",
   },
-  laneSlideScroll: { width: 220, flexGrow: 0, flexShrink: 0 },
   laneSlideMeta: { fontSize: 11, fontWeight: "600", color: Theme.textMuted },
   laneSlideRoute: { marginTop: 8, fontSize: 16, lineHeight: 20, fontWeight: "600", color: Theme.textPrimaryDark },
   laneSlideDrop: { flexDirection: "row", alignItems: "center", gap: 4, minWidth: 0 },
@@ -1107,7 +1346,9 @@ const styles = StyleSheet.create({
   walletStatRule: { width: 1, height: 28, backgroundColor: Theme.buttonPrimaryBorder, opacity: 0.45 },
   walletActions: { flexDirection: "row", gap: 8, marginTop: 12 },
   walletPill: {
-    minHeight: 32,
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 36,
     paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
@@ -1131,6 +1372,7 @@ const styles = StyleSheet.create({
   loadBoard: { gap: 10 },
   loadBoardHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   loadBoardMeta: { flexDirection: "row", alignItems: "center", gap: 12 },
+  loadBoardTitle: { flex: 1, minWidth: 0, gap: 2 },
   loadBoardFilters: { width: "100%" },
   searchChip: {
     flexDirection: "row",

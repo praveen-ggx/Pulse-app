@@ -91,9 +91,9 @@ function dateRangeLabel(
   return a === b ? a : `${a} – ${b}`;
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({ label, value, half }: { label: string; value: string; half?: boolean }) {
   return (
-    <View style={styles.fact}>
+    <View style={[styles.fact, half && styles.factHalf]}>
       <Text style={styles.factLabel}>{label}</Text>
       <Text style={styles.factValue} numberOfLines={2}>
         {value}
@@ -326,6 +326,7 @@ export function PooledOpportunityScreen() {
   }
 
   const twoColumn = !!layout.isDesktopWeb && width >= TWO_COLUMN_MIN_WIDTH;
+  const pageMode = !layout.isDesktopWeb;
   /** Server member count: the whole pool, also when it is too large to list. */
   const poolCount = summary.poolSize ?? members.length;
   const countLabel = plural(poolCount, "load");
@@ -335,7 +336,7 @@ export function PooledOpportunityScreen() {
   const dates = dateRangeLabel(summary.earliestPickup, summary.latestPickup);
 
   const header = (
-    <View style={styles.header}>
+    <View style={[styles.header, pageMode && styles.headerPage]}>
       <Pressable
         onPress={handleBack}
         style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
@@ -369,7 +370,7 @@ export function PooledOpportunityScreen() {
   );
 
   const summaryCard = (
-    <View style={styles.card} testID="pool-requirement">
+    <View style={[styles.card, pageMode && styles.cardPage]} testID="pool-requirement">
       <Text style={styles.cardEyebrow}>
         {countLabel.toUpperCase()} IN THIS POOL
       </Text>
@@ -381,10 +382,11 @@ export function PooledOpportunityScreen() {
         />
       </View>
       <View style={styles.facts}>
-        <Fact label="Vehicle" value={vehicleLabel || "—"} />
-        <Fact label="Loads in pool" value={poolQ.data != null ? String(poolCount) : "…"} />
-        <Fact label="Pickup window" value={dates ?? "Not listed"} />
+        <Fact half={pageMode} label="Vehicle" value={vehicleLabel || "—"} />
+        <Fact half={pageMode} label="Loads in pool" value={poolQ.data != null ? String(poolCount) : "…"} />
+        <Fact half={pageMode} label="Pickup window" value={dates ?? "Not listed"} />
         <Fact
+          half={pageMode}
           label="Material"
           value={
             summary.loadTypes.length > 0
@@ -393,6 +395,7 @@ export function PooledOpportunityScreen() {
           }
         />
         <Fact
+          half={pageMode}
           label="Shippers"
           value={
             summary.shipperCount > 0
@@ -468,24 +471,37 @@ export function PooledOpportunityScreen() {
   return (
     <View
       style={[
-        styles.overlay,
-        {
-          paddingTop: contentTopInset + 16,
-          paddingBottom: layout.bottom + 16,
-          paddingLeft: 16 + layout.left,
-          paddingRight: 16 + layout.right,
-        },
+        pageMode ? styles.page : styles.overlay,
+        pageMode
+          ? {
+              paddingTop: contentTopInset,
+              paddingLeft: layout.left,
+              paddingRight: layout.right,
+            }
+          : {
+              paddingTop: contentTopInset + 16,
+              paddingBottom: layout.bottom + 16,
+              paddingLeft: 16 + layout.left,
+              paddingRight: 16 + layout.right,
+            },
       ]}
     >
-      <Pressable
-        style={styles.backdrop}
-        onPress={handleBack}
-        accessibilityRole="button"
-        accessibilityLabel="Back to marketplace"
-      />
+      {pageMode ? null : (
+        <Pressable
+          style={styles.backdrop}
+          onPress={handleBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back to marketplace"
+        />
+      )}
       {bidNow || bidTargets != null ? (
         bidTargets == null ? (
-          <View style={[styles.dialog, styles.dialogNarrow, styles.directBidWait]}>
+          <View
+            style={[
+              pageMode ? styles.pageBody : [styles.dialog, styles.dialogNarrow],
+              styles.directBidWait,
+            ]}
+          >
             <Text style={styles.title} numberOfLines={2}>
               {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
             </Text>
@@ -506,19 +522,28 @@ export function PooledOpportunityScreen() {
         ) : null
       ) : (
       <View
-        style={[
-          styles.dialog,
-          { maxHeight: Math.min(dialogMaxHeight, 840) },
-          twoColumn ? styles.dialogWide : styles.dialogNarrow,
-        ]}
-        accessibilityViewIsModal
+        style={
+          pageMode
+            ? styles.pageBody
+            : [
+                styles.dialog,
+                { maxHeight: Math.min(dialogMaxHeight, 840) },
+                twoColumn ? styles.dialogWide : styles.dialogNarrow,
+              ]
+        }
+        accessibilityViewIsModal={!pageMode}
       >
-        {header}
+        {pageMode ? null : header}
         <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.content}
+          style={pageMode ? styles.pageScroll : styles.scroll}
+          contentContainerStyle={
+            pageMode
+              ? [styles.pageContent, { paddingBottom: layout.scrollBottomPadding(16) }]
+              : styles.content
+          }
           showsVerticalScrollIndicator={false}
         >
+          {pageMode ? header : null}
           {twoColumn ? (
             <View style={styles.columns}>
               <View style={styles.mainCol}>
@@ -579,6 +604,11 @@ const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
   },
+  page: { flex: 1, backgroundColor: Theme.cardWhite },
+  pageBody: { flex: 1, width: "100%", backgroundColor: Theme.cardWhite },
+  pageScroll: { flex: 1, width: "100%" },
+  pageContent: { flexGrow: 1, paddingHorizontal: 16, gap: 16 },
+  headerPage: { paddingHorizontal: 0, paddingTop: 8, paddingBottom: 14 },
   dialog: {
     width: "100%",
     backgroundColor: Theme.cardWhite,
@@ -693,6 +723,8 @@ const styles = StyleSheet.create({
     borderColor: Theme.surfaceBorder,
   },
   facts: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  factHalf: { minWidth: 0, flexBasis: "40%" },
+  cardPage: { padding: 16, gap: 14 },
   fact: {
     minWidth: 140,
     flexGrow: 1,

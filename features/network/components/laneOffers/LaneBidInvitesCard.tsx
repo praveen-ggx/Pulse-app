@@ -5,6 +5,7 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Send } from "lucide-react-native";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import Theme from "@/constants/Theme";
 import {
@@ -81,21 +82,36 @@ export function LaneBidInvitesCard({ onResponded }: LaneBidInvitesCardProps) {
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Rate requests</Text>
-        <Text style={styles.count}>{total}</Text>
+        <View style={styles.headerIcon}>
+          <Send size={14} color={Theme.textOnPrimary} strokeWidth={2.2} />
+        </View>
+        <View style={styles.headerText}>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>Rate requests</Text>
+            <View style={styles.countPill}>
+              <Text style={styles.count}>{total}</Text>
+            </View>
+          </View>
+          <Text style={styles.subtitle}>
+            Shippers asked you to bid these loads at the rate you bid on the same lane.
+          </Text>
+        </View>
       </View>
-      <Text style={styles.subtitle}>
-        Shippers asked you to bid these loads at the rate you bid on the same lane.
-      </Text>
       {invites.map((invite) => (
         <View key={invite.invite_id} style={styles.row}>
-          <View style={styles.body}>
-            <Text style={styles.route} numberOfLines={2}>
-              {routeLabel(invite)}
-            </Text>
-            <Text style={styles.meta} numberOfLines={1}>
-              {laneBidInviteMeta(invite)}
-            </Text>
+          <View style={styles.rowTop}>
+            <View style={styles.body}>
+              <Text style={styles.route} numberOfLines={2}>
+                {routeLabel(invite)}
+              </Text>
+              <Text style={styles.meta} numberOfLines={1}>
+                {laneBidInviteMeta(invite)}
+              </Text>
+            </View>
+            <View style={styles.rate}>
+              <Text style={styles.rateKicker}>Your rate</Text>
+              <Text style={styles.rateValue}>{formatINR(invite.amount)}</Text>
+            </View>
           </View>
           <View style={styles.actions}>
             <TouchableOpacity
@@ -150,79 +166,125 @@ export function LaneBidInvitesCard({ onResponded }: LaneBidInvitesCardProps) {
 
 const styles = StyleSheet.create({
   card: {
-    gap: 10,
+    gap: 12,
     padding: 14,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    borderWidth: 1,
     borderColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
   },
   headerRow: {
     flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  headerIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: Theme.darkBackground,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerText: { flex: 1, minWidth: 0, gap: 3 },
+  titleRow: {
+    flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
   title: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
-    color: Theme.gpayListTitle,
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.2,
+  },
+  countPill: {
+    minWidth: 20,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 999,
+    backgroundColor: Theme.warningMuted,
+    alignItems: "center",
   },
   count: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: Theme.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+    color: Theme.warning,
     fontVariant: ["tabular-nums"],
   },
   subtitle: {
     fontSize: 12,
-    color: Theme.gpayListSubtitle,
+    lineHeight: 16,
+    color: Theme.textMuted,
   },
   row: {
-    gap: 8,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.borderLight,
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: Theme.surfaceGray,
+  },
+  rowTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
   },
   body: {
+    flex: 1,
     minWidth: 0,
-    gap: 2,
+    gap: 3,
   },
   route: {
-    fontSize: 13,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: "700",
-    color: Theme.gpayListTitle,
+    color: Theme.textPrimaryDark,
   },
   meta: {
-    fontSize: 11,
-    color: Theme.gpayListSubtitle,
+    fontSize: 12,
+    color: Theme.textMuted,
+  },
+  rate: { alignItems: "flex-end", gap: 1 },
+  rateKicker: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  rateValue: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+    fontVariant: ["tabular-nums"],
   },
   actions: {
     flexDirection: "row",
-    justifyContent: "flex-end",
     gap: 8,
   },
   btn: {
-    minHeight: 36,
+    flex: 1,
+    minHeight: 44,
     paddingHorizontal: 14,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
   btnPrimary: {
+    flex: 2,
     backgroundColor: Theme.darkBackground,
   },
   btnPrimaryText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "700",
     color: Theme.textOnPrimary,
   },
   btnSecondary: {
-    backgroundColor: Theme.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
   },
   btnSecondaryText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "700",
     color: Theme.textSecondary,
   },
@@ -232,8 +294,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   moreText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
-    color: Theme.primary,
+    color: Theme.textSecondary,
   },
 });

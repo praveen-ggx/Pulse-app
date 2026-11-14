@@ -1,11 +1,9 @@
 /**
- * Home / Network top bar — profile, invitations, notifications (compact).
+ * Home / Network / Trips top bar — profile, invitations, notifications (compact).
+ * Icons match the desktop top nav. Invites and notifications follow RBAC.
  */
-import {
-  AnimatedBellHeaderIcon,
-  AnimatedInboxHeaderIcon,
-} from "@/components/HomeHeaderAnimatedIcons";
-import { MOBILE_TAB_ICON_SIZE } from "@/components/navigation/PulseBottomTabBar/constants";
+import { NotificationBellIcon } from "@/components/NotificationBellIcon";
+import { WEB_TOP_NAV_ICON } from "@/components/demo/webTopNavIcon.tokens";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import Typography from "@/constants/Typography";
@@ -15,10 +13,14 @@ import {
   getUser2DAvatarUriForSeed,
 } from "@/constants/UserAvatars";
 import { useAuth } from "@/contexts/AuthContext";
+import { useDemoTabBarVisibilityProgressOptional } from "@/contexts/DemoTabBarScrollContext";
+import {
+  useAccessibleNotificationCount,
+  useRegistryNotificationAccess,
+} from "@/lib/alertRegistry/useRegistryNotificationAccess";
 import { getSignedAvatarUrl } from "@/lib/avatarUpload";
-import { useGlobalSyncStore } from "@/lib/globalSync/useGlobalSyncStore";
 import { ROUTES } from "@/lib/routes";
-import { ChevronLeft } from "lucide-react-native";
+import { ChevronLeft, Inbox } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -27,14 +29,26 @@ import {
   StyleSheet,
   Text,
   View,
+  type LayoutChangeEvent,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import Animated, {
+  Easing,
+  Extrapolation,
+  cancelAnimation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const HEADER_AVATAR_SIZE = 44;
-/** Match bottom-tab visual weight (20px Lucide → ~40px Lottie footprint). */
-const HEADER_ACTION_ICON_SIZE = MOBILE_TAB_ICON_SIZE * 2;
+const HEADER_ACTION_ICON_SIZE = WEB_TOP_NAV_ICON.size + 2;
 
 export interface HomePageHeaderProps {
   title?: string;
@@ -46,15 +60,43 @@ export interface HomePageHeaderProps {
   onNotificationsPress?: () => void;
   invitationBadgeCount?: number;
   skipSafeAreaTop?: boolean;
+  /** Hide while the page scrolls; return once scrolling is idle. */
+  autoHide?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
+/** Count pill with a soft, slow pulse ring while there is something new. */
 function Badge({ count }: { count: number }) {
-  if (count <= 0) return null;
+  const pulse = useSharedValue(0);
+  const active = count > 0;
+  useEffect(() => {
+    if (!active) {
+      cancelAnimation(pulse);
+      pulse.value = 0;
+      return;
+    }
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1400, easing: Easing.out(Easing.quad) }),
+        withDelay(1800, withTiming(0, { duration: 0 })),
+      ),
+      -1,
+      false,
+    );
+    return () => cancelAnimation(pulse);
+  }, [active, pulse]);
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(pulse.value, [0, 1], [0.45, 0], Extrapolation.CLAMP),
+    transform: [{ scale: interpolate(pulse.value, [0, 1], [1, 1.9], Extrapolation.CLAMP) }],
+  }));
+  if (!active) return null;
   const label = count > 99 ? "99+" : String(count);
   return (
-    <View style={styles.badge}>
-      <Text style={styles.badgeText}>{label}</Text>
+    <View style={styles.badgeAnchor} pointerEvents="none">
+      <Animated.View style={[styles.badgeRing, ringStyle]} />
+      <View style={styles.badge}>
+        <Text style={styles.badgeText}>{label}</Text>
+      </View>
     </View>
   );
 }
@@ -69,13 +111,32 @@ export function HomePageHeader({
   onNotificationsPress,
   invitationBadgeCount = 0,
   skipSafeAreaTop = false,
+  autoHide = false,
   style,
 }: HomePageHeaderProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { profile, user } = useAuth();
   const { currentOrganization } = useOrganization();
-  const notificationUnread = useGlobalSyncStore((s) => s.notificationUnreadCount);
+  const { canSeeNotifications, canSeeInvites } = useRegistryNotificationAccess();
+  const notificationUnread = useAccessibleNotificationCount(currentOrganization?.id ?? null);
+  const scrollProgress = useDemoTabBarVisibilityProgressOptional();
+  const [measuredHeight, setMeasuredHeight] = useState(0);
+  const hideStyle = useAnimatedStyle(() => {
+    if (!autoHide || !scrollProgress || measuredHeight <= 0) return {};
+    const p = scrollProgress.value;
+    return {
+      height: interpolate(p, [0, 1], [0, measuredHeight], Extrapolation.CLAMP),
+      opacity: interpolate(p, [0, 0.6, 1], [0, 0.85, 1], Extrapolation.CLAMP),
+      transform: [
+        { translateY: interpolate(p, [0, 1], [-10, 0], Extrapolation.CLAMP) },
+      ],
+    };
+  });
+  const onMeasure = (event: LayoutChangeEvent) => {
+    const h = Math.round(event.nativeEvent.layout.height);
+    if (h > 0 && h !== measuredHeight) setMeasuredHeight(h);
+  };
   const [profileAvatarUri, setProfileAvatarUri] = useState<string | null>(null);
 
   useEffect(() => {
@@ -143,8 +204,8 @@ export function HomePageHeader({
   const headerSubtitle =
     subtitle !== undefined ? subtitle.trim() : `Welcome ${welcomeName}`;
   const topPad = skipSafeAreaTop ? 4 : insets.top + 4;
-  const hasInviteBadge = invitationBadgeCount > 0;
-  const hasNotifBadge = notificationUnread > 0;
+  const inviteBadge = canSeeInvites ? invitationBadgeCount : 0;
+  const notifBadge = canSeeNotifications ? notificationUnread : 0;
 
   const handleProfile = () => {
     if (onProfilePress) {
@@ -167,7 +228,8 @@ export function HomePageHeader({
   };
 
   return (
-    <View style={[styles.wrap, { paddingTop: topPad }, style]}>
+    <Animated.View style={[styles.hideClip, hideStyle]}>
+    <View style={[styles.wrap, { paddingTop: topPad }, style]} onLayout={onMeasure}>
       <View style={styles.row}>
         {showBack ? (
           <Pressable
@@ -209,41 +271,51 @@ export function HomePageHeader({
         </View>
 
         <View style={styles.actions}>
-          <Pressable
-            onPress={handleInvitations}
-            style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Manage invitations"
-            hitSlop={6}
-          >
-            <AnimatedInboxHeaderIcon
-              size={HEADER_ACTION_ICON_SIZE}
-              glyphScale={1.28}
-              active={hasInviteBadge}
-            />
-            <Badge count={invitationBadgeCount} />
-          </Pressable>
-          <Pressable
-            onPress={handleNotifications}
-            style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Notifications"
-            hitSlop={6}
-          >
-            <AnimatedBellHeaderIcon
-              size={HEADER_ACTION_ICON_SIZE}
-              glyphScale={1.2}
-              active={hasNotifBadge}
-            />
-            <Badge count={notificationUnread} />
-          </Pressable>
+          {canSeeInvites && onInvitationsPress ? (
+            <Pressable
+              onPress={handleInvitations}
+              style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel={
+                inviteBadge > 0 ? `Manage invitations, ${inviteBadge} pending` : "Manage invitations"
+              }
+              hitSlop={6}
+            >
+              <Inbox
+                size={HEADER_ACTION_ICON_SIZE}
+                color={inviteBadge > 0 ? WEB_TOP_NAV_ICON.active : WEB_TOP_NAV_ICON.muted}
+                strokeWidth={WEB_TOP_NAV_ICON.stroke}
+              />
+              <Badge count={inviteBadge} />
+            </Pressable>
+          ) : null}
+          {canSeeNotifications ? (
+            <Pressable
+              onPress={handleNotifications}
+              style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel={
+                notifBadge > 0 ? `Notifications, ${notifBadge} new` : "Notifications"
+              }
+              hitSlop={6}
+            >
+              <NotificationBellIcon
+                size={HEADER_ACTION_ICON_SIZE}
+                color={notifBadge > 0 ? WEB_TOP_NAV_ICON.active : WEB_TOP_NAV_ICON.muted}
+                strokeWidth={WEB_TOP_NAV_ICON.stroke}
+              />
+              <Badge count={notifBadge} />
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  hideClip: { overflow: "hidden" },
   wrap: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingBottom: 6,
@@ -320,10 +392,21 @@ const styles = StyleSheet.create({
     opacity: 0.88,
     transform: [{ scale: 0.94 }],
   },
-  badge: {
+  badgeAnchor: {
     position: "absolute",
-    top: 0,
-    right: 0,
+    top: 4,
+    right: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeRing: {
+    position: "absolute",
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Theme.teslaRed,
+  },
+  badge: {
     minWidth: 16,
     height: 16,
     paddingHorizontal: 4,

@@ -13,8 +13,10 @@
  * fleet/driver is chosen at allocation after award (A4.4 Phase 3).
  */
 import { ChromeBelowTopNavLoadingScreen } from "@/components/chromeLoadingScreens";
+import { HomePageHeader } from "@/components/HomePageHeader";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
 import { MarketplaceLaneFilters } from "@/features/network/components/MarketplaceLaneFilters";
 import { MarketplaceLanding } from "@/features/network/components/MarketplaceLanding";
@@ -32,14 +34,12 @@ import {
   marketBidsFromQueryData,
 } from "@/features/network/services/findLoadsForOrg.service";
 import {
-  normalizeMarketplaceSearch,
   positiveLaneTarget,
-  type MarketplaceLoadSearch,
 } from "@/features/network/utils/marketplaceSearch.util";
 import { hotMarketplaceLanes } from "@/features/network/utils/hotMarketplaceLanes.util";
 import { marketplaceArBook } from "@/features/network/utils/marketplaceWallet.util";
 import {
-  liveMarketplaceSearch,
+  liveLaneSelection,
   marketplaceLaneCountKey,
   marketplaceLaneSearchKey,
   bidderLaneKey,
@@ -52,8 +52,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ChevronLeft } from "lucide-react-native";
 import {
   canonicalPoolField,
+  filterLanesBySelection,
   filterPoolLanes,
+  laneSelectionActive,
+  normalizeLaneSelection,
   poolKeyFromLane,
+  type LaneSelection,
   poolKeyId,
 } from "@/features/network/utils/pooledOpportunity.util";
 import { STALE } from "@/lib/queryClient";
@@ -116,17 +120,20 @@ export default function FindLoadsScreen() {
   useEffect(() => {
     if (params.segment === "my-bids") setSegment("myBids");
   }, [params.segment]);
-  const [appliedSearch, setAppliedSearch] = useState<MarketplaceLoadSearch | null>(
-    null,
-  );
+  const [appliedSelection, setAppliedSelection] = useState<LaneSelection | null>(null);
+  /** Results page open. Back keeps the search on the home filter card. */
+  const [resultsOpen, setResultsOpen] = useState(false);
   const [browseAllLanes, setBrowseAllLanes] = useState(false);
   const [pickupOpenToken, setPickupOpenToken] = useState(0);
-  const searchActive = Object.values(normalizeMarketplaceSearch(appliedSearch)).some(Boolean);
+  const searchActive = laneSelectionActive(appliedSelection);
+  const showingResults = resultsOpen && searchActive;
   const searchHydrated = useRef<string | null>(null);
 
   const contentTopInset = layout.isDesktopWeb
     ? Layout.desktopTopNavOffset
     : layout.top;
+  const tabBarScrollProps = useTabBarAwareScrollProps();
+  const chromeScrollsWithContent = !layout.isDesktopWeb;
 
   const vehiclesQ = useQuery({
     queryKey: queryKeys.vehicles.all(orgId ?? ""),
@@ -258,29 +265,33 @@ export default function FindLoadsScreen() {
     if (!orgId || lanes.length === 0 || searchHydrated.current === orgId) return;
     let cancelled = false;
     void (async () => {
-      let saved: MarketplaceLoadSearch | null = null;
+      let saved: unknown = null;
       try {
         const raw = await AsyncStorage.getItem(marketplaceLaneSearchKey(orgId));
-        saved = raw ? (JSON.parse(raw) as MarketplaceLoadSearch) : null;
+        saved = raw ? JSON.parse(raw) : null;
       } catch {
         saved = null;
       }
       if (cancelled) return;
       searchHydrated.current = orgId;
-      const next = liveMarketplaceSearch(lanes, saved);
-      if (next) setAppliedSearch(next);
+      const next = liveLaneSelection(lanes, saved);
+      if (next) setAppliedSelection(next);
     })();
     return () => {
       cancelled = true;
     };
   }, [orgId, lanes]);
 
-  const updateSearch = (next: MarketplaceLoadSearch) => {
-    setAppliedSearch(next);
+  const updateSearch = (next: LaneSelection, source: "apply" | "edit" = "apply") => {
+    const active = laneSelectionActive(next);
+    setAppliedSelection(next);
+    if (!active) setBrowseAllLanes(false);
+    if (!active) setResultsOpen(false);
+    else if (source === "apply") setResultsOpen(true);
     if (!orgId) return;
     AsyncStorage.setItem(
       marketplaceLaneSearchKey(orgId),
-      JSON.stringify(normalizeMarketplaceSearch(next)),
+      JSON.stringify(normalizeLaneSelection(next)),
     ).catch(() => {});
   };
 
@@ -290,8 +301,8 @@ export default function FindLoadsScreen() {
   );
 
   const pools = useMemo(
-    () => filterPoolLanes(lanes, appliedSearch),
-    [lanes, appliedSearch],
+    () => filterLanesBySelection(lanes, showingResults ? appliedSelection : null),
+    [lanes, appliedSelection, showingResults],
   );
   const poolLoadTotal = useMemo(
     () => pools.reduce((n, lane) => n + (Number(lane.load_count) || 0), 0),
@@ -304,7 +315,7 @@ export default function FindLoadsScreen() {
     const busy = ranked.filter((lane) => (Number(lane.load_count) || 0) >= 10);
     return busy.length > 0 ? busy : ranked;
   }, [pools]);
-  const showHotLanesOnly = !searchActive && !browseAllLanes;
+  const showHotLanesOnly = !showingResults && !browseAllLanes;
   const listedPools = useMemo(
     () => (showHotLanesOnly ? hotMarketplaceLanes(pools) : pools),
     [showHotLanesOnly, pools],
@@ -409,12 +420,24 @@ export default function FindLoadsScreen() {
             poolLoadTotal === 1 ? "" : "s"
           }`;
 
+  const showBack = segment !== "discover" || showingResults || browseAllLanes;
+  const backLabel = segment === "discover" ? "Back to marketplace home" : "Back to marketplace loads";
+  const goBack = () => {
+    if (segment !== "discover") {
+      setSegment("discover");
+      return;
+    }
+    setBrowseAllLanes(false);
+    setResultsOpen(false);
+  };
+
   const laneFilters = (
     <View style={styles.headerFilters}>
       <MarketplaceLaneFilters
         lanes={lanesQ.data ?? []}
-        value={appliedSearch}
-        onChange={updateSearch}
+        multiple
+        selection={appliedSelection}
+        onSelectionChange={updateSearch}
         suggestion={laneSuggestion}
         stacked={!layout.isDesktopWeb}
         appearance="board"
@@ -438,6 +461,17 @@ export default function FindLoadsScreen() {
         <View style={styles.chromeInner}>
           {segment === "discover" && showHotLanesOnly && !lanesQ.isLoading && !lanesQ.isError && pools.length > 0 ? null : (
           <View style={[styles.headerInner, !layout.isDesktopWeb && styles.headerInnerMobile]}>
+            {showBack ? (
+              <Pressable
+                onPress={goBack}
+                style={({ pressed }) => [styles.backBtn, pressed && styles.retryBtnPressed]}
+                accessibilityRole="button"
+                accessibilityLabel={backLabel}
+                hitSlop={6}
+              >
+                <ChevronLeft size={20} color={Theme.textPrimaryDark} strokeWidth={2.4} />
+              </Pressable>
+            ) : null}
             {layout.isDesktopWeb ? (
               <View style={styles.headerLeft}>
                 <View style={styles.headerTextCol}>
@@ -465,18 +499,6 @@ export default function FindLoadsScreen() {
                 </Text>
               </View>
             )}
-            {segment === "discover" ? null : (
-              <Pressable
-                onPress={() => setSegment("discover")}
-                style={({ pressed }) => [styles.backToLoads, pressed && styles.retryBtnPressed]}
-                accessibilityRole="button"
-                accessibilityLabel="Back to marketplace loads"
-                hitSlop={4}
-              >
-                <ChevronLeft size={16} color={Theme.textPrimaryDark} strokeWidth={2.4} />
-                <Text style={styles.backToLoadsText}>Loads</Text>
-              </Pressable>
-            )}
           </View>
           )}
         </View>
@@ -502,13 +524,16 @@ export default function FindLoadsScreen() {
   ) : pools.length === 0 ? (
     <View style={styles.pageBody}>
       <Text style={styles.message}>
-        {searchActive
+        {showingResults
           ? "No pooled opportunities match these filters."
           : "No open Marketplace loads right now."}
       </Text>
-      {searchActive ? (
+      {showingResults ? (
         <Pressable
-          onPress={() => setAppliedSearch(null)}
+          onPress={() => {
+            setResultsOpen(false);
+            setPickupOpenToken((token) => token + 1);
+          }}
           style={({ pressed }) => [styles.retryBtn, pressed && styles.retryBtnPressed]}
           accessibilityRole="button"
           accessibilityLabel="Change marketplace filters"
@@ -520,16 +545,20 @@ export default function FindLoadsScreen() {
   ) : null;
 
   const showDiscoverCards = segment === "discover" && discoverBody == null;
+  const scrollBottomPad = { paddingBottom: layout.scrollBottomPadding(24) };
 
   return (
     <View style={[styles.root, { paddingTop: contentTopInset }]}>
+      {chromeScrollsWithContent ? <HomePageHeader autoHide skipSafeAreaTop /> : null}
       <View style={[styles.frame, layout.isDesktopWeb && styles.frameDesktop]}>
-      {pageChrome()}
+      {chromeScrollsWithContent ? null : pageChrome()}
       {segment === "wallet" ? (
         <ScrollView
           style={styles.pageScroll}
-          contentContainerStyle={styles.pageScrollContent}
+          contentContainerStyle={[styles.pageScrollContent, scrollBottomPad]}
+          {...tabBarScrollProps}
         >
+          {chromeScrollsWithContent ? pageChrome() : null}
           <MarketplaceWalletBoard
             orgName={organization?.name ?? ""}
             bids={myBids}
@@ -546,11 +575,13 @@ export default function FindLoadsScreen() {
       ) : segment === "myBids" ? (
         <ScrollView
           style={styles.pageScroll}
-          contentContainerStyle={styles.pageScrollContent}
+          contentContainerStyle={[styles.pageScrollContent, scrollBottomPad]}
+          {...tabBarScrollProps}
         >
-          <LaneBidInvitesCard onResponded={() => void myBidsQ.refetch()} />
-          <NetworkMyQuotesList />
+          {chromeScrollsWithContent ? pageChrome() : null}
           <OrgMyBidsList
+            actionSlot={<LaneBidInvitesCard onResponded={() => void myBidsQ.refetch()} />}
+            footerSlot={<NetworkMyQuotesList />}
             bids={myBids}
             focus={bidFocus}
             onFocusChange={setBidFocus}
@@ -580,12 +611,15 @@ export default function FindLoadsScreen() {
           contentContainerStyle={[
             styles.listContent,
             layout.isDesktopWeb && styles.listContentDesktop,
+            scrollBottomPad,
           ]}
           columnWrapperStyle={
             discoverColumns > 1 ? styles.listRow : undefined
           }
+          {...tabBarScrollProps}
           ListHeaderComponent={
             <View>
+              {chromeScrollsWithContent ? pageChrome() : null}
               {showHotLanesOnly ? (
                 <MarketplaceLanding
                   orgName={organization?.name ?? ""}
@@ -621,7 +655,7 @@ export default function FindLoadsScreen() {
                 />
               ) : (
                 <>
-                  {browseAllLanes && !searchActive ? (
+                  {browseAllLanes && !showingResults ? (
                 <Pressable
                   onPress={() => setBrowseAllLanes(false)}
                   style={styles.hotLaneBack}
@@ -681,8 +715,10 @@ export default function FindLoadsScreen() {
       ) : (
         <ScrollView
           style={styles.pageScroll}
-          contentContainerStyle={styles.pageScrollContent}
+          contentContainerStyle={[styles.pageScrollContent, scrollBottomPad]}
+          {...tabBarScrollProps}
         >
+          {chromeScrollsWithContent ? pageChrome() : null}
           {discoverBody}
         </ScrollView>
       )}
@@ -763,7 +799,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   headerInnerMobile: {
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 12,
   },
   headerLeft: {
@@ -776,32 +812,21 @@ const styles = StyleSheet.create({
   headerFilters: {
     flex: 1,
     minWidth: 0,
-    borderRadius: 16,
+    borderRadius: 14,
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
     borderColor: Theme.borderLight,
     overflow: "hidden",
     justifyContent: "center",
   },
-  backToLoads: {
-    marginLeft: "auto",
-    flexShrink: 0,
-    flexDirection: "row",
-    gap: 2,
-    minHeight: 44,
-    paddingLeft: 10,
-    paddingRight: 16,
+  backBtn: {
+    width: Layout.minTouchTargetSize,
+    height: Layout.minTouchTargetSize,
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
-  },
-  backToLoadsText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: Theme.textPrimaryDark,
+    flexShrink: 0,
   },
   headerTextCol: {
     flex: 1,

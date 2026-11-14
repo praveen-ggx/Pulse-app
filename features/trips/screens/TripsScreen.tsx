@@ -27,6 +27,8 @@ import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { useOptionalAuth } from "@/contexts/AuthContext";
+import { HomePageHeader } from "@/components/HomePageHeader";
+import { useProtocolInvitesWithDriverSent } from "@/lib/hooks/useProtocolInvitesWithDriverSent";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
@@ -157,9 +159,15 @@ import {
   visibleHubTripIds,
 } from "@/features/trips/utils/hubListPageSlice.util";
 import {
+    indentHubLifecycleStatus,
     indentHubStatusTag,
     type IndentHubStatusTag,
 } from "@/features/trips/utils/indentHubCardPresentation";
+import {
+    indentLaneKey,
+    laneBidSpreads,
+    laneBidTag,
+} from "@/features/trips/utils/indentLaneBids.util";
 import { indentRowToHubTrip } from "@/features/trips/utils/indentHubTableTrip.util";
 import {
   collectIndentHubSearchMatches,
@@ -230,7 +238,6 @@ import { useTripSubcontractsQuery } from "@/lib/queries/useFinanceEntityQueries"
 import {
     useFailedIndentsQuery,
     useIndentBidSnapshotsQuery,
-    useIndentOfferCountsQuery,
     useIndentsQuery,
 } from "@/lib/queries/useIndentsQuery";
 import {
@@ -260,7 +267,7 @@ import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useMemberCapabilities } from "@/lib/useMemberCapabilities";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { Download } from "lucide-react-native";
+import { Download, Truck } from "lucide-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -716,6 +723,7 @@ export default function TripsScreen() {
     (workspaceCtx!.isLoading || !workspaceCtx!.membershipResolved);
   const orgBootPending = orgLoading || workspaceResolving;
   const orgId = canAccess ? (currentOrganization?.id ?? null) : null;
+  const { pendingCount: pendingInviteCount } = useProtocolInvitesWithDriverSent(orgId);
   const networkLoadsQ = useMarketIndentsQuery(canOpenLoadNetwork ? orgId : null);
   const networkLoadCount = useMemo(() => {
     let count = 0;
@@ -726,6 +734,46 @@ export default function TripsScreen() {
     }
     return count;
   }, [networkLoadsQ.data]);
+  const renderLoadNetworkButton = (mobile: boolean) =>
+    mobile ? (
+      <PulsePillButton
+        label={
+          networkLoadsQ.data
+            ? `Load from network (${networkLoadCount})`
+            : "Load from network"
+        }
+        icon={<Truck size={13} color={Theme.primaryText} strokeWidth={2.4} />}
+        size="compact"
+        labelStyle={styles.loadNetworkBtnLabelMobile}
+        onPress={() => router.push(`${ROUTES.PULSE_LOADS}?from=trips` as never)}
+        accessibilityLabel={
+          networkLoadsQ.data
+            ? `Load from network, ${networkLoadCount}`
+            : "Load from network"
+        }
+        style={[styles.tripsAddButtonOnChrome, styles.loadNetworkBtnMobile]}
+      />
+    ) : (
+    <Pressable
+      onPress={() => router.push(`${ROUTES.PULSE_LOADS}?from=trips` as never)}
+      style={({ pressed }) => [
+        styles.loadNetworkBtn,
+        pressed && styles.loadNetworkBtnPressed,
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel={
+        networkLoadsQ.data
+          ? `Load from network, ${networkLoadCount}`
+          : "Load from network"
+      }
+    >
+      <Text style={styles.loadNetworkBtnText} numberOfLines={1}>
+        {networkLoadsQ.data
+          ? `Load from network (${networkLoadCount})`
+          : "Load from network"}
+      </Text>
+    </Pressable>
+  );
   const cachedTripsForOrg = orgId
     ? (queryClient.getQueryData(queryKeys.trips.finite(orgId)) as TripRow[] | undefined)
     : undefined;
@@ -736,7 +784,7 @@ export default function TripsScreen() {
     isError: tripsLoadFailed,
     error: tripsLoadError,
     refetch: refetchTrips,
-  } = useTripsQuery(orgId);
+  } = useTripsQuery(orgId, { urgent: true });
   const tripsData = useMemo(
     () => sourcingScope.filterTrips(tripsDataRaw as TripRow[]),
     [sourcingScope, tripsDataRaw],
@@ -1017,34 +1065,66 @@ export default function TripsScreen() {
     [visibleUnallocatedIndents],
   );
   const indentOfferCountIds = useMemo(() => {
-    // While searching, load bid counts for the whole unallocated pool so
-    // Pending vs Bids received auto-navigation is correct before the indent tile is selected.
-    if (activeMetricTab === "indent" || indentHubSearchActive) {
+    // The whole unallocated pool, including the All tab. A lane bid has to
+    // reach indents created before it and indents created after it, so the
+    // first page of cards is not enough.
+    if (
+      activeMetricTab === "indent" ||
+      activeMetricTab === "all" ||
+      indentHubSearchActive
+    ) {
       return dateFilteredUnallocatedIndents.map((indent) => indent.id);
     }
-    if (activeMetricTab === "all") return hubSatelliteIndentIds;
     return [];
   }, [
     activeMetricTab,
     dateFilteredUnallocatedIndents,
-    hubSatelliteIndentIds,
     indentHubSearchActive,
   ]);
-  const { data: indentOfferCounts = {} } = useIndentOfferCountsQuery(
+  const laneBidsEnabled =
     activeMetricTab === "all" ||
-      activeMetricTab === "indent" ||
-      indentHubSearchActive
-      ? orgId
-      : null,
+    activeMetricTab === "indent" ||
+    indentHubSearchActive;
+  const { data: indentBidSnapshots = {} } = useIndentBidSnapshotsQuery(
+    laneBidsEnabled ? orgId : null,
     indentOfferCountIds,
   );
+  const indentOfferCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const [id, snap] of Object.entries(indentBidSnapshots)) {
+      if (snap.count > 0) counts[id] = snap.count;
+    }
+    return counts;
+  }, [indentBidSnapshots]);
+  const laneBidSpreadByKey = useMemo(
+    () => laneBidSpreads(unallocatedIndents, indentOfferCounts, indentBidSnapshots),
+    [unallocatedIndents, indentOfferCounts, indentBidSnapshots],
+  );
+  const laneAppliedBidCounts = useMemo(() => {
+    const applied: Record<string, number> = { ...indentOfferCounts };
+    for (const indent of unallocatedIndents) {
+      const own = indentOfferCounts[indent.id] ?? 0;
+      if (own > 0) continue;
+      if ((indentWorkloadKindById.get(indent.id) ?? "live") !== "live") continue;
+      if (indentHubLifecycleStatus(indent.status, 0) !== "WAITING FOR BID") continue;
+      const key = indentLaneKey(indent);
+      const spread = key ? laneBidSpreadByKey.get(key) : undefined;
+      if (spread && spread.biddingLoads > 0) applied[indent.id] = 1;
+    }
+    return applied;
+  }, [
+    indentOfferCounts,
+    indentWorkloadKindById,
+    laneBidSpreadByKey,
+    unallocatedIndents,
+  ]);
   const indentWorkloadTagFor = useCallback(
     (indent: IndentRow) =>
       indentWorkloadStatusTag(
         indentWorkloadKindById.get(indent.id) ?? "live",
-        indentOfferCounts[indent.id] ?? 0,
+        laneAppliedBidCounts[indent.id] ?? 0,
       ),
-    [indentOfferCounts, indentWorkloadKindById],
+    [laneAppliedBidCounts, indentWorkloadKindById],
   );
   const indentHubSearchMatches = useMemo(
     () =>
@@ -1052,7 +1132,7 @@ export default function TripsScreen() {
         query: searchQuery,
         unallocated: unallocatedIndents,
         failed: failedStageIndents,
-        bidCountById: indentOfferCounts,
+        bidCountById: laneAppliedBidCounts,
         workloadKindById: indentWorkloadKindById,
         indentIdsWithTrip,
       }),
@@ -1060,7 +1140,7 @@ export default function TripsScreen() {
       searchQuery,
       unallocatedIndents,
       failedStageIndents,
-      indentOfferCounts,
+      laneAppliedBidCounts,
       indentWorkloadKindById,
       indentIdsWithTrip,
     ],
@@ -1355,10 +1435,6 @@ export default function TripsScreen() {
   });
   const showIndentPoolView =
     canViewIndentPools && indentPoolView.view === "indents";
-  const { data: indentBidSnapshots } = useIndentBidSnapshotsQuery(
-    showIndentPoolView && activeMetricTab === "indent" ? orgId : null,
-    unallocatedIndentIds,
-  );
   const failedReasonCounts = useMemo(() => {
     if (hubMetrics) return hubMetrics.failReasons;
     const counts: Record<IndentCancelReasonId, number> = {
@@ -1672,7 +1748,7 @@ export default function TripsScreen() {
       if (indent) {
         const tag = indentHubStatusTag(
           indent.status,
-          indentOfferCounts[indent.id] ?? 0,
+          laneAppliedBidCounts[indent.id] ?? 0,
         );
         if (tag === "pending") return "PENDING";
         if (tag === "bids") return "BIDS RECEIVED";
@@ -1682,7 +1758,7 @@ export default function TripsScreen() {
       // Same classification as Active rail tiles (never use started_at for IN TRANSIT).
       return hubTripCardStageLabel(t, EMPTY_HUB_DOC_TRIP_IDS);
     },
-    [indentById, indentOfferCounts],
+    [indentById, laneAppliedBidCounts],
   );
 
   /** Show completed/done trips only on the History tab. */
@@ -3595,7 +3671,13 @@ export default function TripsScreen() {
       const hasDirectSupplier = Boolean(
         (indent as { assigned_supplier_id?: string | null }).assigned_supplier_id,
       );
-      const bidCount = indentOfferCounts[indent.id] ?? 0;
+      const bidCount = laneAppliedBidCounts[indent.id] ?? 0;
+      const ownBidCount = indentOfferCounts[indent.id] ?? 0;
+      const laneKey = indentLaneKey(indent);
+      const laneTag =
+        ownBidCount === 0 && bidCount > 0 && laneKey
+          ? laneBidTag(laneBidSpreadByKey.get(laneKey))
+          : null;
       const openIndent = () => handleOpenUnallocatedIndent(indent);
       const avatarProps = giveLoadIndentAvatarProps(
         indent,
@@ -3610,6 +3692,7 @@ export default function TripsScreen() {
             indentSearchHighlightId === indent.id
           }
           bidCount={bidCount}
+          extraTags={laneTag ? [laneTag] : undefined}
           extraStopCount={extraStopsByIndentId.get(indent.id)?.count ?? 0}
           extraStopNames={extraStopNamesByIndentId.get(indent.id)}
           hubGrid={hubGrid}
@@ -4156,6 +4239,20 @@ export default function TripsScreen() {
         }}
       />
 
+      {isMobileViewport ? (
+        <HomePageHeader
+          autoHide
+          skipSafeAreaTop={Platform.OS !== "web"}
+          invitationBadgeCount={pendingInviteCount}
+          onInvitationsPress={() =>
+            router.push({
+              pathname: "/network",
+              params: { view: "requests", ts: String(Date.now()) },
+            } as never)
+          }
+        />
+      ) : null}
+
       <ScrollView
           style={styles.scroll}
           contentContainerStyle={[
@@ -4208,7 +4305,10 @@ export default function TripsScreen() {
             >
               {isMobileViewport ? (
                 <>
-                  <HubMobileScreenHeader title={tr("myTrips")} />
+                  <HubMobileScreenHeader
+                    title={tr("myTrips")}
+                    action={renderLoadNetworkButton(true)}
+                  />
                   <View style={[hubChrome.tabHeaderRow, styles.tripsMobileTabRow]}>
                     <ScrollView
                       horizontal
@@ -4285,25 +4385,7 @@ export default function TripsScreen() {
                       </View>
                     ) : null}
                     <View style={styles.loadNetworkSlot} pointerEvents="box-none">
-                      <Pressable
-                        onPress={() => router.push(`${ROUTES.PULSE_LOADS}?from=trips` as never)}
-                        style={({ pressed }) => [
-                          styles.loadNetworkBtn,
-                          pressed && styles.loadNetworkBtnPressed,
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          networkLoadsQ.data
-                            ? `Load from network, ${networkLoadCount}`
-                            : "Load from network"
-                        }
-                      >
-                        <Text style={styles.loadNetworkBtnText}>
-                          {networkLoadsQ.data
-                            ? `Load from network (${networkLoadCount})`
-                            : "Load from network"}
-                        </Text>
-                      </Pressable>
+                      {renderLoadNetworkButton(false)}
                     </View>
                     <View style={chatChrome.filterHeaderRight}>
                       <View
@@ -4625,7 +4707,7 @@ export default function TripsScreen() {
                             indents={rows
                               .map((row) => indentById.get(row.id) ?? indentById.get(row.indent_id ?? ""))
                               .filter((indent): indent is IndentRow => indent != null)}
-                            bidCountById={indentOfferCounts}
+                            bidCountById={laneAppliedBidCounts}
                             onOpenIndent={handleOpenUnallocatedIndent}
                             onOpenActivity={(indent) => {
                               toggleIndentActivity(indent.id);
@@ -5785,6 +5867,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  loadNetworkBtnMobile: {
+    flexShrink: 0,
+    marginBottom: 0,
+    backgroundColor: Theme.loadMainTabBg,
+    borderWidth: 0,
+  },
+  loadNetworkBtnLabelMobile: { color: Theme.primaryText },
   loadNetworkBtnPressed: { opacity: 0.88 },
   loadNetworkBtnText: {
     color: Theme.textOnPrimary,

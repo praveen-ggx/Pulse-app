@@ -31,7 +31,7 @@ import {
   redactExtraStopRows,
   redactExtraStopSummary,
 } from "@/features/indents/utils/indentCommercialsRedaction.util";
-import { IndentReviewHubDialogShell } from "@/features/indents/components/IndentReviewHubDialogShell";
+import { IndentReviewHubPageShell } from "@/features/indents/components/IndentReviewHubPageShell";
 import {
     IndentReviewHubBidsBody,
     IndentReviewHubBidsHeader,
@@ -146,7 +146,7 @@ import { useCapabilities } from "@/lib/useCapabilities";
 import { useLinkedOrgProfileMap } from "@/lib/useLinkedOrgProfileMap";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { X } from "lucide-react-native";
+import { ChevronLeft } from "lucide-react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { STALE, shouldRetryQuery } from "@/lib/queryClient";
 import { useRouter } from "expo-router";
@@ -1162,61 +1162,61 @@ export function IndentDetailScreen({
 
   if ((loading && !indent) || (sourcingScope.active && sourcingScope.isLoading)) {
     return (
-      <IndentReviewHubDialogShell onDismiss={onBack} stacked={stackedHub}>
+      <IndentReviewHubPageShell stacked={stackedHub}>
         <CenteredLoadingView message="Loading indent…" />
-      </IndentReviewHubDialogShell>
+      </IndentReviewHubPageShell>
     );
   }
 
   if (!canViewIndent || outsideSourcingScope) {
     return (
-      <IndentReviewHubDialogShell onDismiss={onBack} stacked={stackedHub}>
+      <IndentReviewHubPageShell stacked={stackedHub}>
         <View style={styles.dialogHead}>
+          <Pressable
+            onPress={onBack}
+            style={styles.pageBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            hitSlop={Layout.touchTargetHitSlop}
+          >
+            <ChevronLeft size={20} color={Theme.textPrimaryDark} strokeWidth={2.2} />
+          </Pressable>
           <View style={styles.dialogHeadCopy}>
             <Text style={styles.dialogEyebrow}>Review Hub</Text>
             <Text style={styles.dialogTitle}>Indent</Text>
           </View>
-          <Pressable
-            onPress={onBack}
-            style={styles.dialogClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            hitSlop={Layout.touchTargetHitSlop}
-          >
-            <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.2} />
-          </Pressable>
         </View>
         <View style={styles.errorStateBody}>
           <Text style={styles.errorText}>
             You don’t have access to this indent.
           </Text>
         </View>
-      </IndentReviewHubDialogShell>
+      </IndentReviewHubPageShell>
     );
   }
 
   if (error || !indent) {
     return (
-      <IndentReviewHubDialogShell onDismiss={onBack} stacked={stackedHub}>
+      <IndentReviewHubPageShell stacked={stackedHub}>
         <View style={styles.dialogHead}>
+          <Pressable
+            onPress={onBack}
+            style={styles.pageBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            hitSlop={Layout.touchTargetHitSlop}
+          >
+            <ChevronLeft size={20} color={Theme.textPrimaryDark} strokeWidth={2.2} />
+          </Pressable>
           <View style={styles.dialogHeadCopy}>
             <Text style={styles.dialogEyebrow}>Review Hub</Text>
             <Text style={styles.dialogTitle}>Indent</Text>
           </View>
-          <Pressable
-            onPress={onBack}
-            style={styles.dialogClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            hitSlop={Layout.touchTargetHitSlop}
-          >
-            <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.2} />
-          </Pressable>
         </View>
         <View style={styles.errorStateBody}>
           <Text style={styles.errorText}>{error ?? "Indent not found."}</Text>
         </View>
-      </IndentReviewHubDialogShell>
+      </IndentReviewHubPageShell>
     );
   }
 
@@ -1456,10 +1456,17 @@ export function IndentDetailScreen({
       (canAward &&
         quotes.some((q) => normalizeStatus(q.status) === "pending")));
   const hideStickyFooter = stackedHub && !showMobileAwardFooter;
+  const mobileFooterTwoRows =
+    showMobileAwardFooter &&
+    !canRevokeAward &&
+    canAward &&
+    quotes.some((q) => normalizeStatus(q.status) === "pending");
   const contentFooterReserve = hideStickyFooter
     ? 8
     : showMobileAwardFooter
-      ? 52
+      ? mobileFooterTwoRows
+        ? 116
+        : 68
       : footerReserve;
 
   const myCounterAmount = openCounterAmount(myQuoteRow);
@@ -1573,8 +1580,52 @@ export function IndentDetailScreen({
     .filter(Boolean)
     .join(" · ");
 
+  const showFooterSelection =
+    !canRevokeAward &&
+    canAward &&
+    quotes.some((q) => normalizeStatus(q.status) === "pending");
+  const footerSelectionMetaView = (
+    <View
+      style={[
+        styles.footerSelectionMeta,
+        stackedHub && styles.footerSelectionMetaMobile,
+      ]}
+    >
+      <Text
+        style={[
+          styles.footerMetaKicker,
+          stackedHub && styles.footerMetaKickerMobile,
+        ]}
+      >
+        Selected carrier
+      </Text>
+      <Text
+        style={[
+          styles.footerMetaValue,
+          stackedHub && styles.footerMetaValueMobile,
+        ]}
+        numberOfLines={1}
+      >
+        {selectedPendingQuote?.bidder_organization_name?.trim() ||
+          "Tap a bid to select"}
+      </Text>
+      {selectedAwardMargin ? (
+        <Text
+          style={[
+            styles.footerMetaMargin,
+            stackedHub && styles.footerMetaMarginMobile,
+          ]}
+          numberOfLines={1}
+        >
+          Margin {formatINR(selectedAwardMargin.marginInr)} (
+          {selectedAwardMargin.marginPct}%)
+        </Text>
+      ) : null}
+    </View>
+  );
+
   return (
-    <IndentReviewHubDialogShell onDismiss={onBack} stacked={stackedHub}>
+    <IndentReviewHubPageShell stacked={stackedHub}>
     <View
       style={[
         styles.container,
@@ -1587,6 +1638,15 @@ export function IndentDetailScreen({
           compactHub && styles.dialogHeadCompact,
         ]}
       >
+        <Pressable
+          onPress={onBack}
+          style={styles.pageBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          hitSlop={Layout.touchTargetHitSlop}
+        >
+          <ChevronLeft size={20} color={Theme.textPrimaryDark} strokeWidth={2.2} />
+        </Pressable>
         <View style={styles.dialogHeadCopy}>
           <Text style={styles.dialogEyebrow} numberOfLines={1}>
             {isOwner ? "Review Hub" : anonymous ? "Pool load" : "My bid"}
@@ -1606,15 +1666,17 @@ export function IndentDetailScreen({
             ) : null}
           </View>
         </View>
-        <Pressable
-          onPress={onBack}
-          style={styles.dialogClose}
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-          hitSlop={Layout.touchTargetHitSlop}
-        >
-          <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.2} />
-        </Pressable>
+        {isOwner && !hideCommercials && liveBidsCount > 0 ? (
+          <View
+            style={styles.headBidsChip}
+            accessibilityLabel={`${liveBidsCount} live bid${liveBidsCount === 1 ? "" : "s"}`}
+          >
+            <View style={styles.headerLiveDot} />
+            <Text style={styles.headBidsChipText}>
+              {liveBidsCount} bid{liveBidsCount === 1 ? "" : "s"}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       {/* Summary + bids (split on wide web, stacked on mobile) */}
@@ -1684,6 +1746,7 @@ export function IndentDetailScreen({
               }
               primaryActionLabel={mobilePrimaryAction?.label}
               onPrimaryAction={mobilePrimaryAction?.onPress}
+              hideActions={showMobileAwardFooter}
               bidsSlot={
                 hideCommercials ? (
                   stackedHub ? (
@@ -1943,12 +2006,13 @@ export function IndentDetailScreen({
             compactHub && styles.footerCompact,
             stackedHub && styles.footerMobile,
             {
-              paddingBottom: stackedHub ? 8 : compactHub ? 10 : 14,
+              paddingBottom: (stackedHub ? 10 : compactHub ? 10 : 14) + insets.bottom,
             },
           ]}
         >
           {isOwner ? (
             <>
+              {stackedHub && showFooterSelection ? footerSelectionMetaView : null}
               <TouchableOpacity
                 style={[styles.footerEditBtn, stackedHub && styles.footerEditBtnMobile]}
                 onPress={canEditLoad ? handleEditAll : undefined}
@@ -1992,38 +2056,7 @@ export function IndentDetailScreen({
               ) : canAward &&
               quotes.some((q) => normalizeStatus(q.status) === "pending") ? (
                 <>
-                  <View style={styles.footerSelectionMeta}>
-                    <Text
-                      style={[
-                        styles.footerMetaKicker,
-                        stackedHub && styles.footerMetaKickerMobile,
-                      ]}
-                    >
-                      Selected carrier
-                    </Text>
-                    <Text
-                      style={[
-                        styles.footerMetaValue,
-                        stackedHub && styles.footerMetaValueMobile,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {selectedPendingQuote?.bidder_organization_name?.trim() ||
-                        "Tap a bid to select"}
-                    </Text>
-                    {selectedAwardMargin ? (
-                      <Text
-                        style={[
-                          styles.footerMetaMargin,
-                          stackedHub && styles.footerMetaMarginMobile,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        Margin {formatINR(selectedAwardMargin.marginInr)} (
-                        {selectedAwardMargin.marginPct}%)
-                      </Text>
-                    ) : null}
-                  </View>
+                  {stackedHub ? null : footerSelectionMetaView}
                   {cancelIndentButton}
                   <TouchableOpacity
                     style={[
@@ -2369,7 +2402,7 @@ export function IndentDetailScreen({
         onClose={() => setAwardCelebration(null)}
       />
     </View>
-    </IndentReviewHubDialogShell>
+    </IndentReviewHubPageShell>
   );
 }
 
@@ -2410,8 +2443,9 @@ const styles = StyleSheet.create({
   },
   dialogTitle: {
     marginTop: 2,
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: -0.3,
     color: Theme.textPrimaryDark,
   },
   dialogMetaRow: {
@@ -2427,15 +2461,30 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: Theme.textSecondary,
   },
-  dialogClose: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  pageBack: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginLeft: -6,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: Theme.surfaceGray,
+  },
+  headBidsChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: Theme.positiveMuted,
+    flexShrink: 0,
+  },
+  headBidsChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Theme.positive,
+    fontVariant: ["tabular-nums"],
   },
   headerIconBtn: {
     width: 40,
@@ -2981,9 +3030,11 @@ const styles = StyleSheet.create({
     paddingTop: 6,
   },
   footerMobile: {
-    paddingTop: 8,
+    paddingTop: 10,
     paddingHorizontal: 14,
-    minHeight: 52,
+    minHeight: 64,
+    flexWrap: "wrap",
+    rowGap: 10,
   },
   footerEditBtn: {
     width: 44,
@@ -2995,9 +3046,9 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   footerEditBtnMobile: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     marginRight: 8,
   },
   footerSelectionMeta: {
@@ -3005,6 +3056,10 @@ const styles = StyleSheet.create({
     minWidth: 0,
     marginRight: 10,
     justifyContent: "center",
+  },
+  footerSelectionMetaMobile: {
+    flexBasis: "100%",
+    marginRight: 0,
   },
   footerMetaKicker: {
     fontSize: 9,
@@ -3024,8 +3079,8 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
   },
   footerMetaValueMobile: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "700",
   },
   footerMetaMargin: {
     marginTop: 1,
@@ -3052,9 +3107,11 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   footerCancelBtnMobile: {
-    minHeight: 36,
+    flex: 1,
+    minHeight: 44,
     paddingHorizontal: 10,
-    borderRadius: 8,
+    borderRadius: 12,
+    marginLeft: 0,
   },
   footerCancelBtnText: {
     fontSize: 12,
@@ -3062,7 +3119,7 @@ const styles = StyleSheet.create({
     color: Theme.negative,
   },
   footerCancelBtnTextMobile: {
-    fontSize: 11,
+    fontSize: 13,
   },
   footerAwardBtn: {
     minWidth: 132,
@@ -3081,10 +3138,11 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   footerAwardBtnMobile: {
-    minWidth: 112,
-    height: 36,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    flex: 1.4,
+    minWidth: 0,
+    height: 44,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     gap: 6,
     shadowOpacity: 0.04,
     elevation: 1,
@@ -3099,8 +3157,8 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   footerAwardBtnTextMobile: {
-    fontSize: 9,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "800",
   },
   footerSpacer: {
     flex: 1,

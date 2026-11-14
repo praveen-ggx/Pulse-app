@@ -19657,6 +19657,22 @@ export type Database = {
         }
         Returns: Json
       }
+      commit_marketplace_lane_rate: {
+        Args: {
+          p_amount: number
+          p_drop: string
+          p_org_id: string
+          p_pickup: string
+          p_valid_until: string
+          p_vehicle_limit: number
+          p_vehicle_type: string
+        }
+        Returns: Json
+      }
+      withdraw_marketplace_lane_rate: {
+        Args: { p_commit_id: string }
+        Returns: Json
+      }
       preview_standing_lane_bids: {
         Args: {
           p_drop: string

@@ -34,24 +34,33 @@ describe("marketplace lane search memory", () => {
     });
   });
 
-  it("drops a saved drop that is no longer offered from that pickup", () => {
+  it("drops only the saved field that no longer matches the kept ones", () => {
     expect(
       liveMarketplaceSearch(LANES, {
         pickup: "Bhandara",
         drop: "Poonamallee",
         vehicleType: "40 FT",
       }),
-    ).toEqual({ pickup: "Bhandara", drop: "", vehicleType: "" });
+    ).toEqual({ pickup: "Bhandara", drop: "", vehicleType: "40 FT" });
   });
 
-  it("returns nothing when the saved pickup is gone", () => {
+  it("keeps drop and vehicle when the saved pickup is gone", () => {
     expect(
       liveMarketplaceSearch(LANES, {
         pickup: "Delhi",
         drop: "Bengaluru",
         vehicleType: "40 FT",
       }),
-    ).toBeNull();
+    ).toEqual({ pickup: "", drop: "Bengaluru", vehicleType: "40 FT" });
+  });
+
+  it("restores a vehicle-only search and returns nothing when no field is live", () => {
+    expect(liveMarketplaceSearch(LANES, { vehicleType: "20 ft" })).toEqual({
+      pickup: "",
+      drop: "",
+      vehicleType: "20 FT",
+    });
+    expect(liveMarketplaceSearch(LANES, { pickup: "Delhi", drop: "Agra" })).toBeNull();
   });
 
   it("keeps a reduced lane below the highest count already seen", () => {

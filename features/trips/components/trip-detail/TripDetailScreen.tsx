@@ -5447,29 +5447,26 @@ export default function TripDetailScreen({
       } satisfies TripDocItem);
     void handleVaultUpload(doc);
   };
-  const requestRemoveEwayBill = useCallback(
-    (row: EwayBillStripRow) => {
-      const storagePath = row.previewPath?.trim() ?? "";
-      if (!row.documentId && !storagePath) return;
-      const docLock = groundOpsVaultDocLock(ewayBillDoc);
-      if (docLock) {
-        showAppAlert("Document locked", groundOpsDocumentLockLabel(docLock));
-        return;
-      }
-      setVaultDeleteTarget({
-        cardId: "eway_bill",
-        label:
-          row.ewayNo && row.ewayNo !== "—"
-            ? `E-way bill ${row.ewayNo}`
-            : "E-way bill",
-        storagePath,
-        documentId: row.documentId ?? undefined,
-        category: "eway",
-        kind: "trip",
-      });
-    },
-    [ewayBillDoc, groundOpsVaultDocLock],
-  );
+  const requestRemoveEwayBill = (row: EwayBillStripRow) => {
+    const storagePath = row.previewPath?.trim() ?? "";
+    if (!row.documentId && !storagePath) return;
+    const docLock = groundOpsVaultDocLock(ewayBillDoc);
+    if (docLock) {
+      showAppAlert("Document locked", groundOpsDocumentLockLabel(docLock));
+      return;
+    }
+    setVaultDeleteTarget({
+      cardId: "eway_bill",
+      label:
+        row.ewayNo && row.ewayNo !== "—"
+          ? `E-way bill ${row.ewayNo}`
+          : "E-way bill",
+      storagePath,
+      documentId: row.documentId ?? undefined,
+      category: "eway",
+      kind: "trip",
+    });
+  };
   const canUploadTripDocs =
     !isSourcingOnly &&
     viewerCanUploadTripDocuments({

@@ -11,9 +11,28 @@ import { positiveLaneTarget } from "@/features/network/utils/marketplaceSearch.u
 import { PoolStatusPill } from "@/features/network/components/pooled/PoolStatusPill";
 import { RouteEndpointStack } from "@/features/network/components/RouteEndpointStack";
 import type { PoolLane } from "@/features/network/utils/pooledOpportunity.util";
-import { ArrowRight, Eye, Package } from "lucide-react-native";
-import { useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { marketplaceLaneTags, type LaneTagKind } from "@/features/network/utils/marketplaceLaneTags.util";
+import {
+  ArrowRight,
+  Check,
+  ClipboardCheck,
+  Eye,
+  IndianRupee,
+  Layers,
+  MapPin,
+  Package,
+  Route,
+  Truck,
+  type LucideIcon,
+} from "lucide-react-native";
+import { useMemo, useState } from "react";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+
+const TAG_ICON: Record<LaneTagKind, LucideIcon> = {
+  pay: IndianRupee,
+  route: Route,
+  requirement: ClipboardCheck,
+};
 
 export function PooledOpportunityCard({
   lane,
@@ -44,6 +63,7 @@ export function PooledOpportunityCard({
   const targetHighLabel = formatFindLoadsRateOffer(targetHi ?? targetLo);
   const singleTarget = Boolean(targetLowLabel && targetLowLabel === targetHighLabel);
   const [hovered, setHovered] = useState(false);
+  const tags = useMemo(() => marketplaceLaneTags(lane), [lane]);
 
   return (
     <Pressable
@@ -63,12 +83,16 @@ export function PooledOpportunityCard({
     >
       <View style={[styles.stage, hovered && styles.stageHover]}>
         <View style={styles.top}>
-          <Text style={styles.poolTagText} numberOfLines={1}>
-            POOLED · {loadsLabel.toUpperCase()}
-          </Text>
+          <View style={styles.poolTag}>
+            <Layers size={11} color={Theme.primaryText} strokeWidth={2.4} />
+            <Text style={styles.poolTagText} numberOfLines={1}>
+              POOLED · {loadsLabel.toUpperCase()}
+            </Text>
+          </View>
           <View style={styles.badges}>
             {fitsFleet ? (
               <View style={styles.fitBadge}>
+                <Check size={10} color={Theme.positive} strokeWidth={3} />
                 <Text style={styles.fitBadgeText}>Fleet fit</Text>
               </View>
             ) : (
@@ -96,8 +120,14 @@ export function PooledOpportunityCard({
               maxLinesPerItem={1}
             />
           </View>
-          <View style={styles.routeArrow}>
-            <ArrowRight size={14} color={Theme.textMuted} strokeWidth={2.2} />
+          <View style={styles.routeConnector} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <View style={styles.routeDot} />
+            <View style={styles.routeDash} />
+            <View style={styles.routeTruck}>
+              <Truck size={12} color={Theme.primaryText} strokeWidth={2.2} />
+            </View>
+            <View style={styles.routeDash} />
+            <MapPin size={13} color={Theme.primaryText} strokeWidth={2.4} />
           </View>
           <View style={[styles.routeCol, styles.routeEnd]}>
             <Text style={[styles.routeLabel, styles.alignEnd]}>Drop</Text>
@@ -110,9 +140,36 @@ export function PooledOpportunityCard({
             />
           </View>
         </View>
-        <Text style={styles.vehicle} numberOfLines={1}>
-          {vehicle || " "}
-        </Text>
+        {vehicle || tags.length > 0 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            nestedScrollEnabled
+            style={styles.tagScroll}
+            contentContainerStyle={styles.tagRow}
+            accessibilityLabel={[vehicle, ...tags.map((tag) => tag.label)].filter(Boolean).join(", ")}
+          >
+            {vehicle ? (
+              <View style={styles.vehicleChip}>
+                <Truck size={12} color={Theme.primaryText} strokeWidth={2.2} />
+                <Text style={styles.vehicle} numberOfLines={1}>
+                  {vehicle}
+                </Text>
+              </View>
+            ) : null}
+            {tags.map((tag) => {
+              const Icon = TAG_ICON[tag.kind];
+              return (
+                <View key={tag.key} style={styles.vehicleChip}>
+                  <Icon size={12} color={Theme.primaryText} strokeWidth={2.2} />
+                  <Text style={styles.vehicle} numberOfLines={1}>
+                    {tag.label}
+                  </Text>
+                </View>
+              );
+            })}
+          </ScrollView>
+        ) : null}
       </View>
 
       <View style={styles.body}>
@@ -123,6 +180,14 @@ export function PooledOpportunityCard({
             </View>
             <Text style={styles.metricValue}>{loadCount}</Text>
             <Text style={styles.metricUnit}>{loadCount === 1 ? "load" : "loads"}</Text>
+            <View style={styles.metricRule} />
+            <View style={styles.targetInline}>
+              <Text style={styles.targetKicker}>Target</Text>
+              <Text style={styles.targetPrice} numberOfLines={1}>
+                {targetLowLabel ?? "—"}
+                {!singleTarget && targetHighLabel ? ` – ${targetHighLabel}` : ""}
+              </Text>
+            </View>
           </View>
           <View style={styles.actions}>
           <Pressable
@@ -144,23 +209,8 @@ export function PooledOpportunityCard({
             hitSlop={6}
           >
             <Text style={styles.ctaText}>Bid</Text>
+            <ArrowRight size={13} color={Theme.primaryText} strokeWidth={2.6} />
           </Pressable>
-          </View>
-        </View>
-        <View style={[styles.targetBand, hovered && styles.stageHover]}>
-          <Text style={styles.targetKicker}>Target</Text>
-          <View style={styles.targetPrices}>
-            <Text style={styles.targetPrice} numberOfLines={1}>
-              {targetLowLabel ?? "—"}
-            </Text>
-            {!singleTarget && targetHighLabel ? (
-              <>
-                <Text style={styles.targetDash}>–</Text>
-                <Text style={styles.targetPrice} numberOfLines={1}>
-                  {targetHighLabel}
-                </Text>
-              </>
-            ) : null}
           </View>
         </View>
       </View>
@@ -240,16 +290,13 @@ const styles = StyleSheet.create({
   },
   metricValue: { fontSize: 16, fontWeight: "700", letterSpacing: -0.3, color: Theme.textPrimaryDark },
   metricUnit: { fontSize: 12, fontWeight: "600", color: Theme.textSecondary },
-  targetBand: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    minHeight: 30,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    backgroundColor: Theme.brandBlueMist,
+  metricRule: {
+    width: StyleSheet.hairlineWidth,
+    height: 18,
+    marginHorizontal: 4,
+    backgroundColor: Theme.borderLight,
   },
+  targetInline: { flexDirection: "row", alignItems: "baseline", gap: 6, flexShrink: 1, minWidth: 0 },
   targetKicker: {
     fontSize: 10,
     fontWeight: "700",
@@ -257,30 +304,32 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
-  targetPrices: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 6,
-    flexShrink: 1,
-    minWidth: 0,
-  },
   targetPrice: {
-    fontSize: 13,
+    flexShrink: 1,
+    fontSize: 14,
     fontWeight: "700",
     letterSpacing: -0.2,
     color: Theme.textPrimaryDark,
   },
-  targetDash: { fontSize: 13, fontWeight: "600", color: Theme.textSecondary },
   top: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
   },
-  poolTagText: {
-    flex: 1,
+  poolTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    flexShrink: 1,
     minWidth: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+  },
+  poolTagText: {
+    flexShrink: 1,
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0.3,
@@ -291,13 +340,39 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 8,
   },
-  routeArrow: {
-    width: 16,
-    height: 14,
-    marginTop: 14,
+  routeConnector: {
+    flex: 1,
+    minWidth: 56,
+    maxWidth: 220,
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    gap: 4,
+    marginTop: 10,
+  },
+  routeDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: Theme.primaryText,
+    backgroundColor: Theme.cardWhite,
+  },
+  routeDash: {
+    flex: 1,
+    height: 0,
+    borderTopWidth: 1.5,
+    borderTopColor: Theme.primaryText,
+    borderStyle: "dashed",
+    opacity: 0.45,
+  },
+  routeTruck: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
-    flexShrink: 0,
   },
   routeCol: { flex: 1, minWidth: 0, gap: 1 },
   routeEnd: { alignItems: "flex-end" },
@@ -322,8 +397,20 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: Theme.textSecondary,
   },
+  tagScroll: { flexGrow: 0, marginHorizontal: -10 },
+  tagRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10 },
+  vehicleChip: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+  },
   vehicle: {
-    minHeight: 14,
+    flexShrink: 1,
     fontSize: 11,
     lineHeight: 14,
     fontWeight: "600",
@@ -331,6 +418,9 @@ const styles = StyleSheet.create({
   },
   badges: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
   fitBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 999,
@@ -355,7 +445,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12,
+    gap: 4,
+    paddingHorizontal: 14,
     minHeight: 32,
     borderRadius: 16,
     backgroundColor: Theme.loadMainTabBg,

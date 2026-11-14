@@ -1,4 +1,8 @@
-import { classifyPayment, paymentTagLabel } from "@/lib/globalSync/registryPaymentLane.util";
+import {
+  classifyPayment,
+  paymentCategoryTitle,
+  paymentTagLabel,
+} from "@/lib/globalSync/registryPaymentLane.util";
 import {
   entryAllowedByAccess,
   indentPrimaryAction,
@@ -32,6 +36,24 @@ describe("payment lane", () => {
     });
     expect(classified.kind).toBe("advance");
     expect(paymentTagLabel(classified)).toBe("Advance paid");
+  });
+
+  it("reads a snake_case ledger category such as compliance_advance as an advance", () => {
+    const classified = classifyPayment({
+      content: "GOGOVAN INDIA PVT LTD paid ₹44500 to VIJAYA LAKSHMI TRANSPORT · compliance_advance",
+      metadata: { flow: "out", category: "compliance_advance" },
+    });
+    expect(classified.kind).toBe("advance");
+    expect(paymentTagLabel(classified)).toBe("Advance paid");
+    expect(paymentCategoryTitle(classified)).toBe("Compliance advance");
+  });
+
+  it("does not treat a word merely containing advance as an advance", () => {
+    const classified = classifyPayment({
+      content: "paid ₹100 to X · Advancement fee",
+      metadata: { flow: "out", category: "Advancement fee" },
+    });
+    expect(classified.kind).toBe("other");
   });
 
   it("puts paid and received on different tabs", () => {

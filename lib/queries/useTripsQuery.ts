@@ -2,7 +2,7 @@
  * TanStack Query hooks for trips. Cached by orgId; Realtime invalidates on DB change.
  * See docs/PAGINATION_AND_CACHE_ANALYSIS.md.
  */
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   getAllTripsForOrg,
   getTripsByOrganization,
@@ -30,9 +30,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAppQueryGate } from '@/lib/hooks/useAppQueryGate';
 
 /** Full list (no pagination). Use for Trips tab. Includes trips where org is owner or supplier on a shared load trip. */
-export function useTripsQuery(orgId: string | null) {
+export function useTripsQuery(orgId: string | null, options?: { urgent?: boolean }) {
   const { status } = useAuth();
-  const bootQuietOpen = useAppQueryGate(orgId);
+  // The hub the user is opening skips the post-bootstrap quiet window.
+  const bootQuietOpen = useAppQueryGate(orgId, { urgent: options?.urgent === true });
   return useQuery<TripRow[], Error>({
     queryKey: queryKeys.trips.finite(orgId ?? ''),
     queryFn: async () => {
@@ -44,6 +45,19 @@ export function useTripsQuery(orgId: string | null) {
     enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
     staleTime: STALE.realtime,
     refetchOnMount: refetchOnMountIfEntityListEmpty<TripRow[]>(),
+  });
+}
+
+/** Same list the Trips hub reads, started on press so the screen can paint from cache. */
+export function prefetchTripsList(queryClient: QueryClient, orgId: string): Promise<void> {
+  return queryClient.prefetchQuery({
+    queryKey: queryKeys.trips.finite(orgId),
+    staleTime: STALE.realtime,
+    queryFn: async () => {
+      const res = await getTripsForOrg(orgId);
+      if (res.error) throw res.error;
+      return res.trips;
+    },
   });
 }
 

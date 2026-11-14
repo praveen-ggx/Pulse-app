@@ -83,8 +83,8 @@ export function MarketplaceHomeBoard({
           accessibilityRole="button"
           accessibilityLabel="Open marketplace transactions"
         >
-          <Text style={styles.tileKicker}>Transactions</Text>
-          <Text style={styles.tileValue}>{figures.transactions}</Text>
+          <Text style={styles.tileKicker}>Rates sent</Text>
+          <Text style={styles.tileValue}>{figures.ratesSent}</Text>
           <Text style={styles.tileHint}>{figures.awarded} awarded</Text>
         </Pressable>
       </View>
@@ -118,6 +118,8 @@ export function MarketplaceHomeBoard({
   );
 }
 
+const EMPTY_BIDS: readonly MyOrgMarketBidRow[] = [];
+
 export function MarketplaceWalletBoard({
   orgName,
   bids,
@@ -149,7 +151,7 @@ export function MarketplaceWalletBoard({
   const balanceHint = figures.due > 0 ? "Unpaid fees on awarded loads" : "Nothing due on awarded loads";
   const [detailTab, setDetailTab] = useState<"transactions" | "ar">("transactions");
   const book = arBook ?? { trips: 0, billed: 0, received: 0, due: 0, lines: [] };
-  const tripBids = statementBids ?? bids;
+  const tripBids = statementBids ?? EMPTY_BIDS;
   const statement = useMemo(
     () => [...tripBids].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)),
     [tripBids],
@@ -407,7 +409,10 @@ export function MarketplaceWalletBoard({
             {name}
           </Text>
           <Text style={styles.walletMeta}>
-            {figures.awarded} awarded · {figures.transactions} transaction{figures.transactions === 1 ? "" : "s"}
+            {figures.awarded} awarded ·{" "}
+            {statementReady
+              ? `${tripBids.length} transaction${tripBids.length === 1 ? "" : "s"}`
+              : "Loading transactions…"}
           </Text>
         </View>
         <View style={[styles.balanceBlock, isDesktop ? styles.balanceBlockDesktop : styles.balanceBlockMobile]}>

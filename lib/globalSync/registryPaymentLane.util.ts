@@ -27,7 +27,8 @@ export function classifyPayment(input: {
   const category = String(meta?.category ?? meta?.ledger_category ?? "").trim();
   const content = String(input.content ?? "");
   const blob = `${category} ${content}`.toLowerCase();
-  const kind: PaymentKind = /\badvance\b/.test(blob) ? "advance" : "other";
+  // Ledger keys such as `compliance_advance` join words with "_", which \b treats as a word char.
+  const kind: PaymentKind = /(?:^|[^a-z])advance(?:[^a-z]|$)/.test(blob) ? "advance" : "other";
   const flow = String(meta?.flow ?? "").toLowerCase();
   const contact = String(meta?.contact_type ?? meta?.party_type ?? "").toLowerCase();
 
@@ -64,6 +65,13 @@ function findEvent(alert: GlobalOperationAlert, trips: ActiveTripSummary[]) {
 
 export function paymentCategoryForLane(lane: PaymentLane): "payment_received" | "payment_paid" {
   return lane === "received" ? "payment_received" : "payment_paid";
+}
+
+/** `compliance_advance` → "Compliance advance"; already-readable labels pass through. */
+export function paymentCategoryTitle(classified: ClassifiedPayment): string {
+  const words = classified.categoryLabel.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!words) return classified.kind === "advance" ? "Advance" : "Payment";
+  return words.charAt(0).toUpperCase() + words.slice(1).toLowerCase();
 }
 
 export function paymentTagLabel(classified: ClassifiedPayment): string {

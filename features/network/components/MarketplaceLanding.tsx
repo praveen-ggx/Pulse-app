@@ -434,7 +434,6 @@ export function MarketplaceLanding({
   transactionsReady = true,
   loadCount,
   laneCount,
-  showing,
   hiddenCount: _hiddenCount,
   isDesktop,
   part = "all",
@@ -524,7 +523,7 @@ export function MarketplaceLanding({
         </View>
         <View style={styles.walletStatRule} />
         <View style={styles.walletStat}>
-          <Text style={styles.walletStatValue}>{figures.transactions}</Text>
+          <Text style={styles.walletStatValue}>{figures.ratesSent}</Text>
           <Text style={styles.walletStatLabel}>Rates sent</Text>
         </View>
       </View>
@@ -830,10 +829,6 @@ export function MarketplaceLanding({
 
       <View style={styles.loadBoard}>
         <View style={styles.loadBoardHead}>
-          <View style={styles.loadBoardTitle}>
-            <Text style={styles.section}>Available loads ({loadCount})</Text>
-            {isDesktop ? null : <Text style={styles.sectionMeta}>{showing} lanes showing</Text>}
-          </View>
           <View style={styles.loadBoardMeta}>
             <Pressable
               onPress={onSearchLoads}
@@ -844,7 +839,6 @@ export function MarketplaceLanding({
               <Search size={14} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
               <Text style={styles.searchChipText}>Search a load</Text>
             </Pressable>
-            {isDesktop ? <Text style={styles.sectionMeta}>{showing} showing</Text> : null}
           </View>
         </View>
         {filters ? <View style={styles.loadBoardFilters}>{filters}</View> : null}
@@ -1198,8 +1192,6 @@ const styles = StyleSheet.create({
   hotLaneCtaText: { fontSize: 13, fontWeight: "700", color: Theme.primaryText },
   summary: {
     backgroundColor: Theme.buttonPrimary,
-    borderWidth: Theme.buttonPrimaryBorderWidth,
-    borderColor: Theme.buttonPrimaryBorder,
     borderRadius: 18,
     padding: 16,
     gap: 12,
@@ -1322,8 +1314,6 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: "100%",
     backgroundColor: Theme.buttonPrimary,
-    borderWidth: Theme.buttonPrimaryBorderWidth,
-    borderColor: Theme.buttonPrimaryBorder,
     borderRadius: 18,
     padding: 16,
     gap: 4,
@@ -1370,9 +1360,8 @@ const styles = StyleSheet.create({
   promoBody: { fontSize: 13, lineHeight: 18, color: Theme.textSecondary },
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   loadBoard: { gap: 10 },
-  loadBoardHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  loadBoardHead: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 12 },
   loadBoardMeta: { flexDirection: "row", alignItems: "center", gap: 12 },
-  loadBoardTitle: { flex: 1, minWidth: 0, gap: 2 },
   loadBoardFilters: { width: "100%" },
   searchChip: {
     flexDirection: "row",
@@ -1386,8 +1375,6 @@ const styles = StyleSheet.create({
     borderColor: Theme.buttonPrimaryBorder,
   },
   searchChipText: { fontSize: 13, fontWeight: "800", color: Theme.buttonPrimaryText },
-  section: { fontSize: 16, fontWeight: "700", color: Theme.textPrimaryDark },
-  sectionMeta: { fontSize: 13, fontWeight: "700", color: Theme.textSecondary },
   link: { fontSize: 12, fontWeight: "600", color: Theme.buttonPrimaryText },
   previewCard: {
     backgroundColor: Theme.cardWhite,

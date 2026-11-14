@@ -562,6 +562,22 @@ describe("poolFieldOptions — picker counts from canonical pools", () => {
     expect(poolFieldOptions(PICKER_LANES, { pickup: "Bang" }, "drop")).toEqual([]);
   });
 
+  it("narrows any field by whichever other fields are set, in any order", () => {
+    expect(poolFieldOptions(PICKER_LANES, { vehicleType: "20 ft" }, "pickup")).toEqual([
+      { label: "Bangalore", count: 4 },
+    ]);
+    expect(poolFieldOptions(PICKER_LANES, { drop: "Pune" }, "pickup")).toEqual([
+      { label: "Chennai", count: 2 },
+      { label: "Chennai warehouse, CHennai, Tamil nadu", count: 1 },
+    ]);
+    expect(poolFieldOptions(PICKER_LANES, { drop: "Hosur" }, "vehicle")).toEqual([
+      { label: "32 FT", count: 1 },
+    ]);
+    expect(poolFieldOptions(PICKER_LANES, { vehicleType: "20 FT" }, "drop")).toEqual([
+      { label: "Chennai", count: 4 },
+    ]);
+  });
+
   it("vehicle option counts equal the pool counts Marketplace resolves", () => {
     for (const opt of poolFieldOptions(
       PICKER_LANES,

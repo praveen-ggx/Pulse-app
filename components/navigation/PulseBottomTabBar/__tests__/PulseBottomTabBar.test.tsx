@@ -31,13 +31,13 @@ function renderBar(overrides: Partial<PulseBottomTabBarProps> = {}) {
 }
 
 describe('PulseBottomTabBar', () => {
-  it('Ground Ops: Trips, Compliance, Profile — no Chat', () => {
+  it('Ground Ops: Trips and Compliance only — no Chat or Profile', () => {
     const { queryByLabelText, getByLabelText, onTabChange } = renderBar({
       visibility: { finance: false, trips: true, network: false, loadCenter: false, compliance: true },
       showChat: false,
     });
     expect(getByLabelText('Trips')).toBeTruthy();
-    expect(getByLabelText('Profile')).toBeTruthy();
+    expect(queryByLabelText('Profile')).toBeNull();
     expect(queryByLabelText('Chat')).toBeNull();
     expect(queryByLabelText('Home')).toBeNull();
     expect(queryByLabelText('Cash')).toBeNull();
@@ -52,5 +52,38 @@ describe('PulseBottomTabBar', () => {
     });
     expect(queryByLabelText('Comply')).toBeNull();
     expect(queryByLabelText('Chat')).toBeTruthy();
+  });
+
+  it('on a chat route only Chat is selected and badges show capped counts', () => {
+    const onOpenChat = jest.fn();
+    const { getByLabelText, getByText } = renderBar({
+      isChatRoute: true,
+      messageUnreadCount: 14,
+      activeLoadCount: 3,
+      onOpenChat,
+    });
+    expect(getByLabelText('Chat').props.accessibilityState).toEqual({ selected: true });
+    expect(getByLabelText('Trips').props.accessibilityState).toEqual({ selected: false });
+    expect(getByText('9+')).toBeTruthy();
+    expect(getByText('3')).toBeTruthy();
+    fireEvent.press(getByLabelText('Chat'));
+    expect(onOpenChat).toHaveBeenCalled();
+  });
+
+  it('Marketplace replaces Loads and opens the load center from its own pill', () => {
+    const { getByLabelText, queryByLabelText, onTabChange } = renderBar({ activeTab: 'loadCenter' });
+    expect(queryByLabelText('Loads')).toBeNull();
+    expect(getByLabelText('Marketplace').props.accessibilityState).toEqual({ selected: true });
+    expect(getByLabelText('Trips').props.accessibilityState).toEqual({ selected: false });
+    fireEvent.press(getByLabelText('Marketplace'));
+    expect(onTabChange).toHaveBeenCalledWith('loadCenter');
+  });
+
+  it('hides Marketplace without load center access', () => {
+    const { queryByLabelText } = renderBar({
+      visibility: { finance: true, trips: true, network: true, loadCenter: false, compliance: true },
+    });
+    expect(queryByLabelText('Marketplace')).toBeNull();
+    expect(queryByLabelText('Trips')).toBeTruthy();
   });
 });

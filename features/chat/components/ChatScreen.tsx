@@ -1,4 +1,9 @@
 import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { DM_RETENTION_NOTICE } from "@/features/chat/components/shared/ChatHistoryExpiryNotice";
+import {
+  DmThreadEmptyState,
+  type DmThreadStatus,
+} from "@/features/chat/components/shared/DmThreadEmptyState";
 import { ChatPartyAvatar } from "@/features/chat/components/ChatPartyAvatar";
 import { useNetworkStoryStrip } from "@/features/network/hooks/useNetworkStoryStrip";
 import {
@@ -9614,10 +9619,23 @@ function NetworkDetailPanel({
   const [loadingOlderNet, setLoadingOlderNet] = useState(false);
   const netOlderStartDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (!selectedNet?.id || !integratedChat?.hydrateNetworkThread) return;
-    void integratedChat.hydrateNetworkThread(selectedNet.id);
+  const [netThreadStatus, setNetThreadStatus] = useState<DmThreadStatus>("loading");
+  const hydrateNetThread = useCallback(() => {
+    const chatId = selectedNet?.id;
+    const hydrate = integratedChat?.hydrateNetworkThread;
+    if (!chatId || !hydrate) {
+      setNetThreadStatus("ready");
+      return;
+    }
+    setNetThreadStatus("loading");
+    void hydrate(chatId).then((ok) => {
+      setNetThreadStatus(ok === false ? "error" : "ready");
+    });
   }, [selectedNet?.id, integratedChat?.hydrateNetworkThread]);
+
+  useEffect(() => {
+    hydrateNetThread();
+  }, [hydrateNetThread]);
 
   const onNetStartReached = useCallback(() => {
     if (!selectedNet?.id || !integratedChat?.loadOlderNetworkMessages) return;
@@ -9814,19 +9832,28 @@ function NetworkDetailPanel({
             );
           }}
           ListHeaderComponent={
-            <>
-              {loadingOlderNet ? (
-                <View style={{ alignItems: "center", paddingVertical: 8 }}>
-                  <LoadingIndicator size="small" color="#94a3b8" />
-                </View>
-              ) : null}
-              <ChatSystemMsg
-                label="Secure channel · Today"
-                isMobile={!isDesktop}
-                slackLayout={slackThreadUi}
-                isDesktop={isDesktop}
-              />
-            </>
+            netThreadListItems.length > 0 ? (
+              <>
+                {loadingOlderNet ? (
+                  <View style={{ alignItems: "center", paddingVertical: 8 }}>
+                    <LoadingIndicator size="small" color="#94a3b8" />
+                  </View>
+                ) : null}
+                <ChatSystemMsg
+                  label={`Secure channel · ${DM_RETENTION_NOTICE}`}
+                  isMobile={!isDesktop}
+                  slackLayout={slackThreadUi}
+                  isDesktop={isDesktop}
+                />
+              </>
+            ) : null
+          }
+          ListEmptyComponent={
+            <DmThreadEmptyState
+              status={netThreadStatus}
+              partnerName={selectedNet.partnerName}
+              onRetry={hydrateNetThread}
+            />
           }
           onContentSizeChange={onNetContentSizeChange}
         />

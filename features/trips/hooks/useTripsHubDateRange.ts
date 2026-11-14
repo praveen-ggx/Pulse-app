@@ -1,16 +1,12 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
-import {
-  getHubTripKeysetPage,
-  type TripRow,
-} from "@/features/trips/services/trips.service";
+import { useQuery } from "@tanstack/react-query";
+import { loadHubTripKeysetRange, type TripRow } from "@/features/trips/services/trips.service";
 import { STALE } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 
-type HubCursor = { createdAt: string; id: string };
-
 /**
- * One server page of hub trips at a time. Older pages load only when the
- * screen asks. list_org_hub_trips_keyset is not walked to the end on mount.
+ * Trips hub trip rows for a date range (HUB_ALL_TIME_BOUNDS for "All time").
+ * Pages come from list_org_hub_trips_keyset. A short walk is an error.
+ * The newest-400 catalog is not a fallback.
  */
 export function useTripsHubDateRange(
   orgId: string | null,
@@ -18,35 +14,20 @@ export function useTripsHubDateRange(
 ) {
   const from = bounds?.from ?? "";
   const to = bounds?.to ?? "";
-  const query = useInfiniteQuery({
-    queryKey: [...queryKeys.trips.hubDateRange(orgId ?? "", from, to), "keyset-page"],
-    queryFn: async ({ pageParam }: { pageParam: HubCursor | null }) => {
-      const res = await getHubTripKeysetPage(orgId!, {
-        from,
-        to,
-        cursor: pageParam,
-        limit: 100,
-      });
+  const query = useQuery<TripRow[]>({
+    queryKey: [...queryKeys.trips.hubDateRange(orgId ?? "", from, to), "keyset"],
+    queryFn: async () => {
+      const res = await loadHubTripKeysetRange(orgId!, { from, to });
       if (res.error) throw res.error;
-      return res;
+      return res.trips;
     },
-    initialPageParam: null as HubCursor | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: Boolean(orgId && from && to),
     staleTime: STALE.frequent,
   });
-  const trips: TripRow[] = query.data?.pages.flatMap((page) => page.trips) ?? [];
-  const total = query.data?.pages[0]?.total ?? null;
   return {
-    trips,
-    total,
-    isFetching: query.isFetching && !query.isFetchingNextPage,
+    trips: query.data ?? [],
+    isFetching: query.isFetching,
     isFetched: query.isSuccess,
     isError: query.isError,
-    hasNextPage: Boolean(query.hasNextPage),
-    isFetchingNextPage: query.isFetchingNextPage,
-    fetchNextPage: () => {
-      void query.fetchNextPage();
-    },
   };
 }

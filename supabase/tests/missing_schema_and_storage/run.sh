@@ -22,7 +22,7 @@ run() {
 }
 run supabase/tests/missing_schema_and_storage/00_stub_schema.sql
 run supabase/tests/missing_schema_and_storage/10_before.sql
-run supabase/migrations/20271014184500_entity_bank_accounts_beneficiary_branch.sql
+run supabase/migrations/20261005080754_add_bank_account_beneficiary_branch.sql
 run supabase/migrations/20271014184600_suppliers_primary_region.sql
 run supabase/migrations/20271012203000_trip_documents_storage_party_access.sql
 run supabase/tests/missing_schema_and_storage/90_after.sql

@@ -144,6 +144,7 @@ import {
     hubShowingCountLabel,
     hubTabTripCounts,
     hubTripCompletenessNote,
+    resolveHubTripDataset,
 } from "@/features/trips/utils/hubTripListCounts.util";
 import { HUB_ALL_TIME_BOUNDS } from "@/features/trips/utils/tripOrgFetch.util";
 import {
@@ -331,14 +332,35 @@ function tripMatchesAttributionFilter(
   return isAttributedFleetTrip(trip);
 }
 
+type SupplierFallbackRow = {
+  id: string;
+  name: string;
+  company_name: string | null;
+  contact_person: string | null;
+  avatar_url: string | null;
+  avatar_seed: string | null;
+  linked_organization_id: string | null;
+  supplier_type: string | null;
+};
+
 function supplierNameFallbackMapsEqual(
-  a: Record<string, string>,
-  b: Record<string, string>,
+  a: Record<string, SupplierFallbackRow>,
+  b: Record<string, SupplierFallbackRow>,
 ): boolean {
   const keysA = Object.keys(a);
   if (keysA.length !== Object.keys(b).length) return false;
   for (const k of keysA) {
-    if (a[k] !== b[k]) return false;
+    const left = a[k];
+    const right = b[k];
+    if (!right) return false;
+    if (
+      left.name !== right.name ||
+      left.avatar_url !== right.avatar_url ||
+      left.avatar_seed !== right.avatar_seed ||
+      left.linked_organization_id !== right.linked_organization_id
+    ) {
+      return false;
+    }
   }
   return true;
 }
@@ -404,6 +426,7 @@ const TRIP_DRIVER_PHONES_CHUNK = 500;
 const EMPTY_PHONE_BY_TRIP_ID: Record<string, string> = {};
 const EMPTY_TRIP_ROWS: TripRow[] = [];
 const EMPTY_INDENT_ROWS: IndentRow[] = [];
+const EMPTY_LINKED_PARTIES: { linked_organization_id?: string | null }[] = [];
 const EMPTY_STATUS_TIMES: Awaited<ReturnType<typeof getTripStatusTimes>>["times"] = {};
 
 /** Driver phone per trip via get_trip_driver_phones, in chunks. Plain object: the cache is JSON. */
@@ -688,10 +711,11 @@ export default function TripsScreen() {
 
   const {
     data: tripsDataRaw = EMPTY_TRIP_ROWS,
-    isError: tripsCatalogFailed,
+    isPending: tripsLoading,
+    isError: tripsLoadFailed,
     error: tripsLoadError,
     refetch: refetchTrips,
-  } = useTripsQuery(null);
+  } = useTripsQuery(orgId);
   const tripsData = useMemo(
     () => sourcingScope.filterTrips(tripsDataRaw as TripRow[]),
     [sourcingScope, tripsDataRaw],
@@ -713,31 +737,21 @@ export default function TripsScreen() {
   // included. The undated newest-400 list is only a first paint / error fallback.
   const {
     trips: hubDateRangeTripsRaw,
-    isFetching: hubDateRangeFetching,
     isFetched: hubDateRangeFetched,
     isError: hubDateRangeFailed,
-    hasNextPage: hubHasNextPage,
-    isFetchingNextPage: hubFetchingNextPage,
-    fetchNextPage: fetchHubNextPage,
   } = useTripsHubDateRange(orgId, hubDateBounds ?? HUB_ALL_TIME_BOUNDS);
-  const tripsLoading = Boolean(orgId) && hubDateRangeFetching && !hubDateRangeFetched;
-  const tripsLoadFailed = hubDateRangeFailed || tripsCatalogFailed;
   const hubDateRangeTrips = useMemo(
     () => sourcingScope.filterTrips(hubDateRangeTripsRaw),
     [sourcingScope, hubDateRangeTripsRaw],
   );
-  const hubTripCompleteness = !orgId
-    ? "exact"
-    : hubDateRangeFailed
-      ? "error"
-      : !hubDateRangeFetched
-        ? "loading"
-        : hubHasNextPage
-          ? "paged"
-          : "exact";
+  const hubTripCompleteness = resolveHubTripDataset({
+    rangeRows: hubDateRangeTrips,
+    rangeFetched: hubDateRangeFetched,
+    rangeError: hubDateRangeFailed,
+    newestRows: tripsData,
+  }).completeness;
   const hubCountsPartial = hubTripCompleteness !== "exact";
-  const useRangeList =
-    hubTripCompleteness === "exact" || hubTripCompleteness === "paged";
+  const useRangeList = hubTripCompleteness === "exact" || hubTripCompleteness === "capped";
   // Full-width toolbar warning (HubPartialWarning). dateRangeLabel only renders for custom ranges.
   const hubCompletenessNote = hubTripCompletenessNote(hubTripCompleteness);
   const hubDateRangeLabel = hubCustomDateRangeLabel;
@@ -773,7 +787,8 @@ export default function TripsScreen() {
   // TanStack Query cache — no duplicate fetch), filtered to indents this org
   // owns that have not yet been allocated to a trip. Allocation is read from
   // the trips this screen already fetches (`trips.indent_id`), not a new query.
-  const { data: allIndentsRaw = EMPTY_INDENT_ROWS } = useIndentsQuery(orgId);
+  const { data: allIndentsRaw = EMPTY_INDENT_ROWS, isFetched: indentsFetched } =
+    useIndentsQuery(orgId);
   const allIndents = useMemo(
     () => sourcingScope.filterIndents(allIndentsRaw),
     [sourcingScope, allIndentsRaw],
@@ -2254,7 +2269,7 @@ export default function TripsScreen() {
     number | null
   >(null);
   const [supplierNameFallbackById, setSupplierNameFallbackById] = useState<
-    Record<string, string>
+    Record<string, SupplierFallbackRow>
   >({});
 
   // Indent cards list only on the Active Indent tile — never in trip lists or History.
@@ -2521,23 +2536,13 @@ export default function TripsScreen() {
       const nearBottom =
         contentOffset.y + layoutMeasurement.height >= contentSize.height - 360;
       if (!nearBottom) return;
-      if (hubHasNextPage && !hubFetchingNextPage) {
-        fetchHubNextPage();
-      }
       setMobileVisibleCount((prev) => {
         const total = tripsHubPaginationTotal;
         if (prev >= total) return prev;
         return Math.min(total, prev + MOBILE_HUB_BATCH_STEP);
       });
     },
-    [
-      tabBarScrollProps,
-      isMobileViewport,
-      tripsHubPaginationTotal,
-      hubHasNextPage,
-      hubFetchingNextPage,
-      fetchHubNextPage,
-    ],
+    [tabBarScrollProps, isMobileViewport, tripsHubPaginationTotal],
   );
 
   const loadTypeOptions = useMemo(() => {
@@ -2580,7 +2585,9 @@ export default function TripsScreen() {
     void (async () => {
       const { data, error } = await supabase()
         .from("suppliers")
-        .select("id, name, company_name, contact_person")
+        .select(
+          "id, name, company_name, contact_person, avatar_url, avatar_seed, linked_organization_id, supplier_type",
+        )
         .in("id", missingSupplierIds);
       if (cancelled) return;
       if (error) {
@@ -2589,21 +2596,24 @@ export default function TripsScreen() {
         );
         return;
       }
-      const next: Record<string, string> = {};
-      for (const row of
-        (data ?? []) as Array<{
-          id: string;
-          name?: string | null;
-          company_name?: string | null;
-          contact_person?: string | null;
-        }>) {
+      const next: Record<string, SupplierFallbackRow> = {};
+      for (const row of (data ?? []) as SupplierFallbackRow[]) {
         const key = String(row.id ?? "").trim().toLowerCase();
         if (!key) continue;
-        const label =
+        const name =
           String(row.name ?? "").trim() ||
           String(row.company_name ?? "").trim() ||
           String(row.contact_person ?? "").trim();
-        if (label) next[key] = label;
+        next[key] = {
+          id: key,
+          name,
+          company_name: row.company_name ?? null,
+          contact_person: row.contact_person ?? null,
+          avatar_url: row.avatar_url ?? null,
+          avatar_seed: row.avatar_seed ?? null,
+          linked_organization_id: row.linked_organization_id ?? null,
+          supplier_type: row.supplier_type ?? null,
+        };
       }
       setSupplierNameFallbackById((prev) =>
         supplierNameFallbackMapsEqual(prev, next) ? prev : next,
@@ -2615,31 +2625,162 @@ export default function TripsScreen() {
     };
   }, [supplierNameFallbackEffectKey]);
 
+  const [indentAwardFallbackByIndentId, setIndentAwardFallbackByIndentId] =
+    useState<Record<string, string>>({});
+  const indentAwardFallbackEffectKey = useMemo(() => {
+    if (!indentsFetched) return "";
+    const known = new Set(
+      allIndentsRaw.map((indent) => String(indent.id).trim().toLowerCase()),
+    );
+    const missing = [
+      ...new Set(
+        trips
+          .map((trip) => String(trip.indent_id ?? "").trim())
+          .filter((id) => id && !known.has(id.toLowerCase())),
+      ),
+    ].sort();
+    return missing.join("|");
+  }, [allIndentsRaw, indentsFetched, trips]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!indentAwardFallbackEffectKey) {
+      setIndentAwardFallbackByIndentId((prev) =>
+        Object.keys(prev).length === 0 ? prev : {},
+      );
+      return undefined;
+    }
+    const missingIds = indentAwardFallbackEffectKey.split("|").filter(Boolean);
+    void (async () => {
+      const awards: Record<string, string> = {};
+      for (let i = 0; i < missingIds.length; i += 80) {
+        const chunk = missingIds.slice(i, i + 80);
+        const { data, error } = await supabase()
+          .from("indents")
+          .select("id, assigned_supplier_id")
+          .in("id", chunk);
+        if (cancelled) return;
+        if (error) {
+          setIndentAwardFallbackByIndentId((prev) =>
+            Object.keys(prev).length === 0 ? prev : {},
+          );
+          return;
+        }
+        for (const row of data ?? []) {
+          const id = String(row.id ?? "").trim();
+          const awardedOrgId = String(row.assigned_supplier_id ?? "").trim();
+          if (id && awardedOrgId) {
+            awards[id] = awardedOrgId;
+            awards[id.toLowerCase()] = awardedOrgId;
+          }
+        }
+      }
+      if (cancelled) return;
+      setIndentAwardFallbackByIndentId((prev) => {
+        const prevKeys = Object.keys(prev);
+        const nextKeys = Object.keys(awards);
+        if (
+          prevKeys.length === nextKeys.length &&
+          nextKeys.every((key) => prev[key] === awards[key])
+        ) {
+          return prev;
+        }
+        return awards;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [indentAwardFallbackEffectKey]);
+
+  const indentAwardOrgByIndentId = useMemo(() => {
+    const awards: Record<string, string> = { ...indentAwardFallbackByIndentId };
+    for (const indent of allIndentsRaw) {
+      const awardedOrgId = String(indent.assigned_supplier_id ?? "").trim();
+      if (indent.id && awardedOrgId) {
+        awards[indent.id] = awardedOrgId;
+        awards[indent.id.toLowerCase()] = awardedOrgId;
+      }
+    }
+    return awards;
+  }, [allIndentsRaw, indentAwardFallbackByIndentId]);
+  const supplierFallbackRows = useMemo(
+    () => Object.values(supplierNameFallbackById),
+    [supplierNameFallbackById],
+  );
+  const suppliersForHubParty = useMemo(() => {
+    const known = new Set(
+      suppliers.map((supplier) => String(supplier.id).trim().toLowerCase()),
+    );
+    const extra = supplierFallbackRows.filter(
+      (row) => row.id && !known.has(row.id),
+    );
+    return extra.length === 0
+      ? suppliers
+      : [...suppliers, ...(extra as typeof suppliers)];
+  }, [suppliers, supplierFallbackRows]);
+  const supplierNameById = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const [id, row] of Object.entries(supplierNameFallbackById)) {
+      if (row.name) names[id] = row.name;
+    }
+    return names;
+  }, [supplierNameFallbackById]);
+  const hubSupplierOrgIds = useMemo(() => {
+    const ids = new Set<string>(Object.values(indentAwardOrgByIndentId));
+    for (const row of supplierFallbackRows) {
+      const linked = String(row.linked_organization_id ?? "").trim();
+      if (linked) ids.add(linked);
+    }
+    return [...ids].sort();
+  }, [indentAwardOrgByIndentId, supplierFallbackRows]);
+  const awardOrgProfiles = useLinkedOrgProfileMap(
+    EMPTY_LINKED_PARTIES,
+    EMPTY_LINKED_PARTIES,
+    hubSupplierOrgIds,
+  );
+  const hubPartyOrgById = useMemo(
+    () => ({ ...linkedOrgByOrganizationId, ...awardOrgProfiles }),
+    [linkedOrgByOrganizationId, awardOrgProfiles],
+  );
+  const orgNameById = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const [id, profile] of Object.entries(hubPartyOrgById)) {
+      const name = profile.organizationName?.trim();
+      if (name) names[id] = name;
+    }
+    return names;
+  }, [hubPartyOrgById]);
+
   const tripHubPartyMetaByTripId = useMemo(
     () =>
       buildTripHubPartyMetaByTripId(
         trips,
         clients,
-        suppliers,
+        suppliersForHubParty,
         drivers,
         transactions,
-        supplierNameFallbackById,
+        supplierNameById,
         {
           viewerOrgId: orgId,
           subcontracts: hubTripSubcontracts,
           driverImageById,
+          indentAwardOrgByIndentId,
+          orgNameById,
         },
       ),
     [
       trips,
       clients,
-      suppliers,
       drivers,
       transactions,
-      supplierNameFallbackById,
+      supplierNameById,
       orgId,
       hubTripSubcontracts,
       driverImageById,
+      suppliersForHubParty,
+      indentAwardOrgByIndentId,
+      orgNameById,
     ],
   );
 
@@ -3657,16 +3798,11 @@ export default function TripsScreen() {
     () => setTripsTablePage((p) => Math.max(0, p - 1)),
     [],
   );
-  const handleTripsPageNext = useCallback(() => {
-    setTripsTablePage((p) => {
-      const last = Math.max(0, tripsTableTotalPages - 1);
-      if (p >= last && hubHasNextPage && !hubFetchingNextPage) {
-        fetchHubNextPage();
-        return p;
-      }
-      return Math.min(last, p + 1);
-    });
-  }, [tripsTableTotalPages, hubHasNextPage, hubFetchingNextPage, fetchHubNextPage]);
+  const handleTripsPageNext = useCallback(
+    () =>
+      setTripsTablePage((p) => Math.min(tripsTableTotalPages - 1, p + 1)),
+    [tripsTableTotalPages],
+  );
 
   const showTripsPaginationFooter =
     Platform.OS === "web" &&
@@ -4583,7 +4719,7 @@ export default function TripsScreen() {
                       );
                       const supplierOrgFields = linkedOrgAvatarFields(
                         party?.supplierLinkedOrgId,
-                        linkedOrgByOrganizationId,
+                        hubPartyOrgById,
                         party?.supplierAvatarUrl,
                       );
                       return (
@@ -4704,7 +4840,7 @@ export default function TripsScreen() {
                       );
                       const supplierOrgFields = linkedOrgAvatarFields(
                         party?.supplierLinkedOrgId,
-                        linkedOrgByOrganizationId,
+                        hubPartyOrgById,
                         party?.supplierAvatarUrl,
                       );
                       return (

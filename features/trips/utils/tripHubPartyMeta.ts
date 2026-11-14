@@ -282,34 +282,6 @@ export function buildTripHubPartyMetaByTripId(
       // data") after they assigned a roster driver on the shipper trip.
       displaySupplierName = displayDriverName;
     }
-    const indentId = String(t.indent_id ?? "").trim();
-    const awardOrgId = (
-      indentId
-        ? opts?.indentAwardOrgByIndentId?.[indentId] ??
-          opts?.indentAwardOrgByIndentId?.[indentId.toLowerCase()] ??
-          ""
-        : ""
-    ).trim();
-    const awardIsAnotherOrg =
-      !!awardOrgId && awardOrgId.toLowerCase() !== viewerOrgId.toLowerCase();
-    let awardedSupplier: SupplierRow | undefined;
-    if (!displaySupplierName && awardIsAnotherOrg) {
-      awardedSupplier = supplierByLinkedOrg.get(awardOrgId.toLowerCase());
-      const awardedName = (
-        awardedSupplier?.name ??
-        awardedSupplier?.company_name ??
-        awardedSupplier?.contact_person ??
-        opts?.orgNameById?.[awardOrgId] ??
-        opts?.orgNameById?.[awardOrgId.toLowerCase()] ??
-        ""
-      ).trim();
-      if (awardedName) displaySupplierName = awardedName;
-    }
-    if (viewerIsAwardedSupplier) {
-      // Awarded carrier: never label themselves as the supplier (or "Awaiting
-      // data") after they assigned a roster driver on the shipper trip.
-      displaySupplierName = displayDriverName;
-    }
 
     const clientIdKey = (t.client_id ?? "").trim().toLowerCase();
     const clientRow = findPartyByIdOrUniqueName(

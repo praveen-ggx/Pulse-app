@@ -354,15 +354,31 @@ export function MarketplaceWalletBoard({
   const aside = (
     <View style={[styles.aside, isDesktop && styles.asideDesktop]}>
       <Text style={styles.section}>How a fee moves</Text>
-      <View style={styles.steps}>
-        {STEPS.map((step, index) => (
-          <View key={step.title} style={styles.step}>
-            <Text style={styles.stepIndex}>{index + 1}</Text>
-            <Text style={styles.stepTitle}>{step.title}</Text>
-            <Text style={styles.stepBody}>{step.body}</Text>
-          </View>
-        ))}
-      </View>
+      {isDesktop ? (
+        <View style={styles.steps}>
+          {STEPS.map((step, index) => (
+            <View key={step.title} style={styles.step}>
+              <Text style={styles.stepIndex}>{index + 1}</Text>
+              <Text style={styles.stepTitle}>{step.title}</Text>
+              <Text style={styles.stepBody}>{step.body}</Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <View style={styles.stepList}>
+          {STEPS.map((step, index) => (
+            <View key={step.title} style={[styles.stepRow, index > 0 && styles.ledgerRowRule]}>
+              <View style={styles.stepBadge}>
+                <Text style={styles.stepBadgeText}>{index + 1}</Text>
+              </View>
+              <View style={styles.ledgerCopy}>
+                <Text style={styles.stepTitle}>{step.title}</Text>
+                <Text style={styles.stepBody}>{step.body}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
       <Text style={styles.section}>Questions</Text>
       {FAQ.map((item) => {
         const open = openFaq === item.q;
@@ -387,24 +403,24 @@ export function MarketplaceWalletBoard({
       <View style={[styles.walletCard, isDesktop && styles.walletCardDesktop]}>
         <View style={styles.walletIdentity}>
           <Text style={styles.walletKicker}>Marketplace wallet</Text>
-          <Text style={styles.walletName} numberOfLines={2}>
+          <Text style={[styles.walletName, !isDesktop && styles.walletNameMobile]} numberOfLines={2}>
             {name}
           </Text>
           <Text style={styles.walletMeta}>
-            {figures.awarded} awarded · {figures.transactions} transactions
+            {figures.awarded} awarded · {figures.transactions} transaction{figures.transactions === 1 ? "" : "s"}
           </Text>
         </View>
-        <View style={[styles.balanceBlock, isDesktop && styles.balanceBlockDesktop]}>
+        <View style={[styles.balanceBlock, isDesktop ? styles.balanceBlockDesktop : styles.balanceBlockMobile]}>
           <Text style={[styles.balanceLabel, isDesktop && styles.balanceAlign]}>Balance</Text>
           <Text style={[styles.balanceValue, isDesktop && styles.balanceAlign]}>{balance}</Text>
           <Text style={[styles.balanceHint, isDesktop && styles.balanceAlign]}>{balanceHint}</Text>
         </View>
       </View>
 
-      <View style={styles.detailTabs}>
+      <View style={[styles.detailTabs, !isDesktop && styles.detailTabsMobile]}>
         <Pressable
           onPress={() => setDetailTab("transactions")}
-          style={[styles.detailTab, detailTab === "transactions" && styles.detailTabOn]}
+          style={[styles.detailTab, !isDesktop && styles.detailTabMobile, detailTab === "transactions" && styles.detailTabOn]}
           accessibilityRole="tab"
           accessibilityState={{ selected: detailTab === "transactions" }}
         >
@@ -412,7 +428,7 @@ export function MarketplaceWalletBoard({
         </Pressable>
         <Pressable
           onPress={() => setDetailTab("ar")}
-          style={[styles.detailTab, detailTab === "ar" && styles.detailTabOn]}
+          style={[styles.detailTab, !isDesktop && styles.detailTabMobile, detailTab === "ar" && styles.detailTabOn]}
           accessibilityRole="tab"
           accessibilityState={{ selected: detailTab === "ar" }}
           accessibilityLabel="Accounts receivable"
@@ -692,8 +708,14 @@ const styles = StyleSheet.create({
     color: Theme.primaryText,
   },
   walletName: { fontSize: 34, fontWeight: "800", letterSpacing: -0.8, color: Theme.primaryText },
+  walletNameMobile: { fontSize: 24, lineHeight: 28, letterSpacing: -0.5 },
   walletMeta: { fontSize: 14, fontWeight: "600", color: Theme.primaryText },
   balanceBlock: { gap: 2 },
+  balanceBlockMobile: {
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.primaryText,
+  },
   balanceBlockDesktop: { alignItems: "flex-end", maxWidth: 320 },
   balanceLabel: {
     fontSize: 12,
@@ -720,6 +742,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  detailTabsMobile: {
+    padding: 4,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    gap: 4,
+  },
+  detailTabMobile: { flex: 1, minHeight: 40, borderColor: "transparent" },
+  stepList: {
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    paddingHorizontal: 14,
+  },
+  stepRow: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 12 },
+  stepBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Theme.loadMainTabBg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepBadgeText: { fontSize: 13, fontWeight: "800", color: Theme.primaryText },
   detailTabOn: {
     backgroundColor: Theme.buttonPrimary,
     borderColor: Theme.buttonPrimaryBorder,

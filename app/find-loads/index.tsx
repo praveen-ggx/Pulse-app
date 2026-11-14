@@ -49,6 +49,7 @@ import {
   rememberLaneCounts,
 } from "@/features/network/utils/marketplaceLaneSearchMemory.util";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ChevronLeft } from "lucide-react-native";
 import {
   canonicalPoolField,
   filterPoolLanes,
@@ -467,10 +468,12 @@ export default function FindLoadsScreen() {
             {segment === "discover" ? null : (
               <Pressable
                 onPress={() => setSegment("discover")}
-                style={styles.backToLoads}
+                style={({ pressed }) => [styles.backToLoads, pressed && styles.retryBtnPressed]}
                 accessibilityRole="button"
-                accessibilityLabel="Discover"
+                accessibilityLabel="Back to marketplace loads"
+                hitSlop={4}
               >
+                <ChevronLeft size={16} color={Theme.textPrimaryDark} strokeWidth={2.4} />
                 <Text style={styles.backToLoadsText}>Loads</Text>
               </Pressable>
             )}
@@ -760,8 +763,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   headerInnerMobile: {
-    flexDirection: "column",
-    alignItems: "stretch",
+    alignItems: "flex-start",
     gap: 12,
   },
   headerLeft: {
@@ -783,8 +785,12 @@ const styles = StyleSheet.create({
   },
   backToLoads: {
     marginLeft: "auto",
-    minHeight: 40,
-    paddingHorizontal: 16,
+    flexShrink: 0,
+    flexDirection: "row",
+    gap: 2,
+    minHeight: 44,
+    paddingLeft: 10,
+    paddingRight: 16,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: Theme.borderLight,
@@ -803,8 +809,9 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   mobileHeader: {
-    width: "100%",
-    gap: 10,
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
   },
   eyebrow: {
     fontSize: 10,

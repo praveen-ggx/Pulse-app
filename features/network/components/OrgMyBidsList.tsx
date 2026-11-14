@@ -726,119 +726,64 @@ function BidCard({
     router.push(ROUTES.indentAllocation(bid.indent_id, "vehicle") as never);
   };
 
-  return (
+  const statusPill = (
     <View
       style={[
-        styles.card,
-        isDesktop && !nested && styles.cardDesktop,
-        nested && styles.cardNested,
-        isAccepted && styles.cardAccepted,
-        isRejected && styles.cardRejected,
+        styles.statusPill,
+        isAccepted && styles.statusPillAccepted,
+        isRejected && styles.statusPillRejected,
       ]}
     >
-      <View style={styles.cardTop}>
-        {identityRevealed ? (
-          <>
-            <PartyAvatar
-              name={shipper}
-              initialsColorSeed={bid.owner_organization_id ?? shipper}
-              entityType="client"
-              size={32}
-            />
-            <View style={styles.cardTopText}>
-              <Text style={styles.orgName} numberOfLines={1}>
-                {shipper}
-              </Text>
-              <Text style={styles.metaLine} numberOfLines={1}>
-                {(bid.indent_number ?? "").trim() || bid.indent_id.slice(0, 8).toUpperCase()}
-              </Text>
-            </View>
-          </>
-        ) : (
-          <View style={[styles.cardTopText, styles.laneTag]} testID="marketplace-bid-lane-tag">
-            <Layers size={12} color={Theme.primary} strokeWidth={2.4} />
-            <Text style={styles.laneTagText} numberOfLines={1}>
-              MARKETPLACE
-            </Text>
-          </View>
-        )}
-        <View
-          style={[
-            styles.statusPill,
-            isAccepted && styles.statusPillAccepted,
-            isRejected && styles.statusPillRejected,
+      <Text
+        style={[
+          styles.statusText,
+          isAccepted && styles.statusTextAccepted,
+          isRejected && styles.statusTextRejected,
+        ]}
+      >
+        {statusLabel(bid.status).toUpperCase()}
+      </Text>
+    </View>
+  );
+
+  const actionButton = (
+    <>
+      {isAccepted && feeGateSatisfied ? (
+        <Pressable
+          onPress={handleAssignVehicle}
+          style={({ pressed }) => [
+            styles.assignCta,
+            pressed && styles.assignRowPressed,
           ]}
+          accessibilityRole="button"
+          accessibilityLabel="Assign vehicle"
         >
-          <Text
-            style={[
-              styles.statusText,
-              isAccepted && styles.statusTextAccepted,
-              isRejected && styles.statusTextRejected,
-            ]}
-          >
-            {statusLabel(bid.status).toUpperCase()}
+          <Text style={styles.assignCtaText} numberOfLines={1}>
+            Assign
           </Text>
-        </View>
-      </View>
-
-      <MarketplaceRouteGrid pickup={bid.pickup_area} drop={bid.drop_location} />
-      {lanePreview ? (
-        <Text
-          style={[
-            styles.laneStatus,
-            lanePreview.tone === "reduced" && styles.laneStatusReduced,
-            lanePreview.tone === "expired" && styles.laneStatusExpired,
-          ]}
-          accessibilityLabel={`Lane status, ${lanePreview.label}`}
-        >
-          {lanePreview.label}
-        </Text>
+          <ChevronRight size={13} color={Theme.positive} strokeWidth={2.4} />
+        </Pressable>
       ) : null}
-      <MarketplaceSpecChips chips={specChips} dateLabel={dateLabel} />
+      {isAccepted && !feeGateSatisfied && canPay ? (
+        <Pressable
+          onPress={() => setMethodSheetOpen(true)}
+          disabled={isStartingPayment || isSimulating}
+          style={({ pressed }) => [styles.payButton, pressed && styles.assignRowPressed]}
+        >
+          <Text style={styles.payButtonText} numberOfLines={1}>
+            {isStartingPayment || isSimulating
+              ? "Working…"
+              : bid.fee_payment_status === "pending"
+                ? "Complete payment"
+                : "Pay fee"}
+          </Text>
+        </Pressable>
+      ) : null}
+    </>
+  );
 
-      <View style={styles.cardFooter}>
-        <View style={styles.rateBlock}>
-          <Text style={styles.rateLabel}>Your bid</Text>
-          <Text style={styles.amount}>{formatAmount(bid.amount)}</Text>
-          {identityRevealed && phoneDisplay ? (
-            <Text style={styles.contact} numberOfLines={1}>
-              {phoneDisplay}
-            </Text>
-          ) : null}
-        </View>
-        {isAccepted && feeGateSatisfied ? (
-          <Pressable
-            onPress={handleAssignVehicle}
-            style={({ pressed }) => [
-              styles.assignCta,
-              pressed && styles.assignRowPressed,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Assign vehicle"
-          >
-            <Text style={styles.assignCtaText} numberOfLines={1}>
-              Assign
-            </Text>
-            <ChevronRight size={13} color={Theme.positive} strokeWidth={2.4} />
-          </Pressable>
-        ) : null}
-        {isAccepted && !feeGateSatisfied && canPay ? (
-          <Pressable
-            onPress={() => setMethodSheetOpen(true)}
-            disabled={isStartingPayment || isSimulating}
-            style={({ pressed }) => [styles.payButton, pressed && styles.assignRowPressed]}
-          >
-            <Text style={styles.payButtonText} numberOfLines={1}>
-              {isStartingPayment || isSimulating
-                ? "Working…"
-                : bid.fee_payment_status === "pending"
-                  ? "Complete payment"
-                  : "Pay fee"}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
-
+  const footer = (
+    <>
       {bid.note?.trim() ? (
         <Text style={styles.note} numberOfLines={1}>
           &ldquo;{bid.note.trim()}&rdquo;
@@ -891,6 +836,162 @@ function BidCard({
       />
 
       <Text style={styles.submitted}>Submitted {formatSubmittedAt(bid.created_at)}</Text>
+    </>
+  );
+
+  if (!nested) {
+    const loadLine = [...specChips, dateLabel].filter(Boolean).join(" · ");
+    const indentLabel = (bid.indent_number ?? "").trim() || bid.indent_id.slice(0, 8).toUpperCase();
+    return (
+      <View
+        style={[
+          styles.card,
+          styles.poolCard,
+          isDesktop && styles.cardDesktop,
+          isAccepted && styles.cardAccepted,
+          isRejected && styles.cardRejected,
+        ]}
+      >
+        <View style={styles.poolStage}>
+          <View style={styles.poolTop}>
+            {identityRevealed ? (
+              <View style={[styles.cardTopText, styles.laneTag]}>
+                <PartyAvatar
+                  name={shipper}
+                  initialsColorSeed={bid.owner_organization_id ?? shipper}
+                  entityType="client"
+                  size={20}
+                />
+                <Text style={styles.poolTag} numberOfLines={1}>
+                  {shipper.toUpperCase()} · {indentLabel}
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.cardTopText, styles.laneTag]} testID="marketplace-bid-lane-tag">
+                <Layers size={12} color={Theme.primary} strokeWidth={2.4} />
+                <Text style={styles.poolTag} numberOfLines={1}>
+                  MARKETPLACE
+                </Text>
+              </View>
+            )}
+            {statusPill}
+          </View>
+          <View style={styles.poolRoute}>
+            <View style={styles.poolRouteCol}>
+              <Text style={styles.poolRouteLabel}>Pickup</Text>
+              <RouteEndpointStack value={bid.pickup_area} primaryStyle={styles.poolCity} secondaryStyle={styles.poolArea} maxLinesPerItem={1} />
+            </View>
+            <View style={styles.poolArrow}>
+              <ArrowRight size={14} color={Theme.textMuted} strokeWidth={2.2} />
+            </View>
+            <View style={[styles.poolRouteCol, styles.poolRouteEnd]}>
+              <Text style={[styles.poolRouteLabel, styles.poolAlignEnd]}>Drop</Text>
+              <RouteEndpointStack value={bid.drop_location} align="end" primaryStyle={styles.poolCity} secondaryStyle={styles.poolArea} maxLinesPerItem={1} />
+            </View>
+          </View>
+          <Text style={styles.poolVehicle} numberOfLines={1}>
+            {loadLine || "Marketplace load"}
+          </Text>
+        </View>
+        <View style={[styles.poolBody, styles.bidBody]}>
+          {lanePreview ? (
+            <Text
+              style={[
+                styles.laneStatus,
+                lanePreview.tone === "reduced" && styles.laneStatusReduced,
+                lanePreview.tone === "expired" && styles.laneStatusExpired,
+              ]}
+              accessibilityLabel={`Lane status, ${lanePreview.label}`}
+            >
+              {lanePreview.label}
+            </Text>
+          ) : null}
+          <View style={styles.poolTarget}>
+            <Text style={styles.poolTargetKicker}>Your bid</Text>
+            <Text style={styles.poolTargetPrice} numberOfLines={1}>
+              {formatAmount(bid.amount)}
+            </Text>
+          </View>
+          {identityRevealed && phoneDisplay ? (
+            <Text style={styles.contact} numberOfLines={1}>
+              {phoneDisplay}
+            </Text>
+          ) : null}
+          {isAccepted ? <View style={styles.bidActions}>{actionButton}</View> : null}
+          {footer}
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View
+      style={[
+        styles.card,
+        isDesktop && !nested && styles.cardDesktop,
+        nested && styles.cardNested,
+        isAccepted && styles.cardAccepted,
+        isRejected && styles.cardRejected,
+      ]}
+    >
+      <View style={styles.cardTop}>
+        {identityRevealed ? (
+          <>
+            <PartyAvatar
+              name={shipper}
+              initialsColorSeed={bid.owner_organization_id ?? shipper}
+              entityType="client"
+              size={32}
+            />
+            <View style={styles.cardTopText}>
+              <Text style={styles.orgName} numberOfLines={1}>
+                {shipper}
+              </Text>
+              <Text style={styles.metaLine} numberOfLines={1}>
+                {(bid.indent_number ?? "").trim() || bid.indent_id.slice(0, 8).toUpperCase()}
+              </Text>
+            </View>
+          </>
+        ) : (
+          <View style={[styles.cardTopText, styles.laneTag]} testID="marketplace-bid-lane-tag">
+            <Layers size={12} color={Theme.primary} strokeWidth={2.4} />
+            <Text style={styles.laneTagText} numberOfLines={1}>
+              MARKETPLACE
+            </Text>
+          </View>
+        )}
+        {statusPill}
+      </View>
+
+      <MarketplaceRouteGrid pickup={bid.pickup_area} drop={bid.drop_location} />
+      {lanePreview ? (
+        <Text
+          style={[
+            styles.laneStatus,
+            lanePreview.tone === "reduced" && styles.laneStatusReduced,
+            lanePreview.tone === "expired" && styles.laneStatusExpired,
+          ]}
+          accessibilityLabel={`Lane status, ${lanePreview.label}`}
+        >
+          {lanePreview.label}
+        </Text>
+      ) : null}
+      <MarketplaceSpecChips chips={specChips} dateLabel={dateLabel} />
+
+      <View style={styles.cardFooter}>
+        <View style={styles.rateBlock}>
+          <Text style={styles.rateLabel}>Your bid</Text>
+          <Text style={styles.amount}>{formatAmount(bid.amount)}</Text>
+          {identityRevealed && phoneDisplay ? (
+            <Text style={styles.contact} numberOfLines={1}>
+              {phoneDisplay}
+            </Text>
+          ) : null}
+        </View>
+        {actionButton}
+      </View>
+
+      {footer}
     </View>
   );
 }
@@ -1082,6 +1183,8 @@ const styles = StyleSheet.create({
   poolArea: { fontSize: 11, lineHeight: 14, fontWeight: "500", color: Theme.textSecondary },
   poolVehicle: { minHeight: 14, fontSize: 11, lineHeight: 14, fontWeight: "600", color: Theme.primaryText },
   poolBody: { paddingHorizontal: 6, paddingTop: 2, paddingBottom: 10, gap: 6 },
+  bidBody: { paddingHorizontal: 12, paddingTop: 4, paddingBottom: 12, gap: 8 },
+  bidActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
   poolMetricRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 32, gap: 6 },
   poolMetric: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1, minWidth: 0 },
   poolMetricIcon: { width: 24, height: 24, borderRadius: 12, backgroundColor: Theme.brandBlueMist, alignItems: "center", justifyContent: "center" },

@@ -35,12 +35,14 @@ export function NetworkMyQuotesList() {
 
   return (
     <View style={styles.wrap} testID="network-my-quotes">
-      <Text style={styles.heading}>NETWORK · {quotes.length}</Text>
-      <Text style={styles.note}>
-        {pending.length > 0
-          ? "Pending quotes are with the shipper. Accepting a rate request does not award the load."
-          : "Awarded quotes were accepted by the shipper."}
-      </Text>
+      <View style={styles.headRow}>
+        <Text style={styles.heading}>NETWORK · {quotes.length}</Text>
+        <Text style={styles.note} numberOfLines={2}>
+          {pending.length > 0
+            ? "Pending with shipper · accepting a rate request does not award the load"
+            : "Awarded quotes were accepted by the shipper"}
+        </Text>
+      </View>
       {quotes.map((quote) => {
         const status = statusWord(quote.status);
         return (
@@ -67,20 +69,27 @@ export function NetworkMyQuotesList() {
 
 const styles = StyleSheet.create({
   wrap: {
+    gap: 4,
+    paddingBottom: 6,
+  },
+  headRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
     gap: 8,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
   },
   heading: {
+    flexShrink: 0,
     color: Theme.textSecondary,
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.4,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
   },
   note: {
+    flex: 1,
+    minWidth: 0,
     color: Theme.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 15,
   },
   row: {
     flexDirection: "row",

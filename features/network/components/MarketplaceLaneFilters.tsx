@@ -16,7 +16,7 @@ import {
   poolKey,
 } from "@/features/network/utils/pooledOpportunity.util";
 import { routeEndpointLines } from "@/features/network/utils/storyDisplay";
-import { Check, ChevronDown, Flag, MapPin, Search, Truck, X } from "lucide-react-native";
+import { Check, ChevronDown, ChevronLeft, Flag, MapPin, Search, Truck, X } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import {
   Modal,
@@ -255,44 +255,68 @@ export function MarketplaceLaneFilters({
 
       <Modal
         visible={openField != null}
-        transparent
-        animationType="fade"
+        transparent={!stacked}
+        animationType={stacked ? "slide" : "fade"}
+        presentationStyle={stacked ? "fullScreen" : undefined}
         onRequestClose={() => setOpenField(null)}
       >
-        <View style={styles.backdrop}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setOpenField(null)}
-          />
+        <View style={stacked ? styles.pageRoot : styles.backdrop}>
+          {stacked ? null : (
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => setOpenField(null)}
+            />
+          )}
           <View
             style={[
-              styles.sheet,
-              stacked && styles.sheetMobile,
+              stacked ? styles.page : styles.sheet,
               {
+                paddingTop: stacked ? insets.top : undefined,
                 paddingBottom: Math.max(insets.bottom, 14),
-                marginTop: stacked ? Math.max(insets.top, 12) : undefined,
               },
             ]}
           >
-            <View style={styles.sheetHead}>
-              <View style={styles.sheetHeadCopy}>
-                {openField && !board ? (
-                  <Text style={styles.sheetStep}>Step {FIELD_META[openField].step}</Text>
-                ) : null}
-                <Text style={styles.sheetTitle}>
-                  {board && openField ? FIELD_META[openField].boardName : copy?.listTitle}
-                </Text>
+            {stacked ? (
+              <View style={styles.pageHead}>
+                <Pressable
+                  onPress={() => setOpenField(null)}
+                  style={styles.pageBack}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to marketplace loads"
+                  hitSlop={Layout.touchTargetHitSlop}
+                >
+                  <ChevronLeft size={20} color={Theme.textPrimaryDark} strokeWidth={2.4} />
+                </Pressable>
+                <View style={styles.sheetHeadCopy}>
+                  <Text style={styles.sheetStep}>
+                    {openField ? `Step ${FIELD_META[openField].step} of 03` : ""}
+                  </Text>
+                  <Text style={styles.pageTitle}>
+                    {copy?.listTitle ?? ""}
+                  </Text>
+                </View>
               </View>
-              <Pressable
-                onPress={() => setOpenField(null)}
-                style={styles.sheetClose}
-                accessibilityRole="button"
-                accessibilityLabel="Close list"
-                hitSlop={Layout.touchTargetHitSlop}
-              >
-                <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.2} />
-              </Pressable>
-            </View>
+            ) : (
+              <View style={styles.sheetHead}>
+                <View style={styles.sheetHeadCopy}>
+                  {openField && !board ? (
+                    <Text style={styles.sheetStep}>Step {FIELD_META[openField].step}</Text>
+                  ) : null}
+                  <Text style={styles.sheetTitle}>
+                    {board && openField ? FIELD_META[openField].boardName : copy?.listTitle}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => setOpenField(null)}
+                  style={styles.sheetClose}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close list"
+                  hitSlop={Layout.touchTargetHitSlop}
+                >
+                  <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.2} />
+                </Pressable>
+              </View>
+            )}
             <View style={styles.menuSearch}>
               <Search size={14} color={Theme.textSecondary} />
               <TextInput
@@ -307,7 +331,7 @@ export function MarketplaceLaneFilters({
               />
             </View>
             <ScrollView
-              style={styles.menuList}
+              style={stacked ? styles.menuListPage : styles.menuList}
               contentContainerStyle={board ? styles.suggestWrap : undefined}
               keyboardShouldPersistTaps="handled"
             >
@@ -819,10 +843,28 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  sheetMobile: {
-    maxWidth: "100%",
-    maxHeight: "88%",
+  pageRoot: { flex: 1, backgroundColor: Theme.cardWhite },
+  page: { flex: 1, width: "100%", backgroundColor: Theme.cardWhite },
+  pageHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+    marginBottom: 12,
   },
+  pageBack: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pageTitle: { fontSize: 18, fontWeight: "800", color: Theme.textPrimaryDark },
+  menuListPage: { flex: 1 },
   sheetHead: {
     flexDirection: "row",
     alignItems: "center",

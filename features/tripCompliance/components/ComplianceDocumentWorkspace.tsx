@@ -3619,6 +3619,8 @@ export function ComplianceDocumentWorkspace({
   const podRequestSeen = useRef(0);
 
   const summary = summaries.find((item) => item.trip.id === selectedId) ?? summaries[0] ?? null;
+  // A supplier truck matched by plate has no trips.vehicle_id; its docs live under vaultVehicleId.
+  const vehicleEntityId = summary?.trip.vehicle_id ?? summary?.vaultVehicleId ?? null;
 
   useEffect(() => {
     if (!summary) {
@@ -3889,7 +3891,7 @@ export function ComplianceDocumentWorkspace({
         organizationId,
         entityId:
           row.entityDoc?.entity_id ??
-          (reviewScope === "vehicle" ? summary?.trip.vehicle_id : summary?.trip.driver_id) ??
+          (reviewScope === "vehicle" ? vehicleEntityId : summary?.trip.driver_id) ??
           summary?.trip.id,
         docType: row.type,
       });
@@ -3902,7 +3904,7 @@ export function ComplianceDocumentWorkspace({
     reviewScope,
     summary?.trip.driver_id,
     summary?.trip.id,
-    summary?.trip.vehicle_id,
+    vehicleEntityId,
   ]);
   /** Each tab (Finance, Trip, Vehicle, Driver) uses the same group Approve. */
   const showGroupedReview = !showEntityUnassigned && !showAllDocs;
@@ -4204,7 +4206,7 @@ export function ComplianceDocumentWorkspace({
   const activePreviewSource = compliancePreviewSourceForRow(activeRow);
   const activePreviewEntityId =
     activeRow?.entityDoc?.entity_id ??
-    (reviewScope === "vehicle" ? summary?.trip.vehicle_id : summary?.trip.driver_id) ??
+    (reviewScope === "vehicle" ? vehicleEntityId : summary?.trip.driver_id) ??
     summary?.trip.id ??
     null;
   const activePreviewDocType = activeRow?.type ?? null;
@@ -4285,7 +4287,7 @@ export function ComplianceDocumentWorkspace({
       organizationId,
       entityId:
         nextRow.entityDoc?.entity_id ??
-        (reviewScope === "vehicle" ? summary?.trip.vehicle_id : summary?.trip.driver_id) ??
+        (reviewScope === "vehicle" ? vehicleEntityId : summary?.trip.driver_id) ??
         summary?.trip.id,
       docType: nextRow.type,
     }).then((url) => {
@@ -4302,7 +4304,7 @@ export function ComplianceDocumentWorkspace({
     docIndex,
     reviewScope,
     summary?.trip.id,
-    summary?.trip.vehicle_id,
+    vehicleEntityId,
     summary?.trip.driver_id,
   ]);
 
@@ -4374,8 +4376,8 @@ export function ComplianceDocumentWorkspace({
       }
       return true;
     }
-    if (row.entityDoc?.source === "vehicle-vault" && summary.trip.vehicle_id) {
-      const vehicleId = summary.trip.vehicle_id;
+    if (row.entityDoc?.source === "vehicle-vault" && vehicleEntityId) {
+      const vehicleId = vehicleEntityId;
       const marked = await approveComplianceVehicleDocument({
         orgId: organizationId,
         vehicleId,
@@ -4535,7 +4537,7 @@ export function ComplianceDocumentWorkspace({
     if (!ensureCanModerate("Can't approve", "Approve")) return;
     const scope = reviewScope;
     const tripId = summary.trip.id;
-    const vehicleId = summary.trip.vehicle_id;
+    const vehicleId = vehicleEntityId;
     const driverId = summary.trip.driver_id;
     const targets = groupActionableRows(group).filter(
       (row) =>
@@ -4898,7 +4900,7 @@ export function ComplianceDocumentWorkspace({
       }
     };
     collect(deriveTripVaultReviewRows(summary.documents), "trip", "");
-    if (summary.trip.vehicle_id) {
+    if (vehicleEntityId) {
       collect(deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments), "vehicle", "Vehicle ");
     }
     if (summary.trip.driver_id) {
@@ -4909,7 +4911,7 @@ export function ComplianceDocumentWorkspace({
       ...mergeDeclinedDocumentReasons(items),
       summaryText: groupDeclinedReasonLines(items).join("\n"),
     };
-  }, [localDecisionByKey, summary]);
+  }, [localDecisionByKey, summary, vehicleEntityId]);
   const tripDeclineReason =
     summary && (isFinanceDeclinedTrip(summary) || isComplianceDeclineActive(summary))
       ? summary.complianceDeclineReason?.trim() || null
@@ -5044,7 +5046,7 @@ export function ComplianceDocumentWorkspace({
     setResubmitChangeLogReady(false);
     const entityIds = [
       resubmitTripId,
-      summary.trip.vehicle_id,
+      vehicleEntityId,
       summary.trip.driver_id,
       ...summary.documents.map((doc) => doc.id),
       ...summary.vehicleDocuments.map((doc) => doc.id),
@@ -5097,7 +5099,7 @@ export function ComplianceDocumentWorkspace({
     summary?.documents,
     summary?.driverDocuments,
     summary?.trip.driver_id,
-    summary?.trip.vehicle_id,
+    vehicleEntityId,
     summary?.vehicleDocuments,
   ]);
   /** Ground Ops resubmit note (includes change log) for Compliance / Finance verify. */
@@ -5231,7 +5233,7 @@ export function ComplianceDocumentWorkspace({
         return;
       }
       const entityId =
-        scope === "vehicle" ? summary.trip.vehicle_id : scope === "driver" ? summary.trip.driver_id : null;
+        scope === "vehicle" ? vehicleEntityId : scope === "driver" ? summary.trip.driver_id : null;
       if (scope !== "trip" && !entityId) {
         alertMessage("Nothing to upload", vaultCopy.unassignedHint);
         return;
@@ -5306,7 +5308,7 @@ export function ComplianceDocumentWorkspace({
             tripId: summary.trip.id,
             organizationId,
             actorId,
-            vehicleId: summary.trip.vehicle_id ?? null,
+            vehicleId: vehicleEntityId,
             entityId,
             existing: extraCopy ? row.entityDoc : null,
             append: extraCopy,
@@ -5359,6 +5361,7 @@ export function ComplianceDocumentWorkspace({
       tab,
       uploadingFinanceType,
       vaultCopy.unassignedHint,
+      vehicleEntityId,
     ],
   );
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -8254,7 +8257,7 @@ export function ComplianceDocumentWorkspace({
               file.driverKind
                 ? summary?.trip.driver_id ?? null
                 : file.complianceType
-                  ? summary?.trip.vehicle_id ?? null
+                  ? vehicleEntityId
                   : summary?.trip.id ?? null,
             docType: file.category,
           });
@@ -8280,8 +8283,8 @@ export function ComplianceDocumentWorkspace({
             onChanged(
               file.driverKind && summary.trip.driver_id
                 ? { type: "driverDocuments", driverId: summary.trip.driver_id }
-                : file.complianceType && summary.trip.vehicle_id
-                  ? { type: "vehicleDocuments", vehicleId: summary.trip.vehicle_id }
+                : file.complianceType && vehicleEntityId
+                  ? { type: "vehicleDocuments", vehicleId: vehicleEntityId }
                   : { type: "tripDocuments", tripId: summary.trip.id },
             );
           }
@@ -8713,7 +8716,7 @@ function tripDocumentGroups(summary: ComplianceTripSummary, hideCommercials = fa
     },
     { label: "Trip", rows: deriveTripVaultReviewRows(summary.documents) },
   ];
-  if (summary.trip.vehicle_id) {
+  if (summary.trip.vehicle_id || summary.vaultVehicleId) {
     groups.push({
       label: "Vehicle",
       rows: deriveEntityComplianceRows(

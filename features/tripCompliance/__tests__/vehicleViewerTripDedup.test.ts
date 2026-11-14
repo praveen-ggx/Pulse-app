@@ -13,11 +13,12 @@ type Op = { kind: "from" | "rpc"; name: string; filters: string[]; args?: Record
 const mockOps: Op[] = [];
 let mockVaultRows: Row[] = [];
 let mockPlateVaultRows: Row[] = [];
+let mockEntityDocRows: Row[] = [];
 
 function mockQuery(table: string) {
   const op: Op = { kind: "from", name: table, filters: [] };
   mockOps.push(op);
-  const rows: Row[] = [];
+  const rows: Row[] = table === "entity_documents" ? mockEntityDocRows : [];
   const builder: Record<string, unknown> = {};
   builder.select = () => builder;
   builder.eq = (col: string, val: unknown) => {
@@ -31,12 +32,15 @@ function mockQuery(table: string) {
   builder.is = () => builder;
   builder.neq = () => builder;
   builder.order = () => builder;
+  let afterId: string | null = null;
   builder.gt = (col: string, val: string) => {
     op.filters.push(`${col}>${val}`);
+    if (col === "id") afterId = val;
     return builder;
   };
   builder.limit = () => builder;
-  builder.then = (resolve: (v: { data: Row[]; error: null }) => void) => resolve({ data: rows, error: null });
+  builder.then = (resolve: (v: { data: Row[]; error: null }) => void) =>
+    resolve({ data: afterId === null ? rows : rows.filter((r) => String(r.id) > afterId!), error: null });
   return builder;
 }
 
@@ -82,6 +86,7 @@ beforeEach(() => {
   mockOps.length = 0;
   mockVaultRows = [];
   mockPlateVaultRows = [];
+  mockEntityDocRows = [];
 });
 
 describe("tripsNeedingVaultPlateFallback", () => {
@@ -169,6 +174,39 @@ describe("fetchVehicleDocumentsForTrips — plate fallback via RPC", () => {
     const byTrip = await fetchVehicleDocumentsForTrips(trips, "viewer-org");
     expect(byTrip.get("t1")?.vehicleDocuments).toEqual([]);
     expect(byTrip.get("t1")?.vaultVehicleId).toBe("5221b5bd-e85d-4e36-90f7-a01fcd0ab1f4");
+  });
+
+  it("plate-matched truck reads back docs uploaded from Compliance (viewer-org entity_documents)", async () => {
+    const supplierTruck = "5221b5bd-e85d-4e36-90f7-a01fcd0ab1f4";
+    mockPlateVaultRows = [{ trip_id: "t1", vehicle_id: supplierTruck, vehicle_number: "TN52AF9048", documents: {} }];
+    mockEntityDocRows = [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        organization_id: "viewer-org",
+        entity_type: "vehicle",
+        entity_id: supplierTruck,
+        doc_type: "rc",
+        status: "pending",
+        storage_path: "viewer-org/vehicle/rc.pdf",
+        expiry_date: null,
+        verified_at: null,
+        notes: null,
+        created_at: "2026-11-14T00:00:00Z",
+      },
+    ];
+    const trips = [trip("t1", { vehicle_display_number: "TN52AF9048", supplier_id: "sup-1" })];
+    const byTrip = await fetchVehicleDocumentsForTrips(trips, "viewer-org");
+    const entityReads = ops("entity_documents");
+    expect(entityReads.length).toBeGreaterThan(0);
+    expect(entityReads[0].filters).toContain("organization_id=viewer-org");
+    expect(byTrip.get("t1")?.vaultVehicleId).toBe(supplierTruck);
+    expect(byTrip.get("t1")?.vehicleDocuments.map((d) => d.doc_type)).toEqual(["rc"]);
+  });
+
+  it("trips with a vehicle_id never trigger the extra plate entity-docs read", async () => {
+    mockVaultRows = [{ trip_id: "t1", vehicle_id: "v1", vehicle_number: "AP16TX3792", documents: RC }];
+    await fetchVehicleDocumentsForTrips([trip("t1", { vehicle_id: "v1" })], "viewer-org");
+    expect(ops("entity_documents")).toHaveLength(0);
   });
 
   it("calls get_compliance_vehicle_vault_by_plate for vehicle-less trips with a plate", async () => {

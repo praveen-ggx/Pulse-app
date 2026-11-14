@@ -57,6 +57,7 @@ import {
 } from "@/features/network/utils/pooledOpportunity.util";
 import { STALE } from "@/lib/queryClient";
 import { isVehicleTypeCompatibleWithFleet } from "@/features/marketplace/utils/fleetFit.util";
+import { getVehiclesByOrganization } from "@/features/vehicles/services/vehicles.service";
 import { marketplaceFeeGateSatisfied } from "@/features/network/services/marketBids.service";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import { queryKeys } from "@/lib/queryKeys";
@@ -739,6 +740,18 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   chromeFlush: { paddingTop: 4, paddingBottom: 0 },
+  chromeInner: { width: "100%", gap: 12 },
+  hotLaneBack: {
+    alignSelf: "flex-start",
+    minHeight: 36,
+    paddingHorizontal: 4,
+    justifyContent: "center",
+  },
+  hotLaneBackText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
   headerInner: {
     flexDirection: "row",
     alignItems: "center",

@@ -498,7 +498,7 @@ export function MarketplaceLanding({
     <View style={styles.previewCard}>
       <View style={styles.sectionRow}>
         <Text style={styles.previewTitle}>My bids</Text>
-        <Pressable onPress={onOpenBids} accessibilityRole="button" accessibilityLabel="See all bids">
+        <Pressable onPress={() => onOpenBids()} accessibilityRole="button" accessibilityLabel="See all bids">
           <Text style={styles.link}>See all</Text>
         </Pressable>
       </View>

@@ -137,7 +137,7 @@ export function poolKey(
 }
 
 export function poolKeyFromLane(
-  lane: MarketplaceSearchLane,
+  lane: Pick<MarketplaceSearchLane, "pickup_area" | "drop_location" | "vehicle_type">,
 ): MarketplaceLoadSearch {
   return poolKey({
     pickup: lane.pickup_area,

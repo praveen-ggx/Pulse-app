@@ -51,7 +51,8 @@ import { useMemberAccess } from "@/lib/useMemberAccess";
 import {
   canOpenOpsAlert,
   entryAllowedByAccess,
-  indentPrimaryAction,
+  laneBidInviteChannel,
+  networkNotificationAction,
   registryTabVisible,
   type RegistryNotificationAccess,
 } from "@/lib/alertRegistry/registryNotificationAccess.util";
@@ -235,12 +236,15 @@ function RegistryFeedList({
   finance,
   feed,
   access,
+  onNavigateAway,
 }: {
   filterTab: RegistryFilterTab;
   visibleCount: number;
   finance: AlertRegistryFinanceHandlers;
   feed: RegistryFeedEntry[];
   access: RegistryNotificationAccess;
+  /** Hide the notification shell before a rate-request action changes route. */
+  onNavigateAway?: () => void;
 }) {
   const auth = useOptionalAuth();
   const org = useOptionalOrganization();
@@ -439,7 +443,8 @@ function RegistryFeedList({
             ...networkAvatar,
             name: companyNameForInitials(networkAvatar.name),
           };
-          const indentAction = indentPrimaryAction(item.event_type, access);
+          const indentAction = networkNotificationAction(item, access);
+          const isLaneInvite = laneBidInviteChannel(item) != null;
           const dismissLane = () => {
             const ids = lane?.memberIds.length ? lane.memberIds : [item.id];
             for (const id of ids) {
@@ -447,14 +452,20 @@ function RegistryFeedList({
             }
           };
           const openIndent = () => {
-            if (!access.indents || !item.indent_id) return;
+            if (!access.indents || !indentAction.href) return;
+            if (isLaneInvite && !indentAction.enabled) return;
             dismissLane();
-            router.push(ROUTES.indentDetail(item.indent_id));
+            onNavigateAway?.();
+            router.push(indentAction.href as Parameters<typeof router.push>[0]);
           };
           const laneTags: RegistryTag[] = [];
           if (isActiveView) {
             laneTags.push({
-              label: lane?.critical ? "Allocate" : networkNotificationTagLabel(item.event_type),
+              label: lane?.critical
+                ? "Allocate"
+                : isLaneInvite
+                  ? "Rate request"
+                  : networkNotificationTagLabel(item.event_type),
               variant: lane?.critical
                 ? "warning"
                 : item.event_type === "awarded"
@@ -677,6 +688,7 @@ export function AlertRegistryPanel({
       indents: false,
       indentBid: false,
       indentAward: false,
+      findLoads: false,
       received: false,
       paid: false,
       driverPay: false,
@@ -691,6 +703,7 @@ export function AlertRegistryPanel({
       indents: can("tripops.indents.view"),
       indentBid: can("tripops.indents.bid"),
       indentAward: can("tripops.indents.award"),
+      findLoads: can("tripops.pulse_loads"),
       received:
         can("finance.ledger.customers") ||
         can("finance.subtab.customers") ||
@@ -955,6 +968,10 @@ export function AlertRegistryPanel({
           finance={panelFinance}
           feed={filteredFeed}
           access={notificationAccess}
+          onNavigateAway={() => {
+            onDetailNavigateAway?.();
+            if (layout !== "fullscreen") onClose();
+          }}
         />
         {showLoadMore ? (
           <Pressable

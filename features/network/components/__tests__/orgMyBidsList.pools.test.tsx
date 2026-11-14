@@ -78,8 +78,8 @@ describe("OrgMyBidsList pooled Pending / Not selected", () => {
 
     // One Pending pool (2 bids) + one Not selected pool (rejected+withdrawn → MIXED).
     expect(screen.getAllByTestId(/^marketplace-bid-pool-/)).toHaveLength(2);
-    expect(screen.getByText("PENDING · 2")).toBeTruthy();
-    expect(screen.getByText("NOT SELECTED · 2")).toBeTruthy();
+    expect(screen.getByText("PENDING · MARKETPLACE · 2")).toBeTruthy();
+    expect(screen.getByText("NOT SELECTED · MARKETPLACE · 2")).toBeTruthy();
     expect(screen.getByText("MIXED")).toBeTruthy();
 
     // A4.4: no shipper identity or indent number before award.
@@ -103,7 +103,7 @@ describe("OrgMyBidsList pooled Pending / Not selected", () => {
       />,
     );
 
-    expect(screen.getByText("AWARDED · 2")).toBeTruthy();
+    expect(screen.getByText("AWARDED · MARKETPLACE · 2")).toBeTruthy();
     // Awarded but unpaid: lane only + Pay fee, no identity.
     expect(screen.queryByText("Shipper A1")).toBeNull();
     expect(screen.queryByText("IND-A1")).toBeNull();

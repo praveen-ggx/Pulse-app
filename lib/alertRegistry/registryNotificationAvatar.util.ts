@@ -14,6 +14,7 @@ import type { CurrentOrganization } from "@/types/organization";
 
 import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.types";
 import {
+  laneBidInviteChannel,
   networkNotificationPartyName,
 } from "@/lib/alertRegistry/networkNotificationParty.util";
 
@@ -133,6 +134,17 @@ export function resolveNetworkRegistryAvatar(
   item: NetworkNotificationRow,
   ctx: NetworkRegistryAvatarContext,
 ): RegistryNotificationAvatar {
+  if (laneBidInviteChannel(item) === "marketplace") {
+    return {
+      name: "Marketplace",
+      entityType: "client",
+      organizationImageUrl: null,
+      organizationAvatarSeed: null,
+      avatarUrl: null,
+      avatarSeed: null,
+      initialsColorSeed: item.id,
+    };
+  }
   const orgId = item.actor_org_id?.trim() || "";
   const linked = orgId ? ctx.linkedOrgs?.[orgId] : undefined;
   const directory = orgId ? partyFromDirectory(orgId, ctx.partiesByLinkedOrg) : undefined;

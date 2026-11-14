@@ -203,7 +203,7 @@ describe('Find Loads (organization) — pooled opportunities', () => {
   it('opens on My Bids when linked from an awarded pool', async () => {
     mockParams = { segment: 'my-bids' };
     const screen = renderScreen();
-    expect(await screen.findByText('No bids yet')).toBeTruthy();
+    expect(await screen.findByText('No Marketplace bids yet')).toBeTruthy();
   });
 
   it('does not throw when OrganizationProvider is missing', () => {

@@ -52,7 +52,7 @@ import {
 } from '@/lib/queries/linkedOrgDisplayCache';
 import { useQueryCacheOwner } from '@/lib/cache/cacheOwner';
 import { getQueryClient } from '@/lib/queryClient';
-import { isNonPersistedTripsQueryKey } from '@/lib/queryKeys';
+import { isNonPersistedTripsQueryKey, isSessionScopedLaneOfferQueryKey, purgeSessionScopedLaneOfferQueries } from '@/lib/queryKeys';
 import {
     installForegroundPruning,
     installRealtimeDiagnosticsGlobalHook,
@@ -416,6 +416,9 @@ export default function RootLayout() {
             onSuccess={() => {
               purgeEmptyEntityQueriesFromCache(queryClient);
               purgeLinkedOrgDisplayQueries(queryClient);
+              // Drop invite/quote rows restored from an older build before any
+              // screen can read them under the new user-scoped key.
+              purgeSessionScopedLaneOfferQueries(queryClient);
             }}
             persistOptions={{
               persister,
@@ -434,6 +437,8 @@ export default function RootLayout() {
                   // Linked-org display is workspace-scoped; a persisted map can
                   // hydrate before org resolution and leak across sessions.
                   if (isLinkedOrgDisplayQueryKey(query.queryKey)) return false;
+                  // Rate requests and network quotes are per person and workspace.
+                  if (isSessionScopedLaneOfferQueryKey(query.queryKey)) return false;
                   // Hub search hits, driver phones, export lookups: large / personal.
                   if (isNonPersistedTripsQueryKey(query.queryKey)) return false;
                   return true;

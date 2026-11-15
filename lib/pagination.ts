@@ -73,3 +73,30 @@ export function chunkIdsForRead(ids: readonly string[], size: number = READ_ALL_
   for (let i = 0; i < unique.length; i += size) chunks.push(unique.slice(i, i + size));
   return chunks;
 }
+
+/**
+ * Runs `mapper` over `items` with at most `concurrency` calls in flight; results
+ * keep input order. Use for chunked `.in(...)` reads: serial awaits cost one
+ * network round trip per chunk, unbounded Promise.all floods the fetch queue.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const out = new Array<R>(items.length);
+  let next = 0;
+
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      out[index] = await mapper(items[index] as T, index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+  return out;
+}

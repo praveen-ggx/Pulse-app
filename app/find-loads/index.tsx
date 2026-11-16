@@ -13,7 +13,6 @@
  * fleet/driver is chosen at allocation after award (A4.4 Phase 3).
  */
 import { ChromeBelowTopNavLoadingScreen } from "@/components/chromeLoadingScreens";
-import { HomePageHeader } from "@/components/HomePageHeader";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
@@ -549,7 +548,6 @@ export default function FindLoadsScreen() {
 
   return (
     <View style={[styles.root, { paddingTop: contentTopInset }]}>
-      {chromeScrollsWithContent ? <HomePageHeader autoHide skipSafeAreaTop /> : null}
       <View style={[styles.frame, layout.isDesktopWeb && styles.frameDesktop]}>
       {chromeScrollsWithContent ? null : pageChrome()}
       {segment === "wallet" ? (

@@ -4239,20 +4239,6 @@ export default function TripsScreen() {
         }}
       />
 
-      {isMobileViewport ? (
-        <HomePageHeader
-          autoHide
-          skipSafeAreaTop={Platform.OS !== "web"}
-          invitationBadgeCount={pendingInviteCount}
-          onInvitationsPress={() =>
-            router.push({
-              pathname: "/network",
-              params: { view: "requests", ts: String(Date.now()) },
-            } as never)
-          }
-        />
-      ) : null}
-
       <ScrollView
           style={styles.scroll}
           contentContainerStyle={[

@@ -1,4 +1,7 @@
-import { getLinkedOrgProfilesBatch } from '@/features/clients/services/clients.service';
+import {
+  clearLinkedOrgProfilesBatchCache,
+  getLinkedOrgProfilesBatch,
+} from '@/features/clients/services/clients.service';
 
 const mockGetSession = jest.fn();
 const mockRpc = jest.fn();
@@ -20,6 +23,7 @@ jest.mock('@/lib/enrichConnectionPartnerAvatars', () => ({
 
 describe('getLinkedOrgProfilesBatch session guard', () => {
   beforeEach(() => {
+    clearLinkedOrgProfilesBatchCache();
     mockGetSession.mockReset();
     mockRpc.mockReset();
   });
@@ -98,7 +102,7 @@ describe('getLinkedOrgProfilesBatch session guard', () => {
     expect(mockRpc).toHaveBeenCalledTimes(2);
   });
 
-  it('a later call for the same id set after the first resolves fetches fresh (no stale sharing)', async () => {
+  it('a later call within 60s reuses the result; after a cache clear it fetches fresh', async () => {
     mockGetSession.mockResolvedValue({
       data: { session: { access_token: 'jwt', user: { id: 'user-1' } } },
     });
@@ -107,6 +111,9 @@ describe('getLinkedOrgProfilesBatch session guard', () => {
       error: null,
     });
     await getLinkedOrgProfilesBatch(['org-1']);
+    await getLinkedOrgProfilesBatch(['org-1']);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    clearLinkedOrgProfilesBatchCache();
     await getLinkedOrgProfilesBatch(['org-1']);
     expect(mockRpc).toHaveBeenCalledTimes(2);
   });

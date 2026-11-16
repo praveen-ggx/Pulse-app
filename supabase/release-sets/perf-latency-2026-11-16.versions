@@ -1,0 +1,11 @@
+# Latency remediation (branch vasanth/perf-latency-20261115).
+# 100000: Compliance trip documents with one permission check per trip.
+#         Equivalence: supabase/tests/trip_documents_batch_read/equivalence.sql
+# 100100: Trips hub rows-only pages (no six-tab recount) and a 250-row page cap.
+#         list_org_hub_trips_keyset keeps its signature and output.
+#         Equivalence: supabase/tests/hub_keyset_rows/
+# Both are additive for installed app builds; the app falls back when they are missing.
+# sha256 78bae5777dcab0544a575d546986f4830a636c6d228b3a34a58a9d3ee336d0c4  20271116100000_list_trip_documents_for_trips.sql
+# sha256 e0f3f22036a07525d320556070efebfae882191f29fb9640e587cb5cdbc1a7a4  20271116100100_hub_keyset_rows_without_counts.sql
+20271116100000
+20271116100100

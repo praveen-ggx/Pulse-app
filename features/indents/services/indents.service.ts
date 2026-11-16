@@ -28,7 +28,7 @@ import {
 import type { CacheDomain, DeltaResponse } from "@/lib/cache/deltaTypes";
 import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
-import { DEFAULT_PAGE_SIZE, FINITE_LIST_CAP, type PageOpts } from "@/lib/pagination";
+import { DEFAULT_PAGE_SIZE, FINITE_LIST_CAP, mapWithConcurrency, type PageOpts } from "@/lib/pagination";
 import { isIndentWriteTimeout } from "@/features/indents/utils/indentCreateTimeout.util";
 import {
   insertRouteExtraStops,
@@ -265,6 +265,7 @@ async function ensurePublicUserRecord(userId?: string | null): Promise<void> {
 }
 
 const TRIP_REF_IN_CHUNK = 80;
+const TRIP_REF_CONCURRENCY = 6;
 
 function chunkIndentIds(ids: string[], size = TRIP_REF_IN_CHUNK): string[][] {
   const out: string[][] = [];
@@ -280,13 +281,17 @@ async function attachActiveTripRefs(indents: IndentRow[]): Promise<IndentRow[]> 
   const ids = indents.map((row) => row.id).filter(Boolean);
   if (ids.length === 0) return indents.map((row) => normalizeIndentRow(row));
   const byIndent = new Map<string, IndentTripJoin>();
-  for (const chunk of chunkIndentIds(ids)) {
+  // Chunks in parallel: serially, a 500-indent list waited 7 round trips here.
+  // A failed chunk leaves only its own indents without refs.
+  const pages = await mapWithConcurrency(chunkIndentIds(ids), TRIP_REF_CONCURRENCY, async (chunk) => {
     const { data, error } = await supabase()
       .from("trips")
       .select("indent_id, trip_operational_code, trip_number, trip_code")
       .in("indent_id", chunk);
-    if (error) break;
-    for (const raw of data ?? []) {
+    return error ? [] : (data ?? []);
+  });
+  for (const page of pages) {
+    for (const raw of page) {
       const trip = raw as IndentTripJoin & { indent_id?: string };
       const indentId = String(trip.indent_id ?? "").trim();
       if (!indentId || byIndent.has(indentId)) continue;

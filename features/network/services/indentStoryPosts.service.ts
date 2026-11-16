@@ -215,23 +215,36 @@ export async function listLiveOwnLoadStories(
     ),
   ];
   const statusByIndentId: Record<string, string | null> = {};
-  for (const chunk of chunkIds(indentIds)) {
-    const { data: indentRows, error: indentErr } = await supabase()
-      .from('indents')
-      .select('id, status')
-      .in('id', chunk);
-    if (indentErr) return { error: new Error(indentErr.message), posts: [] };
-    for (const row of indentRows ?? []) {
-      statusByIndentId[String((row as { id?: string }).id ?? '')] =
-        (row as { status?: string | null }).status ?? null;
+  let orgRow: { name?: string | null; avatar_seed?: string | null; logo_url?: string | null } | null =
+    null;
+  try {
+    const [indentResults, orgRes] = await Promise.all([
+      Promise.all(
+        chunkIds(indentIds).map(async (chunk) => {
+          const { data: indentRows, error: indentErr } = await supabase()
+            .from('indents')
+            .select('id, status')
+            .in('id', chunk);
+          if (indentErr) throw new Error(indentErr.message);
+          return indentRows ?? [];
+        }),
+      ),
+      supabase()
+        .from('organizations')
+        .select('name, avatar_seed, logo_url')
+        .eq('id', orgId)
+        .maybeSingle(),
+    ]);
+    for (const indentRows of indentResults) {
+      for (const row of indentRows) {
+        statusByIndentId[String((row as { id?: string }).id ?? '')] =
+          (row as { status?: string | null }).status ?? null;
+      }
     }
+    orgRow = orgRes.data;
+  } catch (e) {
+    return { error: e instanceof Error ? e : new Error(String(e)), posts: [] };
   }
-
-  const { data: orgRow } = await supabase()
-    .from('organizations')
-    .select('name, avatar_seed, logo_url')
-    .eq('id', orgId)
-    .maybeSingle();
 
   const posts: PostRow[] = [];
   for (const raw of liveRows) {

@@ -4989,12 +4989,29 @@ export function ComplianceDocumentWorkspace({
             accessibilityRole="text"
             accessibilityLabel={`Resubmit disabled. ${resubmitBlockedExplain.why}. ${resubmitBlockedExplain.action}`}
           >
-            <Text style={styles.resubmitBlockedWhy}>
-              Resubmit disabled — {resubmitBlockedExplain.why}
-            </Text>
-            <Text style={styles.resubmitBlockedAction}>
-              Action required: {resubmitBlockedExplain.action}
-            </Text>
+            <View style={styles.resubmitBlockedHead}>
+              <View style={styles.resubmitBlockedIcon}>
+                <CircleX size={13} color={Theme.warning} strokeWidth={2.4} />
+              </View>
+              <Text style={styles.resubmitBlockedKicker}>Resubmit locked</Text>
+              <Text style={styles.resubmitBlockedWhy} numberOfLines={1}>
+                {resubmitBlockedExplain.why}
+              </Text>
+            </View>
+            <View style={styles.resubmitBlockedSteps}>
+              {resubmitBlockedExplain.action
+                .split(/\.\s+/)
+                .map((step) => step.replace(/\.$/, "").trim())
+                .filter(Boolean)
+                .map((step, index) => (
+                  <View key={step} style={styles.resubmitBlockedStep}>
+                    <Text style={styles.resubmitBlockedStepNo}>{index + 1}</Text>
+                    <Text style={styles.resubmitBlockedAction} numberOfLines={1}>
+                      {step}
+                    </Text>
+                  </View>
+                ))}
+            </View>
           </View>
         ) : null}
         <View style={styles.checklistPreviewTripActions}>
@@ -6981,12 +6998,15 @@ export function ComplianceDocumentWorkspace({
                             style={styles.rowDeclineReason}
                             accessibilityLabel={`Decline reason: ${previewDeclineReason}`}
                           >
-                            <CircleX size={13} color={Theme.complianceDocNeedFg} strokeWidth={2.2} />
-                            <Text style={styles.rowDeclineReasonText} numberOfLines={2}>
+                            <View style={styles.rowDeclineReasonIcon}>
+                              <CircleX size={11} color={Theme.complianceDocNeedFg} strokeWidth={2.4} />
+                            </View>
+                            <Text style={styles.rowDeclineReasonKicker}>Rejected</Text>
+                            <Text style={styles.rowDeclineReasonText} numberOfLines={1}>
                               {previewDeclineReason}
                             </Text>
-                  </View>
-                ) : null}
+                          </View>
+                        ) : null}
                         <View style={styles.rowDecisionActions}>
                         {showRowReplace ? (
                           <TouchableOpacity
@@ -9121,7 +9141,7 @@ function ChecklistTripDetailsPanel({
           <Text style={styles.tripDetailSectionTitle} numberOfLines={1}>
             Summary & interpretation
           </Text>
-          <View style={styles.tripDetailHero}>
+          <View style={styles.tripDetailHeroArt}>
             <ComplianceChecklistGapArt />
           </View>
         </View>
@@ -11438,24 +11458,81 @@ const styles = StyleSheet.create({
   resubmitBlockedBanner: {
     alignSelf: "stretch",
     width: "100%",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    gap: 6,
+    padding: 6,
     borderRadius: 10,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.accentGoldBorder,
+  },
+  resubmitBlockedHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
     backgroundColor: Theme.warningMuted,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.warning,
-    gap: 4,
+  },
+  resubmitBlockedIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+  },
+  resubmitBlockedKicker: {
+    color: Theme.warning,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   resubmitBlockedWhy: {
+    flex: 1,
+    minWidth: 0,
     color: Theme.textPrimaryDark,
     fontSize: 13,
     fontWeight: "600",
-    lineHeight: 18,
+    lineHeight: 17,
+  },
+  resubmitBlockedSteps: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    paddingHorizontal: 2,
+  },
+  resubmitBlockedStep: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexGrow: 1,
+    flexBasis: 180,
+    minWidth: 0,
+    paddingVertical: 2,
+  },
+  resubmitBlockedStepNo: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    overflow: "hidden",
+    textAlign: "center",
+    lineHeight: 16,
+    fontSize: 10,
+    fontWeight: "700",
+    color: Theme.warning,
+    backgroundColor: Theme.accentGoldMuted,
   },
   resubmitBlockedAction: {
+    flex: 1,
+    minWidth: 0,
     color: Theme.textSecondary,
     fontSize: 12,
-    lineHeight: 17,
+    lineHeight: 16,
+    fontWeight: "600",
   },
   reviewerResubmitNote: {
     alignSelf: "stretch",
@@ -11619,10 +11696,10 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minHeight: 0,
     flexDirection: "column",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingTop: 6,
-    paddingBottom: 8,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
     overflow: "hidden",
   },
   tripDetailStatRow: {
@@ -11634,7 +11711,7 @@ const styles = StyleSheet.create({
   tripDetailStatTile: {
     flex: 1,
     minWidth: 0,
-    minHeight: 44,
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -11642,7 +11719,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    gap: 6,
+    gap: 8,
     ...Platform.select({
       web: { cursor: "pointer" } as ViewStyle,
       default: {},
@@ -11664,6 +11741,7 @@ const styles = StyleSheet.create({
     borderColor: Theme.complianceVerifiedPillBorder,
   },
   tripDetailStatHead: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -11686,10 +11764,13 @@ const styles = StyleSheet.create({
     color: Theme.complianceDocOkFg,
   },
   tripDetailStatValue: {
+    width: 56,
+    flexShrink: 0,
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "800",
     letterSpacing: -0.3,
     lineHeight: 20,
+    textAlign: "right",
     fontVariant: ["tabular-nums"],
   },
   tripDetailStatValueMissing: {
@@ -11702,7 +11783,8 @@ const styles = StyleSheet.create({
     color: Theme.complianceDocOkFg,
   },
   tripDetailStatTotal: {
-    fontSize: 10,
+    fontSize: 12,
+    lineHeight: 20,
     fontWeight: "600",
     color: Theme.complianceGroupSuccessFg,
   },
@@ -11715,7 +11797,7 @@ const styles = StyleSheet.create({
   },
   tripDetailDocGroupsBoard: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "stretch",
     gap: 8,
   },
   tripDetailDocGroup: {
@@ -11733,7 +11815,12 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.compliancePageBg,
   },
   tripDetailDocGroupLabelHit: {
-    alignSelf: "flex-start",
+    alignSelf: "stretch",
+    minHeight: 28,
+    justifyContent: "center",
+    marginBottom: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceTripCardBorder,
     ...Platform.select({
       web: { cursor: "pointer" } as ViewStyle,
       default: {},
@@ -11766,15 +11853,15 @@ const styles = StyleSheet.create({
   tripDetailMissingChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    minHeight: 36,
+    minHeight: 40,
     borderRadius: 8,
     borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     ...Platform.select({
       web: { cursor: "pointer" } as ViewStyle,
       default: {},
@@ -11826,11 +11913,13 @@ const styles = StyleSheet.create({
     color: Theme.complianceDocOkFg,
   },
   tripDetailMissingChipMeta: {
+    width: 68,
     flexShrink: 0,
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "500",
+    fontWeight: "600",
     color: Theme.textMuted,
+    textAlign: "right",
   },
   tripDetailMissingEmpty: {
     flexShrink: 0,
@@ -11937,7 +12026,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 6,
+    gap: 8,
   },
   tripDetailPairRowStack: {
     flexDirection: "column",
@@ -11947,8 +12036,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.compliancePageBg,
@@ -11964,12 +12054,21 @@ const styles = StyleSheet.create({
   tripDetailHero: {
     marginLeft: "auto",
     flexShrink: 0,
-    alignItems: "flex-end",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tripDetailHeroArt: {
+    width: 84,
+    height: 32,
+    marginLeft: "auto",
+    flexShrink: 0,
+    overflow: "hidden",
+    alignItems: "center",
     justifyContent: "center",
   },
   tripRouteHero: {
-    width: 96,
-    height: 52,
+    width: 72,
+    height: 36,
   },
   tripDetailSectionTitle: {
     flex: 1,
@@ -11983,20 +12082,18 @@ const styles = StyleSheet.create({
   tripFactGrid: {
     flexGrow: 1,
     flexShrink: 1,
-    paddingHorizontal: 4,
-    paddingTop: 4,
-    paddingBottom: 6,
+    padding: 8,
     ...Platform.select({
       web: {
         display: "grid",
-        columnGap: 6,
-        rowGap: 6,
+        columnGap: 8,
+        rowGap: 8,
       } as ViewStyle,
       default: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignContent: "flex-start",
-    alignItems: "flex-start",
+        flexDirection: "row",
+        flexWrap: "wrap",
+        alignContent: "flex-start",
+        alignItems: "stretch",
       },
     }),
   },
@@ -12016,12 +12113,12 @@ const styles = StyleSheet.create({
   tripFactRow: {
     flexGrow: 0,
     flexShrink: 0,
-    minHeight: 28,
+    minHeight: 36,
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
-    gap: 8,
-    paddingHorizontal: 10,
+    gap: 12,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
@@ -12030,14 +12127,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
   },
   tripFactRowLabel: {
-    flexGrow: 1,
-    flexShrink: 1,
-    maxWidth: "52%",
-    paddingTop: 1,
+    width: 132,
+    flexGrow: 0,
+    flexShrink: 0,
     fontSize: 10,
     lineHeight: 14,
-    fontWeight: "600",
-    letterSpacing: 0.25,
+    fontWeight: "700",
+    letterSpacing: 0.3,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
@@ -12052,10 +12148,13 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   tripFactCell: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    minHeight: 52,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: Theme.surfaceGray,
     minWidth: 0,
-    justifyContent: "flex-start",
+    justifyContent: "center",
   },
   tripFactCellHalf: {
     ...Platform.select({
@@ -13136,20 +13235,43 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   rowDeclineReason: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: "68%",
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     marginRight: 8,
+    paddingLeft: 4,
+    paddingRight: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: Theme.destructiveWash,
+  },
+  rowDeclineReasonIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+  },
+  rowDeclineReasonKicker: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: Theme.complianceDocNeedFg,
   },
   rowDeclineReasonText: {
-    flex: 1,
+    flexShrink: 1,
     minWidth: 0,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "600",
-    color: Theme.complianceDocNeedFg,
+    color: Theme.textPrimaryDark,
   },
   shopToolbarZoom: {
     ...complianceActionButtonStyles.ghost,

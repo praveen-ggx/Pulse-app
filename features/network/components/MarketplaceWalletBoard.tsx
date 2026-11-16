@@ -128,6 +128,7 @@ export function MarketplaceWalletBoard({
   arBook,
   onOpenBids,
   onFindLoads,
+  pane = "full",
 }: {
   orgName: string;
   bids: readonly MyOrgMarketBidRow[];
@@ -137,6 +138,8 @@ export function MarketplaceWalletBoard({
   arBook?: MarketplaceArBook;
   onOpenBids: () => void;
   onFindLoads: () => void;
+  /** Mobile tabs show one subject. Desktop keeps the full board. */
+  pane?: "full" | "wallet" | "transactions";
 }) {
   const figures = marketplaceWalletFigures(bids);
   const [openFaq, setOpenFaq] = useState<string | null>(null);
@@ -399,6 +402,34 @@ export function MarketplaceWalletBoard({
       })}
     </View>
   );
+
+  if (pane === "transactions") {
+    return <View style={styles.wrap}>{ledger}</View>;
+  }
+
+  if (pane === "wallet") {
+    return (
+      <View style={styles.wrap}>
+        <View style={[styles.walletCard, isDesktop && styles.walletCardDesktop]}>
+          <View style={styles.walletIdentity}>
+            <Text style={styles.walletKicker}>Marketplace wallet</Text>
+            <Text style={[styles.walletName, !isDesktop && styles.walletNameMobile]} numberOfLines={2}>
+              {name}
+            </Text>
+            <Text style={styles.walletMeta}>
+              {figures.awarded} awarded · {figures.ratesSent} rates sent
+            </Text>
+          </View>
+          <View style={[styles.balanceBlock, styles.balanceBlockMobile]}>
+            <Text style={styles.balanceLabel}>Balance</Text>
+            <Text style={styles.balanceValue}>{balance}</Text>
+            <Text style={styles.balanceHint}>{balanceHint}</Text>
+          </View>
+        </View>
+        {arPanel}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.wrap}>

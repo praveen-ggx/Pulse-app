@@ -67,6 +67,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import {
+  keepPreviousData,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -173,6 +174,7 @@ export function PooledOpportunityScreen() {
     },
     enabled: !!orgId && keyReady,
     staleTime: STALE.frequent,
+    placeholderData: keepPreviousData,
   });
   const loadsError = poolQ.isError;
   const fetchProgress = useMemo(

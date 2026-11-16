@@ -180,6 +180,11 @@ export function MarketplaceLaneFilters({
   const multi = multiple && Boolean(onSelectionChange);
   /** Choices are held on the page and applied together on confirm. */
   const guided = stacked || multi;
+  /**
+   * The board already has From, To and Vehicle. Its sheet edits the opened
+   * field only. The phone wizard still walks the three steps.
+   */
+  const fieldSheet = board && !stacked;
   const insets = useSafeAreaInsets();
   const applied = useMemo(
     () => (multi ? normalizeLaneSelection(selection) : laneSelectionFromSearch(value)),
@@ -565,7 +570,7 @@ export function MarketplaceLaneFilters({
                 accessibilityLabel={`${copy?.search ?? "Search"} in list`}
               />
             </View>
-            {multi && openField && currentValues.length > 0 ? (
+            {multi && openField && currentValues.length > 0 && !fieldSheet ? (
               <View style={styles.pickedRow}>
                 <ScrollView
                   horizontal
@@ -670,6 +675,18 @@ export function MarketplaceLaneFilters({
                   </Text>
                 </View>
                 <View style={styles.pageFootActions}>
+                  {fieldSheet ? (
+                    <Pressable
+                      onPress={applyAndClose}
+                      style={({ pressed }) => [styles.footPrimary, pressed && styles.pressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Show loads now"
+                    >
+                      <Text style={styles.footPrimaryText}>Show loads</Text>
+                      <Check size={15} color={Theme.buttonPrimaryText} strokeWidth={2.6} />
+                    </Pressable>
+                  ) : (
+                    <>
                   {lastStep || !anyChosen ? null : (
                     <Pressable
                       onPress={applyAndClose}
@@ -699,6 +716,8 @@ export function MarketplaceLaneFilters({
                       <ArrowRight size={15} color={Theme.buttonPrimaryText} strokeWidth={2.6} />
                     )}
                   </Pressable>
+                    </>
+                  )}
                 </View>
               </View>
             ) : null}
@@ -819,104 +838,110 @@ function FilterChip({
         board && stacked && field === "pickup" && styles.chipBoardSplit,
       ]}
     >
-      <Pressable
-        onPress={onOpen}
-        disabled={locked}
+      <View
         style={[
           styles.chipMain,
           compact && styles.chipMainCompact,
           board && styles.chipMainBoard,
           board && stacked && styles.chipMainBoardStacked,
+          showTokens && styles.chipMainTokens,
         ]}
-        accessibilityRole="button"
-        accessibilityLabel={meta.a11y}
-        accessibilityState={{ disabled: locked, expanded: open }}
       >
-        {board ? null : (
-        <View
-          style={[
-            styles.chipIcon,
-            compact && styles.chipIconCompact,
-            { backgroundColor: filled || open ? meta.iconOn : meta.iconBg },
-          ]}
+        <Pressable
+          onPress={onOpen}
+          disabled={locked}
+          style={[styles.chipOpen, showTokens && styles.chipOpenTokens]}
+          accessibilityRole="button"
+          accessibilityLabel={meta.a11y}
+          accessibilityState={{ disabled: locked, expanded: open }}
         >
-          <FieldIcon field={field} size={compact ? 13 : 15} />
-        </View>
-        )}
-        <View style={styles.chipCopy}>
-          {board ? (
-            <Text style={[styles.boardFieldLabel, stacked && styles.boardFieldLabelStacked]}>
-              {meta.boardName}
-              {showTokens ? ` · ${picked.length}` : ""}
-            </Text>
-          ) : (
-          <View style={styles.chipLabelRow}>
-            <Text style={[styles.chipStep, compact && styles.chipStepCompact]}>{meta.step}</Text>
-            <Text style={[styles.chipLabel, compact && styles.chipLabelCompact]}>
-              {meta.label}
-            </Text>
+          {board ? null : (
+          <View
+            style={[
+              styles.chipIcon,
+              compact && styles.chipIconCompact,
+              { backgroundColor: filled || open ? meta.iconOn : meta.iconBg },
+            ]}
+          >
+            <FieldIcon field={field} size={compact ? 13 : 15} />
           </View>
           )}
-          {showTokens ? (
-            <View style={styles.tokenRow}>
-              {visibleTokens.map((label) => (
-                <Pressable
-                  key={label}
-                  onPress={() => onRemove?.(label)}
-                  style={({ pressed }) => [styles.token, pressed && styles.pressed]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove ${label} from ${meta.label}`}
-                  hitSlop={4}
-                >
-                  <Text style={styles.tokenText} numberOfLines={1}>
-                    {routeEndpointLines(label)[0] || label}
-                  </Text>
-                  <X size={10} color={Theme.textSecondary} strokeWidth={2.6} />
-                </Pressable>
-              ))}
-              {hiddenTokens > 0 ? (
-                <View style={styles.tokenMore}>
-                  <Text style={styles.tokenMoreText}>+{hiddenTokens}</Text>
-                </View>
-              ) : null}
+          <View style={styles.chipCopy}>
+            {board ? (
+              <Text style={[styles.boardFieldLabel, stacked && styles.boardFieldLabelStacked]}>
+                {meta.boardName}
+                {showTokens ? ` · ${picked.length}` : ""}
+              </Text>
+            ) : (
+            <View style={styles.chipLabelRow}>
+              <Text style={[styles.chipStep, compact && styles.chipStepCompact]}>{meta.step}</Text>
+              <Text style={[styles.chipLabel, compact && styles.chipLabelCompact]}>
+                {meta.label}
+              </Text>
             </View>
-          ) : (
-          <Text
-            style={[
-              styles.chipValue,
-              compact && styles.chipValueCompact,
-              board && styles.boardFieldValue,
-              board && stacked && styles.boardFieldValueStacked,
-              !value && !boardCopy?.suggested && styles.chipPlaceholder,
-              board && !value && !boardCopy?.suggested && styles.boardFieldPlaceholder,
-              board && stacked && !value && !boardCopy?.suggested && styles.boardFieldPlaceholderStacked,
-            ]}
-            numberOfLines={1}
-          >
-            {boardCopy
-              ? boardCopy.headline
-              : locked
-                ? field === "drop"
-                  ? "Choose pickup first"
-                  : "Choose drop first"
-                : value
-                  ? more.length > 0
-                    ? `${value} +${more.length}`
-                    : value
-                  : meta.placeholder}
-          </Text>
-          )}
-          {!showTokens && boardCopy?.caption ? (
+            )}
+            {showTokens ? null : (
             <Text
-              style={[styles.boardFieldCaption, stacked && styles.boardFieldCaptionStacked]}
+              style={[
+                styles.chipValue,
+                compact && styles.chipValueCompact,
+                board && styles.boardFieldValue,
+                board && stacked && styles.boardFieldValueStacked,
+                !value && !boardCopy?.suggested && styles.chipPlaceholder,
+                board && !value && !boardCopy?.suggested && styles.boardFieldPlaceholder,
+                board && stacked && !value && !boardCopy?.suggested && styles.boardFieldPlaceholderStacked,
+              ]}
               numberOfLines={1}
             >
-              {boardCopy.caption}
+              {boardCopy
+                ? boardCopy.headline
+                : locked
+                  ? field === "drop"
+                    ? "Choose pickup first"
+                    : "Choose drop first"
+                  : value
+                    ? more.length > 0
+                      ? `${value} +${more.length}`
+                      : value
+                    : meta.placeholder}
             </Text>
-          ) : null}
-        </View>
-        {value && board ? null : <ChevronDown size={14} color={Theme.textMuted} strokeWidth={2.2} />}
-      </Pressable>
+            )}
+            {!showTokens && boardCopy?.caption ? (
+              <Text
+                style={[styles.boardFieldCaption, stacked && styles.boardFieldCaptionStacked]}
+                numberOfLines={1}
+              >
+                {boardCopy.caption}
+              </Text>
+            ) : null}
+          </View>
+          {value && board ? null : <ChevronDown size={14} color={Theme.textMuted} strokeWidth={2.2} />}
+        </Pressable>
+        {showTokens ? (
+          <View style={styles.tokenRow}>
+            {visibleTokens.map((label) => (
+              <Pressable
+                key={label}
+                onPress={() => onRemove?.(label)}
+                style={({ pressed }) => [styles.token, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${label} from ${meta.label}`}
+                hitSlop={4}
+              >
+                <Text style={styles.tokenText} numberOfLines={1}>
+                  {routeEndpointLines(label)[0] || label}
+                </Text>
+                <X size={10} color={Theme.textSecondary} strokeWidth={2.6} />
+              </Pressable>
+            ))}
+            {hiddenTokens > 0 ? (
+              <View style={styles.tokenMore}>
+                <Text style={styles.tokenMoreText}>+{hiddenTokens}</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
       {value ? (
         <Pressable
           onPress={onClear}
@@ -1134,6 +1159,23 @@ const styles = StyleSheet.create({
   suggestChipTextGrouped: { fontSize: 13, fontWeight: "600" },
   suggestChipTextOn: { color: Theme.buttonPrimaryText },
   chipMainBoard: { minHeight: 68, paddingHorizontal: 14 },
+  chipMainTokens: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    justifyContent: "center",
+    gap: 0,
+  },
+  chipOpen: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  chipOpenTokens: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   chipMain: {
     flex: 1,
     minWidth: 0,

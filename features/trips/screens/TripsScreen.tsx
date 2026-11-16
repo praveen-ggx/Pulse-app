@@ -602,6 +602,7 @@ export default function TripsScreen() {
     );
   const rememberOpenedHubItem = useCallback(
     (id: string) => {
+      lastOpenedTabSearchDoneRef.current = id;
       setLastOpenedHubItem({
         id,
         tripFilter,
@@ -808,11 +809,19 @@ export default function TripsScreen() {
   );
   // Hub counts and lists use get_trips_for_org dated mode for every pill, "All time"
   // included. The undated newest-400 list is only a first paint / error fallback.
+  const hubListBucket: "active" | "history" =
+    tripFilter === "History" || activeMetricTab === "delivered_docs_pending"
+      ? "history"
+      : "active";
   const {
     trips: hubDateRangeTripsRaw,
     isFetched: hubDateRangeFetched,
     isError: hubDateRangeFailed,
-  } = useTripsHubDateRange(orgId, hubDateBounds ?? HUB_ALL_TIME_BOUNDS);
+  } = useTripsHubDateRange(
+    orgId,
+    hubDateBounds ?? HUB_ALL_TIME_BOUNDS,
+    hubListBucket,
+  );
   const hubDateRangeTrips = useMemo(
     () => sourcingScope.filterTrips(hubDateRangeTripsRaw),
     [sourcingScope, hubDateRangeTripsRaw],
@@ -1674,6 +1683,9 @@ export default function TripsScreen() {
     useCallback(() => {
       if (landOnActiveTrips) {
         skipHubRestoreAfterLandingRef.current = true;
+        if (lastOpenedTripId) {
+          lastOpenedTabSearchDoneRef.current = lastOpenedTripId;
+        }
         setTripFilter("Active");
         setActiveMetricTab("all");
         setActiveHistoryMetricTab(null);
@@ -1710,7 +1722,7 @@ export default function TripsScreen() {
           void refetchTrips();
         });
       }
-    }, [refetchTrips, indentDeepLink, landOnActiveTrips, router]),
+    }, [refetchTrips, indentDeepLink, landOnActiveTrips, lastOpenedTripId, router]),
   );
 
   const loading = tripsLoading && trips.length === 0 && !(cachedTripsForOrg?.length);
@@ -1954,12 +1966,36 @@ export default function TripsScreen() {
     if (hubStructuralSearchActive) {
       return { ...hubSearchScoped.metricCounts };
     }
-    return { ...openHubRailCounts, indent: liveIndentCount };
+    const counts = { ...openHubRailCounts, indent: liveIndentCount };
+    const unfiltered =
+      supplyFilter === "all" &&
+      attributionFilter === "all" &&
+      dateRangeFilter === "all";
+    if (unfiltered && hubMetrics) {
+      const activeListReady = hubListBucket === "active" && useRangeList;
+      if (!activeListReady) {
+        counts.unassigned = hubMetrics.unassigned;
+        counts.assigned = hubMetrics.assigned;
+        counts.loading = hubMetrics.loading;
+        counts.in_transit = hubMetrics.inTransit;
+        counts.unloading = hubMetrics.unloading;
+      }
+      if (!(hubListBucket === "history" && useRangeList)) {
+        counts.delivered_docs_pending = hubMetrics.tripsCompleted;
+      }
+    }
+    return counts;
   }, [
     hubStructuralSearchActive,
     hubSearchScoped,
     liveIndentCount,
     openHubRailCounts,
+    supplyFilter,
+    attributionFilter,
+    dateRangeFilter,
+    hubMetrics,
+    hubListBucket,
+    useRangeList,
   ]);
 
   const transactionsByTripId = useMemo(() => {
@@ -2603,7 +2639,8 @@ export default function TripsScreen() {
   // One-shot: look for the last-opened trip once, then leave tab choice to the user.
   // Without this, tapping Active snaps straight back to History when that trip is completed.
   useEffect(() => {
-    if (!lastOpenedTripId || indentDeepLink) return;
+    if (!lastOpenedTripId || indentDeepLink || landOnActiveTrips) return;
+    if (skipHubRestoreAfterLandingRef.current) return;
     if (lastOpenedTabSearchDoneRef.current === lastOpenedTripId) return;
     if (lastOpenedHubIndex >= 0) {
       lastOpenedTabSearchDoneRef.current = lastOpenedTripId;
@@ -2623,6 +2660,7 @@ export default function TripsScreen() {
     tripFilter,
     activeMetricTab,
     indentDeepLink,
+    landOnActiveTrips,
   ]);
 
   useEffect(() => {
@@ -3435,8 +3473,32 @@ export default function TripsScreen() {
         cancelled: 0,
       };
     }
-    return hubTabTripCounts(hubScopedTrips);
-  }, [hubStructuralSearchActive, hubSearchScoped, hubScopedTrips]);
+    const fromRows = hubTabTripCounts(hubScopedTrips);
+    const unfiltered =
+      supplyFilter === "all" &&
+      attributionFilter === "all" &&
+      dateRangeFilter === "all";
+    if (unfiltered && hubMetrics) {
+      const activeListReady = hubListBucket === "active" && useRangeList;
+      const historyListReady = hubListBucket === "history" && useRangeList;
+      return {
+        active: activeListReady ? fromRows.active : hubMetrics.tripsActive,
+        history: historyListReady ? fromRows.history : hubMetrics.tripsCompleted,
+        cancelled: hubMetrics.tripsCancelled,
+      };
+    }
+    return fromRows;
+  }, [
+    hubStructuralSearchActive,
+    hubSearchScoped,
+    hubScopedTrips,
+    supplyFilter,
+    attributionFilter,
+    dateRangeFilter,
+    hubMetrics,
+    hubListBucket,
+    useRangeList,
+  ]);
 
   const formatMainTabLabel = useCallback(
     (label: string, count: number) =>
@@ -3643,13 +3705,31 @@ export default function TripsScreen() {
   );
   // ALL = open trips on the rail only. Completed trips belong on History.
   // Indent cards stay on the Indent tile and are not added here.
-  const activeAllCount = useMemo(
-    () =>
-      hubStructuralSearchActive
-        ? hubSearchScoped.activeAllCount
-        : hubActiveAllTripCount(openHubRailCounts),
-    [hubStructuralSearchActive, hubSearchScoped, openHubRailCounts],
-  );
+  const activeAllCount = useMemo(() => {
+    if (hubStructuralSearchActive) return hubSearchScoped.activeAllCount;
+    const unfiltered =
+      supplyFilter === "all" &&
+      attributionFilter === "all" &&
+      dateRangeFilter === "all";
+    if (
+      unfiltered &&
+      hubMetrics &&
+      !(hubListBucket === "active" && useRangeList)
+    ) {
+      return hubMetrics.tripsActive;
+    }
+    return hubActiveAllTripCount(openHubRailCounts);
+  }, [
+    hubStructuralSearchActive,
+    hubSearchScoped,
+    openHubRailCounts,
+    supplyFilter,
+    attributionFilter,
+    dateRangeFilter,
+    hubMetrics,
+    hubListBucket,
+    useRangeList,
+  ]);
   // "Showing X of Y": Y is the current tab's total (or the selected History card's
   // count), X the filtered list. activeMetricTab stays "all" on History, so key on
   // the tab, not the metric.
@@ -4104,6 +4184,7 @@ export default function TripsScreen() {
           <TripsHubAuditFooter
             onExportLedger={openTripLedgerExport}
             tr={tr}
+            partialNote={hubShowsIndentList ? null : hubCompletenessNote}
             pagination={
               showTripsPaginationFooter
                 ? {
@@ -4760,7 +4841,7 @@ export default function TripsScreen() {
                       ? indentStageToolbarCountLabel
                       : tripListToolbarCountLabel
                   }
-                  toolbarWarning={hubShowsIndentList ? null : hubCompletenessNote}
+                  toolbarWarning={null}
                   renderAboveBody={null}
                   dateRangeFilter={dateRangeFilter}
                   dateRangeLabel={hubDateRangeLabel}
@@ -4832,7 +4913,7 @@ export default function TripsScreen() {
                 lrLabelByTripId={{ ...hubLrLabels, ...hubLrPreviewByTripId }}
                 elrLabelByTripId={hubElrLabels}
                 toolbarCountLabel={tripListToolbarCountLabel}
-                toolbarWarning={hubCompletenessNote}
+                toolbarWarning={null}
                 renderAboveBody={null}
                 dateRangeFilter={dateRangeFilter}
                 dateRangeLabel={hubDateRangeLabel}

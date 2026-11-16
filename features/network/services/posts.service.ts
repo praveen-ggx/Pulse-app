@@ -121,19 +121,37 @@ export interface CreatePostInput {
   sourceIndentId?: string | null;
 }
 
+const feedInFlight = new Map<string, Promise<{ error: Error | null; posts: PostRow[] }>>();
+
 export async function getNetworkFeed(
   orgId: string,
   limit = 30,
   offset = 0,
 ): Promise<{ error: Error | null; posts: PostRow[] }> {
+  const cappedLimit = Math.min(Math.max(limit, 1), 50);
+  const cappedOffset = Math.max(offset, 0);
+  const key = `${orgId}:${cappedLimit}:${cappedOffset}`;
+  const existing = feedInFlight.get(key);
+  if (existing) return existing;
+  const run = loadNetworkFeed(orgId, cappedLimit, cappedOffset).finally(() => {
+    feedInFlight.delete(key);
+  });
+  feedInFlight.set(key, run);
+  return run;
+}
+
+async function loadNetworkFeed(
+  orgId: string,
+  cappedLimit: number,
+  offset: number,
+): Promise<{ error: Error | null; posts: PostRow[] }> {
   if (!(await getAccessToken())) {
     return { error: null, posts: [] };
   }
-  const cappedLimit = Math.min(Math.max(limit, 1), 50);
   const { data, error } = await supabase().rpc('get_network_feed', {
     p_org_id: orgId,
     p_limit: cappedLimit,
-    p_offset: Math.max(offset, 0),
+    p_offset: offset,
   });
   if (error) return { error: new Error(error.message), posts: [] };
   const rawPosts = (data ?? []) as PostRow[];

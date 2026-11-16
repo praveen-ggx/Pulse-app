@@ -2080,10 +2080,7 @@ export function InvoicingExecuteScreen({
       </View>
     );
   }
-  if (tripsLoading && !tripsStuck) {
-    return <CenteredLoadingView message="Syncing with Supabase..." />;
-  }
-  if (tripsLoading && tripsStuck) {
+  if (tripsLoading && tripsStuck && allTrips.length === 0) {
     return (
       <View
         style={[
@@ -2722,6 +2719,7 @@ export function InvoicingExecuteScreen({
                   setStartDate={setStartDate}
                   endDate={endDate}
                   setEndDate={setEndDate}
+                  tripsLoading={tripsLoading}
                   isRefetching={isRefetching}
                   refetch={refetch}
                   mobileBottomPad={0}
@@ -3090,6 +3088,7 @@ export function InvoicingExecuteScreen({
                 setStartDate={setStartDate}
                 endDate={endDate}
                 setEndDate={setEndDate}
+                tripsLoading={tripsLoading}
                 isRefetching={isRefetching}
                 refetch={refetch}
                 mobileBottomPad={mobileBottomPad}
@@ -3348,6 +3347,7 @@ export function InvoicingExecuteScreen({
                     setStartDate={setStartDate}
                     endDate={endDate}
                     setEndDate={setEndDate}
+                    tripsLoading={tripsLoading}
                     isRefetching={isRefetching}
                     refetch={refetch}
                     mobileBottomPad={mobileBottomPad}
@@ -3718,6 +3718,7 @@ type TripListContentProps = {
   isTripInvoiceable: (trip: InvoicingTripView) => boolean;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
+  tripsLoading: boolean;
   isRefetching: boolean;
   refetch: () => void;
   startDate: string;
@@ -3760,6 +3761,7 @@ function TripListContent({
   isTripInvoiceable,
   searchQuery,
   setSearchQuery,
+  tripsLoading,
   isRefetching,
   refetch,
   startDate,
@@ -4146,12 +4148,18 @@ function TripListContent({
             />
             <>
               <Text style={styles.emptyTitle}>
-                {sheetFilterCount > 0 ? "No trips match these filters" : "No Active Transactions"}
+                {tripsLoading
+                  ? "Loading trips"
+                  : sheetFilterCount > 0
+                    ? "No trips match these filters"
+                    : "No Active Transactions"}
               </Text>
               <Text style={styles.emptySubTitle}>
-                {sheetFilterCount > 0
-                  ? "Clear a column filter to see more trips."
-                  : "Select any trips to include on the invoice."}
+                {tripsLoading
+                  ? "Billable trips will appear here as they sync."
+                  : sheetFilterCount > 0
+                    ? "Clear a column filter to see more trips."
+                    : "Select any trips to include on the invoice."}
               </Text>
             </>
           </View>

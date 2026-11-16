@@ -165,12 +165,14 @@ export type ComplianceQueueResult = {
 export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   data: { summaries: ComplianceTripSummary[]; hasMore: boolean } | undefined;
   isLoading: boolean;
+  /** Head of the queue is on screen; the rest of the catalog is still loading. */
+  pipelinePartial: boolean;
 } {
   const orgId = useComplianceOrgId();
   const { user } = useAuth();
   const sessionKey = `${orgId}:${user?.uid ?? ""}`;
   const qc = useQueryClient();
-  const tripsQuery = useComplianceTripCatalogQuery(orgId || null);
+  const tripsQuery = useComplianceTripCatalogQuery(orgId || null, { urgent: true });
 
   // Ground Ops and Sourcing also see Assigned trips (upload before loading;
   // Sourcing uploads the Memo only before the trip is in transit).
@@ -183,6 +185,9 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   const pipelineTripsRef = useRef<TripRow[]>(pipelineTrips);
   pipelineTripsRef.current = pipelineTrips;
   const fullRefreshRef = useRef(false);
+  const [tailSettled, setTailSettled] = useState(false);
+  const setTailSettledRef = useRef(setTailSettled);
+  setTailSettledRef.current = setTailSettled;
   const pipelineKey = queryKeys.tripCompliance.pipeline(orgId);
 
   const summariesQuery = useQuery({
@@ -213,24 +218,34 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
         );
         const tailTrips = tripsNow.slice(COMPLIANCE_FIRST_PAINT_TRIPS);
         const tailStartedAt = startedAt;
-        void loadCompliancePipelineInputs(undefined, tailTrips, {
-          full: true,
-          viewerOrgId: orgId,
-        })
-          .then((rowsTail) => {
-            const merged = rowsHead.concat(rowsTail);
-            qc.setQueryData<ComplianceTripInputs[]>(pipelineKey, (cur) =>
-              preserveNewerWrites(
-                cur && cur.length > merged.length ? cur : merged,
-                cur,
-                protectedTripIds(log, tailStartedAt, previous, cur),
-              ),
-            );
-            fullyLoadedSessions.add(sessionKey);
+        const loadTail = () => {
+          void loadCompliancePipelineInputs(undefined, tailTrips, {
+            full: true,
+            viewerOrgId: orgId,
           })
-          .catch(() => {
-            // The next manual refresh loads the tail again.
-          });
+            .then((rowsTail) => {
+              const merged = rowsHead.concat(rowsTail);
+              qc.setQueryData<ComplianceTripInputs[]>(pipelineKey, (cur) =>
+                preserveNewerWrites(
+                  cur && cur.length > merged.length ? cur : merged,
+                  cur,
+                  protectedTripIds(log, tailStartedAt, previous, cur),
+                ),
+              );
+              fullyLoadedSessions.add(sessionKey);
+            })
+            .catch(() => {
+              // The next manual refresh loads the tail again.
+            })
+            .finally(() => {
+              setTailSettledRef.current(true);
+            });
+        };
+        setTailSettledRef.current(false);
+        const idle = (globalThis as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void })
+          .requestIdleCallback;
+        if (idle) idle(loadTail, { timeout: 400 });
+        else setTimeout(loadTail, 0);
         return headPaint;
       }
       if (full) fullyLoadedSessions.add(sessionKey);
@@ -315,6 +330,10 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     pipelineTripCount: pipelineTrips.length,
     tripsLoading: tripsQuery.isPending && !tripsQuery.data,
     summariesLoading: summariesQuery.isPending && !summariesQuery.data,
+    pipelinePartial:
+      pipelineTrips.length > summaries.length &&
+      !fullyLoadedSessions.has(sessionKey) &&
+      !tailSettled,
     isLoading,
     isError,
     error,
@@ -626,6 +645,7 @@ export function useComplianceChangeSync() {
 
 export function useComplianceTripQuery(tripId: string | undefined) {
   const orgId = useComplianceOrgId();
+  const qc = useQueryClient();
 
   return useQuery({
     queryKey: queryKeys.tripCompliance.detail(orgId, tripId ?? ""),
@@ -641,6 +661,15 @@ export function useComplianceTripQuery(tripId: string | undefined) {
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    // The queue already built this summary. Paint it, then refresh in the background.
+    placeholderData: () => {
+      if (!orgId || !tripId) return undefined;
+      const rows = qc.getQueryData<ComplianceTripInputs[]>(
+        queryKeys.tripCompliance.pipeline(orgId),
+      );
+      const row = rows?.find((item) => item.trip.id === tripId);
+      return row ? summaryFor(row) : undefined;
+    },
     select: (summary) => (summary ? withChecklist(summary) : null),
   });
 }

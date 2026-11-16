@@ -251,7 +251,7 @@ function PulseBottomTabBarInner({
   const warmAfterSelect = useCallback(
     (tab: DemoTabId) => {
       requestAnimationFrame(() => {
-        if (tab !== 'compliance') warmTab(tab);
+        warmTab(tab);
       });
     },
     [warmTab],

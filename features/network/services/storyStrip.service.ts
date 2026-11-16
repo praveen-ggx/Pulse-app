@@ -25,26 +25,34 @@ export async function listPublishedStoriesForOrgs(
   if (ids.length === 0) return { error: null, posts: [] };
   if (!(await getAccessToken())) return { error: null, posts: [] };
 
-  const rows: Array<Record<string, unknown>> = [];
-  for (const chunk of chunkIds(ids)) {
-    const { data, error } = await supabase()
-      .from("posts")
-      .select(
-        "id, organization_id, author_user_id, type, content, origin, destination, load_date, vehicle_type, weight_tonnes, rate_offer, material, expires_at, is_active, view_count, created_at, source_indent_id",
-      )
-      .in("organization_id", chunk)
-      .in("type", ["LOAD", "VEHICLE_AVAILABILITY"])
-      .eq("is_active", true)
-      .order("created_at", { ascending: false })
-      .limit(80);
-    if (error) return { error: new Error(error.message), posts: [] };
-    for (const row of data ?? []) rows.push(row as Record<string, unknown>);
-  }
-
   const { getLinkedOrgProfilesBatch } = await import(
     "@/features/clients/services/clients.service"
   );
-  const profiles = await getLinkedOrgProfilesBatch(ids);
+  const profilesPromise = getLinkedOrgProfilesBatch(ids).catch(() => ({}));
+  let rows: Array<Record<string, unknown>> = [];
+  try {
+    const chunks = await Promise.all(
+      chunkIds(ids).map(async (chunk) => {
+        const { data, error } = await supabase()
+          .from("posts")
+          .select(
+            "id, organization_id, author_user_id, type, content, origin, destination, load_date, vehicle_type, weight_tonnes, rate_offer, material, expires_at, is_active, view_count, created_at, source_indent_id",
+          )
+          .in("organization_id", chunk)
+          .in("type", ["LOAD", "VEHICLE_AVAILABILITY"])
+          .eq("is_active", true)
+          .order("created_at", { ascending: false })
+          .limit(80);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as Array<Record<string, unknown>>;
+      }),
+    );
+    rows = chunks.flat();
+  } catch (e) {
+    return { error: e instanceof Error ? e : new Error(String(e)), posts: [] };
+  }
+
+  const profiles = await profilesPromise;
 
   const posts: PostRow[] = [];
   for (const raw of rows) {

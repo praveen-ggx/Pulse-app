@@ -422,7 +422,7 @@ export function VaultChooserNotifyRow({
                 <View style={styles.shopThumbCaption}>
                   <Text
                     style={[styles.shopThumbCaptionText, WEB_COPY]}
-                    numberOfLines={2}
+                    numberOfLines={1}
                   >
                     {caption}
                   </Text>
@@ -454,7 +454,7 @@ export function VaultChooserNotifyRow({
                 <View style={styles.shopThumbCaption}>
                   <Text
                     style={[styles.shopThumbCaptionText, WEB_COPY]}
-                    numberOfLines={2}
+                    numberOfLines={1}
                   >
                     {item.label}
                   </Text>
@@ -599,7 +599,7 @@ export function VaultChooserNotifyRow({
                 accessibilityRole="button"
                 accessibilityLabel={`View ${label}`}
               >
-                <Feather name="eye" size={11} color={SHOP.ink} />
+                <Feather name="eye" size={14} color={SHOP.ink} />
                 <Text style={styles.shopActionText}>View</Text>
               </Pressable>
             ) : null}
@@ -610,7 +610,7 @@ export function VaultChooserNotifyRow({
                 accessibilityRole="button"
                 accessibilityLabel={`Replace ${label}`}
               >
-                <Feather name="refresh-cw" size={11} color={SHOP.ink} />
+                <Feather name="refresh-cw" size={14} color={SHOP.ink} />
                 <Text style={styles.shopActionText}>Replace</Text>
               </Pressable>
             ) : canUpload ? (
@@ -620,7 +620,7 @@ export function VaultChooserNotifyRow({
                 accessibilityRole="button"
                 accessibilityLabel={`Add ${label}`}
               >
-                <Feather name="plus" size={11} color={SHOP.ink} />
+                <Feather name="plus" size={14} color={SHOP.ink} />
                 <Text style={styles.shopActionText}>Add</Text>
               </Pressable>
             ) : null}
@@ -631,7 +631,7 @@ export function VaultChooserNotifyRow({
                 accessibilityRole="button"
                 accessibilityLabel={`Edit ${label}`}
               >
-                <Pencil size={10} color={SHOP.ink} strokeWidth={2} />
+                <Pencil size={14} color={SHOP.ink} strokeWidth={2} />
                 <Text style={styles.shopActionText}>Edit</Text>
               </Pressable>
             ) : null}
@@ -1121,11 +1121,11 @@ const styles = StyleSheet.create({
   statusTextOn: { color: Theme.complianceStageSuccessFg },
   statusTextOff: { color: Theme.complianceStagePendingFg },
   cardShop: {
-    paddingTop: 8,
-    paddingBottom: 8,
-    paddingHorizontal: 8,
-    gap: 6,
-    borderRadius: 10,
+    paddingTop: 12,
+    paddingBottom: 12,
+    paddingHorizontal: 12,
+    gap: 10,
+    borderRadius: 16,
     borderColor: SHOP.hairline,
     backgroundColor: Theme.cardWhite,
   },
@@ -1208,29 +1208,34 @@ const styles = StyleSheet.create({
   },
   shopMetaBlock: {
     width: "100%",
-    alignItems: "center",
-    gap: 1,
-    paddingHorizontal: 4,
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 8,
+    paddingHorizontal: 2,
   },
   shopBrand: {
-    fontSize: 11,
-    lineHeight: 14,
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: "700",
     color: SHOP.ink,
-    letterSpacing: -0.15,
-    textAlign: "center",
+    letterSpacing: -0.2,
+    textAlign: "left",
   },
   shopMetaLine: {
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: "500",
+    flexShrink: 0,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
     color: SHOP.muted,
-    textAlign: "center",
+    textAlign: "right",
   },
   shopStatusCard: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
     borderWidth: 0,
   },
   shopStatusCardOn: {
@@ -1250,16 +1255,16 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   shopStatusKicker: {
-    fontSize: 8,
-    lineHeight: 10,
-    fontWeight: "600",
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "700",
     color: SHOP.muted,
     textTransform: "uppercase",
-    letterSpacing: 0.3,
+    letterSpacing: 0.4,
   },
   shopStatusDate: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: "700",
     color: SHOP.success,
     letterSpacing: -0.1,
@@ -1272,31 +1277,31 @@ const styles = StyleSheet.create({
   shopStatusLog: {
     flexGrow: 0,
     flexShrink: 1,
-    maxWidth: "48%",
-    minWidth: 96,
+    maxWidth: "46%",
+    minWidth: 0,
     alignItems: "flex-end",
     justifyContent: "center",
   },
   shopActionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
   },
   shopActionBtn: {
     flex: 1,
-    minHeight: 24,
-    borderRadius: 8,
+    minHeight: 40,
+    borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "#D4D5D9",
     backgroundColor: Theme.cardWhite,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 6,
   },
   shopActionText: {
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: "600",
     color: SHOP.ink,
   },
@@ -1315,10 +1320,10 @@ const styles = StyleSheet.create({
   },
   shopThumbStrip: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: "flex-start",
+    justifyContent: "flex-start",
     gap: 8,
-    paddingHorizontal: 2,
+    paddingHorizontal: 0,
   },
   shopThumbFilmScroll: {
     flexGrow: 0,
@@ -1344,12 +1349,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   shopThumbRailItem: {
-    width: 52,
-    height: 70,
+    width: 64,
+    height: 80,
   },
   shopThumb: {
-    width: 56,
-    height: 72,
+    width: 68,
+    height: 84,
     borderRadius: 10,
     overflow: "hidden",
     borderWidth: 1,
@@ -1374,12 +1379,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    minHeight: 16,
+    paddingHorizontal: 3,
     paddingVertical: 2,
+    justifyContent: "center",
     backgroundColor: Theme.cardWhite,
   },
   shopThumbCaptionText: {
-    fontSize: 7,
-    lineHeight: 9,
+    fontSize: 8,
+    lineHeight: 11,
     fontWeight: "700",
     color: SHOP.ink,
     textAlign: "center",

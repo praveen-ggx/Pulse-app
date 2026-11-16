@@ -4,9 +4,9 @@ import Theme from "@/constants/Theme";
 import { formatINR } from "@/lib/format";
 import type { MyOrgMarketBidRow } from "@/features/network/services/findLoadsForOrg.service";
 import { marketplaceFeeGateSatisfied } from "@/features/network/services/marketBids.service";
-import { countActiveMarketplaceBids, countLaneBids, countWonMarketplaceBids, laneBidCaption, loadsCaption } from "@/features/network/utils/bidLoadCount.util";
+import { countActiveLoadsInPlay, countLaneBids, countWonMarketplaceBids, laneBidCaption, loadsCaption, loadsStillInPlay } from "@/features/network/utils/bidLoadCount.util";
 import { ScoreboardNumber } from "@/features/network/components/ScoreboardNumber";
-import { groupBidsByLane } from "@/features/network/utils/marketplaceLaneSearchMemory.util";
+import { groupBidsByLane, lanePoolCounts } from "@/features/network/utils/marketplaceLaneSearchMemory.util";
 import type { MarketplaceSearchLane } from "@/features/network/utils/marketplaceSearch.util";
 import { marketplaceWalletFigures } from "@/features/network/utils/marketplaceWallet.util";
 import type { PoolLane } from "@/features/network/utils/pooledOpportunity.util";
@@ -18,6 +18,7 @@ import {
   ClipboardList,
   Truck,
 } from "lucide-react-native";
+import LottieView from "lottie-react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AccessibilityInfo, Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,6 +29,7 @@ const TILES = [
 ] as const;
 
 const HOT_LANE_SLIDE_MS = 40_000;
+const LANE_TRUCK = require("@/assets/Animated folder/truck-2.json");
 
 function laneRateLabel(bids: readonly MyOrgMarketBidRow[]): string {
   const amounts = bids.map((bid) => Number(bid.amount)).filter((amount) => Number.isFinite(amount));
@@ -39,18 +41,21 @@ function laneRateLabel(bids: readonly MyOrgMarketBidRow[]): string {
 
 function BidLaneRow({
   bids,
+  openLaneLoads,
   onPress,
 }: {
   bids: readonly MyOrgMarketBidRow[];
+  openLaneLoads: number | null;
   onPress: () => void;
 }) {
   const first = bids[0];
   const covered = countLaneBids(bids);
+  const loadsNow = loadsStillInPlay(covered.loads, openLaneLoads);
   const pending = bids.every((bid) => bid.status === "pending");
   const awarded = bids.every((bid) => bid.status === "accepted");
   const status =
     covered.bids > 0 && bids.length > 1
-      ? laneBidCaption(covered.loads)
+      ? laneBidCaption(loadsNow)
       : awarded
         ? "Awarded"
         : pending
@@ -339,31 +344,27 @@ function HotLaneSlide({
 }
 
 function LoadMark() {
-  const glide = useRef(new Animated.Value(0)).current;
+  const [reduceMotion, setReduceMotion] = useState(false);
   useEffect(() => {
-    let loop: Animated.CompositeAnimation | null = null;
     let active = true;
     AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
-      if (!active || reduce) return;
-      loop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(glide, { toValue: 1, duration: 1800, useNativeDriver: true }),
-          Animated.timing(glide, { toValue: 0, duration: 1800, useNativeDriver: true }),
-        ]),
-      );
-      loop.start();
+      if (active && reduce) setReduceMotion(true);
     });
     return () => {
       active = false;
-      loop?.stop();
     };
-  }, [glide]);
-  const shift = glide.interpolate({ inputRange: [0, 1], outputRange: [-4, 4] });
+  }, []);
   return (
     <View style={styles.loadMark} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <Animated.View style={{ transform: [{ translateX: shift }] }}>
-        <Truck size={16} color={Theme.loadMainTabBg} strokeWidth={2.2} />
-      </Animated.View>
+      <LottieView
+        source={LANE_TRUCK}
+        autoPlay={!reduceMotion}
+        loop={!reduceMotion}
+        progress={reduceMotion ? 0.55 : undefined}
+        speed={0.85}
+        resizeMode="cover"
+        style={styles.loadTruck}
+      />
     </View>
   );
 }
@@ -384,6 +385,8 @@ export function MarketplaceLanding({
   onOpenFeaturedLane,
   onWarmFeaturedLane,
   lanes = [],
+  lanesReady = false,
+  bidTotals = null,
   assignBids = [],
   onAssignVehicle,
 }: {
@@ -410,12 +413,22 @@ export function MarketplaceLanding({
   onOpenFeaturedLane?: (lane: PoolLane) => void;
   onWarmFeaturedLane?: (lane: PoolLane) => void;
   lanes?: readonly MarketplaceSearchLane[];
+  /** Live lane counts are in. Until then, load totals stay on the bid rows. */
+  lanesReady?: boolean;
+  /** Organization totals. Loaded bid rows are not the total. */
+  bidTotals?: { awarded: number; ratesSent: number } | null;
   /** Awarded bids that still need a vehicle. */
   assignBids?: readonly MyOrgMarketBidRow[];
   onAssignVehicle?: (bid: MyOrgMarketBidRow) => void;
 }) {
-  const figures = marketplaceWalletFigures(bids);
-  const submitted = countActiveMarketplaceBids(bids);
+  const loadedFigures = marketplaceWalletFigures(bids);
+  const figures = {
+    ...loadedFigures,
+    awarded: bidTotals?.awarded ?? loadedFigures.awarded,
+    ratesSent: bidTotals?.ratesSent ?? loadedFigures.ratesSent,
+  };
+  const openByLane = lanesReady ? lanePoolCounts(lanes) : null;
+  const submitted = countActiveLoadsInPlay(bids, lanesReady ? lanes : null);
   const won = countWonMarketplaceBids(bids);
   const ratesSent = bids.reduce((sum, bid) => {
     const amount = Number(bid.amount);
@@ -453,13 +466,13 @@ export function MarketplaceLanding({
       <Text style={styles.walletHint}>{figures.due > 0 ? "Fees due on awarded loads" : "Nothing due"}</Text>
       <View style={styles.walletStats}>
         <View style={styles.walletStat}>
-          <Text style={styles.walletStatValue}>{figures.awarded}</Text>
-          <Text style={styles.walletStatLabel}>Awarded</Text>
+          <Text style={styles.walletStatValue}>{submitted.bids}</Text>
+          <Text style={styles.walletStatLabel}>Active bids</Text>
         </View>
         <View style={styles.walletStatRule} />
         <View style={styles.walletStat}>
-          <Text style={styles.walletStatValue}>{figures.ratesSent}</Text>
-          <Text style={styles.walletStatLabel}>Rates sent</Text>
+          <Text style={styles.walletStatValue}>{submitted.loads}</Text>
+          <Text style={styles.walletStatLabel}>{submitted.loads === 1 ? "Load" : "Loads"}</Text>
         </View>
       </View>
       <View style={styles.walletActions}>
@@ -485,6 +498,7 @@ export function MarketplaceLanding({
         <BidLaneRow
           key={group.key}
           bids={group.bids}
+          openLaneLoads={openByLane ? (openByLane.get(group.key) ?? 0) : null}
           onPress={() => (group.bids.length > 1 ? onOpenBids() : setOpenBid(group.bids[0]))}
         />
       ))}
@@ -579,6 +593,9 @@ export function MarketplaceLanding({
                     <BidLaneRow
                       key={group.key}
                       bids={group.bids}
+                      openLaneLoads={
+                        bidFilter === "bids" && openByLane ? (openByLane.get(group.key) ?? 0) : null
+                      }
                       onPress={() => (group.bids.length > 1 ? onOpenBids(bidFilter) : setOpenBid(group.bids[0]))}
                     />
                   ))
@@ -654,13 +671,14 @@ export function MarketplaceLanding({
         <View
           style={[styles.hero, isDesktop ? styles.heroDesktop : styles.heroPhone]}
           accessibilityRole="header"
-          accessibilityLabel={orgName.trim() ? `Marketplace Loads, ${orgName.trim()}` : "Marketplace Loads"}
+          accessibilityLabel={orgName.trim() ? `PULSE MARKETPLACE, ${orgName.trim()}` : "PULSE MARKETPLACE"}
         >
           <Text
             style={[styles.heroName, isDesktop ? styles.heroNameDesktop : styles.heroNamePhone]}
             numberOfLines={1}
           >
-            Marketplace Loads
+            PULSE MARKETPLACE
+            <Text style={styles.heroNameDot}>.</Text>
           </Text>
           <LoadMark />
         </View>
@@ -924,14 +942,20 @@ const styles = StyleSheet.create({
   heroIdentity: { flex: 1, flexShrink: 1, minWidth: 0, gap: 2, justifyContent: "center" },
   heroIdentityPhone: { gap: 1 },
   loadMark: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: Theme.primaryText,
+    width: 64,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.primaryText,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
     flexShrink: 0,
+  },
+  loadTruck: {
+    width: 108,
+    height: 108,
   },
   heroAside: { alignItems: "flex-end", justifyContent: "center", flexShrink: 0, gap: 1 },
   heroAsideLabel: { color: Theme.primaryText, fontSize: 13, fontWeight: "700", letterSpacing: -0.2 },
@@ -1031,9 +1055,10 @@ const styles = StyleSheet.create({
   liveDotWrap: { width: 8, height: 8, alignItems: "center", justifyContent: "center" },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Theme.driverPrimary },
   liveDotRing: { position: "absolute", width: 7, height: 7, borderRadius: 4, backgroundColor: Theme.driverPrimary },
-  heroName: { color: Theme.primaryText, fontSize: 20, fontWeight: "800", letterSpacing: -0.4, lineHeight: 24 },
-  heroNameDesktop: { fontSize: 22, lineHeight: 26, letterSpacing: -0.4 },
-  heroNamePhone: { fontSize: 18, lineHeight: 22, letterSpacing: -0.3 },
+  heroName: { color: Theme.primaryText, fontSize: 20, fontWeight: "800", letterSpacing: 0.4, lineHeight: 24 },
+  heroNameDesktop: { fontSize: 22, lineHeight: 26, letterSpacing: 0.6 },
+  heroNamePhone: { fontSize: 18, lineHeight: 22, letterSpacing: 0.3 },
+  heroNameDot: { color: Theme.darkGreen, letterSpacing: 0 },
   heroPoints: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
   heroPointsPhone: { gap: 4, marginTop: 4 },
   heroPoint: {
@@ -1275,7 +1300,7 @@ const styles = StyleSheet.create({
   walletLink: { color: Theme.buttonPrimaryText, fontWeight: "800", fontSize: 13 },
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   loadBoard: { gap: 10 },
-  loadBoardFilters: { width: "100%" },
+  loadBoardFilters: { width: "100%", zIndex: 8, overflow: "visible" },
   link: { fontSize: 12, fontWeight: "600", color: Theme.buttonPrimaryText },
   previewCard: {
     backgroundColor: Theme.cardWhite,

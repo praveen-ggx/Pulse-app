@@ -65,6 +65,21 @@ const HIGHLIGHT_INSET = 3;
 /** Short glide. Starts on press so the page and the thumb move together. */
 const FLOW = { duration: 70, easing: Easing.out(Easing.cubic) } as const;
 
+/** Even top-to-bottom tone on the Marketplace pill. No outline, no highlight bar. */
+function MarketFill() {
+  return (
+    <View style={styles.mirror} pointerEvents="none">
+      <LinearGradient
+        colors={[Theme.accentBrownLight, Theme.accentBrown, Theme.accentBrownDeep]}
+        locations={[0, 0.45, 1]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+    </View>
+  );
+}
+
 /** Apple-style mirror thumb: glass falloff and a hairline specular. */
 function MirrorFill() {
   return (
@@ -102,7 +117,7 @@ function DockIcon({
   return (
     <Icon
       size={size}
-      color={active ? Theme.dockIconActive : (tint ?? Theme.dockIconMuted)}
+      color={tint ?? (active ? Theme.dockIconActive : Theme.dockIconMuted)}
       fill={fill && active ? Theme.dockIconActive : 'transparent'}
       strokeWidth={active ? 2.05 : 1.75}
     />
@@ -324,9 +339,11 @@ function PulseBottomTabBarInner({
         ) : null}
         {showMarketplace ? (
           <DockPill style={styles.featurePill}>
-            <SideTrack active={marketplaceActive}>
+            <MarketFill />
+            <View style={styles.sideTrack}>
               <PulseBottomTabSlot
                 label="Marketplace"
+                tone="market"
                 active={marketplaceActive}
                 badgeCount={activeLoadCount}
                 compact={isCompactMobile}
@@ -351,11 +368,11 @@ function PulseBottomTabBarInner({
                     Icon={Store}
                     active={marketplaceActive}
                     size={iconSize}
-                    tint={Theme.dockIconMuted}
+                    tint={marketplaceActive ? Theme.accentGold : Theme.accentBrownWash}
                   />
                 }
               />
-            </SideTrack>
+            </View>
           </DockPill>
         ) : null}
         {showChat ? (
@@ -452,6 +469,8 @@ const styles = StyleSheet.create({
   featurePill: {
     width: 96,
     flexShrink: 0,
+    overflow: 'visible',
+    backgroundColor: Theme.accentBrown,
   },
   track: {
     flex: 1,

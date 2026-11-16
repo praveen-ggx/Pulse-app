@@ -52,6 +52,11 @@ import {
     purgeLinkedOrgDisplayQueries,
 } from '@/lib/queries/linkedOrgDisplayCache';
 import { useQueryCacheOwner } from '@/lib/cache/cacheOwner';
+import {
+  createSessionTreeTracer,
+  formatSessionTreeTraceEntry,
+  type SessionTreeBranch,
+} from '@/lib/diagnostics/sessionTreeTrace';
 import { getQueryClient } from '@/lib/queryClient';
 import { isNonPersistedTripsQueryKey, isSessionScopedLaneOfferQueryKey, purgeSessionScopedLaneOfferQueries } from '@/lib/queryKeys';
 import {
@@ -91,7 +96,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { useFonts } from 'expo-font';
 import { Redirect, Stack, usePathname, useRouter, useSegments, type ErrorBoundaryProps } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ViewStyle } from 'react-native';
 import { LogBox, Platform, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -532,22 +537,51 @@ function AppSessionTree() {
     void safeHideSplashAsync().catch(() => {});
   }, [sessionAttached]);
 
-  if (shouldMountAuthenticatedDataPlane(sessionAttached) && cacheOwnedByUser) {
-    return <AuthenticatedDataPlane />;
-  }
+  const branch: SessionTreeBranch =
+    shouldMountAuthenticatedDataPlane(sessionAttached) && cacheOwnedByUser
+      ? 'data-plane'
+      : shouldRenderPublicAuthTree({ sessionAttached, publicRoute, status })
+        ? 'public'
+        : 'splash';
 
-  if (
-    shouldRenderPublicAuthTree({
-      sessionAttached,
-      publicRoute,
+  // DEV-ONLY diagnostic (no state, no deps → runs after every commit, logs only on change).
+  const traceInstanceRef = useRef(0);
+  useLayoutEffect(() => {
+    if (!__DEV__ || !sessionTreeTracer) return;
+    if (traceInstanceRef.current === 0) traceInstanceRef.current = ++sessionTreeInstanceCount;
+    sessionTreeTracer.record({
+      branch,
+      pathname,
       status,
-    })
-  ) {
-    return <PublicAuthTree />;
-  }
+      sessionAttached,
+      cacheOwnedByUser,
+      instance: traceInstanceRef.current,
+    });
+  });
 
+  if (branch === 'data-plane') return <AuthenticatedDataPlane />;
+  if (branch === 'public') return <PublicAuthTree />;
   return <AppLoadingSplash variant="session" />;
 }
+
+// DEV-ONLY: null in production builds, so nothing is recorded or logged.
+// A fast refresh can evaluate this module before the diagnostic import is
+// bound. That must not take down the root layout.
+let sessionTreeInstanceCount = 0;
+const sessionTreeTracer = (() => {
+  if (!__DEV__) return null;
+  try {
+    return createSessionTreeTracer({
+      log: (e) => {
+        const line = formatSessionTreeTraceEntry(e);
+        if (e.marker) console.warn(line);
+        else console.log(line);
+      },
+    });
+  } catch {
+    return null;
+  }
+})();
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();

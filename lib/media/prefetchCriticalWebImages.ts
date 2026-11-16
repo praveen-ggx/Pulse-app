@@ -3,6 +3,7 @@ import { Image as RNImage, Platform } from "react-native";
 
 const WELCOME_CORE = require("@/assets/illustrations/web/pulse_mascot_cutout.png");
 const WELCOME_PILOT = require("@/assets/illustrations/web/otp_delivery_truck_mascot_cutout.png");
+const LANE_MARK = require("@/assets/images/favicon.png");
 
 let started = false;
 
@@ -18,5 +19,6 @@ export function prefetchCriticalWebImages(): void {
   void Promise.all([
     prefetchModule(WELCOME_CORE),
     prefetchModule(WELCOME_PILOT),
+    prefetchModule(LANE_MARK),
   ]).catch(() => {});
 }

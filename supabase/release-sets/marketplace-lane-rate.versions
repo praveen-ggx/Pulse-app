@@ -2,7 +2,11 @@
 # every open and future load on the lane only when the carrier opts in
 # (vehicle limit + valid until). 20271114173800 / 20271114174600 install the
 # standing-lane trigger and lane key; 20271114201500 replaces their copy-every-
-# pending-bid body with opt-in commitments. Apply all three together, in order.
+# pending-bid body with opt-in commitments. 20271116144500 seeds the lane price
+# from the pooled rate; 20271117013000 makes a pooled rate a 48-hour lane
+# commitment; 20271117021500 gives every bid its own 48-hour expires_at,
+# refuses expired bids at award, and returns expires_at to the shipper list.
+# Apply all six together, in order.
 # Needs standing_lane_key on the target; 20271114185200 (indent-lane-index) is
 # independent and may already be applied.
 # Not applied anywhere. Path: V1 -> preprod -> prod.
@@ -12,3 +16,9 @@
 20271114174600
 # sha256 0bf7c1a471aeea4736f08a013620ea94cd8f3d9a063790a6c252bfcbe9c33d9a  20271114201500_marketplace_lane_rate_opt_in.sql
 20271114201500
+# sha256 3d69be94a41cbaf8a9ade851adb15e126ce8ad221bee164c525880200229b971  20271116144500_marketplace_lane_price_bootstrap.sql
+20271116144500
+# sha256 4df18a44045801ed76ab66294b97dd228707dd8daef69d3031bd038fd8ef0333  20271117013000_marketplace_lane_commitment_on_pool_rate.sql
+20271117013000
+# sha256 0068da80940d262a2ba86662b295f9fbfd3c2367c17b126c00259e826c8d3b5d  20271117021500_marketplace_bid_individual_expiry.sql
+20271117021500

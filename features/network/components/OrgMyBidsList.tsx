@@ -25,7 +25,7 @@ import {
   type MyOrgMarketBidStatus,
 } from "@/features/network/services/findLoadsForOrg.service";
 import { formatStoryDate } from "@/features/network/utils/storyDisplay";
-import { countActiveMarketplaceBids, countLaneBids, countSubmittedBids, laneBidCaption, loadsCaption } from "@/features/network/utils/bidLoadCount.util";
+import { countActiveLoadsInPlay, countLaneBids, countSubmittedBids, laneBidCaption, loadsCaption, loadsStillInPlay } from "@/features/network/utils/bidLoadCount.util";
 import { ScoreboardNumber } from "@/features/network/components/ScoreboardNumber";
 import { bidderLaneKey, groupBidsByLane } from "@/features/network/utils/marketplaceLaneSearchMemory.util";
 import { positiveLaneTarget, type MarketplaceSearchLane } from "@/features/network/utils/marketplaceSearch.util";
@@ -248,7 +248,7 @@ export function OrgMyBidsList({
     );
   }
 
-  const active = countActiveMarketplaceBids(groups.pending);
+  const active = countActiveLoadsInPlay(groups.pending, lanesReady ? lanes : null);
   const awardedLoads = countSubmittedBids(groups.awarded);
   const slice =
     focus === "won"
@@ -332,6 +332,9 @@ export function OrgMyBidsList({
                 orgId={orgId}
                 onPaymentUpdated={onPaymentUpdated}
                 lanePreview={lanePreviewByBidId[group.bids[0].id]}
+                lanes={lanes}
+                laneTargets={laneTargets}
+                lanesReady={lanesReady}
               />
             ) : (
               <BidPoolCard
@@ -389,6 +392,31 @@ function liveLaneForBids(
   };
 }
 
+function formatLaneTarget(min: number | null, max: number | null): string | null {
+  const low = formatFindLoadsRateOffer(min);
+  const high = formatFindLoadsRateOffer(max ?? min);
+  if (!low) return null;
+  if (high && high !== low) return `${low} – ${high}`;
+  return low;
+}
+
+function RateLines({ target, bid }: { target: string | null; bid: string }) {
+  return (
+    <View style={styles.rateStack}>
+      {target ? (
+        <View style={styles.poolTarget}>
+          <Text style={styles.poolTargetKicker}>Target</Text>
+          <Text style={styles.poolTargetPrice} numberOfLines={1}>{target}</Text>
+        </View>
+      ) : null}
+      <View style={styles.poolTarget}>
+        <Text style={styles.poolTargetKicker}>Your bid</Text>
+        <Text style={styles.poolTargetPrice} numberOfLines={1}>{bid}</Text>
+      </View>
+    </View>
+  );
+}
+
 function pooledLoadsLabel(ready: boolean, loadCount: number): string {
   if (!ready) return "Loads";
   const count = Number.isFinite(loadCount) ? loadCount : 0;
@@ -421,10 +449,11 @@ function BidPoolCard({
   const low = amounts.length ? Math.min(...amounts) : null;
   const high = amounts.length ? Math.max(...amounts) : null;
   const oneRate = low != null && low === high;
-  const live = lanesReady && lane.loadCount > 0 && lanePreview?.tone !== "expired";
   const covered = countLaneBids(bids);
-  const bidLabel = laneBidCaption(covered.loads);
-  const loadsLabel = pooledLoadsLabel(lanesReady, lane.loadCount);
+  const loadsNow = loadsStillInPlay(covered.loads, lanesReady ? lane.loadCount : null);
+  const live = lanesReady && loadsNow > 0 && lanePreview?.tone !== "expired";
+  const bidLabel = laneBidCaption(loadsNow);
+  const loadsLabel = pooledLoadsLabel(lanesReady, loadsNow);
   const targetLow = formatFindLoadsRateOffer(lane.targetMin);
   const targetHigh = formatFindLoadsRateOffer(lane.targetMax ?? lane.targetMin);
   const bidLow = formatAmount(low);
@@ -466,23 +495,15 @@ function BidPoolCard({
               <View style={styles.poolMetricIcon}>
                 <Package size={14} color={Theme.primaryText} strokeWidth={2.2} />
               </View>
-              <Text style={styles.poolMetricValue}>{lanesReady ? lane.loadCount : "—"}</Text>
-              <Text style={styles.poolMetricUnit}>{lane.loadCount === 1 ? "load" : "loads"}</Text>
+              <Text style={styles.poolMetricValue}>{lanesReady ? loadsNow : "—"}</Text>
+              <Text style={styles.poolMetricUnit}>{loadsNow === 1 ? "load" : "loads"}</Text>
             </View>
             <Text style={styles.poolBids}>{lanePreview ? `${bidLabel} · ${lanePreview.label}` : bidLabel}</Text>
           </View>
-          <View style={styles.poolTarget}>
-            <Text style={styles.poolTargetKicker}>{targetLow ? "Target" : "Your bid"}</Text>
-            <Text style={styles.poolTargetPrice} numberOfLines={1}>
-              {targetLow
-                ? targetHigh && targetHigh !== targetLow
-                  ? `${targetLow} – ${targetHigh}`
-                  : targetLow
-                : oneRate
-                  ? bidLow
-                  : `${bidLow} – ${bidHigh}`}
-            </Text>
-          </View>
+          <RateLines
+            target={targetLow ? (targetHigh && targetHigh !== targetLow ? `${targetLow} – ${targetHigh}` : targetLow) : null}
+            bid={oneRate ? bidLow : `${bidLow} – ${bidHigh}`}
+          />
         </View>
       </Pressable>
       {open
@@ -590,12 +611,18 @@ function BidCard({
   orgId,
   onPaymentUpdated,
   lanePreview,
+  lanes = [],
+  laneTargets = {},
+  lanesReady = false,
   nested = false,
 }: {
   bid: MyOrgMarketBidRow;
   orgId?: string | null;
   onPaymentUpdated?: () => void;
   lanePreview?: { tone: "live" | "reduced" | "expired"; label: string };
+  lanes?: readonly MarketplaceSearchLane[];
+  laneTargets?: Readonly<Record<string, { min: number | null; max: number | null }>>;
+  lanesReady?: boolean;
   nested?: boolean;
 }) {
   const router = useRouter();
@@ -645,6 +672,8 @@ function BidCard({
     .filter(Boolean)
     .map(titleCaseWord);
   const dateLabel = bid.pickup_date ? formatStoryDate(bid.pickup_date) : null;
+  const laneQuote = lanesReady ? liveLaneForBids([bid], lanes, laneTargets) : null;
+  const targetLabel = laneQuote ? formatLaneTarget(laneQuote.targetMin, laneQuote.targetMax) : null;
 
   const handlePay = async () => {
     if (isStartingPayment) return;
@@ -943,12 +972,7 @@ function BidCard({
               {lanePreview.label}
             </Text>
           ) : null}
-          <View style={styles.poolTarget}>
-            <Text style={styles.poolTargetKicker}>Your bid</Text>
-            <Text style={styles.poolTargetPrice} numberOfLines={1}>
-              {formatAmount(bid.amount)}
-            </Text>
-          </View>
+          <RateLines target={targetLabel} bid={formatAmount(bid.amount)} />
           {identityRevealed && phoneDisplay ? (
             <Text style={styles.contact} numberOfLines={1}>
               {phoneDisplay}
@@ -1247,6 +1271,7 @@ const styles = StyleSheet.create({
   poolMetricValue: { fontSize: 16, fontWeight: "700", letterSpacing: -0.3, color: Theme.textPrimaryDark },
   poolMetricUnit: { fontSize: 12, fontWeight: "600", color: Theme.textSecondary },
   poolBids: { fontSize: 12, fontWeight: "600", color: Theme.textSecondary },
+  rateStack: { gap: 6 },
   poolTarget: {
     flexDirection: "row",
     alignItems: "center",

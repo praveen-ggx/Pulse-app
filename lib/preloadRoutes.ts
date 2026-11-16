@@ -121,7 +121,7 @@ export function preloadMarketplaceData(queryClient: QueryClient, orgId: string):
       const { listMyOrgMarketBids } = await import(
         '@/features/network/services/findLoadsForOrg.service'
       );
-      return listMyOrgMarketBids(orgId, 100);
+      return listMyOrgMarketBids(orgId);
     },
   });
 }

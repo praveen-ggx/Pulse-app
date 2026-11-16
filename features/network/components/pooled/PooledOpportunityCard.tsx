@@ -76,20 +76,21 @@ export function PooledOpportunityCard({
       onHoverOut={() => setHovered(false)}
       style={[
         styles.card,
+        !isDesktop && styles.cardPhone,
         isDesktop && columns === 2 && styles.cardDesktopTwo,
         isDesktop && columns !== 2 && styles.cardDesktop,
         hovered && styles.cardHover,
       ]}
     >
-      <View style={[styles.stage, hovered && styles.stageHover]}>
+      <View style={[styles.stage, !isDesktop && styles.stagePhone, hovered && styles.stageHover]}>
         <View style={styles.top}>
+          <View style={styles.badges}>
           <View style={styles.poolTag}>
-            <Layers size={11} color={Theme.primaryText} strokeWidth={2.4} />
-            <Text style={styles.poolTagText} numberOfLines={1}>
+            <Layers size={11} color={Theme.cardWhite} strokeWidth={2.4} />
+            <Text style={[styles.poolTagText, !isDesktop && styles.poolTagTextPhone]} numberOfLines={1}>
               POOLED · {loadsLabel.toUpperCase()}
             </Text>
           </View>
-          <View style={styles.badges}>
             {fitsFleet ? (
               <View style={styles.fitBadge}>
                 <Check size={10} color={Theme.positive} strokeWidth={3} />
@@ -112,11 +113,11 @@ export function PooledOpportunityCard({
 
         <View style={styles.route}>
           <View style={styles.routeCol}>
-            <Text style={styles.routeLabel}>Pickup</Text>
+            <Text style={[styles.routeLabel, !isDesktop && styles.routeLabelPhone]}>Pickup</Text>
             <RouteEndpointStack
               value={lane.pickup_area}
-              primaryStyle={styles.routeCity}
-              secondaryStyle={styles.routeArea}
+              primaryStyle={!isDesktop ? [styles.routeCity, styles.routeCityPhone] : styles.routeCity}
+              secondaryStyle={!isDesktop ? [styles.routeArea, styles.routeAreaPhone] : styles.routeArea}
               maxLinesPerItem={1}
             />
           </View>
@@ -130,12 +131,12 @@ export function PooledOpportunityCard({
             <MapPin size={13} color={Theme.primaryText} strokeWidth={2.4} />
           </View>
           <View style={[styles.routeCol, styles.routeEnd]}>
-            <Text style={[styles.routeLabel, styles.alignEnd]}>Drop</Text>
+            <Text style={[styles.routeLabel, styles.alignEnd, !isDesktop && styles.routeLabelPhone]}>Drop</Text>
             <RouteEndpointStack
               value={lane.drop_location}
               align="end"
-              primaryStyle={styles.routeCity}
-              secondaryStyle={styles.routeArea}
+              primaryStyle={!isDesktop ? [styles.routeCity, styles.routeCityPhone] : styles.routeCity}
+              secondaryStyle={!isDesktop ? [styles.routeArea, styles.routeAreaPhone] : styles.routeArea}
               maxLinesPerItem={1}
             />
           </View>
@@ -152,7 +153,7 @@ export function PooledOpportunityCard({
             {vehicle ? (
               <View style={styles.vehicleChip}>
                 <Truck size={12} color={Theme.primaryText} strokeWidth={2.2} />
-                <Text style={styles.vehicle} numberOfLines={1}>
+                <Text style={[styles.vehicle, !isDesktop && styles.vehiclePhone]} numberOfLines={1}>
                   {vehicle}
                 </Text>
               </View>
@@ -162,7 +163,7 @@ export function PooledOpportunityCard({
               return (
                 <View key={tag.key} style={styles.vehicleChip}>
                   <Icon size={12} color={Theme.primaryText} strokeWidth={2.2} />
-                  <Text style={styles.vehicle} numberOfLines={1}>
+                  <Text style={[styles.vehicle, !isDesktop && styles.vehiclePhone]} numberOfLines={1}>
                     {tag.label}
                   </Text>
                 </View>
@@ -172,18 +173,18 @@ export function PooledOpportunityCard({
         ) : null}
       </View>
 
-      <View style={styles.body}>
+      <View style={[styles.body, !isDesktop && styles.bodyPhone]}>
         <View style={styles.metricRow}>
           <View style={styles.metric}>
             <View style={[styles.metricIcon, hovered && styles.stageHover]}>
               <Package size={14} color={Theme.primaryText} strokeWidth={2.2} />
             </View>
-            <Text style={styles.metricValue}>{loadCount}</Text>
-            <Text style={styles.metricUnit}>{loadCount === 1 ? "load" : "loads"}</Text>
+            <Text style={[styles.metricValue, !isDesktop && styles.metricValuePhone]}>{loadCount}</Text>
+            <Text style={[styles.metricUnit, !isDesktop && styles.metricUnitPhone]}>{loadCount === 1 ? "load" : "loads"}</Text>
             <View style={styles.metricRule} />
             <View style={styles.targetInline}>
-              <Text style={styles.targetKicker}>Target</Text>
-              <Text style={styles.targetPrice} numberOfLines={1}>
+              <Text style={[styles.targetKicker, !isDesktop && styles.targetKickerPhone]}>Target</Text>
+              <Text style={[styles.targetPrice, !isDesktop && styles.targetPricePhone]} numberOfLines={1}>
                 {targetLowLabel ?? "—"}
                 {!singleTarget && targetHighLabel ? ` – ${targetHighLabel}` : ""}
               </Text>
@@ -203,12 +204,12 @@ export function PooledOpportunityCard({
           <Pressable
             onPress={onBid}
             onPressIn={onWarm}
-            style={({ pressed }) => [styles.cta, pressed && styles.cardPressed]}
+            style={({ pressed }) => [styles.cta, !isDesktop && styles.ctaPhone, pressed && styles.cardPressed]}
             accessibilityRole="button"
             accessibilityLabel={`Bid on pool, ${lane.pickup_area} to ${lane.drop_location}`}
             hitSlop={6}
           >
-            <Text style={styles.ctaText}>Bid</Text>
+            <Text style={[styles.ctaText, !isDesktop && styles.ctaTextPhone]}>Bid</Text>
             <ArrowRight size={13} color={Theme.primaryText} strokeWidth={2.6} />
           </Pressable>
           </View>
@@ -249,6 +250,28 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     marginBottom: 0,
   },
+  cardPhone: { borderRadius: 12, marginBottom: 8 },
+  stagePhone: {
+    marginHorizontal: 0,
+    marginTop: 0,
+    marginBottom: 0,
+    borderRadius: 0,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  bodyPhone: { paddingHorizontal: 12, paddingTop: 6, paddingBottom: 10 },
+  poolTagTextPhone: { fontSize: 9, letterSpacing: 0.3 },
+  routeLabelPhone: { fontSize: 8, lineHeight: 10, letterSpacing: 0.9 },
+  routeCityPhone: { fontSize: 12, lineHeight: 15, fontWeight: "600", letterSpacing: -0.1 },
+  routeAreaPhone: { fontSize: 9, lineHeight: 12, fontWeight: "400" },
+  vehiclePhone: { fontSize: 10, lineHeight: 13, fontWeight: "500" },
+  metricValuePhone: { fontSize: 12, lineHeight: 15, fontWeight: "600", letterSpacing: 0 },
+  metricUnitPhone: { fontSize: 11, fontWeight: "500" },
+  targetKickerPhone: { fontSize: 9, letterSpacing: 0.3 },
+  targetPricePhone: { fontSize: 12, fontWeight: "600", letterSpacing: 0 },
+  ctaPhone: { minHeight: 28, paddingHorizontal: 12, borderRadius: 14 },
+  ctaTextPhone: { fontSize: 12, fontWeight: "600" },
   cardHover: {
     borderColor: Theme.brandBluePressed,
   },
@@ -314,7 +337,7 @@ const styles = StyleSheet.create({
   top: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     gap: 8,
   },
   poolTag: {
@@ -326,14 +349,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: Theme.primary,
   },
   poolTagText: {
     flexShrink: 1,
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0.3,
-    color: Theme.primaryText,
+    color: Theme.cardWhite,
   },
   route: {
     flexDirection: "row",
@@ -378,11 +401,12 @@ const styles = StyleSheet.create({
   routeEnd: { alignItems: "flex-end" },
   alignEnd: { textAlign: "right", alignSelf: "stretch" },
   routeLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.6,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "600",
+    letterSpacing: 0.9,
     textTransform: "uppercase",
-    color: Theme.primaryText,
+    color: Theme.textMuted,
   },
   routeCity: {
     fontSize: 14,

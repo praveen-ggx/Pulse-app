@@ -1,5 +1,5 @@
 import type { InvoicePayload } from '@/features/invoicing/services/invoicing.service';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchClientInvoicePodPolicies } from '@/features/clients/services/clients.service';
 import {
   fetchDigitalPodTripIdsForInvoice,
@@ -52,6 +52,7 @@ export function useInvoicingExecuteTripsQuery(orgId: string | null) {
     },
     enabled: !!orgId,
     staleTime: 300_000,
+    placeholderData: keepPreviousData,
   });
 }
 

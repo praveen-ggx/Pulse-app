@@ -25,6 +25,8 @@ import {
   type MyOrgMarketBidStatus,
 } from "@/features/network/services/findLoadsForOrg.service";
 import { formatStoryDate } from "@/features/network/utils/storyDisplay";
+import { countActiveMarketplaceBids, countLaneBids, countSubmittedBids, laneBidCaption, loadsCaption } from "@/features/network/utils/bidLoadCount.util";
+import { ScoreboardNumber } from "@/features/network/components/ScoreboardNumber";
 import { bidderLaneKey, groupBidsByLane } from "@/features/network/utils/marketplaceLaneSearchMemory.util";
 import { positiveLaneTarget, type MarketplaceSearchLane } from "@/features/network/utils/marketplaceSearch.util";
 import { PoolStatusPill } from "@/features/network/components/pooled/PoolStatusPill";
@@ -237,7 +239,7 @@ export function OrgMyBidsList({
             <Inbox size={22} color={Theme.textSecondary} />
             <Text style={styles.emptyTitle}>No Marketplace bids yet</Text>
             <Text style={styles.emptyBody}>
-              Bid on an open Marketplace load and it will show up here. Network quotes are listed separately and stay pending until the shipper awards them.
+              Bid on an open Marketplace load and it will show up here.
             </Text>
           </View>
         )}
@@ -246,6 +248,8 @@ export function OrgMyBidsList({
     );
   }
 
+  const active = countActiveMarketplaceBids(groups.pending);
+  const awardedLoads = countSubmittedBids(groups.awarded);
   const slice =
     focus === "won"
       ? wonSlice === "you"
@@ -281,17 +285,17 @@ export function OrgMyBidsList({
     <View style={styles.listContent}>
       <View style={[styles.focusRow, isDesktop && styles.focusRowDesktop]}>
         <FocusTab
-          count={bids.length}
-          label="Bids"
-          caption={`${groups.pending.length} active`}
+          count={active.bids}
+          label="Active bids"
+          caption={loadsCaption(active.loads)}
           icon={<Gavel size={15} strokeWidth={2.2} color={focus === "bids" ? Theme.textOnPrimary : Theme.textSecondary} />}
           selected={focus === "bids"}
           onPress={() => onFocusChange?.("bids")}
         />
         <FocusTab
-          count={groups.awarded.length}
+          count={countLaneBids(groups.awarded).bids}
           label="Won"
-          caption={`${groups.trips.length} on trips`}
+          caption={loadsCaption(awardedLoads.loads)}
           icon={<Trophy size={15} strokeWidth={2.2} color={focus === "won" ? Theme.textOnPrimary : Theme.textSecondary} />}
           selected={focus === "won"}
           onPress={() => onFocusChange?.("won")}
@@ -307,8 +311,8 @@ export function OrgMyBidsList({
           </>
         ) : (
           <>
-            <SliceTab label="Active" count={groups.pending.length} selected={bidSlice === "active"} onPress={() => setBidSlice("active")} />
-            <SliceTab label="Failed" count={groups.failed.length} selected={bidSlice === "failed"} onPress={() => setBidSlice("failed")} />
+            <SliceTab label="Active" count={countLaneBids(groups.pending).bids} selected={bidSlice === "active"} onPress={() => setBidSlice("active")} />
+            <SliceTab label="Failed" count={countLaneBids(groups.failed).bids} selected={bidSlice === "failed"} onPress={() => setBidSlice("failed")} />
           </>
         )}
       </View>
@@ -319,7 +323,7 @@ export function OrgMyBidsList({
           <Text style={styles.emptyBody}>{emptyCopy.body}</Text>
         </View>
       ) : (
-        <Section title={sliceTitle} count={slice.length}>
+        <Section title={sliceTitle} count={countLaneBids(slice).bids}>
           {groupBidsByLane(slice).map((group) =>
             group.bids.length === 1 ? (
               <BidCard
@@ -385,6 +389,12 @@ function liveLaneForBids(
   };
 }
 
+function pooledLoadsLabel(ready: boolean, loadCount: number): string {
+  if (!ready) return "Loads";
+  const count = Number.isFinite(loadCount) ? loadCount : 0;
+  return `${count} load${count === 1 ? "" : "s"}`;
+}
+
 function BidPoolCard({
   bids,
   orgId,
@@ -412,8 +422,9 @@ function BidPoolCard({
   const high = amounts.length ? Math.max(...amounts) : null;
   const oneRate = low != null && low === high;
   const live = lanesReady && lane.loadCount > 0 && lanePreview?.tone !== "expired";
-  const loadsLabel = lanesReady ? `${lane.loadCount} load${lane.loadCount === 1 ? "" : "s"}` : "Loads";
-  const bidLabel = `${bids.length} bid${bids.length === 1 ? "" : "s"}`;
+  const covered = countLaneBids(bids);
+  const bidLabel = laneBidCaption(covered.loads);
+  const loadsLabel = pooledLoadsLabel(lanesReady, lane.loadCount);
   const targetLow = formatFindLoadsRateOffer(lane.targetMin);
   const targetHigh = formatFindLoadsRateOffer(lane.targetMax ?? lane.targetMin);
   const bidLow = formatAmount(low);
@@ -542,7 +553,7 @@ function FocusTab({
         <Text style={[styles.focusLabel, selected && styles.focusOnMuted]}>{label}</Text>
         <View style={[styles.focusIcon, selected && styles.focusIconOn]}>{icon}</View>
       </View>
-      <Text style={[styles.focusCount, selected && styles.focusOnText]}>{count}</Text>
+      <ScoreboardNumber value={count} style={[styles.focusCount, selected && styles.focusOnText]} />
       <Text style={[styles.focusCaption, selected && styles.focusOnMuted]} numberOfLines={1}>
         {caption}
       </Text>
@@ -1075,7 +1086,7 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   focusLabel: { fontSize: 13, lineHeight: 17, fontWeight: "600", color: Theme.textSecondary },
-  focusCaption: { fontSize: 12, lineHeight: 16, fontWeight: "500", color: Theme.textMuted },
+  focusCaption: { fontSize: 11, lineHeight: 14, fontWeight: "500", color: Theme.textMuted },
   focusOnText: { color: Theme.textOnPrimary },
   focusOnMuted: { color: Theme.textOnDarkMuted },
   sliceRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },

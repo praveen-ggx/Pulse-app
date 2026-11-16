@@ -82,10 +82,10 @@ describe("OrgMyBidsList pooled Pending / Not selected", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Active, 2")).toBeTruthy();
-    expect(screen.getAllByText("2 bids").length).toBeGreaterThan(0);
-    fireEvent.press(screen.getByLabelText("Failed, 2"));
-    expect(screen.getAllByText("2 bids").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Active, 1")).toBeTruthy();
+    expect(screen.getAllByText("1 bid · 2 loads").length).toBeGreaterThan(0);
+    fireEvent.press(screen.getByLabelText("Failed, 1"));
+    expect(screen.getAllByText("1 bid · 2 loads").length).toBeGreaterThan(0);
 
     for (const id of ["P1", "P2", "R1", "W1"]) {
       expect(screen.queryByText(`Shipper ${id}`)).toBeNull();
@@ -107,7 +107,7 @@ describe("OrgMyBidsList pooled Pending / Not selected", () => {
       />,
     );
 
-    fireEvent.press(screen.getByLabelText("Won, 2"));
+    fireEvent.press(screen.getByLabelText("Won, 1"));
     fireEvent.press(screen.getByLabelText(/Pooled bids/));
     expect(screen.queryByText("Shipper A1")).toBeNull();
     expect(screen.queryByText("IND-A1")).toBeNull();
@@ -129,7 +129,7 @@ describe("OrgMyBidsList pooled Pending / Not selected", () => {
         ]}
       />,
     );
-    expect(screen.getAllByText("3 bids").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1 bid · 3 loads").length).toBeGreaterThan(0);
     expect(screen.queryByText("Shipper P1")).toBeNull();
   });
 });

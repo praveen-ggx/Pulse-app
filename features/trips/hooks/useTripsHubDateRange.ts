@@ -11,13 +11,14 @@ import { queryKeys } from "@/lib/queryKeys";
 export function useTripsHubDateRange(
   orgId: string | null,
   bounds: { from: string; to: string } | null,
+  bucket: "active" | "history" | "all" = "all",
 ) {
   const from = bounds?.from ?? "";
   const to = bounds?.to ?? "";
   const query = useQuery<TripRow[]>({
-    queryKey: [...queryKeys.trips.hubDateRange(orgId ?? "", from, to), "keyset"],
+    queryKey: [...queryKeys.trips.hubDateRange(orgId ?? "", from, to), "keyset", bucket],
     queryFn: async () => {
-      const res = await loadHubTripKeysetRange(orgId!, { from, to });
+      const res = await loadHubTripKeysetRange(orgId!, { from, to, bucket });
       if (res.error) throw res.error;
       return res.trips;
     },

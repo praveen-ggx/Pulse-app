@@ -20,7 +20,7 @@ import {
 import InvoicePdf from "@/components/InvoicePdf";
 import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useRef, useState } from "react";
 import {
@@ -63,6 +63,7 @@ export function SourceInvoiceEditorScreen() {
     },
     enabled: Boolean(orgId && orderId),
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
   });
 
   const bundle = bundleQ.data ?? null;

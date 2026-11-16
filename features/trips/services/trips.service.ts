@@ -529,8 +529,9 @@ export async function getHubTripKeysetPage(
   trips: TripRow[];
   nextCursor: HubKeysetCursor | null;
   total: number | null;
+  bucketCount: number | null;
 }> {
-  const empty = { trips: [] as TripRow[], nextCursor: null, total: null };
+  const empty = { trips: [] as TripRow[], nextCursor: null, total: null, bucketCount: null };
   const limit = Math.min(HUB_KEYSET_PAGE_SIZE, Math.max(1, opts?.limit ?? HUB_KEYSET_PAGE_SIZE));
   const dated = tripsForOrgRpcArgs(orgId, {
     from: opts?.from ?? undefined,
@@ -571,25 +572,43 @@ export async function getHubTripKeysetPage(
     trips.length === limit && last?.created_at && last.id
       ? { createdAt: String(last.created_at), id: String(last.id) }
       : null;
-  return { error: null, trips, nextCursor, total: hubCount(payload.total) };
+  return {
+    error: null,
+    trips,
+    nextCursor,
+    total: hubCount(payload.total),
+    bucketCount: hubCount(payload.bucket_count),
+  };
 }
 
 /** Every hub page for a date range. A short walk is an error, not a partial book. */
 export async function loadHubTripKeysetRange(
   orgId: string,
-  opts?: { from?: string | null; to?: string | null },
+  opts?: {
+    from?: string | null;
+    to?: string | null;
+    bucket?: "all" | "active" | "history" | "cancelled" | "closed";
+  },
 ): Promise<{ error: Error | null; trips: TripRow[] }> {
   const trips: TripRow[] = [];
   const seen = new Set<string>();
   let cursor: HubKeysetCursor | null = null;
-  let total: number | null = null;
+  let expected: number | null = null;
+  const bucket = opts?.bucket ?? "all";
   for (let page = 0; page < HUB_KEYSET_MAX_PAGES; page += 1) {
-    const result = await getHubTripKeysetPage(orgId, { ...opts, cursor, limit: HUB_KEYSET_PAGE_SIZE });
+    const result = await getHubTripKeysetPage(orgId, {
+      from: opts?.from,
+      to: opts?.to,
+      bucket,
+      cursor,
+      limit: HUB_KEYSET_PAGE_SIZE,
+    });
     if (result.error) return { error: result.error, trips: [] };
-    if (result.total == null) {
+    const pageTarget = bucket === "all" ? result.total : (result.bucketCount ?? result.total);
+    if (pageTarget == null) {
       return { error: new Error("Hub trip count is unavailable."), trips: [] };
     }
-    total = result.total;
+    expected = pageTarget;
     for (const trip of result.trips) {
       if (!trip.id || seen.has(trip.id)) {
         return { error: new Error("Hub page cursor repeated a trip."), trips: [] };
@@ -597,12 +616,12 @@ export async function loadHubTripKeysetRange(
       seen.add(trip.id);
     }
     trips.push(...result.trips);
-    if (result.trips.length === 0 || trips.length >= total || !result.nextCursor) break;
+    if (result.trips.length === 0 || trips.length >= expected || !result.nextCursor) break;
     cursor = result.nextCursor;
   }
-  if (total == null || trips.length !== total) {
+  if (expected == null || trips.length !== expected) {
     return {
-      error: new Error(`Hub trip list loaded ${trips.length} of ${total ?? "unknown"} trips.`),
+      error: new Error(`Hub trip list loaded ${trips.length} of ${expected ?? "unknown"} trips.`),
       trips: [],
     };
   }

@@ -501,14 +501,25 @@ export async function getTripsByOrganization(
 
 type HubKeysetCursor = { createdAt: string; id: string };
 
-const HUB_KEYSET_PAGE_SIZE = 100;
+/** Server cap is 250 from 20271116100100 (100 before); the walk does not rely on full pages. */
+const HUB_KEYSET_PAGE_SIZE = 250;
 const HUB_KEYSET_MAX_PAGES = 80;
 const TRIP_DELTA_PAGE_SIZE = 200;
 const TRIP_DELTA_MAX_PAGES = 40;
 
 function hubCount(value: unknown): number | null {
+  // Rows-only pages send null counts; Number(null) would read as 0.
+  if (value === null || value === undefined) return null;
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+let hubRowsRpcMissing = false;
+
+function isMissingHubRowsRpc(error: { code?: string; message?: string }): boolean {
+  const code = String(error.code ?? "");
+  const msg = String(error.message ?? "").toLowerCase();
+  return code === "PGRST202" || code === "42883" || msg.includes("could not find the function");
 }
 
 /**
@@ -523,6 +534,8 @@ export async function getHubTripKeysetPage(
     from?: string | null;
     to?: string | null;
     bucket?: "all" | "active" | "history" | "cancelled" | "closed";
+    /** false: rows only (list_org_hub_trips_keyset_rows), no six-tab recount. */
+    withCounts?: boolean;
   },
 ): Promise<{
   error: Error | null;
@@ -531,12 +544,13 @@ export async function getHubTripKeysetPage(
   total: number | null;
 }> {
   const empty = { trips: [] as TripRow[], nextCursor: null, total: null };
+  const rowsOnly = opts?.withCounts === false && !hubRowsRpcMissing;
   const limit = Math.min(HUB_KEYSET_PAGE_SIZE, Math.max(1, opts?.limit ?? HUB_KEYSET_PAGE_SIZE));
   const dated = tripsForOrgRpcArgs(orgId, {
     from: opts?.from ?? undefined,
     to: opts?.to ?? undefined,
   });
-  const { data, error } = await supabase().rpc("list_org_hub_trips_keyset", {
+  const { data, error } = await supabase().rpc(rowsOnly ? "list_org_hub_trips_keyset_rows" : "list_org_hub_trips_keyset", {
     p_org_id: orgId,
     p_limit: limit,
     p_before_created_at: opts?.cursor?.createdAt ?? null,
@@ -557,6 +571,11 @@ export async function getHubTripKeysetPage(
     p_load_type: null,
     p_compliance: false,
   });
+  if (error && rowsOnly && isMissingHubRowsRpc(error)) {
+    // Backend without 20271116100100: the counting function serves every page.
+    hubRowsRpcMissing = true;
+    return getHubTripKeysetPage(orgId, { ...opts, withCounts: true });
+  }
   if (error) return { ...empty, error: new Error(error.message) };
   if (data == null || typeof data !== "object" || Array.isArray(data)) {
     return { ...empty, error: new Error("Hub trips are not available for this organization.") };
@@ -574,7 +593,15 @@ export async function getHubTripKeysetPage(
   return { error: null, trips, nextCursor, total: hubCount(payload.total) };
 }
 
-/** Every hub page for a date range. A short walk is an error, not a partial book. */
+/**
+ * Every hub page for a date range. A short walk is an error, not a partial book.
+ *
+ * Page 1 carries the exact counts; later pages are rows only (the server used
+ * to recount all six tabs on every page). The walk follows the cursor until the
+ * count is reached or a page comes back empty, so a server page cap below the
+ * requested size cannot end it early. If the walk and the count disagree (a
+ * trip deleted or edited mid-walk), one fresh count decides.
+ */
 export async function loadHubTripKeysetRange(
   orgId: string,
   opts?: { from?: string | null; to?: string | null },
@@ -584,12 +611,17 @@ export async function loadHubTripKeysetRange(
   let cursor: HubKeysetCursor | null = null;
   let total: number | null = null;
   for (let page = 0; page < HUB_KEYSET_MAX_PAGES; page += 1) {
-    const result = await getHubTripKeysetPage(orgId, { ...opts, cursor, limit: HUB_KEYSET_PAGE_SIZE });
+    const result = await getHubTripKeysetPage(orgId, {
+      ...opts,
+      cursor,
+      limit: HUB_KEYSET_PAGE_SIZE,
+      withCounts: page === 0,
+    });
     if (result.error) return { error: result.error, trips: [] };
-    if (result.total == null) {
+    if (page === 0 || result.total != null) total = result.total;
+    if (total == null) {
       return { error: new Error("Hub trip count is unavailable."), trips: [] };
     }
-    total = result.total;
     for (const trip of result.trips) {
       if (!trip.id || seen.has(trip.id)) {
         return { error: new Error("Hub page cursor repeated a trip."), trips: [] };
@@ -597,8 +629,13 @@ export async function loadHubTripKeysetRange(
       seen.add(trip.id);
     }
     trips.push(...result.trips);
-    if (result.trips.length === 0 || trips.length >= total || !result.nextCursor) break;
-    cursor = result.nextCursor;
+    const last = result.trips[result.trips.length - 1];
+    if (!last?.created_at || !last.id || trips.length >= total) break;
+    cursor = { createdAt: String(last.created_at), id: String(last.id) };
+  }
+  if (total != null && trips.length !== total) {
+    const recount = await getHubTripKeysetPage(orgId, { ...opts, cursor: null, limit: 1, withCounts: true });
+    if (!recount.error && recount.total != null) total = recount.total;
   }
   if (total == null || trips.length !== total) {
     return {

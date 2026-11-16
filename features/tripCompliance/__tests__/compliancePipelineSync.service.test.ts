@@ -60,6 +60,17 @@ jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
     from: (table: string) => mockQuery(table),
     rpc: (name: string, args: Record<string, unknown>) => {
+      // The batch document function is a trip_documents read for these counts.
+      if (name === "list_trip_documents_for_trips") {
+        const ids = args.p_trip_ids as string[];
+        const after = (args.p_after_id as string | null) ?? "";
+        mockOps.push({ kind: "from", name: "trip_documents", filters: [`trip_id in ${ids.length}`] });
+        const rows = (mockTables.trip_documents ?? [])
+          .filter((r) => ids.includes(String(r.trip_id)) && String(r.id) > after)
+          .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+          .slice(0, Number(args.p_limit ?? 500));
+        return Promise.resolve({ data: rows, error: null });
+      }
       mockOps.push({ kind: "rpc", name, filters: [], args });
       if (name === "get_compliance_vehicle_vault_for_trips") {
         const rows = (args.p_trip_ids as string[]).flatMap((tripId) => {

@@ -130,7 +130,50 @@ async function mapWithConcurrency<T>(
   await Promise.all(workers);
 }
 
+/** Set once the RPC is known to be missing on this backend (not yet migrated). */
+let tripDocumentsBatchRpcMissing = false;
+
+function isMissingTripDocumentsBatchRpc(error: { code?: string; message?: string } | null): boolean {
+  const code = String(error?.code ?? "");
+  const msg = String(error?.message ?? "").toLowerCase();
+  return code === "PGRST202" || code === "42883" || msg.includes("could not find the function");
+}
+
+/**
+ * Same rows as the RLS read below: list_trip_documents_for_trips applies the
+ * trip_documents SELECT policies once per trip instead of once per document
+ * (preproduction: ~465 ms → ~43 ms per 100-trip chunk; equivalence in
+ * supabase/tests/trip_documents_batch_read). Returns null when the function
+ * is not deployed so the caller keeps the RLS read.
+ */
+async function readTripDocumentsViaBatchRpc(
+  tripIds: string[],
+): Promise<{ data: RawTripDocRow[]; error: { message: string; code?: string } | null } | null> {
+  if (tripDocumentsBatchRpcMissing) return null;
+  const { data, error } = await readAllPages<RawTripDocRow, { message: string; code?: string }>(
+    (afterId, limit) =>
+      supabase().rpc("list_trip_documents_for_trips", {
+        p_trip_ids: tripIds,
+        p_after_id: afterId,
+        p_limit: limit,
+      }) as unknown as PromiseLike<{
+        data: RawTripDocRow[] | null;
+        error: { message: string; code?: string } | null;
+      }>,
+  );
+  if (error && isMissingTripDocumentsBatchRpc(error as { code?: string; message?: string })) {
+    tripDocumentsBatchRpcMissing = true;
+    return null;
+  }
+  return { data, error: error as { message: string; code?: string } | null };
+}
+
 async function readTripDocumentsChunk(tripIds: string[]): Promise<RawTripDocRow[]> {
+  const viaRpc = await readTripDocumentsViaBatchRpc(tripIds);
+  if (viaRpc) {
+    if (viaRpc.error) throw new Error(viaRpc.error.message);
+    return viaRpc.data;
+  }
   let result = await readTripDocumentsSelect(tripIds, TRIP_DOC_SELECT_STATUS_AND_SOURCE);
   if (result.error && isMissingColumnOrRelation(result.error)) {
     const withoutSource = await readTripDocumentsSelect(tripIds, TRIP_DOC_SELECT_STATUS);

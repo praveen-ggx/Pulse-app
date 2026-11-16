@@ -1,0 +1,14 @@
+# Marketplace lane rate, opt-in. A carrier's pooled Marketplace rate is kept on
+# every open and future load on the lane only when the carrier opts in
+# (vehicle limit + valid until). 20271114173800 / 20271114174600 install the
+# standing-lane trigger and lane key; 20271114201500 replaces their copy-every-
+# pending-bid body with opt-in commitments. Apply all three together, in order.
+# Needs standing_lane_key on the target; 20271114185200 (indent-lane-index) is
+# independent and may already be applied.
+# Not applied anywhere. Path: V1 -> preprod -> prod.
+# sha256 0e118ece8e09dac104fc3734c35526706a96e157a368ae53b24c5dabf6d8ad00  20271114173800_standing_lane_bids_follow_new_indents.sql
+20271114173800
+# sha256 67db8ac0415b509d66ebdd0f38019c500cba89e5aafdaee6356d254c8a888303  20271114174600_standing_lane_bids_inline_lane_key.sql
+20271114174600
+# sha256 0bf7c1a471aeea4736f08a013620ea94cd8f3d9a063790a6c252bfcbe9c33d9a  20271114201500_marketplace_lane_rate_opt_in.sql
+20271114201500

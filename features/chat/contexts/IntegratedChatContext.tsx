@@ -80,7 +80,8 @@ interface IntegratedChatContextType {
   getTotalUnreadCount: () => number;
   initiateNetworkConversation: (partner: NetworkPartner) => Promise<string | null>;
   /** Load the newest page of DM history (replaces bootstrap slice). */
-  hydrateNetworkThread: (chatId: string) => Promise<void>;
+  /** Latest page for a DM. Resolves `false` on a failed fetch, `null` when one is already running. */
+  hydrateNetworkThread: (chatId: string) => Promise<boolean | null>;
   /** Keyset page of older messages — prepends when more history exists. */
   loadOlderNetworkMessages: (chatId: string) => Promise<boolean>;
   networkThreadHasMore: (chatId: string) => boolean;
@@ -751,8 +752,8 @@ export function IntegratedChatProvider({
   );
 
   const hydrateNetworkThread = useCallback(
-    async (chatId: string) => {
-      if (!chatId || networkHydrateInFlightRef.current[chatId]) return;
+    async (chatId: string): Promise<boolean | null> => {
+      if (!chatId || networkHydrateInFlightRef.current[chatId]) return null;
       networkHydrateInFlightRef.current[chatId] = true;
       try {
         const rows = await chatService.getNetworkMessagesByConversation(chatId, {
@@ -761,8 +762,9 @@ export function IntegratedChatProvider({
         networkHasMoreRef.current[chatId] =
           rows.length >= chatService.NETWORK_CHAT_HISTORY_PAGE;
         mergeNetworkMessages(chatId, rows, "replace");
+        return true;
       } catch {
-        // non-critical — bootstrap slice still visible
+        return false;
       } finally {
         networkHydrateInFlightRef.current[chatId] = false;
       }

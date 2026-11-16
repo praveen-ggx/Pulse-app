@@ -96,6 +96,8 @@ export type AlertDetailCardPresentation = Pick<
   | "detail"
   | "detailTitle"
   | "detailSubtitle"
+  | "detailMeta"
+  | "detailProgress"
   | "timeLabel"
   | "contextLabel"
   | "tags"
@@ -152,7 +154,9 @@ export function buildOpsAlertCardPresentation(
     { label: opsTag(ops, partyCtx.activeTrips), variant: opsAlertTagVariant(ops.category) },
   ];
   const presentation = buildOpsRegistryCardPresentation(ops, partyCtx);
-  const detailLines = splitOpsDetailLines(ops, presentation.detail);
+  const detailLines = presentation.detailTitle
+    ? { title: presentation.detailTitle }
+    : splitOpsDetailLines(ops, presentation.detail);
 
   return {
     mode: isActive ? "active" : "completed",
@@ -165,8 +169,10 @@ export function buildOpsAlertCardPresentation(
     detailTitle: detailLines.title,
     detailSubtitle: detailLines.subtitle,
     detail: detailLines.body,
+    detailMeta: presentation.detailMeta,
+    detailProgress: presentation.detailProgress,
     timeLabel: formatRegistryRelativeTime(ops.created_at),
-    contextLabel: opsContextLabel(ops),
+    contextLabel: presentation.hideContextLabel ? undefined : opsContextLabel(ops),
     tags: opsTags,
   };
 }

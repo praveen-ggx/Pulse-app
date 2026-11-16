@@ -1,0 +1,57 @@
+---
+description: Pulse must provide unlimited logical access to all authorized business records — pagination is a performance strategy, never a final data ceiling.
+alwaysApply: true
+---
+
+# Pulse: Unlimited Logical Data Access
+
+Pulse is a business operating system. It must scale with customer businesses and must **not** inherit arbitrary data restrictions from small-scale app design, frontend assumptions, database defaults, PostgREST convenience limits, or hardcoded caps.
+
+## Product requirement
+
+**Pulse must provide complete logical access to all authorized business records, regardless of organization size or record volume.**
+
+Applies globally to: trips, indents, marketplace, direct quotes, bids, finance, ledgers, invoices, PODs, drivers, vehicles, suppliers, clients, documents, compliance, chat, reports, analytics, exports, and every future business collection.
+
+## Pagination is mandatory as performance — not as restriction
+
+Pagination / bounded reads are encouraged wherever they improve load time, network, DB, memory, mobile UX, or query planning.
+
+They must **not** become a final record limit:
+
+- Page size ≠ max records the user can reach.
+- Load More / infinite scroll must continue while eligible records remain — no predefined ceiling (e.g. stop at 500).
+- Search and filters operate on the **full eligible dataset** (server-side), not only loaded pages.
+- Counts are authoritative org/totals — not “rows currently in memory.”
+- Exports must cover all eligible records (async + resumable), never silently truncate at page size or an arbitrary max.
+- Backend pagination must not silently die at PostgREST/`max_rows`/app caps without a continuation path.
+- Every bounded request that has more eligible rows must expose a correct continuation (cursor / next page / export job).
+
+## Architecture (large-enterprise default)
+
+1. Server-side filter, search, sort, and pagination.
+2. Stable **keyset** pagination with unique tie-breakers.
+3. Independent authoritative counts.
+4. Complete asynchronous exports.
+5. Bounded batch processing when a full collection read is required.
+6. Indexes and query plans suited to large tenants.
+7. Cursor continuation across arbitrarily large datasets.
+8. Explicit errors — no partial-success presented as complete data.
+9. Tenant isolation and authorization preserved on every page/batch.
+10. Resource use controlled **independently** of total dataset size (do not load millions of rows into the browser).
+
+## Important distinction
+
+Unlimited **logical** access ≠ download the whole table into the client.
+
+Provide unlimited access through **bounded, efficient, resumable** operations.
+
+## Defect bar
+
+Treat any remaining artificial final-result cap as a **scalability defect** unless it is an explicitly approved business rule (documented with owner + rationale).
+
+When adding or changing list/search/export/count paths: prefer keyset + `hasMore`/cursor; never “fetch all” or “hard stop after N” as the product contract.
+
+## Acceptance (manual / QA)
+
+A customer must be able to reach record 501 / 1,001 / 10,001 / 100,001+ via continued pagination; search/filter across the full eligible set; see correct totals; export without silent truncation; navigate large history without loading it all into memory; resume after errors; and keep using Pulse as the org grows without app-imposed ceilings.

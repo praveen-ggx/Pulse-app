@@ -2578,6 +2578,7 @@ export type Database = {
           id: string
           indent_id: string
           notes: string | null
+          pool_commit_id: string | null
           status: string
           updated_at: string | null
           vehicle_id: string | null
@@ -2591,6 +2592,7 @@ export type Database = {
           id?: string
           indent_id: string
           notes?: string | null
+          pool_commit_id?: string | null
           status?: string
           updated_at?: string | null
           vehicle_id?: string | null
@@ -2604,6 +2606,7 @@ export type Database = {
           id?: string
           indent_id?: string
           notes?: string | null
+          pool_commit_id?: string | null
           status?: string
           updated_at?: string | null
           vehicle_id?: string | null
@@ -15994,6 +15997,10 @@ export type Database = {
         }
         Returns: Json
       }
+      attach_lane_commitments_for_indent: {
+        Args: { p_indent_id: string }
+        Returns: Json
+      }
       auth_org_id: { Args: never; Returns: string }
       award_direct_quote: {
         Args: { p_indent_id: string; p_winning_quote_id: string }
@@ -19412,6 +19419,10 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      invite_lane_bidder: {
+        Args: { p_indent_id: string; p_kind: string; p_source_id: string }
+        Returns: Json
+      }
       invite_platform_admin: {
         Args: { p_role_id: string; p_target_user_id: string }
         Returns: string
@@ -19637,6 +19648,46 @@ export type Database = {
         }[]
       }
       list_exchange_trips: { Args: { p_org_id: string }; Returns: Json }
+      list_lane_offers_for_indent: {
+        Args: {
+          p_after_amount?: number
+          p_after_key?: string
+          p_indent_id: string
+          p_limit?: number
+        }
+        Returns: Json
+      }
+      commit_marketplace_lane_rate: {
+        Args: {
+          p_amount: number
+          p_drop: string
+          p_org_id: string
+          p_pickup: string
+          p_valid_until: string
+          p_vehicle_limit: number
+          p_vehicle_type: string
+        }
+        Returns: Json
+      }
+      withdraw_marketplace_lane_rate: {
+        Args: { p_commit_id: string }
+        Returns: Json
+      }
+      preview_standing_lane_bids: {
+        Args: {
+          p_drop: string
+          p_indent_id?: string
+          p_pickup: string
+          p_vehicle_type: string
+        }
+        Returns: {
+          already_on_indent: boolean
+          amount: number
+          bidder_organization_id: string
+          bidder_organization_name: string
+          updated_at: string
+        }[]
+      }
       list_market_bids_for_indent: {
         Args: { p_indent_id: string }
         Returns: {
@@ -19685,6 +19736,14 @@ export type Database = {
           pickup_area: string
           vehicle_type: string
         }[]
+      }
+      list_my_lane_bid_invites: {
+        Args: {
+          p_after_created_at?: string
+          p_after_id?: string
+          p_limit?: number
+        }
+        Returns: Json
       }
       list_my_org_market_bids: {
         Args: { p_limit?: number; p_org_id: string }
@@ -20541,6 +20600,10 @@ export type Database = {
           role: string
           status: string
         }[]
+      }
+      respond_lane_bid_invite: {
+        Args: { p_accept: boolean; p_invite_id: string }
+        Returns: Json
       }
       resubmit_trip_compliance: {
         Args: { p_idempotency_key?: string; p_note: string; p_trip_id: string }

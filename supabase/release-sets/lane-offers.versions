@@ -1,0 +1,15 @@
+# Lane offers: shipper sees every offer relevant to an indent's lane (sibling
+# indents on the same pickup/drop/vehicle + live Network lane commitments),
+# auto-attaches live commitments to new indents, and invites lane bidders with
+# carrier consent (no award without the carrier). Additive only.
+# Branch vasanth/V1.0.22. Not applied anywhere yet. Path: V1 -> preprod -> acceptance -> prod.
+#
+# 20261113104714 reissues 20271025183000 (network_pool_bid_commits) byte-for-byte
+# under a new version (Vasanth 2026-11-13, Option A): prod never applied
+# 20271025183000 and preprod history records it with the table missing, so the
+# old version cannot run on either. 20271025183000 stays as history only and is
+# not in this set. withdraw-network-quotes is unchanged.
+# sha256 3e6762c9a5d2d06a847035cd238f8dc5f56d2ebd0efb8dbb199043073eea0efd  20261113104714_network_pool_bid_commits_reissue.sql
+20261113104714
+# sha256 fb845f2faa47b0cb49f2ed013f53e7970d71dfdd13eb1fcbdcfb61dfdaade620  20271113091500_lane_offers_for_indent.sql
+20271113091500

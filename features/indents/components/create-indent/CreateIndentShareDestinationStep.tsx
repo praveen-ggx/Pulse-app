@@ -7,6 +7,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import Theme from "@/constants/Theme";
 import { createTripDesktopStyles as s } from "@/features/trips/components/add-trip/createTripDesktop.styles";
+import { LanePoolBidPreview } from "@/features/network/components/LanePoolBidPreview";
 import {
   circulationChannelsFromTarget,
   circulationTargetFromChannels,
@@ -18,6 +19,7 @@ export type CreateIndentShareDestinationStepProps = {
   value: IndentDistributionChoice;
   onChange: (value: IndentDistributionChoice) => void;
   compact?: boolean;
+  lane?: { pickup: string; drop: string; vehicleType: string } | null;
 };
 
 const CHANNELS: Array<{
@@ -42,6 +44,7 @@ export const CreateIndentShareDestinationStep = memo(
     value,
     onChange,
     compact = false,
+    lane = null,
   }: CreateIndentShareDestinationStepProps) {
     const selected = circulationChannelsFromTarget(value);
 
@@ -88,6 +91,14 @@ export const CreateIndentShareDestinationStep = memo(
           <Text style={styles.bothHint}>
             Both selected — this load is marked Network and Marketplace.
           </Text>
+        ) : null}
+        {lane ? (
+          <LanePoolBidPreview
+            pickup={lane.pickup}
+            drop={lane.drop}
+            vehicleType={lane.vehicleType}
+            marketplaceOn={selected.marketplace}
+          />
         ) : null}
       </View>
     );

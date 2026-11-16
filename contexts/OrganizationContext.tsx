@@ -20,6 +20,7 @@ import * as organizationService from '@/features/organization/services/organizat
 import { markStartupPhase, isStartupComplete } from '@/lib/startupMetrics';
 import type { CurrentOrganization } from '@/types/organization';
 import { getQueryClient } from '@/lib/queryClient';
+import { purgeSessionScopedLaneOfferQueries } from '@/lib/queryKeys';
 import {
   bindLinkedOrgDisplayViewerOrg,
   purgeLinkedOrgDisplayQueries,
@@ -250,6 +251,9 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
       // First org after cold start (prev === null) or logout (new === null):
       // drop any persisted/global linked-org-display map so it cannot be reused.
       purgeLinkedOrgDisplayQueries(qc);
+      // Login does not take the org-switch branch. Drop a previous account's
+      // inbox and any unscoped legacy key, and leave this workspace's fetch.
+      purgeSessionScopedLaneOfferQueries(qc, newOrgId);
     }
     prevOrgIdRef.current = newOrgId;
   }, [currentOrganization?.id]);

@@ -39,6 +39,7 @@ import {
   parsePositiveInr,
   resolveGiveLoadAwardedAmountInr,
 } from "@/features/network/utils/awardedVendorName.util";
+import { laneBidHint } from "@/features/trips/utils/indentLaneBids.util";
 import { formatINR } from "@/lib/format";
 import { ArrowRight, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Layers, Search, X } from "lucide-react-native";
 import { useMemo, useState, type ReactNode } from "react";
@@ -489,6 +490,7 @@ function BidStatus({
   revoked,
   onTrip = false,
   indent,
+  laneHint,
 }: {
   life: Lifecycle;
   bids: number;
@@ -496,6 +498,8 @@ function BidStatus({
   revoked: boolean;
   onTrip?: boolean;
   indent?: IndentRow;
+  /** Sibling indents on this lane already have bids; shown only while waiting. */
+  laneHint?: string | null;
 }) {
   const lowest = snapshot?.lowestAmount ?? null;
   const highest = snapshot?.highestAmount ?? null;
@@ -530,10 +534,11 @@ function BidStatus({
   const statusLabel = onTrip
     ? "On trip"
     : `${revoked ? "Award revoked · " : ""}${lifecycleLabel(life, bids)}`;
+  const shownLaneHint = !onTrip && life === "waiting" ? laneHint ?? null : null;
   return (
     <View
       style={styles.bidStatus}
-      accessibilityLabel={[statusLabel, amountText].filter(Boolean).join(", ")}
+      accessibilityLabel={[statusLabel, amountText, shownLaneHint].filter(Boolean).join(", ")}
     >
       <View
         style={[
@@ -566,6 +571,11 @@ function BidStatus({
       {amountText ? (
         <Text style={styles.bidAmount} numberOfLines={1}>
           {amountText}
+        </Text>
+      ) : null}
+      {shownLaneHint ? (
+        <Text style={styles.laneHint} numberOfLines={1}>
+          {shownLaneHint}
         </Text>
       ) : null}
       {client != null && client !== awarded && client !== target ? (
@@ -1114,6 +1124,13 @@ export function IndentStagePoolView({
     bidSnapshotById,
     bidCountById,
   );
+  const laneHint = model.poolId
+    ? laneBidHint({
+        biddingLoads: poolStageCounts(model.members, bidCountById).bids,
+        lowest: lowestBidOf(model.members, bidSnapshotById),
+        highest: highestBidOf(model.members, bidSnapshotById),
+      })
+    : null;
   const poolAwardedPrices = awardedPricesOf(clientMembers, bidCountById);
   const poolAwardedAvg = averageAmount(poolAwardedPrices);
 
@@ -1535,6 +1552,7 @@ export function IndentStagePoolView({
                   revoked={revoked}
                   onTrip={onTrip}
                   indent={indent}
+                  laneHint={laneHint}
                 />
               );
               return (
@@ -2252,6 +2270,7 @@ const styles = StyleSheet.create({
   bidStatus: { alignItems: "flex-start", gap: 2, minWidth: 0 },
   bidAmount: { fontSize: 12, fontWeight: "800", color: Theme.textPrimaryDark },
   bidMeta: { fontSize: 10, color: Theme.textMuted },
+  laneHint: { fontSize: 10, fontWeight: "600", color: Theme.textSecondary },
 
   detailHead: { justifyContent: "flex-start", alignItems: "center", gap: 8 },
   colCheck: { width: 18, marginRight: 2 },

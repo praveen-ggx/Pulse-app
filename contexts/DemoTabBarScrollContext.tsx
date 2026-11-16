@@ -2,7 +2,7 @@
 /**
  * Scroll-driven visibility for the demo tab bar (hide while scrolling, show after idle).
  * Native: hide on drag begin, show after drag/momentum end.
- * Mobile web: direction-based hide (down) / show (up) via ScrollView onScroll — no window scroll listener.
+ * Mobile web: hide on scroll in either direction, show after idle, via ScrollView onScroll — no window scroll listener.
  */
 import React, {
   createContext,
@@ -43,7 +43,7 @@ const SHOW_DELAY_MS = 0;
 const WEB_IDLE_MS = 380;
 /** Ignore hide until user has scrolled past top bounce. */
 const WEB_HIDE_MIN_OFFSET_Y = 50;
-/** Min delta (px) per scroll tick to count as up/down. */
+/** Min delta (px) per scroll tick to count as scrolling. */
 const WEB_SCROLL_DIRECTION_DELTA = 8;
 
 type ScrollControls = {
@@ -281,10 +281,8 @@ export function useTabBarAwareScrollProps(): {
         const dy = y - lastOffsetYRef.current;
         lastOffsetYRef.current = y;
 
-        if (dy > WEB_SCROLL_DIRECTION_DELTA && y > WEB_HIDE_MIN_OFFSET_Y) {
+        if (Math.abs(dy) > WEB_SCROLL_DIRECTION_DELTA && y > WEB_HIDE_MIN_OFFSET_Y) {
           ctx.onScrollBeginDrag();
-        } else if (dy < -WEB_SCROLL_DIRECTION_DELTA) {
-          ctx.resetBarVisible();
         }
 
         if (webIdleRef.current) clearTimeout(webIdleRef.current);

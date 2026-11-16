@@ -59,6 +59,8 @@ export type { ComplianceChange } from "@/features/tripCompliance/services/compli
 
 /** Cards/table page size — totals always use the full pipeline. */
 export const COMPLIANCE_QUEUE_PAGE_SIZE = 30;
+/** Inputs read before the list paints. The rest follow without hiding the cards. */
+const COMPLIANCE_FIRST_PAINT_TRIPS = 40;
 
 function withChecklist(summary: ComplianceTripSummary): ComplianceTripSummary {
   const next: ComplianceTripSummary = {
@@ -191,7 +193,28 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
       const log = writeLogFor(orgId);
       const startedAt = log.generation;
       const previous = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);
-      const rows = await loadCompliancePipelineInputs(previous, pipelineTripsRef.current, { full, viewerOrgId: orgId });
+      const tripsNow = pipelineTripsRef.current;
+      const paintFirst = full && tripsNow.length > COMPLIANCE_FIRST_PAINT_TRIPS;
+      const headTrips = paintFirst ? tripsNow.slice(0, COMPLIANCE_FIRST_PAINT_TRIPS) : tripsNow;
+      const rowsHead = await loadCompliancePipelineInputs(
+        paintFirst ? undefined : previous,
+        headTrips,
+        { full, viewerOrgId: orgId },
+      );
+      let rows = rowsHead;
+      if (paintFirst) {
+        // First visit: show the first page while the remaining trips are read.
+        // A refresh that already has the full queue keeps those cards.
+        qc.setQueryData<ComplianceTripInputs[]>(pipelineKey, (cur) =>
+          cur && cur.length >= rowsHead.length ? cur : rowsHead,
+        );
+        const rowsTail = await loadCompliancePipelineInputs(
+          undefined,
+          tripsNow.slice(COMPLIANCE_FIRST_PAINT_TRIPS),
+          { full: true, viewerOrgId: orgId },
+        );
+        rows = rowsHead.concat(rowsTail);
+      }
       if (full) fullyLoadedSessions.add(sessionKey);
       // A write that landed while this read was in flight wins over its snapshot.
       const current = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);

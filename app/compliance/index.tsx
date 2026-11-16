@@ -1995,8 +1995,8 @@ export default function ComplianceScreen() {
         isMobile && styles.screenMobile,
         {
           paddingTop: contentTopInset,
-          // Native: the root tab dock sits below the screen (not over it), so no dock clearance.
-          paddingBottom: Platform.OS === "web" ? layout.scrollBottomPadding(4) : 4,
+          // The dock floats over the list. A padded white band here reads as a tray behind it.
+          paddingBottom: isMobile ? 0 : layout.scrollBottomPadding(4),
           paddingHorizontal: isMobile ? 0 : pagePad,
           maxHeight: windowHeight,
         },

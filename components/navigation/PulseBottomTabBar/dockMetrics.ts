@@ -27,6 +27,14 @@ export const PULSE_BOTTOM_TAB_DOCK = {
   labelFontSizeCompact: 9,
   underlineMarginTop: 4,
   underlineHeight: 2,
+  /** Floating pill dock: icon box, icon→label gap, inner inset, side gap, outer margin, max row width. */
+  dockIconSize: 18,
+  dockIconHeight: 22,
+  dockLabelGap: 3,
+  dockPillInset: 4,
+  dockSideGap: 8,
+  dockHorizontalMargin: 12,
+  dockMaxWidth: 460,
   /**
    * Minimum footer pad inside the dock (home indicator / gesture band).
    * Actual pad = max(scaledSafeArea, this).

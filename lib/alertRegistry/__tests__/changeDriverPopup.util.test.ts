@@ -160,4 +160,63 @@ describe("Change driver popup routing", () => {
     );
     expect(presentation.detailMeta).toBe("Megha Engineering · Chennai → Delhi");
   });
+
+  it("keeps the payment card free of the headline's repeat", () => {
+    const presentation = buildOpsRegistryCardPresentation(
+      ops({
+        id: "ev:trip-281:e1",
+        category: "payment_paid",
+        trip_id: "trip-281",
+        trip_number: "TRP002281",
+        amount: 44500,
+        subtitle: null,
+      }),
+      {
+        org: { id: "org-1", name: "GOGOVAN INDIA PVT LTD" } as never,
+        activeTrips: [
+          {
+            trip_id: "trip-281",
+            trip_number: "TRP002281",
+            display_trip_id: "TRP002281",
+            status: "in_transit",
+            pickup_area: "Gowdavalli, Telangana",
+            drop_location: "Amaravati, Andhra Pradesh",
+            driver_display_name: null,
+            vehicle_display_number: null,
+            driver_id: null,
+            supplier_id: null,
+            client_id: null,
+            created_at: "2026-11-03T05:30:00.000Z",
+            total_unread: 0,
+            recent_events: [
+              {
+                id: "e1",
+                content:
+                  "GOGOVAN INDIA PVT LTD paid ₹44500 to VIJAYA LAKSHMI TRANSPORT · compliance_advance",
+                metadata: {
+                  flow: "out",
+                  category: "compliance_advance",
+                  receiver_org_name: "VIJAYA LAKSHMI TRANSPORT",
+                },
+              } as never,
+            ],
+          },
+        ],
+        clientsById: new Map(),
+        driversById: new Map(),
+        suppliersById: new Map(),
+        partnerDisplay: {},
+        partnerAvatarUri: {},
+        tripMoneyById: new Map([
+          ["trip-281", { clientTotal: 0, clientPaid: 0, supplierTotal: 50000, supplierPaid: 0 }],
+        ]),
+      },
+    );
+    expect(presentation.trailingText).toBe("to VIJAYA LAKSHMI TRANSPORT");
+    expect(presentation.detailTitle).toBe("TRP002281 · Compliance advance");
+    expect(presentation.detailMeta).toBe("Gowdavalli, Telangana → Amaravati, Andhra Pradesh");
+    expect(presentation.detail).toBeUndefined();
+    expect(presentation.detailProgress).toEqual({ ratio: 0.89, caption: "₹5,500 left of ₹50,000" });
+    expect(presentation.hideContextLabel).toBe(true);
+  });
 });

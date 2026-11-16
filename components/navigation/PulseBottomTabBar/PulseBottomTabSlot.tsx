@@ -1,5 +1,4 @@
-import { memo } from 'react';
-import { pe } from '@/lib/platformViewStyle.util';
+import { memo, useEffect } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -9,13 +8,13 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Animated, {
+  Easing,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
 
 import Theme from '@/constants/Theme';
-import { WEB_TOP_NAV_ICON } from '@/components/demo/webTopNavIcon.tokens';
 import { TAB_PRESS_SCALE_ACTIVE, TAB_PRESS_SCALE_REST, TAB_PRESS_TIMING_MS } from '@/lib/mobileTabNav/constants';
 import { PULSE_BOTTOM_TAB_DOCK } from './dockMetrics';
 
@@ -32,6 +31,7 @@ export type PulseBottomTabSlotProps = {
   style?: StyleProp<ViewStyle>;
 };
 
+/** One tab inside a dock pill. The active highlight is drawn by the bar. */
 export const PulseBottomTabSlot = memo(function PulseBottomTabSlot({
   label,
   active,
@@ -43,9 +43,20 @@ export const PulseBottomTabSlot = memo(function PulseBottomTabSlot({
   style,
 }: PulseBottomTabSlotProps) {
   const pressSV = useSharedValue(TAB_PRESS_SCALE_REST);
+  const activeSV = useSharedValue(active ? 1 : 0);
+
+  useEffect(() => {
+    activeSV.value = withTiming(active ? 1 : 0, {
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [active, activeSV]);
 
   const contentStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pressSV.value }],
+    transform: [
+      { translateY: activeSV.value * -1 },
+      { scale: pressSV.value * (1 + activeSV.value * 0.04) },
+    ],
   }));
 
   const showBadge = (badgeCount ?? 0) > 0;
@@ -65,31 +76,26 @@ export const PulseBottomTabSlot = memo(function PulseBottomTabSlot({
       accessibilityState={{ selected: active }}
       accessibilityLabel={label}
     >
-      <Animated.View style={[styles.iconWrap, contentStyle]}>
-        <View style={styles.iconForeground}>{icon}</View>
-        {showBadge ? (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              {(badgeCount ?? 0) > 9 ? '9+' : badgeCount}
-            </Text>
-          </View>
-        ) : null}
+      <Animated.View style={[styles.content, contentStyle]}>
+        <View style={styles.iconWrap}>
+          {icon}
+          {showBadge ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {(badgeCount ?? 0) > 9 ? '9+' : badgeCount}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        <Text
+          style={[styles.label, compact && styles.labelCompact, active && styles.labelActive]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.85}
+        >
+          {label}
+        </Text>
       </Animated.View>
-      <Text
-        style={[
-          styles.label,
-          compact && styles.labelCompact,
-          active && styles.labelActive,
-        ]}
-        numberOfLines={1}
-      >
-        {label}
-      </Text>
-      {active ? (
-        <View style={[styles.underline, pe('none')]} />
-      ) : (
-        <View style={styles.underlineSpacer} />
-      )}
     </AnimatedPressable>
   );
 });
@@ -97,69 +103,62 @@ export const PulseBottomTabSlot = memo(function PulseBottomTabSlot({
 const styles = StyleSheet.create({
   slot: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
     minWidth: 0,
-    paddingTop: PULSE_BOTTOM_TAB_DOCK.slotPaddingTop,
-    paddingBottom: PULSE_BOTTOM_TAB_DOCK.slotPaddingBottom,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  content: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
   },
   iconWrap: {
     position: 'relative',
-    width: 28,
-    height: PULSE_BOTTOM_TAB_DOCK.iconHeight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconForeground: {
+    width: 30,
+    height: PULSE_BOTTOM_TAB_DOCK.dockIconHeight,
     alignItems: 'center',
     justifyContent: 'center',
   },
   badge: {
     position: 'absolute',
-    top: -3,
-    right: -7,
-    minWidth: 14,
-    height: 14,
-    borderRadius: 7,
-    paddingHorizontal: 2,
+    top: -2,
+    right: -4,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
+    paddingHorizontal: 3,
     backgroundColor: Theme.accentGold,
     borderWidth: 1.5,
-    borderColor: Theme.tabBarBg,
+    borderColor: Theme.dockFill,
     alignItems: 'center',
     justifyContent: 'center',
   },
   badgeText: {
     fontSize: 8,
-    fontWeight: '600',
+    fontWeight: '700',
     color: Theme.brandBlueInk,
     lineHeight: 10,
+    textAlign: 'center',
   },
   label: {
-    marginTop: PULSE_BOTTOM_TAB_DOCK.labelMarginTop,
+    marginTop: PULSE_BOTTOM_TAB_DOCK.dockLabelGap,
+    height: PULSE_BOTTOM_TAB_DOCK.labelLineHeight,
     fontSize: PULSE_BOTTOM_TAB_DOCK.labelFontSize,
     lineHeight: PULSE_BOTTOM_TAB_DOCK.labelLineHeight,
     fontWeight: '500',
-    color: WEB_TOP_NAV_ICON.muted,
-    letterSpacing: -0.1,
+    color: Theme.dockIconMuted,
+    letterSpacing: 0.1,
     textAlign: 'center',
+    width: '100%',
   },
   labelCompact: {
+    height: PULSE_BOTTOM_TAB_DOCK.labelLineHeightCompact,
     fontSize: PULSE_BOTTOM_TAB_DOCK.labelFontSizeCompact,
     lineHeight: PULSE_BOTTOM_TAB_DOCK.labelLineHeightCompact,
   },
   labelActive: {
-    color: WEB_TOP_NAV_ICON.active,
-    fontWeight: '600',
-  },
-  underline: {
-    marginTop: PULSE_BOTTOM_TAB_DOCK.underlineMarginTop,
-    width: 22,
-    height: PULSE_BOTTOM_TAB_DOCK.underlineHeight,
-    borderRadius: 1,
-    backgroundColor: WEB_TOP_NAV_ICON.active,
-  },
-  underlineSpacer: {
-    marginTop: PULSE_BOTTOM_TAB_DOCK.underlineMarginTop,
-    height: PULSE_BOTTOM_TAB_DOCK.underlineHeight,
+    color: Theme.dockIconActive,
+    fontWeight: '700',
   },
 });

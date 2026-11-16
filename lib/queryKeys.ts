@@ -386,6 +386,23 @@ export const queryKeys = {
       ["q", "bids", "market-indent", indentId] as const,
   },
 
+  /** Offers on an indent's lane (list_lane_offers_for_indent) and carrier rate requests. */
+  laneOffers: {
+    all: () => ["q", "lane-offers"] as const,
+    forIndent: (indentId: string, pageSize: number) =>
+      ["q", "lane-offers", "indent", indentId, pageSize] as const,
+    forIndentAll: (indentId: string) => ["q", "lane-offers", "indent", indentId] as const,
+    /**
+     * Carrier rate-request inbox. User and workspace are part of the key so a
+     * persisted result cannot be shown to the next login or another org.
+     */
+    myInvites: (userId: string, orgId: string, pageSize: number) =>
+      ["q", "lane-offers", "my-invites", userId, orgId, pageSize] as const,
+    /** This carrier's network quotes (direct_quotes), scoped like the invite inbox. */
+    myNetworkQuotes: (userId: string, orgId: string) =>
+      ["q", "lane-offers", "my-network-quotes", userId, orgId] as const,
+  },
+
   storyViews: {
     forPost: (postId: string) => ["q", "story-views", postId] as const,
   },
@@ -744,6 +761,40 @@ const NON_PERSISTED_TRIPS_SEGMENTS = new Set([
  * Hub search results, driver phone numbers and export lookups: large or
  * personal, and only useful for the current screen. Kept out of the persisted cache.
  */
+/**
+ * Lane-offer inbox and the carrier's own network quotes name a person and a
+ * workspace. They must not be written to the persisted query cache, and a
+ * login that does not yet have a previous org still has to drop them.
+ */
+export function isSessionScopedLaneOfferQueryKey(queryKey: readonly unknown[]): boolean {
+  if (queryKey[0] !== "q" || queryKey[1] !== "lane-offers") return false;
+  return queryKey[2] === "my-invites" || queryKey[2] === "my-network-quotes";
+}
+
+export function purgeSessionScopedLaneOfferQueries(
+  qc: {
+    removeQueries: (filters: {
+      predicate: (query: { queryKey: readonly unknown[] }) => boolean;
+    }) => void;
+  },
+  keepOrgId?: string | null,
+): void {
+  qc.removeQueries({
+    predicate: (query) => {
+      const key = query.queryKey;
+      if (!isSessionScopedLaneOfferQueryKey(key)) return false;
+      // Logout drops every inbox. Login drops only another workspace, or a
+      // legacy key that has no user and org, so a fetch for the current
+      // workspace is not cancelled as it completes.
+      if (!keepOrgId) return true;
+      const legacyInvite = key[2] === "my-invites" && key.length < 6;
+      const legacyQuotes = key[2] === "my-network-quotes" && key.length < 5;
+      if (legacyInvite || legacyQuotes) return true;
+      return !key.includes(keepOrgId);
+    },
+  });
+}
+
 export function isNonPersistedTripsQueryKey(queryKey: readonly unknown[]): boolean {
   if (queryKey[0] !== "q" || queryKey[1] !== "trips") return false;
   // hubSearch is `["q", "trips", orgId, "hub-search", needle]`.

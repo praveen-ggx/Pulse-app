@@ -1,16 +1,17 @@
 import { Stack } from "expo-router";
+import Theme from "@/constants/Theme";
 
-/** Transparent so Review Hub can sit over the previous screen as a dialog. */
+/** Review Hub and allocation are full pages. */
 export default function IndentLayout() {
   return (
     <Stack
       screenOptions={{
         headerShown: false,
-        animation: "fade",
+        animation: "slide_from_right",
         contentStyle: {
           flex: 1,
           minHeight: 0,
-          backgroundColor: "transparent",
+          backgroundColor: Theme.analyticsCanvas,
         },
       }}
     />

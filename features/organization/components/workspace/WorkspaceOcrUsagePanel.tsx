@@ -49,18 +49,25 @@ function MetricCard({
   label,
   value,
   hint,
-  accent,
+  tone = "default",
+  half = false,
 }: {
   label: string;
   value: string;
   hint?: string;
-  accent?: string;
+  tone?: "default" | "attention";
+  /** Two per row. Otherwise three share the row. */
+  half?: boolean;
 }) {
   return (
-    <View style={[styles.metricCard, accent ? { borderColor: accent } : null]}>
+    <View style={[styles.metricCard, half && styles.metricCardHalf]}>
       <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
-      {hint ? <Text style={styles.metricHint}>{hint}</Text> : null}
+      <Text style={[styles.metricValue, tone === "attention" && styles.metricValueAttention]}>
+        {value}
+      </Text>
+      <Text style={styles.metricHint} numberOfLines={2}>
+        {hint ?? " "}
+      </Text>
     </View>
   );
 }
@@ -69,10 +76,15 @@ export function WorkspaceOcrUsagePanel({ onBack }: Props) {
   const { data: metrics = EMPTY_OCR_METRICS, isLoading, isError, refetch, isFetching } =
     useOcrMetricsQuery();
 
+  const quotaLimit = metrics.quota_limit;
+  const quotaUsed = metrics.quota_used;
+  const quotaRatio =
+    quotaLimit != null && quotaLimit > 0 ? Math.min(1, Math.max(0, quotaUsed / quotaLimit)) : null;
+  const quotaTight = quotaRatio != null && quotaRatio >= 0.8;
   const quotaLine =
-    metrics.quota_limit != null
-      ? `${metrics.quota_used.toLocaleString("en-IN")} / ${metrics.quota_limit.toLocaleString("en-IN")} scans this month`
-      : `${metrics.quota_used.toLocaleString("en-IN")} scans this month · unlimited plan`;
+    quotaLimit != null
+      ? `${quotaUsed.toLocaleString("en-IN")} of ${quotaLimit.toLocaleString("en-IN")} used this month`
+      : `${quotaUsed.toLocaleString("en-IN")} scans this month · unlimited plan`;
 
   return (
     <WorkspaceDetailLayout
@@ -85,94 +97,125 @@ export function WorkspaceOcrUsagePanel({ onBack }: Props) {
           accessibilityRole="button"
           accessibilityLabel="Refresh OCR metrics"
           style={styles.refreshBtn}
+          hitSlop={8}
         >
           <Text style={styles.refreshText}>{isFetching ? "Refreshing…" : "Refresh"}</Text>
         </Pressable>
       }
     >
-      <View style={panelStyles.card}>
-        <View style={styles.heroRow}>
-          <View style={styles.heroIcon}>
-            <ScanLine size={20} color={PURPLE} strokeWidth={1.8} />
-          </View>
-          <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>Pulse Scan Engine</Text>
-            <Text style={styles.heroSubtitle}>{formatTierLabel(metrics.quota_tier)} · {quotaLine}</Text>
-          </View>
-        </View>
-      </View>
-
       {isLoading ? (
         <View style={styles.loadingWrap}>
           <LoadingIndicator />
         </View>
       ) : isError ? (
         <View style={panelStyles.card}>
-          <Text style={styles.errorText}>Could not load OCR metrics. Pull to refresh or try again.</Text>
+          <Text style={styles.errorText}>Could not load scan usage. Try Refresh.</Text>
         </View>
       ) : (
-        <>
-          <View style={panelStyles.card}>
-            <SectionHeader label="Usage" />
-            <View style={styles.metricGrid}>
-              <MetricCard label="Scans today" value={String(metrics.jobs_today)} />
-              <MetricCard
-                label="Scans this month"
-                value={String(metrics.jobs_this_month)}
-                hint="Billable scans (excludes dedup copies)"
-              />
-              <MetricCard
-                label="Quota remaining"
-                value={formatQuotaRemaining(metrics.quota_remaining, metrics.quota_limit)}
-                accent={PURPLE_BORDER}
-              />
-              <MetricCard
-                label="30-day window"
-                value={String(metrics.jobs_in_window)}
-                hint="All job rows created"
-              />
+        <View style={panelStyles.card}>
+          <View style={styles.hero}>
+            <View style={styles.heroRow}>
+              <View style={styles.heroIcon}>
+                <ScanLine size={20} color={PURPLE} strokeWidth={1.8} />
+              </View>
+              <View style={styles.heroCopy}>
+                <Text style={styles.heroTitle}>Pulse Scan Engine</Text>
+                <Text style={styles.heroSubtitle}>{formatTierLabel(metrics.quota_tier)}</Text>
+              </View>
+              <View style={styles.quotaRemain}>
+                <Text style={[styles.quotaRemainValue, quotaTight && styles.metricValueAttention]}>
+                  {formatQuotaRemaining(metrics.quota_remaining, quotaLimit)}
+                </Text>
+                <Text style={styles.quotaRemainLabel}>this month</Text>
+              </View>
             </View>
+            {quotaRatio != null ? (
+              <View
+                style={styles.track}
+                accessibilityRole="progressbar"
+                accessibilityValue={{ min: 0, max: quotaLimit ?? 0, now: quotaUsed }}
+                accessibilityLabel={quotaLine}
+              >
+                <View
+                  style={[
+                    styles.fill,
+                    quotaTight && styles.fillTight,
+                    { width: `${Math.max(quotaRatio * 100, quotaUsed > 0 ? 4 : 0)}%` },
+                  ]}
+                />
+              </View>
+            ) : null}
+            <Text style={styles.quotaLine}>{quotaLine}</Text>
           </View>
 
-          <View style={panelStyles.card}>
-            <SectionHeader label="Quality & efficiency" />
-            <View style={styles.metricGrid}>
-              <MetricCard
-                label="Duplicate scans avoided"
-                value={String(metrics.duplicate_count)}
-                hint="Fingerprint cache hits"
-              />
-              <MetricCard label="Failed scans" value={String(metrics.failed_count)} />
-              <MetricCard
-                label="Average confidence"
-                value={formatPercent(metrics.avg_confidence)}
-                hint="Completed jobs (30d)"
-              />
-              <MetricCard
-                label="Avg processing"
-                value={
-                  metrics.avg_duration_ms != null
-                    ? `${(metrics.avg_duration_ms / 1000).toFixed(1)}s`
-                    : "—"
-                }
-              />
-            </View>
+          <SectionHeader label="Usage" />
+          <View style={styles.metricGrid}>
+            <MetricCard label="Today" value={String(metrics.jobs_today)} hint="Scans started" />
+            <MetricCard
+              label="This month"
+              value={String(metrics.jobs_this_month)}
+              hint="Billable, excluding copies"
+            />
+            <MetricCard
+              label="30 days"
+              value={String(metrics.jobs_in_window)}
+              hint="Every job created"
+            />
           </View>
-        </>
+
+          <SectionHeader label="Quality" />
+          <View style={styles.metricGrid}>
+            <MetricCard
+              half
+              label="Duplicates avoided"
+              value={String(metrics.duplicate_count)}
+              hint="Same document, not scanned again"
+            />
+            <MetricCard
+              half
+              label="Failed"
+              value={String(metrics.failed_count)}
+              hint="Did not finish"
+              tone={metrics.failed_count > 0 ? "attention" : "default"}
+            />
+            <MetricCard
+              half
+              label="Confidence"
+              value={formatPercent(metrics.avg_confidence)}
+              hint="Completed jobs, 30 days"
+            />
+            <MetricCard
+              half
+              label="Processing"
+              value={
+                metrics.avg_duration_ms != null
+                  ? `${(metrics.avg_duration_ms / 1000).toFixed(1)}s`
+                  : "—"
+              }
+              hint="Average time per scan"
+            />
+          </View>
+        </View>
       )}
     </WorkspaceDetailLayout>
   );
 }
 
 const styles = StyleSheet.create({
+  hero: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
+    gap: 12,
+  },
   heroRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 12,
   },
   heroIcon: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     borderRadius: 12,
     backgroundColor: PURPLE_TINT,
     alignItems: "center",
@@ -190,45 +233,83 @@ const styles = StyleSheet.create({
     color: Theme.textPrimary,
   },
   heroSubtitle: {
-    marginTop: 4,
+    marginTop: 2,
     fontSize: 13,
     color: Theme.textSecondary,
-    lineHeight: 18,
+  },
+  quotaRemain: {
+    alignItems: "flex-end",
+    flexShrink: 0,
+  },
+  quotaRemainValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: Theme.textPrimary,
+  },
+  quotaRemainLabel: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.textMuted,
+  },
+  track: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: Theme.surface,
+    overflow: "hidden",
+  },
+  fill: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: PURPLE,
+  },
+  fillTight: {
+    backgroundColor: Theme.warning,
+  },
+  quotaLine: {
+    fontSize: 12,
+    color: Theme.textSecondary,
   },
   metricGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
-    marginTop: 4,
+    gap: 8,
+    padding: 12,
   },
   metricCard: {
-    flexBasis: "47%",
+    flexBasis: "31%",
     flexGrow: 1,
-    minWidth: 140,
-    padding: 14,
+    minWidth: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Theme.border,
     backgroundColor: Theme.surface,
   },
+  metricCardHalf: {
+    flexBasis: "47%",
+  },
   metricLabel: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "700",
     color: Theme.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   metricValue: {
     marginTop: 8,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "700",
     color: Theme.textPrimary,
   },
+  metricValueAttention: {
+    color: Theme.warning,
+  },
   metricHint: {
-    marginTop: 6,
+    marginTop: 4,
+    minHeight: 32,
     fontSize: 12,
-    color: Theme.textSecondary,
     lineHeight: 16,
+    color: Theme.textSecondary,
   },
   loadingWrap: {
     paddingVertical: 48,
@@ -238,10 +319,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Theme.destructive,
     lineHeight: 20,
+    padding: 16,
   },
   refreshBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 8,
   },
   refreshText: {
     fontSize: 13,

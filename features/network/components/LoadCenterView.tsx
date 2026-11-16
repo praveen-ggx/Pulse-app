@@ -41,6 +41,7 @@ import {
 } from "@/constants/ChatFilterChrome";
 import Layout from "@/constants/Layout";
 import { useLayoutInsets } from "@/lib/layoutInsets";
+import { PulsePillButton } from "@/components/PulsePillButton";
 import Theme from "@/constants/Theme";
 import { useOptionalAwardedIndentDeployModal } from "@/contexts/AwardedIndentDeployModalContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -54,6 +55,8 @@ import { setInitialIndentForDetail } from "@/features/indents/initialIndentForDe
 import { shareDraftIndent } from "@/features/indents/services/indents.service";
 import { resolveMarketIndentShipperLabel } from "@/features/indents/utils/indentPartyDisplay.util";
 import { indentCanBroadcastToPulseNetwork } from "@/features/network/utils/indentBroadcastEligibility.util";
+import { previewStandingLaneBids } from "@/features/network/services/standingLaneBids.service";
+import { standingLaneShareMessage } from "@/features/network/utils/standingLaneBids.util";
 import { indentDisplayOriginDest, indentRoutePlan } from "@/features/network/utils/executionPlanRouteSummary";
 import {
   resolveAwardedVendorName,
@@ -163,7 +166,7 @@ import {
     prefetchTripDetailBundle,
 } from "@/lib/queries";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { Search } from "lucide-react-native";
+import { ChevronLeft, Search, Truck } from "lucide-react-native";
 import { type FlashListRef } from "@shopify/flash-list";
 import { useQueryClient } from "@tanstack/react-query";
 import * as Linking from "expo-linking";
@@ -231,6 +234,37 @@ interface LoadCenterViewProps {
 }
 
 const TESLA_BLACK = "#171A20";
+
+function LoadHeaderActions({
+  onBackToTrips,
+  onOpenMarketplace,
+}: {
+  onBackToTrips: () => void;
+  onOpenMarketplace: () => void;
+}) {
+  return (
+    <View style={styles.loadHeaderActions}>
+      <PulsePillButton
+        label="Back to trips"
+        icon={<ChevronLeft size={13} color={Theme.primaryText} strokeWidth={2.4} />}
+        size="compact"
+        onPress={onBackToTrips}
+        accessibilityLabel="Back to trips"
+        labelStyle={styles.headerPillLabel}
+        style={[styles.headerPill, styles.backToTripsBtn]}
+      />
+      <PulsePillButton
+        label="Marketplace Loads"
+        icon={<Truck size={13} color={Theme.primaryText} strokeWidth={2.4} />}
+        size="compact"
+        onPress={onOpenMarketplace}
+        accessibilityLabel="Marketplace Loads — open Marketplace opportunities"
+        labelStyle={styles.headerPillLabel}
+        style={[styles.headerPill, styles.marketplaceLoadsBtn]}
+      />
+    </View>
+  );
+}
 
 export function LoadCenterView({
   contentTopPadding = 0,
@@ -1265,25 +1299,14 @@ export function LoadCenterView({
                   />
                 </View>
                 {loadSubTab !== "GIVE_LOAD" ? (
-                  <Pressable
-                    onPress={() =>
+                  <LoadHeaderActions
+                    onBackToTrips={() =>
+                      router.push(`${ROUTES.TABS.TRIPS}?hub=active` as import("expo-router").Href)
+                    }
+                    onOpenMarketplace={() =>
                       router.push(ROUTES.FIND_LOADS as import("expo-router").Href)
                     }
-                    style={({ pressed }) => [
-                      styles.findVehiclesBtn,
-                      pressed && styles.findVehiclesBtnPressed,
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Marketplace Loads — open Marketplace opportunities"
-                  >
-                    <FontAwesome
-                      name="cube"
-                      size={12}
-                      color={Theme.textOnDark}
-                      style={{ marginRight: 8 }}
-                    />
-                    <Text style={styles.findVehiclesBtnText}>Marketplace Loads</Text>
-                  </Pressable>
+                  />
                 ) : null}
               </View>
             </View>
@@ -1343,11 +1366,22 @@ export function LoadCenterView({
       if (!orgId) return;
       const target = load.circulation_target ?? "integrated_supplier";
       const isShared = target === "marketplace" || target === "both";
+      let shareMessage =
+        "This load will also become visible to verified fleet owners in the open Marketplace, alongside your supplier network.";
+      if (!isShared) {
+        const preview = await previewStandingLaneBids(
+          load.pickup_area ?? "",
+          load.drop_location ?? "",
+          load.vehicle_type ?? "",
+          load.id,
+        );
+        if (!preview.error) shareMessage = standingLaneShareMessage(preview.bids);
+      }
       const confirmed = await confirmDialog({
         title: isShared ? "Stop sharing to Marketplace?" : "Share to Marketplace?",
         message: isShared
-          ? "This load will stop appearing to DCO / fleet owners in the open Marketplace. Your integrated supplier network is unaffected."
-          : "This load will also become visible to verified DCO / fleet owners in the open Marketplace, alongside your integrated supplier network.",
+          ? "This load will stop appearing to fleet owners in the open Marketplace. Your supplier network is unaffected."
+          : shareMessage,
         confirmLabel: isShared ? "Stop sharing" : "Share",
         destructive: isShared,
       });
@@ -1362,6 +1396,9 @@ export function LoadCenterView({
           return;
         }
         invalidateIndents(orgId);
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.bids.marketForIndent(load.id),
+        });
         triggerSuccess(
           isShared
             ? "Stopped sharing to Marketplace."
@@ -1371,7 +1408,7 @@ export function LoadCenterView({
         setMarketplaceToggleBusyId(null);
       }
     },
-    [orgId, invalidateIndents, triggerSuccess],
+    [orgId, invalidateIndents, queryClient, triggerSuccess],
   );
 
   const handleShareIndent = async (load: IndentRow) => {
@@ -2281,25 +2318,14 @@ export function LoadCenterView({
                 onDoneSubTabChange={(id) => setDoneSubTab(id as DoneSubTab)}
                 findLoadsAction={
                   loadSubTab === "GIVE_LOAD" ? undefined : (
-                  <Pressable
-                    onPress={() =>
+                  <LoadHeaderActions
+                    onBackToTrips={() =>
+                      router.push(`${ROUTES.TABS.TRIPS}?hub=active` as import("expo-router").Href)
+                    }
+                    onOpenMarketplace={() =>
                       router.push(ROUTES.FIND_LOADS as import("expo-router").Href)
                     }
-                    style={({ pressed }) => [
-                      styles.findVehiclesBtn,
-                      pressed && styles.findVehiclesBtnPressed,
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Marketplace Loads — open Marketplace opportunities"
-                  >
-                    <FontAwesome
-                      name="cube"
-                      size={12}
-                      color={Theme.textOnDark}
-                      style={{ marginRight: 8 }}
-                    />
-                    <Text style={styles.findVehiclesBtnText}>Marketplace Loads</Text>
-                  </Pressable>
+                  />
                   )
                 }
               />
@@ -3158,6 +3184,16 @@ const styles = StyleSheet.create({
     minWidth: 0,
     marginLeft: "auto",
   },
+  loadHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+  },
+  headerPill: { flexShrink: 0, marginBottom: 0, borderWidth: 0 },
+  headerPillLabel: { color: Theme.primaryText },
+  backToTripsBtn: { backgroundColor: Theme.brandBlue },
+  marketplaceLoadsBtn: { backgroundColor: Theme.loadMainTabBg },
   loadsStatusTabRow: {
     flexWrap: "wrap",
   },

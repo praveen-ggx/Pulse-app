@@ -105,6 +105,8 @@ export type IndentReviewHubCardProps = {
   vendorRate?: string | null;
   primaryActionLabel?: string;
   onPrimaryAction?: () => void;
+  /** The page's sticky footer already carries the actions; drop the in-body CTA bar. */
+  hideActions?: boolean;
   secondaryActionLabel?: string;
   onSecondaryAction?: () => void;
   bidsSlot?: ReactNode;
@@ -216,6 +218,7 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
   vendorRate = null,
   primaryActionLabel,
   onPrimaryAction,
+  hideActions,
   secondaryActionLabel,
   onSecondaryAction,
   bidsSlot,
@@ -269,6 +272,7 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
         }
         primaryActionLabel={primaryActionLabel}
         onPrimaryAction={onPrimaryAction}
+        hideActions={hideActions}
         secondaryActionLabel={secondaryActionLabel}
         onSecondaryAction={onSecondaryAction}
         bidsSlot={bidsSlot}

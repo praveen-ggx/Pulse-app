@@ -113,6 +113,23 @@ async function readTripDocumentsSelect(
   return { data, error };
 }
 
+async function mapWithConcurrency<T>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const item = items[next];
+      next += 1;
+      await run(item);
+    }
+  });
+  await Promise.all(workers);
+}
+
 async function readTripDocumentsChunk(tripIds: string[]): Promise<RawTripDocRow[]> {
   let result = await readTripDocumentsSelect(tripIds, TRIP_DOC_SELECT_STATUS_AND_SOURCE);
   if (result.error && isMissingColumnOrRelation(result.error)) {
@@ -139,9 +156,11 @@ export async function fetchTripDocumentsForTrips(
   if (chunks.length === 0) return byTrip;
 
   const rows: RawTripDocRow[] = [];
-  for (const chunk of chunks) {
+  // Chunks are independent. Running a few at once is what makes a 500-trip
+  // queue paint in a couple of round trips instead of one long chain.
+  await mapWithConcurrency(chunks, 4, async (chunk) => {
     rows.push(...(await readTripDocumentsChunk(chunk)));
-  }
+  });
 
   for (const r of rows) {
     const doc: ComplianceDocumentRow = {

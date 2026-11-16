@@ -18,6 +18,8 @@ import { resolveCommercialOpportunity } from "@/features/marketplace/domain";
 import { type AwardQuoteResult } from "@/features/network/hooks/useAwardQuote";
 import { submitDriverDirectBidCounterOffer } from "@/features/network/services/bids.service";
 import { MarketBidCard } from "@/features/network/components/MarketBidCard";
+import { LaneOffersSection } from "@/features/network/components/laneOffers/LaneOffersSection";
+import { updateIndent } from "@/features/indents/services/indents.service";
 import {
   awardMarketBid,
   calculateMarketplacePlatformFee,
@@ -61,6 +63,8 @@ const LIFECYCLE_LABEL: Record<string, string> = {
   executing: "Executing",
   completed: "Completed",
 };
+
+const LANE_OFFERS_CLOSED_STATUSES = new Set(["draft", "cancelled", "closed", "expired", "completed"]);
 
 interface AwardModalProps {
   visible: boolean;
@@ -330,6 +334,31 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
 
   const canActOnBids =
     pendingCount > 0 && Boolean(opportunity?.permissions.canAward);
+  const showLaneOffers =
+    !!currentLoad?.id &&
+    Boolean(opportunity?.permissions.canAward) &&
+    !isAwardedView &&
+    !LANE_OFFERS_CLOSED_STATUSES.has(loadStatusLower);
+
+  const currentLoadId = currentLoad?.id ?? null;
+  const currentLoadOrgId = currentLoad?.organization_id ?? null;
+  const handleLaneOffersPostToMarketplace = useCallback(async () => {
+    if (!currentLoadId) return false;
+    const confirmed = await confirmDialog({
+      title: "Share to Marketplace?",
+      message:
+        "This load will also become visible to verified DCO / fleet owners in the open Marketplace, alongside your integrated supplier network.",
+      confirmLabel: "Share",
+    });
+    if (!confirmed) return false;
+    const { error } = await updateIndent(currentLoadId, { circulation_target: "both" });
+    if (error) {
+      showAppAlert("Could not update distribution", error.message);
+      return false;
+    }
+    if (currentLoadOrgId) invalidateIndents(currentLoadOrgId, { bustPartnerSupplierMarket: true });
+    return true;
+  }, [currentLoadId, currentLoadOrgId, invalidateIndents]);
 
   const counterQuote =
     counterQuoteId != null
@@ -535,15 +564,30 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
             <Text style={styles.bidEmptyText}>Loading offers…</Text>
           </View>
         ) : sortedQuotes.length === 0 && marketBids.length === 0 ? (
-          <View style={styles.bidEmptyWrap}>
-            <View style={styles.bidEmptyIcon}>
-              <FontAwesome name="inbox" size={22} color={Theme.textMuted} />
+          <ScrollView
+            style={styles.bidsScroll}
+            contentContainerStyle={styles.bidsScrollContent}
+            showsVerticalScrollIndicator
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.bidEmptyWrap}>
+              <View style={styles.bidEmptyIcon}>
+                <FontAwesome name="inbox" size={22} color={Theme.textMuted} />
+              </View>
+              <Text style={styles.bidEmptyText}>No offers yet</Text>
+              <Text style={styles.bidEmptySubtext}>
+                Offers from drivers and your network will appear here.
+              </Text>
             </View>
-            <Text style={styles.bidEmptyText}>No offers yet</Text>
-            <Text style={styles.bidEmptySubtext}>
-              Offers from drivers and your network will appear here.
-            </Text>
-          </View>
+            {showLaneOffers && currentLoad ? (
+              <View style={styles.laneOffersEmptyWrap}>
+                <LaneOffersSection
+                  indentId={currentLoad.id}
+                  onPostToMarketplace={handleLaneOffersPostToMarketplace}
+                />
+              </View>
+            ) : null}
+          </ScrollView>
         ) : (
           <>
             <ScrollView
@@ -605,6 +649,15 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
                   </View>
                 </View>
               ) : null}
+
+              {showLaneOffers && currentLoad ? (
+                <View style={styles.marketSection}>
+                  <LaneOffersSection
+                    indentId={currentLoad.id}
+                    onPostToMarketplace={handleLaneOffersPostToMarketplace}
+                  />
+                </View>
+              ) : null}
             </ScrollView>
             {pendingCount === 0 ? (
               <Text style={styles.footerHint}>
@@ -640,8 +693,8 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
               disabled={revokingAward || marketBidsLoading}
               accessibilityLabel={revokePresentation.buttonLabel}
             >
-              <Text style={styles.modalSubmitText}>{awardCtaLabel}</Text>
-            </TouchableOpacity>
+            <Text style={styles.modalSubmitText} numberOfLines={1}>{awardCtaLabel}</Text>
+          </TouchableOpacity>
           ) : needsInvite ? (
             <TouchableOpacity
               style={[
@@ -652,7 +705,7 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
               activeOpacity={0.9}
               disabled={inviteDisabled}
             >
-              <Text style={styles.modalSubmitText}>
+              <Text style={styles.modalSubmitText} numberOfLines={1}>
                 {inviteSending
                   ? "Sending invite…"
                   : invitePending
@@ -670,7 +723,7 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
               activeOpacity={0.9}
               disabled={awardDisabled}
             >
-              <Text style={styles.modalSubmitText}>{awardCtaLabel}</Text>
+              <Text style={styles.modalSubmitText} numberOfLines={1}>{awardCtaLabel}</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity
@@ -845,6 +898,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
     gap: 8,
   },
+  laneOffersEmptyWrap: {
+    alignSelf: "stretch",
+    marginTop: 16,
+  },
   marketSectionLabel: {
     fontSize: 11,
     fontWeight: "500",
@@ -877,6 +934,8 @@ const styles = StyleSheet.create({
     borderTopColor: Theme.borderLight,
     gap: 8,
     flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "stretch",
   },
   modalSubmit: {
     flexDirection: "row",
@@ -887,9 +946,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.actionBtnInk,
-    alignSelf: "stretch",
+    flex: 1,
     minWidth: 0,
-    minHeight: 42,
+    minHeight: 44,
+    paddingHorizontal: 12,
   },
   modalSubmitDisabled: {
     opacity: 0.38,
@@ -900,7 +960,7 @@ const styles = StyleSheet.create({
     color: Theme.buttonDarkText,
     letterSpacing: 0,
     ...Platform.select({
-      web: { whiteSpace: "pre-wrap" } as object,
+      web: { whiteSpace: "nowrap" } as object,
       default: {},
     }),
   },
@@ -924,13 +984,15 @@ const styles = StyleSheet.create({
   },
   viewIndentBtn: {
     paddingVertical: 11,
+    paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     borderColor: Theme.actionBtnGhostBorder,
     borderRadius: 10,
     backgroundColor: Theme.cardWhite,
-    minHeight: 42,
+    minHeight: 44,
+    flexShrink: 0,
   },
   viewIndentBtnText: {
     fontSize: 13,

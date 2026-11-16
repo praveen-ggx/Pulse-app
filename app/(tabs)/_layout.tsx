@@ -98,7 +98,7 @@ function DemoCustomTabBar(
   const onTabChange = useCallback(
     (tab: DemoTabId) => {
       if (tab === 'loadCenter') {
-        if (canOpenLoadCenter) router.push(ROUTES.PULSE_LOADS);
+        if (canOpenLoadCenter) router.push(ROUTES.FIND_LOADS);
         return;
       }
       if (tab === 'compliance') {

@@ -58,7 +58,7 @@ export function ComplianceMobileChrome({
     <View style={styles.chrome} accessibilityRole="header">
       <HubMobileScreenHeader
         title="Compliance"
-        leading={<TopNavProfileButton />}
+        leading={<TopNavProfileButton size={36} />}
         action={
           <View style={styles.headerActions}>
             {refreshControl}

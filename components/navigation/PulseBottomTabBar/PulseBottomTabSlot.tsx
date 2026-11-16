@@ -7,15 +7,10 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 import Theme from '@/constants/Theme';
-import { TAB_PRESS_SCALE_ACTIVE, TAB_PRESS_SCALE_REST, TAB_PRESS_TIMING_MS } from '@/lib/mobileTabNav/constants';
+import { TAB_PRESS_SCALE_ACTIVE, TAB_PRESS_SCALE_REST } from '@/lib/mobileTabNav/constants';
 import { PULSE_BOTTOM_TAB_DOCK } from './dockMetrics';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -46,10 +41,7 @@ export const PulseBottomTabSlot = memo(function PulseBottomTabSlot({
   const activeSV = useSharedValue(active ? 1 : 0);
 
   useEffect(() => {
-    activeSV.value = withTiming(active ? 1 : 0, {
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-    });
+    activeSV.value = active ? 1 : 0;
   }, [active, activeSV]);
 
   const contentStyle = useAnimatedStyle(() => ({
@@ -65,11 +57,11 @@ export const PulseBottomTabSlot = memo(function PulseBottomTabSlot({
     <AnimatedPressable
       style={[styles.slot, style]}
       onPressIn={() => {
-        pressSV.value = withTiming(TAB_PRESS_SCALE_ACTIVE, { duration: TAB_PRESS_TIMING_MS });
+        pressSV.value = TAB_PRESS_SCALE_ACTIVE;
         onPressIn?.();
       }}
       onPressOut={() => {
-        pressSV.value = withTiming(TAB_PRESS_SCALE_REST, { duration: TAB_PRESS_TIMING_MS });
+        pressSV.value = TAB_PRESS_SCALE_REST;
       }}
       onPress={onPress}
       accessibilityRole="tab"

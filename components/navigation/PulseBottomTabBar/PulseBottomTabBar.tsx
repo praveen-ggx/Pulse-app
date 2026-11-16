@@ -3,12 +3,13 @@
  * pill with a sliding highlight; Marketplace and Chat each sit in their own pill.
  * Each slot follows the same member access as the desktop top nav.
  */
-import { memo, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
+  withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
@@ -60,9 +61,11 @@ type DockTab = {
   fillWhenActive?: boolean;
 };
 
-const HIGHLIGHT_SPRING = { damping: 20, stiffness: 220, mass: 0.7 } as const;
-const HIGHLIGHT_FADE = { duration: 220, easing: Easing.out(Easing.cubic) } as const;
 const HIGHLIGHT_INSET = 3;
+/** Fast travel inside the existing pill. Stretches slightly, then settles. */
+const FLOW_SPRING = { damping: 24, stiffness: 620, mass: 0.38 } as const;
+const FLOW_SETTLE = { damping: 16, stiffness: 480, mass: 0.35 } as const;
+const FLOW_STRETCH = { duration: 70, easing: Easing.out(Easing.quad) } as const;
 
 function DockIcon({
   Icon,
@@ -88,11 +91,17 @@ function DockIcon({
   );
 }
 
-/** Side pill selection fades in so it matches the sliding highlight. */
+/** Side pill fill. Fades with the same short motion as the sliding thumb. */
 function SideTrack({ active, children }: { active: boolean; children: ReactNode }) {
   const fill = useSharedValue(active ? 1 : 0);
+  const ready = useRef(false);
   useEffect(() => {
-    fill.value = withTiming(active ? 1 : 0, HIGHLIGHT_FADE);
+    if (!ready.current) {
+      fill.value = active ? 1 : 0;
+      ready.current = true;
+      return;
+    }
+    fill.value = withTiming(active ? 1 : 0, FLOW_STRETCH);
   }, [active, fill]);
   const fillStyle = useAnimatedStyle(() => ({ opacity: fill.value }));
   return (
@@ -147,28 +156,90 @@ function PulseBottomTabBarInner({
     },
   ].filter(Boolean) as DockTab[];
   const showMarketplace = visibility?.loadCenter ?? true;
-  const marketplaceActive = !isChatRoute && activeTab === 'loadCenter';
 
-  const activeIndex = isChatRoute ? -1 : tabs.findIndex((tab) => tab.id === activeTab);
+  const routeKey = isChatRoute ? 'chat' : activeTab;
+  const [pressedKey, setPressedKey] = useState<string | null>(null);
+  const selectedKey = pressedKey ?? routeKey;
+  const marketplaceActive = selectedKey === 'loadCenter';
+  const chatActive = selectedKey === 'chat';
 
   const [trackWidth, setTrackWidth] = useState(0);
   const slotWidth = tabs.length > 0 ? trackWidth / tabs.length : 0;
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const slotWidthRef = useRef(slotWidth);
+  slotWidthRef.current = slotWidth;
   const highlightX = useSharedValue(0);
-  const highlightOpacity = useSharedValue(activeIndex >= 0 ? 1 : 0);
-  const [placed, setPlaced] = useState(false);
+  const highlightScaleX = useSharedValue(1);
+  const highlightOpacity = useSharedValue(routeKey === 'chat' || routeKey === 'loadCenter' ? 0 : 1);
+  const flowingTo = useRef<string | null>(null);
+  const flowingTarget = useRef<number | null>(null);
+  const laidOut = useRef(false);
+  const gestureOpened = useRef(false);
+
+  const moveHighlight = useCallback(
+    (key: string, flow: boolean) => {
+      const width = slotWidthRef.current;
+      if (width <= 0) return;
+      const index =
+        key === 'chat' || key === 'loadCenter'
+          ? -1
+          : tabsRef.current.findIndex((tab) => tab.id === key);
+      const shown = index >= 0 ? 1 : 0;
+      const target = index >= 0 ? index * width + HIGHLIGHT_INSET : null;
+      if (flow && flowingTo.current === key && flowingTarget.current === target) return;
+      flowingTo.current = key;
+      flowingTarget.current = target;
+      if (index >= 0 && target != null) {
+        if (flow) {
+          const slots = Math.abs(target - highlightX.value) / width;
+          const stretch = 1 + Math.min(slots, 3) * 0.12;
+          highlightScaleX.value = withSequence(
+            withTiming(stretch, FLOW_STRETCH),
+            withSpring(1, FLOW_SETTLE),
+          );
+          highlightX.value = withSpring(target, FLOW_SPRING);
+        } else {
+          highlightX.value = target;
+          highlightScaleX.value = 1;
+        }
+      }
+      highlightOpacity.value = flow ? withTiming(shown, FLOW_STRETCH) : shown;
+    },
+    [highlightOpacity, highlightScaleX, highlightX],
+  );
 
   useEffect(() => {
-    if (slotWidth <= 0) return;
-    const target = Math.max(activeIndex, 0) * slotWidth + HIGHLIGHT_INSET;
-    // First measure snaps into place; later tab changes ease across.
-    highlightX.value = placed ? withSpring(target, HIGHLIGHT_SPRING) : target;
-    highlightOpacity.value = withTiming(activeIndex >= 0 ? 1 : 0, HIGHLIGHT_FADE);
-    if (!placed) setPlaced(true);
-  }, [activeIndex, slotWidth, placed, highlightX, highlightOpacity]);
+    setPressedKey((current) => (current == null || current === routeKey ? null : current));
+  }, [routeKey]);
+
+  useEffect(() => {
+    if (slotWidth <= 0 || pressedKey != null) return;
+    moveHighlight(routeKey, laidOut.current);
+    laidOut.current = true;
+  }, [moveHighlight, pressedKey, routeKey, slotWidth]);
+
+  const selectKey = useCallback(
+    (key: string) => {
+      setPressedKey(key);
+      moveHighlight(key, true);
+    },
+    [moveHighlight],
+  );
+
+  const openFromPress = useCallback(
+    (key: string, open: () => void) => {
+      selectKey(key);
+      if (gestureOpened.current) return;
+      gestureOpened.current = true;
+      open();
+    },
+    [selectKey],
+  );
 
   const highlightStyle = useAnimatedStyle(() => ({
     opacity: highlightOpacity.value,
-    transform: [{ translateX: highlightX.value }],
+    transform: [{ translateX: highlightX.value }, { scaleX: highlightScaleX.value }],
   }));
 
   const onTrackLayout = useCallback((event: LayoutChangeEvent) => {
@@ -195,7 +266,34 @@ function PulseBottomTabBarInner({
     [onWarmTab],
   );
 
+  const warmAfterSelect = useCallback(
+    (tab: DemoTabId) => {
+      requestAnimationFrame(() => {
+        if (tab !== 'compliance') warmTab(tab);
+      });
+    },
+    [warmTab],
+  );
+
   const rowHeight = pulseTabBarBodyHeight(isCompactMobile);
+
+  const mainPress = (tab: DockTab) => ({
+    onPressIn: () =>
+      openFromPress(tab.id, () => {
+        switchTab(tab.id);
+        warmAfterSelect(tab.id);
+      }),
+    onPress: () => {
+      if (gestureOpened.current) {
+        gestureOpened.current = false;
+        return;
+      }
+      openFromPress(tab.id, () => {
+        switchTab(tab.id);
+        warmAfterSelect(tab.id);
+      });
+    },
+  });
 
   return (
     <View style={[styles.footerWrap, { paddingBottom: footerPadBottom }, pe('box-none')]}>
@@ -214,7 +312,8 @@ function PulseBottomTabBarInner({
                 />
               ) : null}
               {tabs.map((tab) => {
-                const active = !isChatRoute && activeTab === tab.id;
+                const active = selectedKey === tab.id;
+                const press = mainPress(tab);
                 return (
                   <PulseBottomTabSlot
                     key={tab.id}
@@ -222,8 +321,8 @@ function PulseBottomTabBarInner({
                     active={active}
                     badgeCount={tab.badgeCount}
                     compact={isCompactMobile}
-                    onPress={() => switchTab(tab.id)}
-                    onPressIn={tab.id === 'compliance' ? undefined : () => warmTab(tab.id)}
+                    onPressIn={press.onPressIn}
+                    onPress={press.onPress}
                     icon={
                       <DockIcon
                         Icon={tab.Icon}
@@ -246,8 +345,22 @@ function PulseBottomTabBarInner({
                 active={marketplaceActive}
                 badgeCount={activeLoadCount}
                 compact={isCompactMobile}
-                onPressIn={() => warmTab('loadCenter')}
-                onPress={() => switchTab('loadCenter')}
+                onPressIn={() =>
+                  openFromPress('loadCenter', () => {
+                    switchTab('loadCenter');
+                    warmAfterSelect('loadCenter');
+                  })
+                }
+                onPress={() => {
+                  if (gestureOpened.current) {
+                    gestureOpened.current = false;
+                    return;
+                  }
+                  openFromPress('loadCenter', () => {
+                    switchTab('loadCenter');
+                    warmAfterSelect('loadCenter');
+                  });
+                }}
                 icon={
                   <DockIcon
                     Icon={Store}
@@ -262,18 +375,31 @@ function PulseBottomTabBarInner({
         ) : null}
         {showChat ? (
           <DockPill style={styles.sidePill}>
-            <SideTrack active={isChatRoute}>
+            <SideTrack active={chatActive}>
               <PulseBottomTabSlot
                 label="Chat"
-                active={isChatRoute}
+                active={chatActive}
                 badgeCount={messageUnreadCount}
                 compact={isCompactMobile}
-                onPressIn={onOpenChatWarm}
+                onPressIn={() =>
+                  openFromPress('chat', () => {
+                    onCollapseNetworkDock();
+                    onOpenChat();
+                    requestAnimationFrame(() => onOpenChatWarm?.());
+                  })
+                }
                 onPress={() => {
-                  onCollapseNetworkDock();
-                  onOpenChat();
+                  if (gestureOpened.current) {
+                    gestureOpened.current = false;
+                    return;
+                  }
+                  openFromPress('chat', () => {
+                    onCollapseNetworkDock();
+                    onOpenChat();
+                    requestAnimationFrame(() => onOpenChatWarm?.());
+                  });
                 }}
-                icon={<DockIcon Icon={MessageSquare} active={isChatRoute} size={iconSize} />}
+                icon={<DockIcon Icon={MessageSquare} active={chatActive} size={iconSize} />}
               />
             </SideTrack>
           </DockPill>

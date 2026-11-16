@@ -1,8 +1,8 @@
 // @refresh reset
 /**
- * Scroll-driven visibility for the demo tab bar (hide while scrolling, show after idle).
- * Native: hide on drag begin, show after drag/momentum end.
- * Mobile web: hide on scroll in either direction, show after idle, via ScrollView onScroll — no window scroll listener.
+ * Scroll-driven visibility for the demo tab bar.
+ * Slide down only while the list is scrolling down. Scroll up, or the end of
+ * the gesture, brings it back. No scale or fade.
  */
 import React, {
   createContext,
@@ -29,18 +29,18 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-/** Glide off-screen — ease-in so it accelerates away naturally. */
+/** Slide off while the finger is still moving down. */
 const HIDE_TIMING = {
-  duration: 360,
-  easing: Easing.inOut(Easing.cubic),
+  duration: 180,
+  easing: Easing.out(Easing.cubic),
 } as const;
-/** Glide back — timing only (no spring bounce on dock return). */
+/** Slide back as soon as scrolling down stops. */
 const SHOW_TIMING = {
-  duration: 280,
+  duration: 160,
   easing: Easing.out(Easing.cubic),
 } as const;
 const SHOW_DELAY_MS = 0;
-const WEB_IDLE_MS = 380;
+const WEB_IDLE_MS = 140;
 /** Ignore hide until user has scrolled past top bounce. */
 const WEB_HIDE_MIN_OFFSET_Y = 50;
 /** Min delta (px) per scroll tick to count as scrolling. */
@@ -238,7 +238,6 @@ export function DemoTabBarAutoHideShell({
   const animatedStyle = useAnimatedStyle(() => {
     const p = progress ? progress.value : 1;
     return {
-      opacity: interpolate(p, [0, 0.4, 1], [0, 0.92, 1], Extrapolation.CLAMP),
       transform: [
         {
           translateY: interpolate(
@@ -247,9 +246,6 @@ export function DemoTabBarAutoHideShell({
             [OFF_TRANSLATE, 0],
             Extrapolation.CLAMP,
           ),
-        },
-        {
-          scale: interpolate(p, [0, 1], [0.94, 1], Extrapolation.CLAMP),
         },
       ],
     };
@@ -285,33 +281,37 @@ export function useTabBarAwareScrollProps(): {
 
   return useMemo(() => {
     if (!ctx) return {};
+    if (Platform.OS === "web" && !mobileWebAutoHide) return {};
+
+    const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = event.nativeEvent.contentOffset.y;
+      const dy = y - lastOffsetYRef.current;
+      lastOffsetYRef.current = y;
+
+      if (y <= WEB_HIDE_MIN_OFFSET_Y || dy < -WEB_SCROLL_DIRECTION_DELTA) {
+        ctx.resetBarVisible();
+      } else if (dy > WEB_SCROLL_DIRECTION_DELTA) {
+        ctx.onScrollBeginDrag();
+      }
+
+      if (webIdleRef.current) clearTimeout(webIdleRef.current);
+      webIdleRef.current = setTimeout(() => {
+        ctx.onScrollEnd();
+        webIdleRef.current = null;
+      }, WEB_IDLE_MS);
+    };
 
     if (Platform.OS !== "web") {
       return {
-        onScrollBeginDrag: ctx.onScrollBeginDrag,
+        onScroll,
         onScrollEndDrag: ctx.onScrollEnd,
         onMomentumScrollEnd: ctx.onMomentumScrollEnd,
+        scrollEventThrottle: 16,
       };
     }
 
-    if (!mobileWebAutoHide) return {};
-
     return {
-      onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-        const y = event.nativeEvent.contentOffset.y;
-        const dy = y - lastOffsetYRef.current;
-        lastOffsetYRef.current = y;
-
-        if (Math.abs(dy) > WEB_SCROLL_DIRECTION_DELTA && y > WEB_HIDE_MIN_OFFSET_Y) {
-          ctx.onScrollBeginDrag();
-        }
-
-        if (webIdleRef.current) clearTimeout(webIdleRef.current);
-        webIdleRef.current = setTimeout(() => {
-          ctx.onScrollEnd();
-          webIdleRef.current = null;
-        }, WEB_IDLE_MS);
-      },
+      onScroll,
       scrollEventThrottle: 16,
     };
   }, [ctx, mobileWebAutoHide]);

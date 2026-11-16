@@ -1,3 +1,4 @@
+import { TopNavNotificationButton, TopNavProfileButton } from "@/components/HomePageHeader";
 import {
   HUB_MOBILE_COMMERCE_REF,
   HubMobileScreenHeader,
@@ -57,6 +58,7 @@ export function ComplianceMobileChrome({
     <View style={styles.chrome} accessibilityRole="header">
       <HubMobileScreenHeader
         title="Compliance"
+        leading={<TopNavProfileButton size={36} />}
         action={
           <View style={styles.headerActions}>
             {refreshControl}
@@ -86,6 +88,7 @@ export function ComplianceMobileChrome({
                 )}
               </TouchableOpacity>
             ) : null}
+            <TopNavNotificationButton />
           </View>
         }
       />

@@ -203,17 +203,35 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
       );
       let rows = rowsHead;
       if (paintFirst) {
-        // First visit: show the first page while the remaining trips are read.
-        // A refresh that already has the full queue keeps those cards.
-        qc.setQueryData<ComplianceTripInputs[]>(pipelineKey, (cur) =>
-          cur && cur.length >= rowsHead.length ? cur : rowsHead,
+        // Finish this query on the first page. Awaiting the rest kept
+        // isFetching true (header spinner up) for every remaining trip.
+        const headCurrent = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);
+        const headPaint = preserveNewerWrites(
+          rowsHead,
+          headCurrent,
+          protectedTripIds(log, startedAt, previous, headCurrent),
         );
-        const rowsTail = await loadCompliancePipelineInputs(
-          undefined,
-          tripsNow.slice(COMPLIANCE_FIRST_PAINT_TRIPS),
-          { full: true, viewerOrgId: orgId },
-        );
-        rows = rowsHead.concat(rowsTail);
+        const tailTrips = tripsNow.slice(COMPLIANCE_FIRST_PAINT_TRIPS);
+        const tailStartedAt = startedAt;
+        void loadCompliancePipelineInputs(undefined, tailTrips, {
+          full: true,
+          viewerOrgId: orgId,
+        })
+          .then((rowsTail) => {
+            const merged = rowsHead.concat(rowsTail);
+            qc.setQueryData<ComplianceTripInputs[]>(pipelineKey, (cur) =>
+              preserveNewerWrites(
+                cur && cur.length > merged.length ? cur : merged,
+                cur,
+                protectedTripIds(log, tailStartedAt, previous, cur),
+              ),
+            );
+            fullyLoadedSessions.add(sessionKey);
+          })
+          .catch(() => {
+            // The next manual refresh loads the tail again.
+          });
+        return headPaint;
       }
       if (full) fullyLoadedSessions.add(sessionKey);
       // A write that landed while this read was in flight wins over its snapshot.

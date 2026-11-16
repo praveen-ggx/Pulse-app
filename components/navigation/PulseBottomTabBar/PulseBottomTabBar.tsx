@@ -1,16 +1,16 @@
 /**
- * Mobile bottom navigation — solid dark floating dock. Main tabs share one
- * pill with a sliding highlight; Marketplace and Chat each sit in their own pill.
+ * Mobile bottom navigation — Verify-pill colour: light blue fill, brown
+ * border, brown icons. Layout unchanged. Main tabs share one pill; Marketplace
+ * and Chat each sit in their own pill on the same tray.
  * Each slot follows the same member access as the desktop top nav.
  */
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
-  withSequence,
-  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import {
@@ -62,10 +62,28 @@ type DockTab = {
 };
 
 const HIGHLIGHT_INSET = 3;
-/** Fast travel inside the existing pill. Stretches slightly, then settles. */
-const FLOW_SPRING = { damping: 24, stiffness: 620, mass: 0.38 } as const;
-const FLOW_SETTLE = { damping: 16, stiffness: 480, mass: 0.35 } as const;
-const FLOW_STRETCH = { duration: 70, easing: Easing.out(Easing.quad) } as const;
+/** Short glide. Starts on press so the page and the thumb move together. */
+const FLOW = { duration: 70, easing: Easing.out(Easing.cubic) } as const;
+
+/** Apple-style mirror thumb: glass falloff and a hairline specular. */
+function MirrorFill() {
+  return (
+    <View style={styles.mirror} pointerEvents="none">
+      <LinearGradient
+        colors={[
+          Theme.pulseTabClusterThumbGlassTop,
+          Theme.pulseTabClusterThumbSolid,
+          Theme.pulseTabClusterThumbGlassBottom,
+        ]}
+        locations={[0, 0.42, 1]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.mirrorSpecular} />
+    </View>
+  );
+}
 
 function DockIcon({
   Icon,
@@ -78,7 +96,7 @@ function DockIcon({
   active: boolean;
   size: number;
   fill?: boolean;
-  /** Resting colour for a feature pill (Marketplace); active is always white. */
+  /** Resting colour for a feature pill (Marketplace). Active is dock ink. */
   tint?: string;
 }) {
   return (
@@ -86,39 +104,24 @@ function DockIcon({
       size={size}
       color={active ? Theme.dockIconActive : (tint ?? Theme.dockIconMuted)}
       fill={fill && active ? Theme.dockIconActive : 'transparent'}
-      strokeWidth={active ? 2.2 : 1.8}
+      strokeWidth={active ? 2.05 : 1.75}
     />
   );
 }
 
-/** Side pill fill. Fades with the same short motion as the sliding thumb. */
+/** Side pill mirror. Same glass as the sliding thumb. */
 function SideTrack({ active, children }: { active: boolean; children: ReactNode }) {
-  const fill = useSharedValue(active ? 1 : 0);
-  const ready = useRef(false);
-  useEffect(() => {
-    if (!ready.current) {
-      fill.value = active ? 1 : 0;
-      ready.current = true;
-      return;
-    }
-    fill.value = withTiming(active ? 1 : 0, FLOW_STRETCH);
-  }, [active, fill]);
-  const fillStyle = useAnimatedStyle(() => ({ opacity: fill.value }));
   return (
     <View style={styles.sideTrack}>
-      <Animated.View style={[styles.sideFill, fillStyle, pe('none')]} />
+      {active ? <View style={[styles.sideFill, pe('none')]}><MirrorFill /></View> : null}
       {children}
     </View>
   );
 }
 
-/** Shadow on the outer view so the solid pill can float without a tray behind it. */
+/** One pill on the shared tray. No per-pill shadow — that made the row look uneven. */
 function DockPill({ children, style }: { children: ReactNode; style?: object }) {
-  return (
-    <View style={[styles.pillShadow, style]}>
-      <View style={styles.pill}>{children}</View>
-    </View>
-  );
+  return <View style={[styles.pill, style]}>{children}</View>;
 }
 
 function PulseBottomTabBarInner({
@@ -170,14 +173,11 @@ function PulseBottomTabBarInner({
   const slotWidthRef = useRef(slotWidth);
   slotWidthRef.current = slotWidth;
   const highlightX = useSharedValue(0);
-  const highlightScaleX = useSharedValue(1);
   const highlightOpacity = useSharedValue(routeKey === 'chat' || routeKey === 'loadCenter' ? 0 : 1);
-  const flowingTo = useRef<string | null>(null);
-  const flowingTarget = useRef<number | null>(null);
-  const laidOut = useRef(false);
   const gestureOpened = useRef(false);
+  const laidOut = useRef(false);
 
-  const moveHighlight = useCallback(
+  const placeHighlight = useCallback(
     (key: string, flow: boolean) => {
       const width = slotWidthRef.current;
       if (width <= 0) return;
@@ -186,27 +186,13 @@ function PulseBottomTabBarInner({
           ? -1
           : tabsRef.current.findIndex((tab) => tab.id === key);
       const shown = index >= 0 ? 1 : 0;
-      const target = index >= 0 ? index * width + HIGHLIGHT_INSET : null;
-      if (flow && flowingTo.current === key && flowingTarget.current === target) return;
-      flowingTo.current = key;
-      flowingTarget.current = target;
-      if (index >= 0 && target != null) {
-        if (flow) {
-          const slots = Math.abs(target - highlightX.value) / width;
-          const stretch = 1 + Math.min(slots, 3) * 0.12;
-          highlightScaleX.value = withSequence(
-            withTiming(stretch, FLOW_STRETCH),
-            withSpring(1, FLOW_SETTLE),
-          );
-          highlightX.value = withSpring(target, FLOW_SPRING);
-        } else {
-          highlightX.value = target;
-          highlightScaleX.value = 1;
-        }
+      highlightOpacity.value = flow ? withTiming(shown, FLOW) : shown;
+      if (index >= 0) {
+        const target = index * width + HIGHLIGHT_INSET;
+        highlightX.value = flow ? withTiming(target, FLOW) : target;
       }
-      highlightOpacity.value = flow ? withTiming(shown, FLOW_STRETCH) : shown;
     },
-    [highlightOpacity, highlightScaleX, highlightX],
+    [highlightOpacity, highlightX],
   );
 
   useEffect(() => {
@@ -214,32 +200,28 @@ function PulseBottomTabBarInner({
   }, [routeKey]);
 
   useEffect(() => {
-    if (slotWidth <= 0 || pressedKey != null) return;
-    moveHighlight(routeKey, laidOut.current);
+    if (pressedKey != null) return;
+    placeHighlight(routeKey, laidOut.current);
     laidOut.current = true;
-  }, [moveHighlight, pressedKey, routeKey, slotWidth]);
-
-  const selectKey = useCallback(
-    (key: string) => {
-      setPressedKey(key);
-      moveHighlight(key, true);
-    },
-    [moveHighlight],
-  );
+  }, [placeHighlight, pressedKey, routeKey, slotWidth]);
 
   const openFromPress = useCallback(
     (key: string, open: () => void) => {
-      selectKey(key);
       if (gestureOpened.current) return;
       gestureOpened.current = true;
+      setPressedKey(key);
+      placeHighlight(key, true);
       open();
+      requestAnimationFrame(() => {
+        gestureOpened.current = false;
+      });
     },
-    [selectKey],
+    [placeHighlight],
   );
 
   const highlightStyle = useAnimatedStyle(() => ({
     opacity: highlightOpacity.value,
-    transform: [{ translateX: highlightX.value }, { scaleX: highlightScaleX.value }],
+    transform: [{ translateX: highlightX.value }],
   }));
 
   const onTrackLayout = useCallback((event: LayoutChangeEvent) => {
@@ -278,11 +260,12 @@ function PulseBottomTabBarInner({
   const rowHeight = pulseTabBarBodyHeight(isCompactMobile);
 
   const mainPress = (tab: DockTab) => ({
-    onPressIn: () =>
+    onPressIn: () => {
       openFromPress(tab.id, () => {
         switchTab(tab.id);
         warmAfterSelect(tab.id);
-      }),
+      });
+    },
     onPress: () => {
       if (gestureOpened.current) {
         gestureOpened.current = false;
@@ -309,7 +292,9 @@ function PulseBottomTabBarInner({
                     highlightStyle,
                     pe('none'),
                   ]}
-                />
+                >
+                  <MirrorFill />
+                </Animated.View>
               ) : null}
               {tabs.map((tab) => {
                 const active = selectedKey === tab.id;
@@ -345,12 +330,12 @@ function PulseBottomTabBarInner({
                 active={marketplaceActive}
                 badgeCount={activeLoadCount}
                 compact={isCompactMobile}
-                onPressIn={() =>
+                onPressIn={() => {
                   openFromPress('loadCenter', () => {
                     switchTab('loadCenter');
                     warmAfterSelect('loadCenter');
-                  })
-                }
+                  });
+                }}
                 onPress={() => {
                   if (gestureOpened.current) {
                     gestureOpened.current = false;
@@ -366,7 +351,7 @@ function PulseBottomTabBarInner({
                     Icon={Store}
                     active={marketplaceActive}
                     size={iconSize}
-                    tint={Theme.dockAccent}
+                    tint={Theme.dockIconMuted}
                   />
                 }
               />
@@ -381,13 +366,13 @@ function PulseBottomTabBarInner({
                 active={chatActive}
                 badgeCount={messageUnreadCount}
                 compact={isCompactMobile}
-                onPressIn={() =>
+                onPressIn={() => {
                   openFromPress('chat', () => {
                     onCollapseNetworkDock();
                     onOpenChat();
                     requestAnimationFrame(() => onOpenChatWarm?.());
-                  })
-                }
+                  });
+                }}
                 onPress={() => {
                   if (gestureOpened.current) {
                     gestureOpened.current = false;
@@ -452,20 +437,12 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     gap: D.dockSideGap,
   },
-  pillShadow: {
-    borderRadius: 999,
-    shadowColor: Theme.dockShadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.24,
-    shadowRadius: 18,
-    elevation: 10,
-  },
   pill: {
-    flex: 1,
     flexDirection: 'row',
+    alignItems: 'stretch',
     borderRadius: 999,
     overflow: 'hidden',
-    backgroundColor: Theme.dockFill,
+    backgroundColor: Theme.dockPillFill,
     padding: D.dockPillInset,
   },
   mainPill: {
@@ -483,11 +460,11 @@ const styles = StyleSheet.create({
   },
   highlight: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
+    top: 1,
+    bottom: 1,
     left: 0,
     borderRadius: 999,
-    backgroundColor: Theme.dockActiveFill,
+    overflow: 'hidden',
   },
   sidePill: {
     width: 62,
@@ -500,8 +477,25 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   sideFill: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    bottom: 2,
+    left: 2,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  mirror: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 999,
-    backgroundColor: Theme.dockActiveFill,
+    overflow: 'hidden',
+  },
+  mirrorSpecular: {
+    position: 'absolute',
+    top: 0,
+    left: 14,
+    right: 14,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Theme.pulseTabClusterThumbSpecular,
   },
 });

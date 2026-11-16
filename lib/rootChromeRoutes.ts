@@ -50,6 +50,7 @@ export function pathnameHasRootTopNav(pathname: string): boolean {
   if (!pathname) return false;
   if (isInvoiceDockPath(pathname)) return true;
   if (pathnameUsesExpoProductShell(pathname)) return false;
+  if (pathnameIsComplianceTripDetail(pathname)) return false;
   return ROOT_TOP_NAV_PATHS.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`),
   );
@@ -69,7 +70,7 @@ export function overlayActiveTab(pathname: string): OverlayDockTabId {
   if (pathname.includes('/finance')) return 'finance';
   if (pathname.includes('/trips')) return 'trips';
   if (pathname.includes('/network') || pathname.includes('/hub')) return 'network';
-  return 'loadCenter';
+  return 'trips';
 }
 
 export function overlayPathForTab(tab: OverlayDockTabId): string {

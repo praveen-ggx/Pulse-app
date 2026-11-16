@@ -27,7 +27,7 @@ import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { useOptionalAuth } from "@/contexts/AuthContext";
-import { HomePageHeader } from "@/components/HomePageHeader";
+import { TopNavNotificationButton, TopNavProfileButton } from "@/components/HomePageHeader";
 import { useProtocolInvitesWithDriverSent } from "@/lib/hooks/useProtocolInvitesWithDriverSent";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -590,6 +590,7 @@ export default function TripsScreen() {
   const [customDateTo, setCustomDateTo] = useState<string | null>(null);
   const [tripLedgerExportOpen, setTripLedgerExportOpen] = useState(false);
   const [tripReportDownloading, setTripReportDownloading] = useState(false);
+  const tripReportInFlight = useRef(false);
   const [exportDateModalVisible, setExportDateModalVisible] = useState(false);
   /** Domain flags — finance gates cost columns on Trip Report export. */
   const memberDomains = useMemberCapabilities();
@@ -2923,8 +2924,14 @@ export default function TripsScreen() {
    * - TripOps-only → All Trips ops sheet (20 columns + stage times).
    */
   const handleDownloadTripReport = useCallback(async (exportFrom: string, exportTo: string) => {
-    if (!orgId || tripReportDownloading || isGroundOpsMember || isSourcingMember) return;
+    if (!orgId || tripReportInFlight.current || isGroundOpsMember || isSourcingMember) return;
+    tripReportInFlight.current = true;
     setTripReportDownloading(true);
+    // The catalog scan can hang on a statement timeout. Release the header
+    // button; the in-flight ref still blocks a second export until this one ends.
+    const reportTimeout = setTimeout(() => {
+      setTripReportDownloading(false);
+    }, 20_000);
     try {
       const audience = resolveTripIndentReportAudience(memberDomains);
       const catalog = await loadTripIndentReportCatalog(
@@ -3038,11 +3045,12 @@ export default function TripsScreen() {
       const message = e instanceof Error ? e.message : String(e);
       showAppAlert("Export failed", message || "Could not download the trip report.");
     } finally {
+      clearTimeout(reportTimeout);
+      tripReportInFlight.current = false;
       setTripReportDownloading(false);
     }
   }, [
     orgId,
-    tripReportDownloading,
     hubTrips,
     allIndents,
     sourcingScope,
@@ -4312,7 +4320,13 @@ export default function TripsScreen() {
                 <>
                   <HubMobileScreenHeader
                     title={tr("myTrips")}
-                    action={renderLoadNetworkButton(true)}
+                    leading={<TopNavProfileButton size={36} />}
+                    action={
+                      <View style={hubChrome.screenHeaderActions}>
+                        {renderLoadNetworkButton(true)}
+                        <TopNavNotificationButton />
+                      </View>
+                    }
                   />
                   <View style={[hubChrome.tabHeaderRow, styles.tripsMobileTabRow]}>
                     <ScrollView

@@ -1,12 +1,18 @@
 /**
- * Mobile bottom navigation — matte brown dock (same brown as Customers /
- * Suppliers). Main tabs share one pill with a sliding highlight; Marketplace
+ * Mobile bottom navigation — Verify-pill colour: light blue fill, brown
+ * border, brown icons. Layout unchanged. Main tabs share one pill; Marketplace
  * and Chat each sit in their own pill on the same tray.
  * Each slot follows the same member access as the desktop top nav.
  */
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import {
   DollarSign,
   Home,
@@ -56,6 +62,28 @@ type DockTab = {
 };
 
 const HIGHLIGHT_INSET = 3;
+/** Short glide. Starts on press so the page and the thumb move together. */
+const FLOW = { duration: 70, easing: Easing.out(Easing.cubic) } as const;
+
+/** Apple-style mirror thumb: glass falloff and a hairline specular. */
+function MirrorFill() {
+  return (
+    <View style={styles.mirror} pointerEvents="none">
+      <LinearGradient
+        colors={[
+          Theme.pulseTabClusterThumbGlassTop,
+          Theme.pulseTabClusterThumbSolid,
+          Theme.pulseTabClusterThumbGlassBottom,
+        ]}
+        locations={[0, 0.42, 1]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.mirrorSpecular} />
+    </View>
+  );
+}
 
 function DockIcon({
   Icon,
@@ -68,7 +96,7 @@ function DockIcon({
   active: boolean;
   size: number;
   fill?: boolean;
-  /** Resting colour for a feature pill (Marketplace); active is always white. */
+  /** Resting colour for a feature pill (Marketplace). Active is dock ink. */
   tint?: string;
 }) {
   return (
@@ -76,16 +104,16 @@ function DockIcon({
       size={size}
       color={active ? Theme.dockIconActive : (tint ?? Theme.dockIconMuted)}
       fill={fill && active ? Theme.dockIconActive : 'transparent'}
-      strokeWidth={active ? 2.2 : 1.8}
+      strokeWidth={active ? 2.05 : 1.75}
     />
   );
 }
 
-/** Side pill fill. Follows the open page, not the finger. */
+/** Side pill mirror. Same glass as the sliding thumb. */
 function SideTrack({ active, children }: { active: boolean; children: ReactNode }) {
   return (
     <View style={styles.sideTrack}>
-      {active ? <View style={[styles.sideFill, pe('none')]} /> : null}
+      {active ? <View style={[styles.sideFill, pe('none')]}><MirrorFill /></View> : null}
       {children}
     </View>
   );
@@ -133,8 +161,10 @@ function PulseBottomTabBarInner({
   const showMarketplace = visibility?.loadCenter ?? true;
 
   const routeKey = isChatRoute ? 'chat' : activeTab;
-  const marketplaceActive = routeKey === 'loadCenter';
-  const chatActive = routeKey === 'chat';
+  const [pressedKey, setPressedKey] = useState<string | null>(null);
+  const selectedKey = pressedKey ?? routeKey;
+  const marketplaceActive = selectedKey === 'loadCenter';
+  const chatActive = selectedKey === 'chat';
 
   const [trackWidth, setTrackWidth] = useState(0);
   const slotWidth = tabs.length > 0 ? trackWidth / tabs.length : 0;
@@ -145,33 +175,49 @@ function PulseBottomTabBarInner({
   const highlightX = useSharedValue(0);
   const highlightOpacity = useSharedValue(routeKey === 'chat' || routeKey === 'loadCenter' ? 0 : 1);
   const gestureOpened = useRef(false);
+  const laidOut = useRef(false);
 
   const placeHighlight = useCallback(
-    (key: string) => {
+    (key: string, flow: boolean) => {
       const width = slotWidthRef.current;
       if (width <= 0) return;
       const index =
         key === 'chat' || key === 'loadCenter'
           ? -1
           : tabsRef.current.findIndex((tab) => tab.id === key);
-      highlightOpacity.value = index >= 0 ? 1 : 0;
-      if (index >= 0) highlightX.value = index * width + HIGHLIGHT_INSET;
+      const shown = index >= 0 ? 1 : 0;
+      highlightOpacity.value = flow ? withTiming(shown, FLOW) : shown;
+      if (index >= 0) {
+        const target = index * width + HIGHLIGHT_INSET;
+        highlightX.value = flow ? withTiming(target, FLOW) : target;
+      }
     },
     [highlightOpacity, highlightX],
   );
 
   useEffect(() => {
-    placeHighlight(routeKey);
-  }, [placeHighlight, routeKey, slotWidth]);
+    setPressedKey((current) => (current == null || current === routeKey ? null : current));
+  }, [routeKey]);
 
-  const openFromPress = useCallback((open: () => void) => {
-    if (gestureOpened.current) return;
-    gestureOpened.current = true;
-    open();
-    requestAnimationFrame(() => {
-      gestureOpened.current = false;
-    });
-  }, []);
+  useEffect(() => {
+    if (pressedKey != null) return;
+    placeHighlight(routeKey, laidOut.current);
+    laidOut.current = true;
+  }, [placeHighlight, pressedKey, routeKey, slotWidth]);
+
+  const openFromPress = useCallback(
+    (key: string, open: () => void) => {
+      if (gestureOpened.current) return;
+      gestureOpened.current = true;
+      setPressedKey(key);
+      placeHighlight(key, true);
+      open();
+      requestAnimationFrame(() => {
+        gestureOpened.current = false;
+      });
+    },
+    [placeHighlight],
+  );
 
   const highlightStyle = useAnimatedStyle(() => ({
     opacity: highlightOpacity.value,
@@ -215,7 +261,7 @@ function PulseBottomTabBarInner({
 
   const mainPress = (tab: DockTab) => ({
     onPressIn: () => {
-      openFromPress(() => {
+      openFromPress(tab.id, () => {
         switchTab(tab.id);
         warmAfterSelect(tab.id);
       });
@@ -225,7 +271,7 @@ function PulseBottomTabBarInner({
         gestureOpened.current = false;
         return;
       }
-      openFromPress(() => {
+      openFromPress(tab.id, () => {
         switchTab(tab.id);
         warmAfterSelect(tab.id);
       });
@@ -246,10 +292,12 @@ function PulseBottomTabBarInner({
                     highlightStyle,
                     pe('none'),
                   ]}
-                />
+                >
+                  <MirrorFill />
+                </Animated.View>
               ) : null}
               {tabs.map((tab) => {
-                const active = routeKey === tab.id;
+                const active = selectedKey === tab.id;
                 const press = mainPress(tab);
                 return (
                   <PulseBottomTabSlot
@@ -283,7 +331,7 @@ function PulseBottomTabBarInner({
                 badgeCount={activeLoadCount}
                 compact={isCompactMobile}
                 onPressIn={() => {
-                  openFromPress(() => {
+                  openFromPress('loadCenter', () => {
                     switchTab('loadCenter');
                     warmAfterSelect('loadCenter');
                   });
@@ -293,7 +341,7 @@ function PulseBottomTabBarInner({
                     gestureOpened.current = false;
                     return;
                   }
-                  openFromPress(() => {
+                  openFromPress('loadCenter', () => {
                     switchTab('loadCenter');
                     warmAfterSelect('loadCenter');
                   });
@@ -303,7 +351,7 @@ function PulseBottomTabBarInner({
                     Icon={Store}
                     active={marketplaceActive}
                     size={iconSize}
-                    tint={Theme.dockAccent}
+                    tint={Theme.dockIconMuted}
                   />
                 }
               />
@@ -319,7 +367,7 @@ function PulseBottomTabBarInner({
                 badgeCount={messageUnreadCount}
                 compact={isCompactMobile}
                 onPressIn={() => {
-                  openFromPress(() => {
+                  openFromPress('chat', () => {
                     onCollapseNetworkDock();
                     onOpenChat();
                     requestAnimationFrame(() => onOpenChatWarm?.());
@@ -330,7 +378,7 @@ function PulseBottomTabBarInner({
                     gestureOpened.current = false;
                     return;
                   }
-                  openFromPress(() => {
+                  openFromPress('chat', () => {
                     onCollapseNetworkDock();
                     onOpenChat();
                     requestAnimationFrame(() => onOpenChatWarm?.());
@@ -395,8 +443,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     overflow: 'hidden',
     backgroundColor: Theme.dockPillFill,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.dockPillBorder,
     padding: D.dockPillInset,
   },
   mainPill: {
@@ -414,11 +460,11 @@ const styles = StyleSheet.create({
   },
   highlight: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
+    top: 1,
+    bottom: 1,
     left: 0,
     borderRadius: 999,
-    backgroundColor: Theme.dockActiveFill,
+    overflow: 'hidden',
   },
   sidePill: {
     width: 62,
@@ -431,8 +477,25 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   sideFill: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    bottom: 2,
+    left: 2,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  mirror: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 999,
-    backgroundColor: Theme.dockActiveFill,
+    overflow: 'hidden',
+  },
+  mirrorSpecular: {
+    position: 'absolute',
+    top: 0,
+    left: 14,
+    right: 14,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Theme.pulseTabClusterThumbSpecular,
   },
 });

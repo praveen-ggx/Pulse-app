@@ -4301,7 +4301,7 @@ export default function TripsScreen() {
                 <>
                   <HubMobileScreenHeader
                     title={tr("myTrips")}
-                    leading={<TopNavProfileButton />}
+                    leading={<TopNavProfileButton size={36} />}
                     action={
                       <View style={hubChrome.screenHeaderActions}>
                         {renderLoadNetworkButton(true)}

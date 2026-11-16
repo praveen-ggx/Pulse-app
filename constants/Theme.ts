@@ -316,18 +316,17 @@ export const Theme = {
   tabBarBorderTop: "rgba(205, 233, 247, 0.55)",
   tabBarPillActiveBg: "#F4F4F4",
   tabBarActiveIconBorder: "#E82127",
-  /** Mobile dock tray — same matte brown as the Customers / Suppliers bar. */
-  dockFill: "#4D3636",
-  /** Pill sitting on the tray: one step lighter, still matte. */
-  dockPillFill: "#5C4444",
-  dockPillBorder: "rgba(255,255,255,0.14)",
-  /** Selected slot. Lighter brown, not gray. */
-  dockActiveFill: "#6E5454",
+  /** Mobile dock — Verify pill: light blue fill, brown ink, brown border. */
+  dockFill: "#CDE9F7",
+  dockPillFill: "#CDE9F7",
+  dockPillBorder: "#4D3636",
+  /** Selected slot. One step deeper blue, same family. */
+  dockActiveFill: "#B9E2F5",
   dockAccent: "#FFCE44",
-  dockIconActive: "#FFFFFF",
-  dockIconMuted: "rgba(255,255,255,0.86)",
+  dockIconActive: "#4D3636",
+  dockIconMuted: "#4D3636",
   dockShadow: "#2C1E1E",
-  dockBadgeRing: "#4D3636",
+  dockBadgeRing: "#CDE9F7",
 
   // ---- Driver app (reference: Qu Neural Link) ----
   /** CTAs / filled pills — emerald-600 (deeper than legacy neon green) */

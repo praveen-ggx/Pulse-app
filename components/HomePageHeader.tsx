@@ -102,7 +102,14 @@ function Badge({ count }: { count: number }) {
 }
 
 /** Profile avatar from the top nav. Opens the workspace profile. */
-export function TopNavProfileButton({ onPress }: { onPress?: () => void }) {
+export function TopNavProfileButton({
+  onPress,
+  size = HEADER_AVATAR_SIZE,
+}: {
+  onPress?: () => void;
+  /** Circle diameter. Hub titles use a smaller size than the main header. */
+  size?: number;
+}) {
   const router = useRouter();
   const { profile, user } = useAuth();
   const [profileAvatarUri, setProfileAvatarUri] = useState<string | null>(null);
@@ -166,7 +173,11 @@ export function TopNavProfileButton({ onPress }: { onPress?: () => void }) {
   return (
     <Pressable
       onPress={handleProfile}
-      style={({ pressed }) => [styles.avatarBtn, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.avatarBtn,
+        { width: size, height: size, borderRadius: size / 2 },
+        pressed && styles.pressed,
+      ]}
       accessibilityRole="button"
       accessibilityLabel="Open profile"
       hitSlop={6}
@@ -175,7 +186,7 @@ export function TopNavProfileButton({ onPress }: { onPress?: () => void }) {
         <Image source={{ uri: profileAvatarUri }} style={styles.avatarImage} />
       ) : (
         <View style={styles.avatarFallback}>
-          <Text style={styles.avatarInitials}>{initials}</Text>
+          <Text style={[styles.avatarInitials, { fontSize: Math.round(size * 0.32) }]}>{initials}</Text>
         </View>
       )}
     </Pressable>

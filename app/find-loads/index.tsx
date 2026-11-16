@@ -26,16 +26,20 @@ import { LaneBidInvitesCard } from "@/features/network/components/laneOffers/Lan
 import { PooledOpportunityCard } from "@/features/network/components/pooled/PooledOpportunityCard";
 import {
   listMarketplaceSearchLanes,
+  countMyOrgMarketBids,
   listMyOrgMarketBids,
   listMarketplaceConvertedTrips,
-  listOpenMarketplaceLoadsPage,
   getOrgMarketplacePool,
   marketBidsFromQueryData,
 } from "@/features/network/services/findLoadsForOrg.service";
-import {
-  positiveLaneTarget,
-} from "@/features/network/utils/marketplaceSearch.util";
 import { hotMarketplaceLanes } from "@/features/network/utils/hotMarketplaceLanes.util";
+import {
+  applyLaneTargetBootstrap,
+  bootstrapMarketplaceLaneTargets,
+  laneDeclaresTargetRange,
+  marketplaceLaneTargetKey,
+  type LaneTargetRange,
+} from "@/features/network/utils/marketplaceLaneTargetBootstrap.util";
 import { marketplaceArBook } from "@/features/network/utils/marketplaceWallet.util";
 import {
   liveLaneSelection,
@@ -50,7 +54,6 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ChevronLeft } from "lucide-react-native";
 import {
-  canonicalPoolField,
   filterLanesBySelection,
   filterPoolLanes,
   laneSelectionActive,
@@ -62,7 +65,7 @@ import {
 import { STALE } from "@/lib/queryClient";
 import { isVehicleTypeCompatibleWithFleet } from "@/features/marketplace/utils/fleetFit.util";
 import { getVehiclesByOrganization } from "@/features/vehicles/services/vehicles.service";
-import { countActiveMarketplaceBids, loadsCaption } from "@/features/network/utils/bidLoadCount.util";
+import { countActiveLoadsInPlay, loadsCaption } from "@/features/network/utils/bidLoadCount.util";
 import { marketplaceFeeGateSatisfied } from "@/features/network/services/marketBids.service";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import { queryKeys } from "@/lib/queryKeys";
@@ -82,6 +85,30 @@ import {
 
 type Segment = "discover" | "myBids" | "transactions" | "wallet";
 
+const DiscoverLaneCard = React.memo(function DiscoverLaneCard({
+  lane,
+  fitsFleet,
+  isDesktop,
+  columns,
+  onOpen,
+}: {
+  lane: ReturnType<typeof filterPoolLanes>[number];
+  fitsFleet: boolean;
+  isDesktop: boolean;
+  columns: number;
+  onOpen: (lane: ReturnType<typeof filterPoolLanes>[number], bid: boolean) => void;
+}) {
+  return (
+    <PooledOpportunityCard
+      lane={lane}
+      fitsFleet={fitsFleet}
+      isDesktop={isDesktop}
+      columns={columns}
+      onPress={() => onOpen(lane, false)}
+      onBid={() => onOpen(lane, true)}
+    />
+  );
+});
 
 export default function FindLoadsScreen() {
   const layout = useLayoutInsets();
@@ -151,9 +178,22 @@ export default function FindLoadsScreen() {
     [vehiclesQ.data],
   );
 
+  const bidCountsQ = useQuery({
+    queryKey: queryKeys.findLoadsForOrg.bidCounts(orgId ?? ""),
+    queryFn: async () => {
+      const { error, counts } = await countMyOrgMarketBids(orgId as string);
+      if (error) throw error;
+      return counts;
+    },
+    enabled: !!orgId,
+    staleTime: STALE.frequent,
+  });
+  const bidTotals = bidCountsQ.data
+    ? { awarded: bidCountsQ.data.accepted, ratesSent: bidCountsQ.data.total }
+    : null;
   const myBidsQ = useQuery({
     queryKey: queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
-    queryFn: () => listMyOrgMarketBids(orgId as string, 100),
+    queryFn: () => listMyOrgMarketBids(orgId as string),
     enabled: !!orgId,
     staleTime: STALE.frequent,
     placeholderData: keepPreviousData,
@@ -213,7 +253,52 @@ export default function FindLoadsScreen() {
     [myBids, convertedTrips, wonTripsQ.data?.receipts, orgId],
   );
 
-  const lanes = useMemo(() => lanesQ.data ?? [], [lanesQ.data]);
+  const rawLanes = lanesQ.data ?? [];
+  const [targetBootstrap, setTargetBootstrap] = useState<Record<string, LaneTargetRange>>({});
+  const lanes = useMemo(
+    () => applyLaneTargetBootstrap(rawLanes, targetBootstrap),
+    [rawLanes, targetBootstrap],
+  );
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    void AsyncStorage.getItem(marketplaceLaneTargetKey(orgId)).then((raw) => {
+      if (cancelled || !raw) return;
+      try {
+        const parsed = JSON.parse(raw) as Record<string, LaneTargetRange>;
+        if (!parsed || typeof parsed !== "object") return;
+        setTargetBootstrap((prev) => ({ ...parsed, ...prev }));
+      } catch {
+        /* a bad cache just waits for the next read */
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  useEffect(() => {
+    if (!orgId || rawLanes.length === 0) return;
+    if (rawLanes.every(laneDeclaresTargetRange)) return;
+    let cancelled = false;
+    void bootstrapMarketplaceLaneTargets(
+      orgId,
+      rawLanes,
+      (poolId, range) => {
+        if (cancelled) return;
+        setTargetBootstrap((prev) => {
+          const next = { ...prev, [poolId]: range };
+          AsyncStorage.setItem(marketplaceLaneTargetKey(orgId), JSON.stringify(next)).catch(() => undefined);
+          return next;
+        });
+      },
+      () => cancelled,
+    ).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, rawLanes]);
   const [laneHighWater, setLaneHighWater] = useState<Record<string, number>>({});
   const laneCountsReady = useRef<string | null>(null);
 
@@ -332,72 +417,14 @@ export default function FindLoadsScreen() {
       keys.has(bidderLaneKey(lane.pickup_area, lane.drop_location)),
     );
   }, [lanes, myBids]);
-  const discoverColumns = layout.isDesktopWeb ? 3 : 1;
-  const [laneTargets, setLaneTargets] = useState<
-    Record<string, { min: number | null; max: number | null }>
-  >({});
-
-  useEffect(() => {
-    const source = segment === "discover" ? listedPools : segment === "myBids" ? bidPools : [];
-    if (!orgId || source.length === 0) return;
-    const missing = source.filter(
-      (lane) =>
-        positiveLaneTarget(lane.target_rate_min) == null &&
-        laneTargets[lane.poolId] == null,
-    );
-    if (missing.length === 0) return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      void (async () => {
-        const found: Record<string, { min: number | null; max: number | null }> = {};
-        for (let index = 0; index < missing.length; index += 2) {
-          if (cancelled) return;
-          const wave = missing.slice(index, index + 2);
-          await Promise.all(
-            wave.map(async (lane) => {
-              let min: number | null = null;
-              let max: number | null = null;
-              let seen = 0;
-              let offset = 0;
-              const expected = Number(lane.load_count) || 0;
-              for (let page = 0; page < 6; page += 1) {
-                if (cancelled) return;
-                const result = await listOpenMarketplaceLoadsPage(orgId, offset, 15, {
-                  pickup: lane.pickup_area,
-                  drop: lane.drop_location,
-                  vehicleType: lane.vehicle_type,
-                });
-                if (result.error) break;
-                for (const load of result.loads) {
-                  if (load.is_sponsored) continue;
-                  if (
-                    canonicalPoolField(load.pickup_area) !== canonicalPoolField(lane.pickup_area) ||
-                    canonicalPoolField(load.drop_location) !== canonicalPoolField(lane.drop_location) ||
-                    canonicalPoolField(load.vehicle_type) !== canonicalPoolField(lane.vehicle_type)
-                  ) {
-                    continue;
-                  }
-                  seen += 1;
-                  const rate = positiveLaneTarget(load.rate_offer);
-                  if (rate == null) continue;
-                  min = min == null ? rate : Math.min(min, rate);
-                  max = max == null ? rate : Math.max(max, rate);
-                }
-                if (!result.hasMore || result.nextOffset == null || (expected > 0 && seen >= expected)) break;
-                offset = result.nextOffset;
-              }
-              found[lane.poolId] = { min, max };
-            }),
-          );
-        }
-        if (!cancelled) setLaneTargets((current) => ({ ...current, ...found }));
-      })();
-    }, 700);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [segment, orgId, listedPools, bidPools, laneTargets]);
+  const discoverColumns = layout.isDesktopWeb ? 2 : 1;
+  const openLane = useCallback(
+    (lane: (typeof listedPools)[number], bid: boolean) => {
+      warmPool(lane);
+      router.push(ROUTES.findLoadsPool(poolKeyFromLane(lane), bid ? { bid: true } : undefined) as Href);
+    },
+    [router, warmPool],
+  );
 
   if (accessLoading) {
     return <ChromeBelowTopNavLoadingScreen variant="preparing" />;
@@ -413,7 +440,7 @@ export default function FindLoadsScreen() {
     return <ChromeBelowTopNavLoadingScreen variant={orgLoading ? "preparing" : "generic"} />;
   }
 
-  const myBidTotals = countActiveMarketplaceBids(myBids);
+  const myBidTotals = countActiveLoadsInPlay(myBids, lanesQ.isSuccess ? lanes : null);
   const headerSubtitle =
     segment === "wallet"
       ? "Fees due on awarded loads"
@@ -586,6 +613,7 @@ export default function FindLoadsScreen() {
           <MarketplaceWalletBoard
             orgName={organization?.name ?? ""}
             bids={myBids}
+            bidTotals={bidTotals}
             statementBids={transactionBids}
             statementReady={transactionsReady}
             arBook={arBook}
@@ -619,13 +647,13 @@ export default function FindLoadsScreen() {
             awardIndents={wonTripsQ.data?.indents ?? []}
             lanePreviewByBidId={lanePreviewByBidId}
             lanes={lanes}
-            laneTargets={laneTargets}
             lanesReady={lanesQ.isSuccess}
             isLoading={myBidsQ.isLoading}
             orgId={orgId}
             onPaymentUpdated={() => {
               if (orgId) {
                 queryClient.invalidateQueries({ queryKey: queryKeys.findLoadsForOrg.myBids(orgId) });
+                queryClient.invalidateQueries({ queryKey: queryKeys.findLoadsForOrg.bidCounts(orgId) });
               }
             }}
           />
@@ -637,6 +665,10 @@ export default function FindLoadsScreen() {
           key={`discover-${discoverColumns}-${showHotLanesOnly ? "hot" : "all"}`}
           numColumns={discoverColumns}
           keyExtractor={(item) => item.poolId}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          updateCellsBatchingPeriod={50}
           style={styles.list}
           contentContainerStyle={[
             styles.listContent,
@@ -649,7 +681,7 @@ export default function FindLoadsScreen() {
           }
           {...tabBarScrollProps}
           ListHeaderComponent={
-            <View>
+            <View style={styles.listHeaderLift}>
               {chromeScrollsWithContent ? pageChrome() : null}
               {showHotLanesOnly ? (
                 <MarketplaceLanding
@@ -680,6 +712,8 @@ export default function FindLoadsScreen() {
                   }}
                   onWarmFeaturedLane={warmPool}
                   lanes={lanes}
+                  lanesReady={lanesQ.isSuccess}
+                  bidTotals={bidTotals}
                   assignBids={assignBids}
                   onAssignVehicle={(bid) =>
                     router.push(ROUTES.indentAllocation(bid.indent_id, "vehicle") as Href)
@@ -708,24 +742,12 @@ export default function FindLoadsScreen() {
             ) : null
           }
           renderItem={({ item }) => (
-            <PooledOpportunityCard
-              lane={{
-                ...item,
-                target_rate_min: item.target_rate_min ?? laneTargets[item.poolId]?.min,
-                target_rate_max: item.target_rate_max ?? laneTargets[item.poolId]?.max,
-              }}
+            <DiscoverLaneCard
+              lane={item}
               fitsFleet={isVehicleTypeCompatibleWithFleet(item.vehicle_type, fleetVehicleTypes)}
               isDesktop={!!layout.isDesktopWeb}
               columns={discoverColumns}
-              onPress={() => {
-                warmPool(item);
-                router.push(ROUTES.findLoadsPool(poolKeyFromLane(item)) as Href);
-              }}
-              onBid={() => {
-                warmPool(item);
-                router.push(ROUTES.findLoadsPool(poolKeyFromLane(item), { bid: true }) as Href);
-              }}
-              onWarm={() => warmPool(item)}
+              onOpen={openLane}
             />
           )}
         />
@@ -750,6 +772,8 @@ export default function FindLoadsScreen() {
             onOpenTransactions={() => setSegment("transactions")}
             onShowAllLanes={() => {}}
             lanes={lanes}
+            lanesReady={lanesQ.isSuccess}
+            bidTotals={bidTotals}
             featuredLanes={featuredLanes}
             onOpenFeaturedLane={(lane) => {
               warmPool(lane);
@@ -775,7 +799,7 @@ export default function FindLoadsScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Theme.analyticsCanvas },
+  root: { flex: 1, backgroundColor: Theme.surface },
   pageScroll: {
     flex: 1,
     width: "100%",
@@ -833,7 +857,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   chrome: {
-    backgroundColor: Theme.analyticsCanvas,
+    backgroundColor: Theme.surface,
     paddingTop: 18,
     paddingBottom: 8,
   },
@@ -868,6 +892,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  listHeaderLift: {
+    zIndex: 8,
+    overflow: "visible",
+  },
   headerFilters: {
     flex: 1,
     minWidth: 0,
@@ -875,7 +903,8 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
     borderColor: Theme.borderLight,
-    overflow: "hidden",
+    overflow: "visible",
+    zIndex: 8,
     justifyContent: "center",
   },
   backBtn: {
@@ -958,11 +987,11 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     paddingTop: 8,
     paddingBottom: 32,
-    gap: 12,
+    gap: 8,
   },
   listContentDesktop: {
     paddingTop: 0,
     paddingHorizontal: 0,
-    gap: 16,
+    gap: 8,
   },
 });

@@ -324,6 +324,7 @@ export default function DriverMarketPoolScreen() {
         drop={key.drop}
         vehicleType={key.vehicleType}
         targetRateInr={summary.targetRateMin}
+        targetRateMaxInr={summary.targetRateMax}
         entryLabel="Your rate for this pooled opportunity"
         contextLine={`Applies to all ${targetsLabel} in this pool`}
         submitLabel="Submit rate for pool"

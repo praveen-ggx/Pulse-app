@@ -22,11 +22,10 @@ import { MotiView } from 'moti';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Theme from '@/constants/Theme';
 import { PulsePillButton } from '@/components/PulsePillButton';
-import { formatINR } from '@/lib/format';
 import { DecimalKeypad, PAY_KEYPAD_CELL_PAD, PAY_KEYPAD_INSET } from './DecimalKeypad';
 import { BidVsTargetHint } from './BidVsTargetHint';
 import { MatchTargetLink } from './MatchTargetLink';
-import { resolveBidVsTarget } from './bidVsTarget';
+import { formatTargetBand, resolveBidVsTargetBand, targetBand, targetBandIsRange } from './bidVsTarget';
 import { NumericDisplay } from './NumericDisplay';
 import type { NumericEntryPartyPreview } from './NumericEntryPartyBanner';
 import { NumericEntryRecipientHero } from './NumericEntryRecipientHero';
@@ -73,6 +72,8 @@ export interface FullscreenNumericEntryProps {
    * and a tiny ± vs target caption appears under the value.
    */
   targetRate?: number | null;
+  /** High end when the pool's loads do not share one target. */
+  targetRateMax?: number | null;
   /**
    * Optional override above the keypad (e.g. "Match counter").
    * When omitted, a target rate shows “Match target”. Tap fills and submits.
@@ -101,6 +102,7 @@ export function FullscreenNumericEntry({
   submitLabel = 'Apply',
   validationError,
   targetRate = null,
+  targetRateMax = null,
   quickFill = null,
   overlay = null,
   footerLink = null,
@@ -145,6 +147,12 @@ export function FullscreenNumericEntry({
     onSubmit(rawToSubmitValue(raw));
   }, [raw, onSubmit]);
 
+  const band = useMemo(
+    () => targetBand(targetRate, targetRateMax),
+    [targetRate, targetRateMax],
+  );
+  const bandIsRange = band != null && targetBandIsRange(band);
+
   const matchOffer = useMemo(() => {
     if (type !== 'currency') return null;
     if (
@@ -157,11 +165,10 @@ export function FullscreenNumericEntry({
         amount: Math.round(quickFill.amount),
       };
     }
-    if (targetRate != null && Number.isFinite(targetRate) && targetRate > 0) {
-      return { label: 'Match target', amount: Math.round(targetRate) };
-    }
-    return null;
-  }, [quickFill, targetRate, type]);
+    if (band == null) return null;
+    if (bandIsRange) return { label: 'Match low', amount: Math.round(band.min) };
+    return { label: 'Match target', amount: Math.round(band.min) };
+  }, [quickFill, band, bandIsRange, type]);
 
   const handleMatchTarget = useCallback(() => {
     if (matchOffer == null) return;
@@ -188,8 +195,8 @@ export function FullscreenNumericEntry({
 
   const vsTarget = useMemo(() => {
     if (type !== 'currency') return null;
-    return resolveBidVsTarget(parseRawToNumber(raw), targetRate);
-  }, [raw, targetRate, type]);
+    return resolveBidVsTargetBand(parseRawToNumber(raw), band);
+  }, [raw, band, type]);
 
   const amountDisplay = (
     <View style={styles.amountStack}>
@@ -204,8 +211,8 @@ export function FullscreenNumericEntry({
       />
       {vsTarget ? (
         <BidVsTargetHint caption={vsTarget.caption} tone={vsTarget.tone} />
-      ) : targetRate != null && targetRate > 0 && type === 'currency' ? (
-        <Text style={styles.targetFallback}>Target {formatINR(targetRate)}</Text>
+      ) : band != null && type === 'currency' ? (
+        <Text style={styles.targetFallback}>Target {formatTargetBand(band)}</Text>
       ) : null}
     </View>
   );
@@ -359,10 +366,12 @@ export function FullscreenNumericEntry({
             dense
             compact
           />
-          {targetRate != null && targetRate > 0 ? (
+          {band != null ? (
             <View style={styles.targetChip}>
-              <Text style={styles.targetChipLabel}>Target</Text>
-              <Text style={styles.targetChipValue}>{formatINR(targetRate)}</Text>
+              <Text style={styles.targetChipLabel}>{bandIsRange ? 'Range' : 'Target'}</Text>
+              <Text style={styles.targetChipValue} numberOfLines={1}>
+                {formatTargetBand(band)}
+              </Text>
             </View>
           ) : null}
         </View>
@@ -706,6 +715,7 @@ const styles = StyleSheet.create({
   targetChip: {
     flexDirection: 'row',
     alignItems: 'center',
+    maxWidth: '100%',
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -722,6 +732,7 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
   },
   targetChipValue: {
+    flexShrink: 1,
     fontSize: 12,
     fontWeight: '700',
     color: Theme.primary,

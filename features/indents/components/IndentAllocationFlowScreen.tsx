@@ -94,7 +94,7 @@ export function IndentAllocationFlowScreen({
   const marketFeeQ = useQuery({
     queryKey: queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
     queryFn: async () => {
-      const result = await listMyOrgMarketBids(orgId as string, 80);
+      const result = await listMyOrgMarketBids(orgId as string);
       if (result.error) throw result.error;
       return result;
     },

@@ -28,9 +28,18 @@ function parseSet() {
 }
 
 describe("marketplace-lane-rate release set", () => {
-  it("applies the standing-lane trigger and the opt-in replacement in order, off-midnight, not frozen", () => {
+  it("applies the standing-lane trigger, opt-in, bootstrap, 48-hour commitment and bid expiry in order, off-midnight, not frozen", () => {
     const { versions, sums } = parseSet();
-    expect(versions).toEqual(["20271114173800", "20271114174600", "20271114201500"]);
+    expect(versions).toEqual([
+      "20271114173800",
+      "20271114174600",
+      "20271114201500",
+      "20271116144500",
+      "20271117013000",
+      "20271117021500",
+    ]);
+    expect(new Set(versions).size).toBe(versions.length);
+    expect([...versions].sort()).toEqual(versions);
     expect(versions.every((v) => !v.endsWith("000000"))).toBe(true);
     const frozen = fs
       .readFileSync(path.join(migrations, "../release-sets/FROZEN.versions"), "utf8")

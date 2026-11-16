@@ -3,8 +3,11 @@ import { Pressable, View, Text, StyleSheet } from "react-native";
 import { ChevronRight } from "lucide-react-native";
 import Theme from "@/constants/Theme";
 import { PartyAvatar } from "@/components/PartyAvatar";
+import { PulseImage } from "@/components/PulseImage";
 import type { NumericEntryPartyPreview } from "./NumericEntryPartyBanner";
 import { PoolIndentMark } from "./PoolIndentMark";
+
+const PULSE_MASCOT = require("@/assets/illustrations/pulse_mascot_cutout.png");
 
 export interface NumericEntryRecipientHeroProps {
   party: NumericEntryPartyPreview;
@@ -66,7 +69,7 @@ export const NumericEntryRecipientHero = memo(function NumericEntryRecipientHero
   dense = false,
   onPress,
 }: NumericEntryRecipientHeroProps) {
-  const avatarSize = dense ? 36 : compact ? 44 : 64;
+  const avatarSize = party.mark === "pulse" ? 64 : dense ? 36 : compact ? 44 : 64;
   const title =
     caption && nameInline ? `${caption} ${party.name}`.trim() : party.name;
   const { hero, detail } = resolveHeroDetail(party);
@@ -87,6 +90,21 @@ export const NumericEntryRecipientHero = memo(function NumericEntryRecipientHero
       >
         {party.mark === "pool" ? (
           <PoolIndentMark size={avatarSize} />
+        ) : party.mark === "pulse" ? (
+          <View
+            accessibilityLabel="Pulse"
+            style={[
+              styles.pulseWell,
+              { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 },
+            ]}
+          >
+            <PulseImage
+              source={PULSE_MASCOT}
+              style={{ width: avatarSize * 0.86, height: avatarSize * 0.86 }}
+              contentFit="contain"
+              accessibilityElementsHidden
+            />
+          </View>
         ) : (
           <PartyAvatar
             name={party.name}
@@ -191,6 +209,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+  },
+  pulseWell: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.loadMainTabBg,
+    overflow: "hidden",
   },
   rootCompact: {
     paddingTop: 6,

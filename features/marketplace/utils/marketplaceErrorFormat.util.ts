@@ -27,6 +27,9 @@ export function formatMarketplaceTransactionError(message: string | null | undef
   if (m.includes('already_awarded')) {
     return 'This load has already been awarded to another bid.';
   }
+  if (m.includes('bid_expired')) {
+    return 'This bid has expired and can no longer be accepted.';
+  }
   if (m.includes('bid_locked')) {
     return 'This bid has already been decided and can no longer be changed.';
   }

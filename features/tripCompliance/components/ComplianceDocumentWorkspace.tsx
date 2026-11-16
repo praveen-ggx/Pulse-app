@@ -7384,7 +7384,7 @@ export function ComplianceDocumentWorkspace({
                                   rotation={rotation}
                                   label={docTitle}
                                   onZoomChange={setZoom}
-                                  preferPortrait={mobileExclusive}
+                                  preferPortrait
                                   fitMode={mobileExclusive ? "contain" : previewFit}
                                 />
                                 <View
@@ -7433,7 +7433,7 @@ export function ComplianceDocumentWorkspace({
                                         accessibilityRole="button"
                                         accessibilityLabel={`Add more ${docTitle}`}
                                       >
-                                        <Plus size={10} color={Theme.actionBtnInk} />
+                                        <Plus size={14} color={Theme.actionBtnInk} />
                                         <Text style={styles.shopPreviewToolbarBtnText}>Add more</Text>
                                       </Pressable>
                                       <Pressable
@@ -7478,7 +7478,7 @@ export function ComplianceDocumentWorkspace({
                                         accessibilityRole="button"
                                         accessibilityLabel={`Edit ${docTitle}`}
                                       >
-                                        <Pencil size={10} color={Theme.actionBtnInk} strokeWidth={2} />
+                                        <Pencil size={14} color={Theme.actionBtnInk} strokeWidth={2} />
                                         <Text style={styles.shopPreviewToolbarBtnText}>Edit</Text>
                                       </Pressable>
                                       <Pressable
@@ -7517,11 +7517,11 @@ export function ComplianceDocumentWorkspace({
                                         accessibilityRole="button"
                                         accessibilityLabel={`Delete ${docTitle}`}
                                       >
-                                        <Trash2 size={10} color={Theme.actionBtnInk} strokeWidth={2} />
+                                        <Trash2 size={14} color={Theme.actionBtnInk} strokeWidth={2} />
                                         <Text style={styles.shopPreviewToolbarBtnText}>Delete</Text>
                                       </Pressable>
+                                      <View style={styles.shopPreviewToolbarDivider} />
                                     </View>
-                                    <View style={styles.shopPreviewToolbarDivider} />
                                     </>
                                   ) : null}
                                   <View style={styles.shopPreviewToolbarGroup}>
@@ -7539,7 +7539,7 @@ export function ComplianceDocumentWorkspace({
                                       accessibilityRole="button"
                                       accessibilityLabel="Zoom out"
                                     >
-                                      <Minus size={10} color={Theme.actionBtnInk} />
+                                      <Minus size={14} color={Theme.actionBtnInk} />
                                     </Pressable>
                                     <Text
                                       style={styles.shopToolbarZoomLabel}
@@ -7560,7 +7560,7 @@ export function ComplianceDocumentWorkspace({
                                       accessibilityRole="button"
                                       accessibilityLabel="Zoom in"
                                     >
-                                      <Plus size={10} color={Theme.actionBtnInk} />
+                                      <Plus size={14} color={Theme.actionBtnInk} />
                                     </Pressable>
                                   </View>
                                   <Pressable
@@ -7579,7 +7579,7 @@ export function ComplianceDocumentWorkspace({
                                     accessibilityLabel="Rotate"
                                   >
                                     <RotateCwSquare
-                                      size={10}
+                                      size={14}
                                       color={Theme.actionBtnInk}
                                       strokeWidth={2.1}
                                     />
@@ -7598,7 +7598,7 @@ export function ComplianceDocumentWorkspace({
                                     accessibilityState={{ selected: originalPreviewActive }}
                                   >
                                     <Scan
-                                      size={10}
+                                      size={14}
                                       color={Theme.actionBtnInk}
                                       strokeWidth={2.1}
                                     />
@@ -7614,7 +7614,7 @@ export function ComplianceDocumentWorkspace({
                                     accessibilityRole="button"
                                     accessibilityLabel={`Open ${docTitle} full screen`}
                                   >
-                                    <Maximize2 size={10} color={Theme.actionBtnInk} />
+                                    <Maximize2 size={14} color={Theme.actionBtnInk} />
                                     <Text style={styles.shopPreviewToolbarBtnText}>Full view</Text>
                                   </Pressable>
                                   {summary && onOpenActivityLog ? (
@@ -7624,7 +7624,7 @@ export function ComplianceDocumentWorkspace({
                                       accessibilityRole="button"
                                       accessibilityLabel="View activity log"
                                     >
-                                      <Clock size={10} color={Theme.actionBtnInk} strokeWidth={2.1} />
+                                      <Clock size={14} color={Theme.actionBtnInk} strokeWidth={2.1} />
                                       <Text style={styles.shopPreviewToolbarBtnText}>Log</Text>
                                     </Pressable>
                                   ) : null}
@@ -7701,9 +7701,19 @@ export function ComplianceDocumentWorkspace({
                             )}
                           </View>
                           <View style={styles.shopPreviewFooter}>
-                            <Text style={styles.shopPreviewFooterBrand} numberOfLines={1}>
-                              {docTitle}
-                            </Text>
+                            {(() => {
+                              const brand = docTitle.trim();
+                              const facts = (previewHeaderFacts || "").trim();
+                              const factsNameTheDoc =
+                                brand.length > 0 &&
+                                facts.toLowerCase().startsWith(brand.toLowerCase());
+                              if (!brand || factsNameTheDoc) return null;
+                              return (
+                                <Text style={styles.shopPreviewFooterBrand} numberOfLines={1}>
+                                  {brand}
+                                </Text>
+                              );
+                            })()}
                             {(() => {
                               const tripLabel = summary?.trip
                                 ? getTripDisplayNumber(
@@ -11347,10 +11357,10 @@ const styles = StyleSheet.create({
   },
   checklistDocsContent: {
     flexGrow: 1,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingTop: 8,
-    paddingBottom: 8,
-    gap: 10,
+    paddingBottom: 12,
+    gap: 12,
   },
   checklistDocsContentMobile: {
     paddingHorizontal: 14,
@@ -11358,9 +11368,9 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   checklistVaultRow: {
-    borderRadius: 10,
+    borderRadius: 16,
     overflow: "hidden",
-    marginBottom: 6,
+    marginBottom: 4,
   },
   checklistExpiryBtn: {
     alignSelf: "flex-start",
@@ -12835,16 +12845,16 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   missingTitleRowMobile: {
-    flexWrap: "wrap",
-    alignItems: "flex-start",
+    flexWrap: "nowrap",
+    alignItems: "center",
   },
   missingTitle: {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: "700",
-    letterSpacing: 0.2,
+    letterSpacing: -0.2,
     color: Theme.buttonDark,
   },
   missingCountChip: {
@@ -12861,8 +12871,8 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.complianceStageSuccessBg,
   },
   missingCountChipText: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: "700",
     color: Theme.complianceStageInfoFg,
   },
@@ -13280,8 +13290,8 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   shopToolbarZoomHit: {
-    width: 22,
-    height: 22,
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -13561,12 +13571,17 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
   },
   shopPreviewOverlay: {
-    position: "absolute",
-    top: 10,
-    right: 10,
+    position: "relative",
+    top: 0,
+    right: 0,
+    left: 0,
     zIndex: 30,
     elevation: 30,
-    maxWidth: "94%",
+    maxWidth: "100%",
+    alignSelf: "stretch",
+    backgroundColor: Theme.cardWhite,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#E6E6E8",
   },
   shopPreviewOverlayMobile: {
     position: "relative",
@@ -13595,26 +13610,17 @@ const styles = StyleSheet.create({
   shopPreviewToolbar: {
     flexDirection: "row",
     alignItems: "center",
-    height: 34,
-    paddingHorizontal: 4,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#E6E6E8",
-    backgroundColor: Theme.cardWhite,
-    ...Platform.select({
-      web: { boxShadow: "0 4px 16px rgba(15, 23, 42, 0.10)" } as object,
-      default: {
-        shadowColor: "#0f172a",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-        elevation: 3,
-      },
-    }),
+    justifyContent: "space-between",
+    width: "100%",
+    height: 48,
+    paddingHorizontal: 6,
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
   },
   shopPreviewToolbarMobile: {
     flexShrink: 0,
-    height: 28,
+    height: 44,
     borderWidth: 0,
     borderRadius: 0,
     paddingHorizontal: 0,
@@ -13627,37 +13633,38 @@ const styles = StyleSheet.create({
   shopPreviewToolbarGroup: {
     flexDirection: "row",
     alignItems: "center",
-    height: 26,
+    height: 40,
+    gap: 2,
   },
   shopPreviewToolbarDivider: {
     width: StyleSheet.hairlineWidth,
-    height: 16,
-    marginHorizontal: 4,
+    height: 18,
+    marginHorizontal: 6,
     backgroundColor: "#E6E6E8",
   },
   shopPreviewToolbarBtn: {
-    height: 26,
-    minHeight: 26,
-    paddingHorizontal: 8,
-    borderRadius: 6,
+    height: 36,
+    minHeight: 36,
+    paddingHorizontal: 10,
+    borderRadius: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 6,
   },
   shopPreviewToolbarBtnActive: {
     backgroundColor: Theme.complianceIconWash,
   },
   shopPreviewToolbarBtnText: {
-    fontSize: 10,
-    fontWeight: "500",
-    lineHeight: 12,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
     color: Theme.actionBtnInk,
   },
   shopPreviewToolbarZoom: {
     flexDirection: "row",
     alignItems: "center",
-    height: 26,
+    height: 36,
     paddingHorizontal: 2,
   },
   shopPreviewZoomCluster: {
@@ -13907,12 +13914,12 @@ const styles = StyleSheet.create({
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    minHeight: 40,
+    gap: 10,
+    minHeight: 48,
     backgroundColor: Theme.cardWhite,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: "#EAEAEC",
-    paddingHorizontal: 10,
+    paddingHorizontal: 14,
     paddingVertical: 8,
   },
   shopPreviewFooterBrand: {

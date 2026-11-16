@@ -20,6 +20,7 @@ import {
   DemoTabBarAutoHideShell,
   DemoTabBarScrollProvider,
   useDemoTabBarScrollOptional,
+  useRootDockHidden,
 } from '@/contexts/DemoTabBarScrollContext';
 import * as authService from '@/features/auth/services/auth.service';
 import { isSessionExpiredError } from '@/features/auth/services/auth.service';
@@ -628,15 +629,15 @@ function RootLayoutNav() {
               <Stack.Screen name="load-board" options={{ presentation: 'fullScreenModal' }} />
               <Stack.Screen
                 name="chat"
-                options={{ presentation: 'fullScreenModal', animation: 'slide_from_right', headerShown: false }}
+                options={{ presentation: 'fullScreenModal', animation: 'none', headerShown: false }}
               />
               <Stack.Screen name="trip" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="driver-trip" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="track" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="fleet-operations" options={{ animation: 'slide_from_right', headerShown: false }} />
-              <Stack.Screen name="compliance" options={{ animation: 'slide_from_right', headerShown: false }} />
+              <Stack.Screen name="compliance" options={{ animation: 'none', headerShown: false }} />
               <Stack.Screen name="pulse-loads" options={{ animation: 'slide_from_right', headerShown: false }} />
-              <Stack.Screen name="find-loads" options={{ animation: 'slide_from_right', headerShown: false }} />
+              <Stack.Screen name="find-loads" options={{ animation: 'none', headerShown: false }} />
               <Stack.Screen name="create-indent" options={{ presentation: 'fullScreenModal' }} />
               <Stack.Screen name="indent" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="log-incoming-pods" options={{ presentation: 'card', animation: 'slide_from_right' }} />
@@ -713,6 +714,7 @@ function RootOverlayTabBar() {
     (surfaceLoading || canSurface('trip_compliance.tab')) && complianceProductActive;
 
   const showOnRootScreens = pathnameHasRootTopNav(pathname);
+  const dockHidden = useRootDockHidden();
 
   useEffect(() => {
     if (showOnRootScreens) scrollControls?.resetBarVisible();
@@ -729,7 +731,7 @@ function RootOverlayTabBar() {
     });
   }, [showOnRootScreens, orgId, queryClient, auth?.profile?.role]);
 
-  if (!showOnRootScreens) return null;
+  if (!showOnRootScreens || dockHidden) return null;
 
   const activeTab: DemoTabId = overlayActiveTab(pathname);
   const isDesktopWeb = Platform.OS === 'web' && layoutWidth >= Layout.webDesktopMinWidth;
@@ -767,14 +769,16 @@ function RootOverlayTabBar() {
       onTabChange={(tab) => {
         if (tab === 'loadCenter' && !canViewLoadsHub) return;
         if (tab === 'compliance' && !canOpenCompliance) return;
-        if (tab === 'loadCenter') preloadPulseLoadsRoute();
-        else if (tab === 'finance' || tab === 'trips' || tab === 'network') {
-          preloadTabScreen(tab as PreloadableTab);
-          if (tab === 'finance' && orgId) {
-            preloadFinanceWarmup(queryClient, orgId);
-          }
-        }
         router.push(overlayPathForTab(tab) as '/');
+        requestAnimationFrame(() => {
+          if (tab === 'loadCenter') preloadPulseLoadsRoute();
+          else if (tab === 'finance' || tab === 'trips' || tab === 'network') {
+            preloadTabScreen(tab as PreloadableTab);
+            if (tab === 'finance' && orgId) {
+              preloadFinanceWarmup(queryClient, orgId);
+            }
+          }
+        });
       }}
       onProfilePress={() => router.push(ROUTES.WORKSPACE)}
       onNotificationsPress={() => router.push('/notifications')}

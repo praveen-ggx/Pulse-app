@@ -68,6 +68,27 @@ function emitScrollHideStart() {
   scrollHideListeners.forEach((listener) => listener());
 }
 
+let rootDockHidden = false;
+const rootDockListeners = new Set<() => void>();
+
+/** Hide the floating dock on a route that otherwise keeps it (compliance review). */
+export function setRootDockHidden(next: boolean): void {
+  if (rootDockHidden === next) return;
+  rootDockHidden = next;
+  rootDockListeners.forEach((listener) => listener());
+}
+
+export function useRootDockHidden(): boolean {
+  return React.useSyncExternalStore(
+    (listener) => {
+      rootDockListeners.add(listener);
+      return () => rootDockListeners.delete(listener);
+    },
+    () => rootDockHidden,
+    () => false,
+  );
+}
+
 function setScrollInProgress(next: boolean) {
   if (scrollInProgress === next) return;
   scrollInProgress = next;

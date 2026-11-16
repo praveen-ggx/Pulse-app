@@ -713,8 +713,10 @@ export const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     flexBasis: 0,
-    minWidth: 56,
-    paddingHorizontal: 8,
+    minWidth: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+    overflow: "hidden",
   },
   financeHeroPillInactive: {
     backgroundColor: "rgba(255,255,255,0.05)",
@@ -730,6 +732,17 @@ export const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 1.4,
     color: Theme.textOnDarkMuted,
+  },
+  /** Phone: five equal pills. Wide tracking clipped Customers / Suppliers. */
+  financeHeroPillTextMobile: {
+    fontSize: 7,
+    fontWeight: "700",
+    letterSpacing: 0.15,
+    lineHeight: 10,
+    textAlign: "center",
+    width: "100%",
+    includeFontPadding: false,
+    color: Theme.textOnDark,
   },
   financeHeroPillTextActive: {
     color: Theme.textPrimaryDark,

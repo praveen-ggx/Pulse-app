@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
     backgroundColor: Theme.accentGold,
     borderWidth: 1.5,
-    borderColor: Theme.dockFill,
+    borderColor: Theme.dockPillFill,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -89,9 +89,12 @@ function DemoCustomTabBar(
 
   const routeName = state.routes[state.index]?.name;
   const activeTab: DemoTabId =
-    routeName === 'finance' ? 'finance'
-    : routeName === 'trips' ? 'trips'
-    : routeName === 'network' ? 'network'
+    pathname.startsWith('/find-loads') ? 'loadCenter'
+    : pathname.startsWith('/compliance') ? 'compliance'
+    : pathname.startsWith('/pulse-invoice') || pathname.startsWith('/invoicing-execute') ? 'invoice'
+    : pathname.includes('/finance') || routeName === 'finance' ? 'finance'
+    : pathname.includes('/trips') || routeName === 'trips' ? 'trips'
+    : pathname.includes('/network') || pathname.includes('/hub') || routeName === 'network' ? 'network'
     : routeName === 'resources' ? 'resources'
     : homeTab;
 

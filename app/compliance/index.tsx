@@ -438,10 +438,18 @@ export default function ComplianceScreen() {
     isLoading,
     isError,
     error,
-    isFetching: complianceRefreshing,
     dataUpdatedAt: complianceUpdatedAt,
     refetch,
   } = useComplianceTripsQuery();
+  const [complianceRefreshBusy, setComplianceRefreshBusy] = useState(false);
+  const refreshCompliance = useCallback(async () => {
+    setComplianceRefreshBusy(true);
+    try {
+      await refetch();
+    } finally {
+      setComplianceRefreshBusy(false);
+    }
+  }, [refetch]);
   // Ground Ops / TripOps fix holds but can't verify: their held trips show in
   // Document Upload → Compliance Hold, wherever the file count would place them.
   const fixesHoldsOnly = canResubmit && !canVerifyDocuments && !canMarkVerified;
@@ -502,6 +510,11 @@ export default function ComplianceScreen() {
   }, [canViewCompliance, setStage, stage, visibleStages]);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
   const [mobileReviewing, setMobileReviewing] = useState(false);
+  useEffect(() => {
+    if (!isMobile) return;
+    setRootDockHidden(mobileReviewing);
+    return () => setRootDockHidden(false);
+  }, [isMobile, mobileReviewing]);
   useEffect(() => {
     if (!isMobile) {
       setMobileReviewing(false);
@@ -1982,8 +1995,8 @@ export default function ComplianceScreen() {
         <ComplianceRefreshButton
           compact
           updatedAt={complianceUpdatedAt}
-          refreshing={complianceRefreshing}
-          onRefresh={() => void refetch()}
+          refreshing={complianceRefreshBusy}
+          onRefresh={() => void refreshCompliance()}
         />
       }
     />
@@ -2382,8 +2395,8 @@ export default function ComplianceScreen() {
         <View style={styles.footerCenter}>
           <ComplianceRefreshButton
             updatedAt={complianceUpdatedAt}
-            refreshing={complianceRefreshing}
-            onRefresh={() => void refetch()}
+            refreshing={complianceRefreshBusy}
+            onRefresh={() => void refreshCompliance()}
           />
         </View>
         <View style={[styles.footerSide, styles.footerSideEnd]}>

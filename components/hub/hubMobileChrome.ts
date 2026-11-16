@@ -30,10 +30,17 @@ export const hubMobileChromeStyles = StyleSheet.create({
   },
   screenTitle: {
     flex: 1,
+    minWidth: 0,
     fontSize: 22,
     fontWeight: "800",
     color: Theme.textPrimaryDark,
     letterSpacing: -0.4,
+  },
+  screenHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
   },
   tabHeaderRow: {
     flexDirection: "row",

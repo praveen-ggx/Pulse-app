@@ -69,6 +69,7 @@ import {
     resolveGetLoadDoneOutcome,
     resolveGetLoadMobileCardLabels,
     resolveGetLoadSourceTag,
+    acceptedMarketBidAmountByIndentId,
     resolveGetLoadTicketCommerce,
     resolveGiveLoadMobileDisplayStatus,
     resolveGiveLoadTicketCommerce,
@@ -168,7 +169,9 @@ import {
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { ChevronLeft, Search, Truck } from "lucide-react-native";
 import { type FlashListRef } from "@shopify/flash-list";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { STALE } from "@/lib/queryClient";
+import { listMyOrgMarketBids } from "@/features/network/services/findLoadsForOrg.service";
 import * as Linking from "expo-linking";
 
 
@@ -401,6 +404,16 @@ export function LoadCenterView({
   );
   const { data: myQuotes = [], refetch: refetchMyQuotes } =
     useMyDirectQuotesQuery(orgId, { urgent: !isTripsPresentation });
+  const myMarketBidsQ = useQuery({
+    queryKey: queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
+    queryFn: () => listMyOrgMarketBids(orgId as string, 100),
+    enabled: !!orgId,
+    staleTime: STALE.frequent,
+  });
+  const awardedMarketBidInrByIndentId = useMemo(
+    () => acceptedMarketBidAmountByIndentId(myMarketBidsQ.data?.bids ?? []),
+    [myMarketBidsQ.data],
+  );
   const { data: trips = [] } = useTripsQuery(enrichmentOrgId);
   const { data: drivers = [] } = useDriversQuery(enrichmentOrgId);
   useVehiclesQuery(enrichmentOrgId);
@@ -1906,6 +1919,7 @@ export function LoadCenterView({
         existingQuote,
         indentIdsWithTrip,
         awardedToMeIndentIds.has(load.id),
+        awardedMarketBidInrByIndentId.get(load.id) ?? null,
       );
       /** Terminal Done cards: no Rebid — only converted keeps View details. */
       const allowPrimaryCta =
@@ -2013,6 +2027,7 @@ export function LoadCenterView({
       );
     },
     [
+      awardedMarketBidInrByIndentId,
       awardedToMeIndentIds,
       connectedClientOrgIds,
       creatorOrgProfileMap,

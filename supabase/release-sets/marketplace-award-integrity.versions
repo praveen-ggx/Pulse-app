@@ -1,0 +1,21 @@
+# Marketplace award integrity (nihas V1.0.51).
+# 1. award_market_bid: awarding a Marketplace bid closes every pending direct_quotes row on the indent
+#    (both bidder branches). Writes no new rows.
+# 2. tg_network_pool_commit_on_quote_accept: when a pool commit becomes exhausted, its other pending
+#    direct_quotes (any indent) are set to rejected, so they stop showing as live offers.
+# 3. notify_indent_supplier_requested: a Marketplace award emits 'awarded' (not 'Quote requested');
+#    a network quote award emits nothing here (lifecycle trigger already emits 'awarded');
+#    the title/payload use indent_code, the label the Load Center card shows.
+# Function bodies start from the live prod definitions; the only changes are the marked additions.
+# direct_quotes.status has no 'superseded' value, so closed rows are 'rejected'.
+#
+# Not in this set: scripts/fix-marketplace-stale-quotes-backfill.sql (one-time data cleanup, run separately
+# after review; prod needs the owner's GO).
+#
+# Apply only via: npm run db:push-set -- marketplace-award-integrity   (dry-run first; prod apply needs Vasanth's GO)
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Verify before applying:
+#   npx jest supabase/migrations/__tests__/marketplaceAwardIntegrityReleaseSet.test.ts
+# sha256 3092490ab8557c8327277256d606dbbc1be3254063ad5456257f5ff1b2ef9f61  20271114202000_marketplace_award_state_integrity.sql
+20271114202000

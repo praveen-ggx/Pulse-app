@@ -548,7 +548,7 @@ export function TreasurySummaryCard({
       {filterLabel != null && !hideEntityFilterDropdown && (
         <View
           ref={refPeriodFilter}
-          style={[styles.filterBlock, tripPills && styles.filterBlockTrip] as ViewStyle}
+          style={[styles.filterBlock, tripPills && styles.filterBlockTrip] as StyleProp<ViewStyle>}
           collapsable={false}
         >
           <TouchableOpacity
@@ -591,7 +591,7 @@ export function TreasurySummaryCard({
             onPressOut={() => {
               filterBtnScale.value = withSpring(1, springConfig);
             }}
-            style={[styles.filterTrigger, tripPills && styles.filterTriggerTrip] as ViewStyle}
+            style={[styles.filterTrigger, tripPills && styles.filterTriggerTrip] as StyleProp<ViewStyle>}
           >
             <Animated.View
               style={[
@@ -1062,7 +1062,7 @@ export function TreasurySummaryCard({
       {sourceFilterLabel != null && !showInlineSourceChips && (
         <View
           ref={refSourceFilter}
-          style={[styles.filterBlock, tripPills && styles.filterBlockTrip] as ViewStyle}
+          style={[styles.filterBlock, tripPills && styles.filterBlockTrip] as StyleProp<ViewStyle>}
           collapsable={false}
         >
           <TouchableOpacity
@@ -1089,7 +1089,7 @@ export function TreasurySummaryCard({
             onPressOut={() => {
               filterBtnScale.value = withSpring(1, springConfig);
             }}
-            style={[styles.filterTrigger, tripPills && styles.filterTriggerTrip] as ViewStyle}
+            style={[styles.filterTrigger, tripPills && styles.filterTriggerTrip] as StyleProp<ViewStyle>}
           >
             <Animated.View
               style={[

@@ -87,6 +87,10 @@ export interface InvoicingTripView {
   lr_number: string | null;
   /** trips.trip_number when it is distinct from the display id. */
   trip_number?: string | null;
+  /** Operational trip id. Kept for search when `id` is the booking ref. */
+  trip_operational_code?: string | null;
+  trip_code?: string | null;
+  display_trip_id?: string | null;
   checks: TripChecks;
   /** trips.pod_received_at — physical/hard-copy receipt, not a digital POD file. */
   physicalPodReceived: boolean;
@@ -526,6 +530,9 @@ function mapRowToView(
       }) ||
       null,
     trip_number: str((row as { trip_number?: string | null }).trip_number) || null,
+    trip_operational_code: str(row.trip_operational_code) || null,
+    trip_code: str(row.trip_code) || null,
+    display_trip_id: str(row.display_trip_id) || null,
     checks: {
       poMatch: true,
       idConfirmed: true,

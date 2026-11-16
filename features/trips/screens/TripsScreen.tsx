@@ -230,7 +230,7 @@ import { useAlertRegistryFinanceHandlers } from "@/lib/hooks/useAlertRegistryFin
 import { useLoadingStuck } from "@/lib/hooks/useLoadingStuck";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import { useOpenTripDetail } from "@/lib/navigation/useOpenTripDetail";
-import { FINITE_LIST_CAP } from "@/lib/pagination";
+import { FINITE_LIST_CAP, mapWithConcurrency } from "@/lib/pagination";
 import { useClientsQuery } from "@/lib/queries/useClientsQuery";
 import { useDriverProfileImagesQuery } from "@/lib/queries/useDriverProfileImagesQuery";
 import { useDriversQuery } from "@/lib/queries/useDriversQuery";
@@ -481,6 +481,9 @@ function asRestoredMetricTab(
   }
   return null;
 }
+
+/** Stable fallback so label callbacks keep their identity while labels load. */
+const EMPTY_HUB_DOC_LABELS: Readonly<Record<string, string>> = Object.freeze({});
 
 export default function TripsScreen() {
   const { width, height } = useWindowDimensions();
@@ -2524,8 +2527,8 @@ export default function TripsScreen() {
     staleTime: 60_000,
     queryFn: () => loadHubTripDocumentLabelsByTripIds(visibleHubTripIdsForDocs),
   });
-  const hubLrLabels = hubDocLabels?.lrLabels ?? {};
-  const hubElrLabels = hubDocLabels?.elrLabels ?? {};
+  const hubLrLabels = hubDocLabels?.lrLabels ?? EMPTY_HUB_DOC_LABELS;
+  const hubElrLabels = hubDocLabels?.elrLabels ?? EMPTY_HUB_DOC_LABELS;
   const hubLrLabelFor = useCallback(
     (tripId: string) => {
       const id = tripId.trim().toLowerCase();
@@ -2756,8 +2759,21 @@ export default function TripsScreen() {
     return missing.join("|");
   }, [allIndentsRaw, indentsFetched, trips]);
 
+  // Supplier per indent already read this session (null = no award), so a new
+  // trips page only fetches indents it has not seen. Each page used to re-read
+  // every missing indent serially. Reset on org switch; loaded indents still
+  // override this fallback in indentAwardOrgByIndentId below.
+  const indentAwardFallbackCacheRef = useRef<{ orgId: string | null; byId: Map<string, string | null> }>({
+    orgId: null,
+    byId: new Map(),
+  });
+
   useEffect(() => {
     let cancelled = false;
+    if (indentAwardFallbackCacheRef.current.orgId !== orgId) {
+      indentAwardFallbackCacheRef.current = { orgId, byId: new Map() };
+    }
+    const cache = indentAwardFallbackCacheRef.current.byId;
     if (!indentAwardFallbackEffectKey) {
       setIndentAwardFallbackByIndentId((prev) =>
         Object.keys(prev).length === 0 ? prev : {},
@@ -2765,31 +2781,34 @@ export default function TripsScreen() {
       return undefined;
     }
     const missingIds = indentAwardFallbackEffectKey.split("|").filter(Boolean);
+    const toFetch = missingIds.filter((id) => !cache.has(id));
     void (async () => {
-      const awards: Record<string, string> = {};
-      for (let i = 0; i < missingIds.length; i += 80) {
-        const chunk = missingIds.slice(i, i + 80);
+      const chunks: string[][] = [];
+      for (let i = 0; i < toFetch.length; i += 80) chunks.push(toFetch.slice(i, i + 80));
+      await mapWithConcurrency(chunks, 6, async (chunk) => {
         const { data, error } = await supabase()
           .from("indents")
           .select("id, assigned_supplier_id")
           .in("id", chunk);
-        if (cancelled) return;
-        if (error) {
-          setIndentAwardFallbackByIndentId((prev) =>
-            Object.keys(prev).length === 0 ? prev : {},
-          );
-          return;
-        }
+        // A failed chunk stays uncached and is retried on the next key change.
+        if (error) return;
+        const found = new Map<string, string>();
         for (const row of data ?? []) {
           const id = String(row.id ?? "").trim();
           const awardedOrgId = String(row.assigned_supplier_id ?? "").trim();
-          if (id && awardedOrgId) {
-            awards[id] = awardedOrgId;
-            awards[id.toLowerCase()] = awardedOrgId;
-          }
+          if (id && awardedOrgId) found.set(id, awardedOrgId);
+        }
+        for (const id of chunk) cache.set(id, found.get(id) ?? null);
+      });
+      if (cancelled) return;
+      const awards: Record<string, string> = {};
+      for (const id of missingIds) {
+        const awardedOrgId = cache.get(id);
+        if (awardedOrgId) {
+          awards[id] = awardedOrgId;
+          awards[id.toLowerCase()] = awardedOrgId;
         }
       }
-      if (cancelled) return;
       setIndentAwardFallbackByIndentId((prev) => {
         const prevKeys = Object.keys(prev);
         const nextKeys = Object.keys(awards);
@@ -2805,7 +2824,7 @@ export default function TripsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [indentAwardFallbackEffectKey]);
+  }, [indentAwardFallbackEffectKey, orgId]);
 
   const indentAwardOrgByIndentId = useMemo(() => {
     const awards: Record<string, string> = { ...indentAwardFallbackByIndentId };

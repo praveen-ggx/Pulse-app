@@ -8,6 +8,7 @@
  * branding lookup is never stuck behind an unrelated large batch.
  */
 import {
+  clearLinkedOrgProfilesBatchCache,
   getLinkedOrgProfilesBatch,
   type OrgDisplayProfile,
 } from "@/features/clients/services/clients.service";
@@ -73,6 +74,7 @@ export function purgeLinkedOrgDisplayQueries(qc: QueryClient): void {
     predicate: (q) => isLinkedOrgDisplayQueryKey(q.queryKey),
   });
   inflightByMissingKey.clear();
+  clearLinkedOrgProfilesBatchCache();
 }
 
 function uniqueSortedIds(ids: readonly string[]): string[] {

@@ -12,7 +12,7 @@ import {
   mergeCommerceProductSales,
   suppressCommercePlanFreight,
 } from "@/features/finance/aggregation/commerceSelfFulfillment";
-import { readAllPages } from "@/lib/pagination";
+import { mapWithConcurrency, readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 
 /** PostgREST `.in()` in the query string 400s past a few hundred UUIDs. */
@@ -144,90 +144,103 @@ export async function getDcoLedgerAggregation(
   }));
 }
 
-/** Shipper trips created from a commerce execution plan, any status. */
-async function fetchCommercePlanTripIds(orgId: string): Promise<string[]> {
-  // Paged: an unpaged select stops at PostgREST max_rows (1000) and totals undercount.
-  const { data: tripRows, error: tripError } = await readAllPages((afterId, limit) => {
-    let q = supabase()
-      .from("trips")
-      .select("id, indent_id")
-      .eq("organization_id", orgId)
-      .is("deleted_at", null)
-      .not("indent_id", "is", null);
-    if (afterId) q = q.gt("id", afterId);
-    return q.order("id", { ascending: true }).limit(limit);
-  });
-  if (tripError || !tripRows?.length) return [];
-  const indentIds = [
-    ...new Set(
-      tripRows
-        .map((trip) => trip.indent_id)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  ];
-  const planIndents = new Set<string>();
-  for (const chunk of chunkIds(indentIds)) {
-    const { data: indents, error: indentError } = await supabase()
-      .from("indents")
-      .select("id")
-      .in("id", chunk)
-      .not("execution_plan_id", "is", null);
-    if (indentError) return [];
-    for (const indent of indents ?? []) {
-      if (indent.id) planIndents.add(indent.id);
-    }
-  }
-  if (planIndents.size === 0) return [];
-  return tripRows
-    .filter((trip) => trip.indent_id && planIndents.has(trip.indent_id))
-    .map((trip) => trip.id);
+/** Chunk reads in flight at once: one round trip per chunk was the latency. */
+const IN_CHUNK_CONCURRENCY = 6;
+
+type CommerceTripRow = { id: string; indent_id: string | null; status: string | null };
+
+interface CommercePlanLookup {
+  /** Non-deleted indent-linked trips of the org, ordered by id. */
+  trips: CommerceTripRow[];
+  /** indent id → execution plan id, for indents created from a commerce plan. */
+  planByIndent: Map<string, string>;
 }
 
-async function fetchCommerceFulfillmentOrders(orgId: string) {
-  const { data: tripRows, error: tripError } = await readAllPages((afterId, limit) => {
-    let q = supabase()
-      .from("trips")
-      .select("id, indent_id, status")
-      .eq("organization_id", orgId)
-      .is("deleted_at", null)
-      .not("indent_id", "is", null)
-      .in("status", ["completed", "Completed"]);
-    if (afterId) q = q.gt("id", afterId);
-    return q.order("id", { ascending: true }).limit(limit);
-  });
-  if (tripError || !tripRows?.length) return [];
-
+/**
+ * One keyset walk of the org's indent-linked trips and one chunked indent
+ * lookup, shared by the plan-trip and fulfillment-order paths (each used to
+ * walk the same trips and indents serially on its own). Any read error
+ * returns null so both callers fall back to "no commerce rows", as before.
+ */
+async function fetchCommercePlanLookup(orgId: string): Promise<CommercePlanLookup | null> {
+  // Paged: an unpaged select stops at PostgREST max_rows (1000) and totals undercount.
+  const { data: tripRows, error: tripError } = await readAllPages<CommerceTripRow, unknown>(
+    (afterId, limit) => {
+      let q = supabase()
+        .from("trips")
+        .select("id, indent_id, status")
+        .eq("organization_id", orgId)
+        .is("deleted_at", null)
+        .not("indent_id", "is", null);
+      if (afterId) q = q.gt("id", afterId);
+      return q.order("id", { ascending: true }).limit(limit) as unknown as PromiseLike<{
+        data: CommerceTripRow[] | null;
+        error: unknown;
+      }>;
+    },
+  );
+  if (tripError) return null;
+  const trips = tripRows ?? [];
   const indentIds = [
-    ...new Set(
-      tripRows
-        .map((trip) => trip.indent_id)
-        .filter((id): id is string => Boolean(id)),
-    ),
+    ...new Set(trips.map((trip) => trip.indent_id).filter((id): id is string => Boolean(id))),
   ];
   const planByIndent = new Map<string, string>();
-  for (const chunk of chunkIds(indentIds)) {
-    const { data: indents, error: indentError } = await supabase()
+  let failed = false;
+  const pages = await mapWithConcurrency(chunkIds(indentIds), IN_CHUNK_CONCURRENCY, async (chunk) => {
+    if (failed) return [];
+    const { data, error } = await supabase()
       .from("indents")
       .select("id, execution_plan_id")
       .in("id", chunk)
       .not("execution_plan_id", "is", null);
-    if (indentError) return [];
-    for (const indent of indents ?? []) {
-      if (indent.id && indent.execution_plan_id) {
-        planByIndent.set(indent.id, indent.execution_plan_id);
-      }
+    if (error) {
+      failed = true;
+      return [];
     }
+    return (data ?? []) as Array<{ id: string | null; execution_plan_id: string | null }>;
+  });
+  if (failed) return null;
+  for (const page of pages) {
+    for (const indent of page) {
+      if (indent.id && indent.execution_plan_id) planByIndent.set(indent.id, indent.execution_plan_id);
+    }
+  }
+  return { trips, planByIndent };
+}
+
+/** Shipper trips created from a commerce execution plan, any status. */
+function commercePlanTripIds(lookup: CommercePlanLookup | null): string[] {
+  if (!lookup || lookup.planByIndent.size === 0) return [];
+  return lookup.trips
+    .filter((trip) => trip.indent_id && lookup.planByIndent.has(trip.indent_id))
+    .map((trip) => trip.id);
+}
+
+async function fetchCommerceFulfillmentOrders(
+  orgId: string,
+  lookup: CommercePlanLookup | null,
+) {
+  if (!lookup) return [];
+  const completed = lookup.trips.filter(
+    (trip) => trip.status === "completed" || trip.status === "Completed",
+  );
+  const planByIndent = new Map<string, string>();
+  for (const trip of completed) {
+    const planId = trip.indent_id ? lookup.planByIndent.get(trip.indent_id) : undefined;
+    if (trip.indent_id && planId) planByIndent.set(trip.indent_id, planId);
   }
   const planIds = [...new Set(planByIndent.values())];
   if (planIds.length === 0) return [];
 
-  const orders: Array<{
+  type OrderRow = {
     id: string;
     customer_id: string | null;
     total_amount: unknown;
     execution_plan_id: string | null;
-  }> = [];
-  for (const chunk of chunkIds(planIds)) {
+  };
+  let failed = false;
+  const pages = await mapWithConcurrency(chunkIds(planIds), IN_CHUNK_CONCURRENCY, async (chunk) => {
+    if (failed) return [];
     const { data, error: orderError } = await supabase()
       .from("sales_orders")
       .select("id, customer_id, total_amount, execution_plan_id, status")
@@ -235,13 +248,18 @@ async function fetchCommerceFulfillmentOrders(orgId: string) {
       .in("execution_plan_id", chunk)
       .is("deleted_at", null)
       .in("status", ["Planned", "Pending Consolidation", "Fulfilled"]);
-    if (orderError) return [];
-    orders.push(...((data ?? []) as typeof orders));
-  }
+    if (orderError) {
+      failed = true;
+      return [];
+    }
+    return (data ?? []) as OrderRow[];
+  });
+  if (failed) return [];
+  const orders = pages.flat();
   if (orders.length === 0) return [];
 
   const tripByPlan = new Map<string, string>();
-  for (const trip of tripRows) {
+  for (const trip of completed) {
     if (!trip.indent_id) continue;
     const planId = planByIndent.get(trip.indent_id);
     if (planId) tripByPlan.set(planId, trip.id);
@@ -267,6 +285,14 @@ export async function getCustomerLedgerInputs(
   orgId: string,
   applyAdjustments: boolean,
 ): Promise<CustomerLedgerInputs> {
+  // The commerce lookup does not depend on the RPC result: run them together.
+  const commerce = (async () => {
+    const lookup = await fetchCommercePlanLookup(orgId);
+    const orders = await fetchCommerceFulfillmentOrders(orgId, lookup);
+    return { tripIds: commercePlanTripIds(lookup), orders };
+  })();
+  // Never leave the commerce promise rejected-and-unobserved if the RPC throws.
+  commerce.catch(() => undefined);
   const { data, error } = await supabase().rpc("get_customer_ledger_inputs", {
     p_org_id: orgId,
     p_apply_adjustments: applyAdjustments,
@@ -301,10 +327,7 @@ export async function getCustomerLedgerInputs(
       pending: n(c.pending),
     })),
   };
-  const [commerceTripIds, commerceOrders] = await Promise.all([
-    fetchCommercePlanTripIds(orgId),
-    fetchCommerceFulfillmentOrders(orgId),
-  ]);
+  const { tripIds: commerceTripIds, orders: commerceOrders } = await commerce;
   return mergeCommerceProductSales(
     suppressCommercePlanFreight(freightInputs, commerceTripIds),
     commerceOrders,

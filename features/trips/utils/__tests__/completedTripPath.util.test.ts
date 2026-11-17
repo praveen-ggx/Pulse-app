@@ -46,6 +46,26 @@ describe('buildCompletedTripPath', () => {
     expect(out).toHaveLength(2);
   });
 
+  it('keeps when a ≥5 min halt ended, so the map can show its length', () => {
+    const gps = [
+      pt(13.1488, 80.2306, 0),
+      pt(13.12, 80.23, 10), // arrive
+      pt(13.12005, 80.23002, 15),
+      pt(13.12002, 80.23001, 35), // still there → leave
+      pt(13.09, 80.225, 45),
+    ];
+    const out = buildCompletedTripPath(gps, []);
+    expect(out.map((p) => p.recorded_at)).toEqual([at(0), at(10), at(35), at(45)]);
+  });
+
+  it('keeps the arrival time when the trip ends after a long wait at drop', () => {
+    const out = buildCompletedTripPath(
+      [pt(13.1488, 80.2306, 0), pt(13.09, 80.225, 20), pt(13.09005, 80.22502, 70)],
+      [],
+    );
+    expect(out.map((p) => p.recorded_at)).toEqual([at(0), at(20), at(70)]);
+  });
+
   it('drops invalid and 0,0 points; empty input → empty path', () => {
     expect(buildCompletedTripPath([], [])).toEqual([]);
     expect(

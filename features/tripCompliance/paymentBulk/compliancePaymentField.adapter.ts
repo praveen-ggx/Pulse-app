@@ -1,9 +1,8 @@
 /**
  * Reference adapter for the Bulk Operations engine.
  * Preview stays in the app. Confirmation and correction are database RPCs
- * that may change UTR, request ID and transaction date.
- * Paid amount and mode stay read-only until 20271118174500 and 20271118191000
- * are applied. The parsers below are ready for that release.
+ * that may change UTR, request ID, transaction date, the paid amount and the payment mode.
+ * Amount and mode writes need 20271118174500 and 20271118191000 on the database.
  */
 import type { ComplianceLedgerCategory } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import { previewComplianceBulkUpdate } from "@/features/tripCompliance/services/complianceBulkUpdate.service";
@@ -16,7 +15,7 @@ import type { BulkPermissions, BulkPreviewRow, BulkTemplate } from "@/features/b
 import { buildWritablePatch } from "@/features/bulkOperations/utils/bulkOperation.engine.util";
 import { parseBulkPaymentDate, type BulkSheetRow } from "@/features/tripCompliance/utils/complianceBulkUpdate.util";
 
-export const PAYMENT_UPDATE_FIELDS = ["utr", "requestId", "transactionDate"] as const;
+export const PAYMENT_UPDATE_FIELDS = ["utr", "requestId", "transactionDate", "amount", "mode"] as const;
 export type PaymentUpdateField = (typeof PAYMENT_UPDATE_FIELDS)[number];
 
 /** Fields left off the selection stay on the posted payment. */

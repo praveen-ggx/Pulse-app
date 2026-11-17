@@ -56,6 +56,7 @@ export type ComplianceBulkValidationResult = {
 
 const VALID_MODE_IDS = new Set(PAYMENT_MODES.map((m) => m.id));
 const TRIP_CODE_COLUMNS = ["trip_number", "trip_code", "trip_operational_code", "display_trip_id", "booking_ref"] as const;
+const TRIP_LOOKUP_COLUMNS = "id, organization_id, trip_number, trip_code, trip_operational_code, display_trip_id, booking_ref, client_price, compliance_verified_at, finance_verified_at, pod_received_at";
 const TRIP_LOOKUP_CHUNK = 80;
 
 function isTripUuid(value: string): boolean {
@@ -79,7 +80,7 @@ async function readTripsForPost(
     const chunk = values.slice(index, index + TRIP_LOOKUP_CHUNK);
     const { data, error } = await supabase()
       .from("trips")
-      .select("*")
+      .select(TRIP_LOOKUP_COLUMNS)
       .eq("organization_id", organizationId)
       .in(column, chunk);
     if (error) throw new Error(explainBulkPaymentReadError(error.message ?? "Couldn't read trips."));
@@ -195,6 +196,9 @@ export function explainBulkPaymentReadError(message: string): string {
   if (/invalid input syntax for type uuid/i.test(message)) {
     return "A Trip ID in this file is not an id from this workspace. Use the trip id, and leave out notes that start with #.";
   }
+  if (/ServiceUnavailableError|Service Unavailable 503/i.test(message)) {
+    return "The workspace is busy. Wait a moment and validate the rows again.";
+  }
   return message;
 }
 
@@ -212,12 +216,25 @@ export async function validateComplianceBulkPayments(params: {
 }): Promise<ComplianceBulkValidationResult & { tripsById: Map<string, TripRow> }> {
   const { organizationId, rows } = params;
   const tripKeys = [...new Set(rows.map((row) => row.tripId.trim()).filter(Boolean))];
-  const hits = (
-    await Promise.all([
-      readTripsForPost(organizationId, "id", tripKeys.filter(isTripUuid)),
-      ...TRIP_CODE_COLUMNS.map((column) => readTripsForPost(organizationId, column, tripKeys.filter((key) => !isTripUuid(key)))),
-    ])
-  ).flat();
+  const hits: TripRow[] = [];
+  const seenTripIds = new Set<string>();
+  const matchedKeys = new Set<string>();
+  const remember = (trip: TripRow) => {
+    if (!trip.id || seenTripIds.has(trip.id)) return;
+    seenTripIds.add(trip.id);
+    hits.push(trip);
+    for (const key of tripMatchKeys(trip)) matchedKeys.add(key.toUpperCase());
+  };
+  const uuids = tripKeys.filter(isTripUuid);
+  if (uuids.length > 0) {
+    for (const trip of await readTripsForPost(organizationId, "id", uuids)) remember(trip);
+  }
+  const codes = tripKeys.filter((key) => !isTripUuid(key));
+  for (const column of TRIP_CODE_COLUMNS) {
+    const remaining = codes.filter((key) => !matchedKeys.has(key.toUpperCase()));
+    if (remaining.length === 0) break;
+    for (const trip of await readTripsForPost(organizationId, column, remaining)) remember(trip);
+  }
   const tripsById = new Map<string, TripRow>();
   const matchesByKey = new Map<string, TripRow[]>();
   for (const trip of hits) {

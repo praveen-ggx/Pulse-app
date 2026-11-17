@@ -65,7 +65,7 @@ describe("bulk operation engine", () => {
     expect(patch).toEqual({ amount: "250" });
     expect(parsePaidAmount("₹9,000.50")).toEqual({ text: "9000.5" });
     expect(parsePaidAmount("0")).toEqual({ error: "Paid amount must be a number greater than zero, with up to 2 decimals." });
-    expect(paymentFieldTemplate(["amount"]).fields.map((field) => field.key)).toEqual(["tripId"]);
+    expect(paymentFieldTemplate(["amount"]).fields.map((field) => field.key)).toEqual(["tripId", "amount"]);
     expect(parsePaymentMode("Bank Transfer")).toEqual({ text: "BANK" });
     expect(parsePaymentMode("upi")).toEqual({ text: "UPI" });
     expect(parsePaymentMode("wallet")).toEqual({ error: "Mode must be CASH, UPI, BANK, CHEQUE, FUEL_CARD, FASTAG, CREDIT." });

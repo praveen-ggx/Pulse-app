@@ -311,9 +311,9 @@ export function BulkOperationWorkspace({
     onBatchSaved?.();
   }, [canExecute, organizationId, category, fileName, fileText, mapping, selection, rows, onBatchSaved]);
 
-  const fieldLabel = (field: string) =>
+  const fieldLabel = (field: PaymentUpdateField) =>
     field === "utr" ? "UTR" : field === "requestId" ? "Request ID" : field === "amount" ? "Amount" : field === "mode" ? "Mode" : "Transaction date";
-  const fieldHint = (field: string) =>
+  const fieldHint = (field: PaymentUpdateField) =>
     field === "utr" ? "Bank reference" : field === "requestId" ? "Internal request" : field === "amount" ? "Paid value" : field === "mode" ? "How it was paid" : "Settlement date";
   const keptNote = keptStay(selection);
 
@@ -980,8 +980,11 @@ const LOG_FIELDS = [
   { key: "mode", label: "Mode" },
 ] as const;
 
-function keptNames(_selection: readonly PaymentUpdateField[]): string[] {
-  return ["Amount", "Mode"];
+function keptNames(selection: readonly PaymentUpdateField[]): string[] {
+  return [
+    selection.includes("amount") ? null : "Amount",
+    selection.includes("mode") ? null : "Mode",
+  ].filter((name): name is string => Boolean(name));
 }
 
 function keptStay(selection: readonly PaymentUpdateField[]): string {

@@ -7,7 +7,7 @@
 const mockRpc = jest.fn();
 jest.mock("@/lib/supabase", () => ({ supabase: () => ({ rpc: (...a: unknown[]) => mockRpc(...a) }) }));
 
-import { loadHubTripKeysetRange } from "../trips.service";
+import { getAllTripsForOrg, getHubTripKeysetPage, loadHubTripKeysetRange } from "../trips.service";
 
 type Trip = { id: string; created_at: string };
 let mockTrips: Trip[] = [];
@@ -42,6 +42,23 @@ const calls = (fn: string) => mockRpc.mock.calls.filter((c) => c[0] === fn).leng
 
 beforeEach(() => mockRpc.mockReset());
 
+describe("getHubTripKeysetPage", () => {
+  it("sends the rail tile and the attribution filter on the first page", async () => {
+    mockTrips = makeTrips(1);
+    serve();
+    const page = await getHubTripKeysetPage("org-1", {
+      bucket: "unassigned",
+      attributed: "attributed",
+      withCounts: true,
+    });
+    expect(page.error).toBeNull();
+    expect(mockRpc.mock.calls[0][0]).toBe("list_org_hub_trips_keyset");
+    expect(mockRpc.mock.calls[0][1].p_bucket).toBe("unassigned");
+    expect(mockRpc.mock.calls[0][1].p_attributed).toBe("attributed");
+    expect(mockRpc.mock.calls[0][1].p_compliance).toBe(false);
+  });
+});
+
 describe("loadHubTripKeysetRange", () => {
   it("counts once, then walks rows-only pages of 250", async () => {
     mockTrips = makeTrips(1_234);
@@ -49,8 +66,6 @@ describe("loadHubTripKeysetRange", () => {
     const res = await loadHubTripKeysetRange("org-1", {});
     expect(res.error).toBeNull();
     expect(res.trips.map((t) => t.id)).toEqual(mockTrips.map((t) => t.id));
-    expect(res.counts?.total).toBe(1_234);
-    expect(mockRpc.mock.calls.every((c) => c[1].p_attributed === "all")).toBe(true);
     expect(calls("list_org_hub_trips_keyset")).toBe(1);
     expect(calls("list_org_hub_trips_keyset_rows")).toBe(4);
     expect(mockRpc.mock.calls.every((c) => c[1].p_limit === 250)).toBe(true);
@@ -93,12 +108,25 @@ describe("loadHubTripKeysetRange", () => {
     expect(calls("list_org_hub_trips_keyset")).toBe(2);
   });
 
-  it("sends the attributed filter on the count page and the row pages", async () => {
-    mockTrips = makeTrips(10);
+  it("reads past the old 20,000-row page ceiling", async () => {
+    mockTrips = makeTrips(20_001);
     serve();
-    const res = await loadHubTripKeysetRange("org-1", { attributed: "attributed" });
+    const res = await loadHubTripKeysetRange("org-1", {});
     expect(res.error).toBeNull();
-    expect(mockRpc.mock.calls.every((c) => c[1].p_attributed === "attributed")).toBe(true);
+    expect(res.trips).toHaveLength(20_001);
+    expect(calls("list_org_hub_trips_keyset")).toBe(1);
+    expect(calls("list_org_hub_trips_keyset_rows")).toBe(80);
+  });
+
+  it("is an error and returns no rows when a page repeats a trip", async () => {
+    mockTrips = makeTrips(300);
+    serve();
+    const base = mockRpc.getMockImplementation()!;
+    mockRpc.mockImplementation((fn: string, args: Record<string, unknown>) =>
+      base(fn, { ...args, p_before_created_at: null, p_before_id: null }));
+    const res = await loadHubTripKeysetRange("org-1", {});
+    expect(res.error?.message).toMatch(/repeated a trip/);
+    expect(res.trips).toEqual([]);
   });
 
   it("is an error when the walk and the fresh count still disagree", async () => {
@@ -111,5 +139,14 @@ describe("loadHubTripKeysetRange", () => {
     const res = await loadHubTripKeysetRange("org-1", {});
     expect(res.error?.message).toMatch(/loaded 300 of 301/);
     expect(res.trips).toEqual([]);
+  });
+
+  it("loads complete trip history through the keyset, not dated 2,000-row slices", async () => {
+    mockTrips = makeTrips(2_500);
+    serve();
+    const res = await getAllTripsForOrg("org-1");
+    expect(res.error).toBeNull();
+    expect(res.trips).toHaveLength(2_500);
+    expect(calls("get_trips_for_org")).toBe(0);
   });
 });

@@ -68,7 +68,7 @@ describe("bulk operation engine", () => {
     expect(paymentFieldTemplate(["amount"]).fields.map((field) => field.key)).toEqual(["tripId", "amount"]);
     expect(parsePaymentMode("Bank Transfer")).toEqual({ text: "BANK" });
     expect(parsePaymentMode("upi")).toEqual({ text: "UPI" });
-    expect(parsePaymentMode("wallet")).toEqual({ error: "Mode must be UPI, BANK, CASH, CHEQUE, FUEL_CARD, FASTAG or CREDIT." });
+    expect(parsePaymentMode("wallet")).toEqual({ error: "Mode must be CASH, UPI, BANK, CHEQUE, FUEL_CARD, FASTAG, CREDIT." });
     const modePatch = buildWritablePatch(["mode"], ["amount"], { mode: "UPI" }, { mode: "BANK" });
     expect(modePatch).toEqual({ mode: "BANK" });
   });

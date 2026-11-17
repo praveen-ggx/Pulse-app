@@ -8,12 +8,17 @@ function chain(table: string, result: { data: unknown[]; error: null }) {
   const entry = { table, eq: [] as [string, unknown][] };
   calls.push(entry);
   const c: Record<string, unknown> = {};
+  let afterId = false;
   for (const name of ["select", "in", "order"]) c[name] = () => c;
   c.eq = (column: string, value: unknown) => {
     entry.eq.push([column, value]);
     return c;
   };
-  c.limit = () => Promise.resolve(result);
+  c.gt = () => {
+    afterId = true;
+    return c;
+  };
+  c.limit = () => Promise.resolve(afterId ? { data: [], error: null } : result);
   return c;
 }
 const mockFrom = jest.fn((table: string) =>

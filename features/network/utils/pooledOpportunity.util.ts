@@ -90,7 +90,7 @@ export const POOL_STATE_COPY: Record<
 
 /** Same values as MyOrgMarketBidStatus (market_bids.status). */
 export type PoolBidStatus =
-  "pending" | "accepted" | "rejected" | "withdrawn" | "superseded";
+  "pending" | "accepted" | "rejected" | "withdrawn" | "superseded" | "expired";
 
 export type PoolBid = {
   indent_id: string;

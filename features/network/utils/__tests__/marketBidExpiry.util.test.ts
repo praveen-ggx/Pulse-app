@@ -38,6 +38,15 @@ describe("marketBidExpiry", () => {
     expect(marketBidExpiryView(bid, EXPIRES_MS)).toEqual({ kind: "expired", label: "Bid expired" });
   });
 
+  it("shows a row the server already closed as expired", () => {
+    const bid = { status: "expired", expires_at: EXPIRES };
+    expect(isMarketBidActionable(bid, EXPIRES_MS - 86_400_000)).toBe(false);
+    expect(marketBidExpiryView(bid, EXPIRES_MS - 86_400_000)).toEqual({
+      kind: "expired",
+      label: "Bid expired",
+    });
+  });
+
   it("never marks a decided bid expired, even long after its clock", () => {
     for (const status of ["accepted", "rejected", "withdrawn", "superseded"]) {
       const bid = { status, expires_at: EXPIRES };

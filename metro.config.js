@@ -6,6 +6,7 @@ const { FileStore } = require('metro-cache');
 const { getDefaultConfig } = require('expo/metro-config');
 
 const projectRoot = __dirname;
+require('./scripts/supabaseProject.cjs').loadSupabaseProject(projectRoot);
 
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(projectRoot);
@@ -244,13 +245,79 @@ function pickDevTarget(req) {
   return null;
 }
 
+// Dev HTML always names the same entry.bundle URL. Safari keeps the previous
+// copy, including a crash from a stale local Expo extra. Stamp the script URL
+// with the selected project and refuse to cache the document or the bundle.
+function stampDevDocument(req, res, nextMiddleware) {
+  const stamp = encodeURIComponent(String(process.env.EXPO_PUBLIC_SUPABASE_URL || 'unset'));
+  res.setHeader('Cache-Control', 'no-store');
+  const originalWriteHead = res.writeHead;
+  const originalWrite = res.write;
+  const originalEnd = res.end;
+  let captureHtml = false;
+  const chunks = [];
+
+  res.writeHead = function writeHead(statusCode, reason, headers) {
+    let message = reason;
+    let hdrs = headers;
+    if (reason && typeof reason === 'object') {
+      hdrs = reason;
+      message = undefined;
+    }
+    const fromHeaders = hdrs && (hdrs['Content-Type'] || hdrs['content-type']);
+    const contentType = String(fromHeaders || res.getHeader('Content-Type') || '');
+    const pathOnly = String(req.url || '').split('?')[0];
+    if (contentType.includes('text/html') || pathOnly.endsWith('.bundle')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+    if (contentType.includes('text/html')) {
+      captureHtml = true;
+      res.removeHeader('Content-Length');
+      if (hdrs) {
+        delete hdrs['Content-Length'];
+        delete hdrs['content-length'];
+      }
+    }
+    return message === undefined
+      ? originalWriteHead.call(this, statusCode, hdrs)
+      : originalWriteHead.call(this, statusCode, message, hdrs);
+  };
+
+  const htmlResponse = () =>
+    String(res.getHeader('Content-Type') || res.getHeader('content-type') || '').includes('text/html');
+
+  res.write = function write(chunk, encoding, callback) {
+    if (!captureHtml && htmlResponse()) captureHtml = true;
+    if (!captureHtml) return originalWrite.call(this, chunk, encoding, callback);
+    if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    if (typeof encoding === 'function') encoding();
+    else if (typeof callback === 'function') callback();
+    return true;
+  };
+
+  res.end = function end(chunk, encoding, callback) {
+    if (!captureHtml && htmlResponse()) captureHtml = true;
+    if (!captureHtml) return originalEnd.call(this, chunk, encoding, callback);
+    if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const html = Buffer.concat(chunks)
+      .toString('utf8')
+      .replace(/entry\.bundle\?([^"']+)/g, (match, query) =>
+        query.includes('pulseConfig=') ? match : `entry.bundle?${query}&pulseConfig=${stamp}`,
+      );
+    const done = typeof encoding === 'function' ? encoding : callback;
+    return originalEnd.call(this, html, 'utf8', done);
+  };
+
+  return nextMiddleware();
+}
+
 config.server = {
   ...config.server,
   enhanceMiddleware: (middleware) => {
     return (req, res, next) => {
       const target = pickDevTarget(req);
       if (!target) {
-        return middleware(req, res, next);
+        return stampDevDocument(req, res, () => middleware(req, res, next));
       }
 
       // Vite only serves its SPA at the base *with* the trailing slash, so

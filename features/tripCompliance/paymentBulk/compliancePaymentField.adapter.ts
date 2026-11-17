@@ -2,6 +2,7 @@
  * Reference adapter for the Bulk Operations engine.
  * Preview stays in the app. Confirmation and correction are database RPCs
  * that may change UTR, request ID, transaction date, the paid amount and the payment mode.
+ * Amount and mode writes need 20271118174500 and 20271118191000 on the database.
  */
 import type { ComplianceLedgerCategory } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import { previewComplianceBulkUpdate } from "@/features/tripCompliance/services/complianceBulkUpdate.service";
@@ -60,7 +61,7 @@ export function parsePaymentMode(raw: string): { text: string } | { error: strin
   };
   const id = aliases[key];
   if (!id) {
-    return { error: "Mode must be UPI, BANK, CASH, CHEQUE, FUEL_CARD, FASTAG or CREDIT." };
+    return { error: `Mode must be ${PAYMENT_MODE_IDS.join(", ")}.` };
   }
   return { text: id };
 }

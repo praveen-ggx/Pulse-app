@@ -37,6 +37,7 @@ describe("marketplace-lane-rate release set", () => {
       "20271116144500",
       "20271117013000",
       "20271117021500",
+      "20271117144500",
     ]);
     expect(new Set(versions).size).toBe(versions.length);
     expect([...versions].sort()).toEqual(versions);

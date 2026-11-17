@@ -89,6 +89,8 @@ function statusLabel(status: MyOrgMarketBidStatus): string {
       return "Withdrawn";
     case "superseded":
       return "Superseded";
+    case "expired":
+      return "Bid expired";
     default:
       return status;
   }

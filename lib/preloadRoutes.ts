@@ -76,8 +76,10 @@ export function preloadComplianceData(queryClient: QueryClient, orgId: string): 
     queryKey: queryKeys.trips.compliance(orgId),
     staleTime: STALE.realtime,
     queryFn: async () => {
-      const { getTripsForOrg } = await import('@/features/trips/services/trips.service');
-      const res = await getTripsForOrg(orgId, { includeComplianceBacklog: true });
+      const { loadComplianceTripCatalog } = await import(
+        '@/features/tripCompliance/services/complianceTripCatalog.service'
+      );
+      const res = await loadComplianceTripCatalog(orgId);
       if (res.error) throw res.error;
       return res.trips;
     },

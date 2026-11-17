@@ -186,7 +186,6 @@ export function BulkOperationWorkspace({
   const issues = useMemo(() => mappingIssues(template, mapping), [template, mapping]);
   const ignored = useMemo(() => unmappedHeaders(headers, mapping), [headers, mapping]);
   const readyCount = includedReadyCount(rows);
-  const blockedCount = rows.filter((row) => row.status !== "ready").length;
   const hasInvalid = rows.some((row) => row.status === "invalid");
 
   const loadSheet = useCallback((name: string, text: string) => {
@@ -473,7 +472,7 @@ export function BulkOperationWorkspace({
                 multiline
                 autoCapitalize="none"
                 autoCorrect={false}
-                style={[styles.pasteInput, styles.pasteMono, Platform.OS === "web" ? { tabSize: 4 } : null]}
+                style={[styles.pasteInput, styles.pasteMono, Platform.OS === "web" ? ({ tabSize: 4 } as object) : null]}
               />
               {pasteText.trim() && pasted.rows.length === 0 ? (
                 <Text style={styles.error}>Add a header row and at least one data row.</Text>

@@ -60,10 +60,14 @@ import * as XLSX from "xlsx";
 import { Platform, Share } from "react-native";
 import { formatTruckTypeWithSize } from "@/features/tripCompliance/utils/complianceTruckType.util";
 import { mapWithConcurrency } from "@/features/tripCompliance/utils/mapWithConcurrency.util";
+import {
+  EXPORT_DRIVER_PHONE_CONCURRENCY,
+  resolveExportDriverPhones,
+} from "@/features/tripCompliance/utils/resolveExportDriverPhones.util";
 import { isSupabaseQueueRejectedError } from "@/lib/supabaseHttp.util";
 
 /** Stay under MAX_CONCURRENT_DATA_FETCHES (8) so Export Report cannot fill the queue. */
-const EXPORT_FETCH_CONCURRENCY = 4;
+const EXPORT_FETCH_CONCURRENCY = EXPORT_DRIVER_PHONE_CONCURRENCY;
 
 async function withQueueRetry<T>(op: () => Promise<T>): Promise<T> {
   try {
@@ -80,10 +84,13 @@ function triggerWebDownload(blob: Blob, fileName: string): void {
   const anchor = document.createElement("a");
   anchor.href = objectUrl;
   anchor.download = fileName;
+  anchor.rel = "noopener";
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
-  URL.revokeObjectURL(objectUrl);
+  // Revoke after the browser has started the download. Revoking in the same
+  // turn drops the file in Safari.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
 }
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -290,23 +297,13 @@ export async function buildVerifiedExportEnrichment(
     byTrip.set(trip.id, enrichment);
     }),
   ]);
-  const { phoneByDriverId } = await phonesPromise;
-
-  // Bulk read is RLS-scoped; fill gaps from the Driver Profile source (Contact Registry → Phone).
-  const missingDriverOrg = new Map<string, string>();
-  for (const summary of summaries) {
-    const driverId = summary.trip.driver_id?.trim() || "";
-    if (driverId && !phoneByDriverId.get(driverId) && !missingDriverOrg.has(driverId)) {
-      missingDriverOrg.set(driverId, (summary.trip.organization_id ?? orgId).trim() || orgId);
-    }
-  }
-  await mapWithConcurrency(
-    Array.from(missingDriverOrg),
-    EXPORT_FETCH_CONCURRENCY,
-    async ([driverId, driverOrgId]) => {
-      const { driver } = await getDriverDetailBundle(driverOrgId, driverId);
-      const phone = (driver?.phone ?? "").trim();
-      if (phone) phoneByDriverId.set(driverId, phone);
+  const phoneByDriverId = await resolveExportDriverPhones(
+    summaries,
+    orgId,
+    await phonesPromise,
+    async (driverOrgId, driverId) => {
+      const { error, driver } = await getDriverDetailBundle(driverOrgId, driverId);
+      return { error, phone: driver?.phone ?? "" };
     },
   );
 
@@ -326,10 +323,15 @@ export async function buildVerifiedExportEnrichment(
 export async function exportVerifiedStageComplianceReport(
   orgId: string,
   filter?: AdvanceVerificationExportFilter,
+  loaded?: ComplianceTripSummary[] | null,
 ): Promise<number> {
-  const summaries = filter
-    ? await fetchAdvanceVerificationSummaries(orgId, filter)
-    : await fetchVerifiedStageSummaries(orgId);
+  const summaries = loaded
+    ? filter
+      ? advanceVerificationExportSummaries(loaded, filter)
+      : loaded.filter(isComplianceVerifiedQueue)
+    : filter
+      ? await fetchAdvanceVerificationSummaries(orgId, filter)
+      : await fetchVerifiedStageSummaries(orgId);
   if (summaries.length === 0) return 0;
 
   const enrichmentByTrip = await withQueueRetry(() =>

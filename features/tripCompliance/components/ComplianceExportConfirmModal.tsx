@@ -93,7 +93,7 @@ export function ComplianceExportConfirmModal({
         ]}
       >
         <Pressable
-          style={StyleSheet.absoluteFill}
+          style={styles.backdrop}
           onPress={exporting ? undefined : onCancel}
           accessibilityRole="button"
           accessibilityLabel="Dismiss export confirmation"
@@ -234,7 +234,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
+  },
   card: {
+    position: "relative",
+    zIndex: 1,
     width: "100%",
     maxWidth: 320,
     backgroundColor: Theme.cardWhite,

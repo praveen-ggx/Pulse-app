@@ -14,6 +14,7 @@ import {
 } from "@/features/trips/services/ewayBillFields.util";
 import { isCompleteElrSnapshot } from "@/features/trips/services/elrCompletion.util";
 import { readStoredElrSnapshot } from "@/features/trips/services/elrSnapshot.util";
+import { readByIdChunks } from "@/lib/pagination";
 
 /** After trip_documents SELECT uses can_read_trip_document, larger IN-lists
  *  are cheap. Keep a cap so PostgREST URLs stay bounded. */
@@ -754,11 +755,13 @@ export async function saveTripIbondReceipt(tripId: string): Promise<{
 export async function fetchHardCopyIbondTripIds(tripIds: string[]): Promise<Set<string>> {
   const found = new Set<string>();
   if (tripIds.length === 0) return found;
-  const { data, error } = await supabase()
-    .from("trip_workflow_events")
-    .select("trip_id, payload")
-    .eq("event_type", "pod.hard_copy_received")
-    .in("trip_id", tripIds);
+  const { data, error } = await readByIdChunks(tripIds, (chunk) =>
+    supabase()
+      .from("trip_workflow_events")
+      .select("trip_id, payload")
+      .eq("event_type", "pod.hard_copy_received")
+      .in("trip_id", chunk),
+  );
   if (error) throw new Error(error.message);
   for (const row of data ?? []) {
     const record = row as { trip_id?: string; payload?: { comment?: string | null } | null };

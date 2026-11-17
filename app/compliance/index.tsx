@@ -2120,7 +2120,7 @@ export default function ComplianceScreen() {
         <View style={styles.emptyFill}>
           <Text style={styles.message}>Loading required trip, document, and payment data…</Text>
         </View>
-      ) : isError ? (
+      ) : isError && summaries.length === 0 ? (
         <View style={styles.emptyFill}>
           <Text style={styles.message}>
             {isSupabaseQueueRejectedError(error)

@@ -160,6 +160,7 @@ function ChooserQuoteDoc({
   headerFacts = null,
   hero = false,
   mini = false,
+  decorative = false,
 }: {
   preview: VaultChooserPreview;
   onPress: () => void;
@@ -170,6 +171,11 @@ function ChooserQuoteDoc({
   hero?: boolean;
   /** Compact strip thumb. */
   mini?: boolean;
+  /**
+   * Parent already is the button (shop thumb strip). Rendering another
+   * Pressable here produces `<button>` inside `<button>` on web.
+   */
+  decorative?: boolean;
 }) {
   const readyUri = preview.previewUri?.trim() || "";
   const [uri, setUri] = useState<string | null>(readyUri || null);
@@ -228,16 +234,73 @@ function ChooserQuoteDoc({
   });
   const title = preview.fileName?.trim() || "Document";
 
-  return (
-    <View
-      style={[
-        tiled && !hero && !mini && styles.quoteCell,
-        styles.quoteDoc,
-        hero && styles.quoteDocHero,
-        mini && styles.quoteDocMini,
-        WEB_POINTER,
+  const frameStyle = [
+    tiled && !hero && !mini && styles.quoteCell,
+    styles.quoteDoc,
+    hero && styles.quoteDocHero,
+    mini && styles.quoteDocMini,
+    WEB_POINTER,
+  ];
+  const thumb = uri ? (
+    <VaultDocThumb
+      uri={uri}
+      isPdf={pdf}
+      fileName={preview.fileName}
+      sizing={hero ? "fit" : "cover"}
+      style={styles.quoteImage}
+    />
+  ) : (
+    <View style={styles.quoteLoading}>
+      <ActivityIndicator size="small" color={Theme.actionBtnInk} />
+    </View>
+  );
+  const eye = uri && !mini ? (
+    <Pressable
+      onPress={(event) => {
+        event?.stopPropagation?.();
+        if (onOpenFull) {
+          onOpenFull();
+          return;
+        }
+        setFullOpen(true);
+      }}
+      style={({ pressed }) => [
+        styles.quoteEye,
+        hero && styles.quoteEyeHero,
+        pressed && styles.quoteEyePressed,
       ]}
+      accessibilityRole="button"
+      accessibilityLabel={`View full ${title}`}
     >
+      <Feather name="eye" size={hero ? 16 : 12} color={hero ? SHOP.ink : Theme.actionBtnInk} />
+    </Pressable>
+  ) : null;
+  const modal = (
+    <VaultFullDocumentModal
+      visible={fullOpen}
+      uri={uri}
+      isPdf={pdf}
+      title={title}
+      documentKey={preview.storagePath ?? preview.previewUri ?? title}
+      documentVersion={preview.fileName}
+      headerFacts={headerFacts}
+      onClose={() => setFullOpen(false)}
+    />
+  );
+
+  // Mini thumbs sit inside the strip's own button. Another Pressable here is
+  // `<button>` inside `<button>` on web.
+  if (decorative || mini) {
+    return (
+      <View style={frameStyle} pointerEvents="none">
+        <View style={styles.quoteHit}>{thumb}</View>
+        {modal}
+      </View>
+    );
+  }
+
+  return (
+    <View style={frameStyle}>
       <Pressable
         onPress={(event) => {
           event?.stopPropagation?.();
@@ -247,51 +310,10 @@ function ChooserQuoteDoc({
         accessibilityRole="button"
         accessibilityLabel={`Preview ${title}`}
       >
-        {uri ? (
-          <VaultDocThumb
-            uri={uri}
-            isPdf={pdf}
-            fileName={preview.fileName}
-            sizing={hero ? "fit" : "cover"}
-            style={styles.quoteImage}
-          />
-        ) : (
-          <View style={styles.quoteLoading}>
-            <ActivityIndicator size="small" color={Theme.actionBtnInk} />
-          </View>
-        )}
+        {thumb}
       </Pressable>
-      {uri && !mini ? (
-        <Pressable
-          onPress={(event) => {
-            event?.stopPropagation?.();
-            if (onOpenFull) {
-              onOpenFull();
-              return;
-            }
-            setFullOpen(true);
-          }}
-          style={({ pressed }) => [
-            styles.quoteEye,
-            hero && styles.quoteEyeHero,
-            pressed && styles.quoteEyePressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={`View full ${title}`}
-        >
-          <Feather name="eye" size={hero ? 16 : 12} color={hero ? SHOP.ink : Theme.actionBtnInk} />
-        </Pressable>
-      ) : null}
-      <VaultFullDocumentModal
-        visible={fullOpen}
-        uri={uri}
-        isPdf={pdf}
-        title={title}
-        documentKey={preview.storagePath ?? preview.previewUri ?? title}
-        documentVersion={preview.fileName}
-        headerFacts={headerFacts}
-        onClose={() => setFullOpen(false)}
-      />
+      {eye}
+      {modal}
     </View>
   );
 }
@@ -417,7 +439,7 @@ export function VaultChooserNotifyRow({
               accessibilityState={{ selected }}
               accessibilityLabel={`Preview ${caption || item.fileName || label}`}
             >
-              <ChooserQuoteDoc mini preview={item} onPress={() => previewFile(index)} />
+              <ChooserQuoteDoc mini decorative preview={item} onPress={() => previewFile(index)} />
               {caption ? (
                 <View style={styles.shopThumbCaption}>
                   <Text
@@ -667,12 +689,7 @@ export function VaultChooserNotifyRow({
   }
 
   return (
-    <Pressable
-      accessibilityLabel={a11yLabel}
-      onPress={showDoc ? () => previewFile(0) : undefined}
-      disabled={!showDoc}
-      style={styles.card}
-    >
+    <View accessibilityLabel={a11yLabel} style={styles.card}>
       <View style={styles.header}>
         <View style={styles.iconWash} accessibilityElementsHidden>
           <FileText size={12} color={Theme.actionBtnInk} strokeWidth={2} />
@@ -832,7 +849,7 @@ export function VaultChooserNotifyRow({
           <Text style={styles.emptyQuoteText}>No file in this slot yet</Text>
         </Pressable>
       )}
-    </Pressable>
+    </View>
   );
 }
 

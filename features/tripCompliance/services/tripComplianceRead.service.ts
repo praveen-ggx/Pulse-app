@@ -54,7 +54,7 @@ import {
   isOperationsDeliveredTrip,
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import { chunkIdsForRead, readAllPages } from "@/lib/pagination";
+import { chunkIdsForRead, readAllPages, readByIdChunks } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 
 /**
@@ -233,8 +233,17 @@ export async function fetchComplianceTripFlags(
   tripIds: string[],
 ): Promise<Map<string, ComplianceTripFlags>> {
   const byTrip = new Map<string, ComplianceTripFlags>();
-  if (tripIds.length === 0) return byTrip;
+  // One read per id chunk: the whole org's trip ids in one `.in(...)` is HTTP 400.
+  for (const chunk of chunkIdsForRead(tripIds)) {
+    await readComplianceTripFlagsChunk(chunk, byTrip);
+  }
+  return byTrip;
+}
 
+async function readComplianceTripFlagsChunk(
+  tripIds: string[],
+  byTrip: Map<string, ComplianceTripFlags>,
+): Promise<void> {
   const SELECT_BASE =
     "id, compliance_verified_at, compliance_verified_by, compliance_decision, compliance_exception_reason, compliance_outstanding_summary, pod_hard_copy_courier, pod_hard_copy_awb_number, pod_hard_copy_received_by, pod_received_at";
   // Decline columns come from 20270929162901_trip_compliance_decline.sql.
@@ -277,7 +286,7 @@ export async function fetchComplianceTripFlags(
 
   const { data, error } = result;
   if (error) {
-    if (isMissingColumnOrRelation(error)) return byTrip; // pre-migration: all flags absent
+    if (isMissingColumnOrRelation(error)) return; // pre-migration: all flags absent
     throw new Error(error.message);
   }
   for (const row of data ?? []) {
@@ -308,7 +317,6 @@ export async function fetchComplianceTripFlags(
       pod_received_at: r.pod_received_at as string | null,
     });
   }
-  return byTrip;
 }
 
 /** LR numbers logged as received on the courier workflow event (one row per trip). */
@@ -317,11 +325,13 @@ export async function fetchHardCopyReceivedLrNumbers(
 ): Promise<Map<string, string[]>> {
   const byTrip = new Map<string, string[]>();
   if (tripIds.length === 0) return byTrip;
-  const { data, error } = await supabase()
-    .from("trip_workflow_events")
-    .select("trip_id, payload")
-    .eq("event_type", "pod.hard_copy_courier_dispatched")
-    .in("trip_id", tripIds);
+  const { data, error } = await readByIdChunks(tripIds, (chunk) =>
+    supabase()
+      .from("trip_workflow_events")
+      .select("trip_id, payload")
+      .eq("event_type", "pod.hard_copy_courier_dispatched")
+      .in("trip_id", chunk),
+  );
   if (error) {
     if (isMissingColumnOrRelation(error)) return byTrip;
     throw new Error(error.message);
@@ -356,16 +366,18 @@ export async function fetchPodChargeWorkflowFlags(
 ): Promise<Map<string, PodChargeWorkflowFlags>> {
   const out = new Map<string, PodChargeWorkflowFlags>();
   if (tripIds.length === 0) return out;
-  const { data, error } = await supabase()
-    .from("trip_workflow_events")
-    .select("trip_id, event_type, payload, created_at")
-    .in("event_type", [
-      POD_VALIDATED_EVENT,
-      POD_REVALIDATE_EVENT,
-      POD_NOT_FOUND_EVENT,
-      POD_SETTLEMENT_RELEASED_EVENT,
-    ])
-    .in("trip_id", tripIds);
+  const { data, error } = await readByIdChunks(tripIds, (chunk) =>
+    supabase()
+      .from("trip_workflow_events")
+      .select("trip_id, event_type, payload, created_at")
+      .in("event_type", [
+        POD_VALIDATED_EVENT,
+        POD_REVALIDATE_EVENT,
+        POD_NOT_FOUND_EVENT,
+        POD_SETTLEMENT_RELEASED_EVENT,
+      ])
+      .in("trip_id", chunk),
+  );
   if (error) {
     if (isMissingColumnOrRelation(error)) return out;
     throw new Error(error.message);
@@ -492,11 +504,13 @@ export async function fetchComplianceTransactions(
   const byTrip = new Map<string, { advance: RawTxnRow[]; balance: RawTxnRow[] }>();
   if (tripIds.length === 0) return byTrip;
 
-  const { data, error } = await supabase()
-    .from("transactions")
-    .select("id, trip_id, amount_in, amount_out, description, transaction_date, created_at, created_by, ledger_category")
-    .in("trip_id", tripIds)
-    .in("ledger_category", ["compliance_advance", "compliance_balance"]);
+  const { data, error } = await readByIdChunks(tripIds, (chunk) =>
+    supabase()
+      .from("transactions")
+      .select("id, trip_id, amount_in, amount_out, description, transaction_date, created_at, created_by, ledger_category")
+      .in("trip_id", chunk)
+      .in("ledger_category", ["compliance_advance", "compliance_balance"]),
+  );
 
   if (error) {
     if (isMissingColumnOrRelation(error)) return byTrip; // ledger_category not queryable — no payments yet
@@ -518,7 +532,9 @@ export async function fetchTripPaymentFields(
 ): Promise<Map<string, Pick<TripRow, "amount_paid" | "updated_at">>> {
   const byTrip = new Map<string, Pick<TripRow, "amount_paid" | "updated_at">>();
   if (tripIds.length === 0) return byTrip;
-  const { data, error } = await supabase().from("trips").select("id, amount_paid, updated_at").in("id", tripIds);
+  const { data, error } = await readByIdChunks(tripIds, (chunk) =>
+    supabase().from("trips").select("id, amount_paid, updated_at").in("id", chunk),
+  );
   if (error) throw new Error(error.message);
   for (const row of data ?? []) {
     byTrip.set(row.id as string, {
@@ -931,12 +947,16 @@ export async function fetchComplianceTripInputs(
   if (trips.length === 0) return [];
   const tripIds = trips.map((t) => t.id);
   const entityIds = trips.flatMap((trip) => [trip.vehicle_id, trip.driver_id].filter((id): id is string => Boolean(id)));
-  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds, chargeWorkflow, txnsByTrip, entityDocsById, vault, authorizedDriverDocs] =
+  // Two waves so this load stays under the client fetch cap. Nine at once,
+  // plus the shell's own queries, is what fills the queue and drops the pipeline.
+  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds] = await Promise.all([
+    fetchTripDocumentsForTrips(tripIds),
+    fetchComplianceTripFlags(tripIds),
+    fetchHardCopyReceivedLrNumbers(tripIds),
+    fetchHardCopyIbondTripIds(tripIds),
+  ]);
+  const [chargeWorkflow, txnsByTrip, entityDocsById, vault, authorizedDriverDocs] =
     await Promise.all([
-      fetchTripDocumentsForTrips(tripIds),
-      fetchComplianceTripFlags(tripIds),
-      fetchHardCopyReceivedLrNumbers(tripIds),
-      fetchHardCopyIbondTripIds(tripIds),
       fetchPodChargeWorkflowFlags(tripIds),
       fetchComplianceTransactions(tripIds),
       fetchEntityDocumentsByIds(viewerOrgId, entityIds, ["vehicle", "driver"]),

@@ -3,7 +3,7 @@
  * Single bounded context: drivers (driver records, invite, linked driver for current user).
  * One service per domain (microservices). Same DB as pulse-unified-base.
  */
-import { DEFAULT_PAGE_SIZE, type PageOpts } from "@/lib/pagination";
+import { DEFAULT_PAGE_SIZE, readByIdChunks, type PageOpts } from "@/lib/pagination";
 import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
 import type { DeltaResponse } from "@/lib/cache/deltaTypes";
@@ -297,10 +297,9 @@ export async function getDriverPhonesByIds(
   driverIds: string[],
 ): Promise<{ error: Error | null; phoneByDriverId: Map<string, string> }> {
   if (driverIds.length === 0) return { error: null, phoneByDriverId: new Map() };
-  const { data, error } = await supabase()
-    .from("drivers")
-    .select("id, phone")
-    .in("id", driverIds);
+  const { data, error } = await readByIdChunks(driverIds, (chunk) =>
+    supabase().from("drivers").select("id, phone").in("id", chunk),
+  );
   if (error) return { error: new Error(error.message), phoneByDriverId: new Map() };
 
   const phoneByDriverId = new Map<string, string>();

@@ -80,10 +80,13 @@ function triggerWebDownload(blob: Blob, fileName: string): void {
   const anchor = document.createElement("a");
   anchor.href = objectUrl;
   anchor.download = fileName;
+  anchor.rel = "noopener";
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
-  URL.revokeObjectURL(objectUrl);
+  // Revoke after the browser has started the download. Revoking in the same
+  // turn drops the file in Safari.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
 }
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -290,9 +293,15 @@ export async function buildVerifiedExportEnrichment(
     byTrip.set(trip.id, enrichment);
     }),
   ]);
-  const { phoneByDriverId } = await phonesPromise;
+  const { error: phoneError, phoneByDriverId } = await phonesPromise;
+  if (phoneError) {
+    throw new Error(
+      `Couldn't load driver phone numbers (${phoneError.message}). The report was not created.`,
+    );
+  }
 
-  // Bulk read is RLS-scoped; fill gaps from the Driver Profile source (Contact Registry → Phone).
+  // Bulk read is RLS-scoped. Fill only the phones it did not return, a few at a time.
+  // A failed bulk read never reaches here, so it cannot fan out into one request per driver.
   const missingDriverOrg = new Map<string, string>();
   for (const summary of summaries) {
     const driverId = summary.trip.driver_id?.trim() || "";
@@ -304,7 +313,12 @@ export async function buildVerifiedExportEnrichment(
     Array.from(missingDriverOrg),
     EXPORT_FETCH_CONCURRENCY,
     async ([driverId, driverOrgId]) => {
-      const { driver } = await getDriverDetailBundle(driverOrgId, driverId);
+      const { error, driver } = await getDriverDetailBundle(driverOrgId, driverId);
+      if (error) {
+        throw new Error(
+          `Couldn't load a driver phone number (${error.message}). The report was not created.`,
+        );
+      }
       const phone = (driver?.phone ?? "").trim();
       if (phone) phoneByDriverId.set(driverId, phone);
     },
@@ -322,14 +336,23 @@ export async function buildVerifiedExportEnrichment(
   return byTrip;
 }
 
-/** Download Verified-stage Excel report (.xlsx). Returns trip row count exported. */
+/**
+ * Download the Advance Verification Excel report. Pass the trips already on
+ * screen so Confirm exports the same set the dialog counted. A fresh catalog
+ * read is only the fallback when the caller has no rows yet.
+ */
 export async function exportVerifiedStageComplianceReport(
   orgId: string,
   filter?: AdvanceVerificationExportFilter,
+  loaded?: ComplianceTripSummary[] | null,
 ): Promise<number> {
-  const summaries = filter
-    ? await fetchAdvanceVerificationSummaries(orgId, filter)
-    : await fetchVerifiedStageSummaries(orgId);
+  const summaries = loaded
+    ? filter
+      ? advanceVerificationExportSummaries(loaded, filter)
+      : loaded.filter(isComplianceVerifiedQueue)
+    : filter
+      ? await fetchAdvanceVerificationSummaries(orgId, filter)
+      : await fetchVerifiedStageSummaries(orgId);
   if (summaries.length === 0) return 0;
 
   const enrichmentByTrip = await withQueueRetry(() =>

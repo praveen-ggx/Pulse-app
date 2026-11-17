@@ -1809,7 +1809,11 @@ export default function ComplianceScreen() {
     if (!currentOrganization?.id || exporting) return;
     setExporting(true);
     try {
-      const exported = await exportVerifiedStageComplianceReport(currentOrganization.id, exportFilter);
+      const exported = await exportVerifiedStageComplianceReport(
+        currentOrganization.id,
+        exportFilter,
+        summaries,
+      );
       setExportOpen(false);
       if (exported === 0) {
         alertMessage("Nothing to export", "No trips match this filter yet.");
@@ -1819,7 +1823,7 @@ export default function ComplianceScreen() {
     } finally {
       setExporting(false);
     }
-  }, [currentOrganization?.id, exportFilter, exporting]);
+  }, [currentOrganization?.id, exportFilter, exporting, summaries]);
 
   useEffect(() => {
     if (!exportToast) return;
@@ -2116,7 +2120,7 @@ export default function ComplianceScreen() {
         <View style={styles.emptyFill}>
           <Text style={styles.message}>Loading required trip, document, and payment data…</Text>
         </View>
-      ) : isError ? (
+      ) : isError && summaries.length === 0 ? (
         <View style={styles.emptyFill}>
           <Text style={styles.message}>
             {isSupabaseQueueRejectedError(error)

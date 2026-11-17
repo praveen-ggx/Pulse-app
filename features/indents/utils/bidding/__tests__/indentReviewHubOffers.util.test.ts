@@ -73,6 +73,42 @@ describe("mergeIndentReviewHubOffers", () => {
     expect(merged[1]?.offer_source).toBe("driver_direct_bid");
     expect(merged[2]?.offer_source).toBe("market_bid");
   });
+
+  it("shows a pending market bid past its own expiry as expired, never an accepted one", () => {
+    const base = {
+      indent_id: "ind-1",
+      bidder_type: "dco",
+      bidder_user_id: "user-2",
+      bidder_display_name: "Pilot",
+      bidder_organization_id: null,
+      bidder_organization_name: null,
+      amount: 950,
+      note: null,
+      created_at: "2026-11-16T05:00:00Z",
+      updated_at: "2026-11-16T05:00:00Z",
+      expires_at: "2026-11-18T05:00:00Z",
+    };
+    const marketBids = [
+      { ...base, id: "mb-valid", status: "pending", expires_at: "2026-11-18T06:00:00Z" },
+      { ...base, id: "mb-expired", status: "pending" },
+      { ...base, id: "mb-accepted", status: "accepted" },
+    ] as MarketBidForIndentRow[];
+
+    const merged = mergeIndentReviewHubOffers({
+      indentId: "ind-1",
+      directQuotes: [quote("dq-1")],
+      marketBids,
+      nowMs: Date.parse("2026-11-18T05:00:00Z"),
+    });
+    const status = Object.fromEntries(merged.map((q) => [q.id, q.status]));
+    expect(status).toEqual({
+      "dq-1": "pending",
+      "mb-valid": "pending",
+      "mb-expired": "expired",
+      "mb-accepted": "accepted",
+    });
+    expect(merged.find((q) => q.id === "mb-valid")?.expires_at).toBe("2026-11-18T06:00:00Z");
+  });
 });
 
 describe("shouldFallbackDirectQuotesToTable", () => {

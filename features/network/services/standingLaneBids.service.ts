@@ -32,9 +32,19 @@ export type MarketplaceLaneRateCommit = {
   attached: number;
   vehicleLimit: number;
   validUntil: string;
+  /** Same rate was already active. The 48-hour window was not moved. */
+  reused: boolean;
+  /** Pending bids moved to a new amount. Accepted bids were not. */
+  rateChanged: boolean;
+  /** The carrier asked for a new 48-hour window. */
+  renewed: boolean;
 };
 
-/** Carrier opt-in: keep this Marketplace rate on every open and future load on the lane. */
+/**
+ * Save a Marketplace lane rate. The database keeps it visible for 48 hours.
+ * Pass renew only when the carrier explicitly starts a new 48-hour window.
+ * vehicleLimit is stored because the column is required; it does not reserve vehicles.
+ */
 export async function commitMarketplaceLaneRate(input: {
   orgId: string;
   pickup: string;
@@ -43,6 +53,7 @@ export async function commitMarketplaceLaneRate(input: {
   amount: number;
   vehicleLimit: number;
   validUntilIso: string;
+  renew?: boolean;
 }): Promise<{ error: Error | null; commit: MarketplaceLaneRateCommit | null }> {
   const { data, error } = await supabase().rpc("commit_marketplace_lane_rate", {
     p_org_id: input.orgId,
@@ -52,6 +63,7 @@ export async function commitMarketplaceLaneRate(input: {
     p_amount: input.amount,
     p_vehicle_limit: input.vehicleLimit,
     p_valid_until: input.validUntilIso,
+    ...(input.renew ? { p_renew: true } : {}),
   });
   if (error) return { error: new Error(error.message), commit: null };
   const row = (data ?? {}) as Record<string, unknown>;
@@ -63,6 +75,9 @@ export async function commitMarketplaceLaneRate(input: {
       attached: Number(row.attached ?? 0),
       vehicleLimit: Number(row.vehicle_limit ?? input.vehicleLimit),
       validUntil: String(row.valid_until ?? input.validUntilIso),
+      reused: row.reused === true,
+      rateChanged: row.rate_changed === true,
+      renewed: row.renewed === true,
     },
   };
 }

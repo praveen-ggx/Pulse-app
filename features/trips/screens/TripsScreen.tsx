@@ -831,8 +831,11 @@ export default function TripsScreen() {
   );
   const hubRangeServerTotal =
     hubListBucket === "history" ? hubServerCounts?.history : hubServerCounts?.active;
+  // Completeness is the unfiltered walk. Sourcing narrows the rows afterwards;
+  // comparing the narrowed length with the server total would call a short
+  // subset of a truncated walk "exact".
   const hubTripCompleteness = resolveHubTripDataset({
-    rangeRows: hubDateRangeTrips,
+    rangeRows: hubDateRangeTripsRaw,
     rangeFetched: hubDateRangeFetched,
     rangeError: hubDateRangeFailed,
     newestRows: tripsData,

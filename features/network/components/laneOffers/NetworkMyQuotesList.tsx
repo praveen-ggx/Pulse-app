@@ -9,6 +9,8 @@ import Theme from "@/constants/Theme";
 import type { MyNetworkQuoteRow } from "@/features/network/services/laneOffers.service";
 import { formatStoryDate } from "@/features/network/utils/storyDisplay";
 import { useMyNetworkQuotesQuery } from "@/lib/queries/useLaneOffersQuery";
+import { countSubmittedBids, loadsCaption } from "@/features/network/utils/bidLoadCount.util";
+import { ScoreboardNumber } from "@/features/network/components/ScoreboardNumber";
 import { formatINR } from "@/lib/format";
 
 const COLLAPSED_ROWS = 5;
@@ -63,6 +65,7 @@ export function NetworkMyQuotesList() {
   if (query.isLoading || quotes.length === 0) return null;
 
   const pendingCount = quotes.filter((quote) => quoteTone(quote.status) === "pending").length;
+  const totals = countSubmittedBids(quotes);
   const visible = expanded ? quotes : quotes.slice(0, COLLAPSED_ROWS);
   const hidden = quotes.length - visible.length;
 
@@ -71,8 +74,9 @@ export function NetworkMyQuotesList() {
       <View style={styles.head}>
         <View style={styles.titleRow}>
           <Text style={styles.title}>Network quotes</Text>
-          <Text style={styles.count}>{quotes.length}</Text>
+          <ScoreboardNumber value={totals.bids} style={styles.count} />
         </View>
+        <Text style={styles.loads}>{loadsCaption(totals.loads)}</Text>
         <Text style={styles.note}>
           {pendingCount > 0
             ? "Pending with shipper · accepting a rate request does not award the load"
@@ -147,11 +151,14 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { fontSize: 15, fontWeight: "700", color: Theme.textPrimaryDark, letterSpacing: -0.2 },
   count: {
-    fontSize: 12,
+    fontSize: 22,
+    lineHeight: 26,
     fontWeight: "700",
-    color: Theme.textMuted,
+    letterSpacing: -0.4,
+    color: Theme.textPrimaryDark,
     fontVariant: ["tabular-nums"],
   },
+  loads: { fontSize: 11, lineHeight: 14, fontWeight: "500", color: Theme.textMuted },
   note: { fontSize: 12, lineHeight: 16, color: Theme.textMuted },
   row: {
     flexDirection: "row",

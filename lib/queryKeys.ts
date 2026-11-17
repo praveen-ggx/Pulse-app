@@ -423,6 +423,7 @@ export const queryKeys = {
     postIds: (orgId: string, indentIdsKey: string) =>
       ["q", "find-loads", orgId, "post-ids", indentIdsKey] as const,
     myBids: (orgId: string) => ["q", "find-loads", orgId, "my-bids"] as const,
+    bidCounts: (orgId: string) => ["q", "find-loads", orgId, "bid-counts"] as const,
     searchLanes: (orgId: string) => ["q", "find-loads", orgId, "search-lanes"] as const,
     /** Server manifest of one Marketplace pool (get_org_marketplace_pool). */
     pool: (orgId: string, poolId: string) =>

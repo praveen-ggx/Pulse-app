@@ -31,6 +31,7 @@ import {
 } from "@/features/tripCompliance/components/ComplianceMobileChrome";
 import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/ComplianceSegmentedFilter";
 import { isComplianceMobileViewport } from "@/features/tripCompliance/utils/complianceMobileLayout.util";
+import { setRootDockHidden } from "@/contexts/DemoTabBarScrollContext";
 import { HubMobileUnderlineTab, HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
 import { DebitControlTripsTable } from "@/features/tripCompliance/components/DebitControlTripsTable";
@@ -79,6 +80,7 @@ import {
     type AwaitingPodSoftSlice,
     type AwaitingPodSubview,
 } from "@/features/tripCompliance/utils/awaitingPodSubview.util";
+import { complianceRoleHomeStage } from "@/features/tripCompliance/utils/complianceRoleHome.util";
 import { firstTabWithCards } from "@/features/tripCompliance/utils/firstTabWithCards.util";
 import {
     countAdvancePaymentExport,
@@ -434,13 +436,22 @@ export default function ComplianceScreen() {
 
   const {
     summaries: queueSummaries,
+    pipelinePartial,
     isLoading,
     isError,
     error,
-    isFetching: complianceRefreshing,
     dataUpdatedAt: complianceUpdatedAt,
     refetch,
   } = useComplianceTripsQuery();
+  const [complianceRefreshBusy, setComplianceRefreshBusy] = useState(false);
+  const refreshCompliance = useCallback(async () => {
+    setComplianceRefreshBusy(true);
+    try {
+      await refetch();
+    } finally {
+      setComplianceRefreshBusy(false);
+    }
+  }, [refetch]);
   // Ground Ops / TripOps fix holds but can't verify: their held trips show in
   // Document Upload → Compliance Hold, wherever the file count would place them.
   const fixesHoldsOnly = canResubmit && !canVerifyDocuments && !canMarkVerified;
@@ -494,13 +505,50 @@ export default function ComplianceScreen() {
     if (stage !== "balance_pending") setSettlementSlice("all");
     if (stage !== "pending_for_docs") setPendingTransitSlice("in_transit");
   }, [stage]);
+  const userPickedStageRef = useRef(false);
   useEffect(() => {
     if (!canViewCompliance || visibleStages.size === 0) return;
-    if (visibleStages.has(stage)) return;
-    setStage(visibleStages.has("pending_for_docs") ? "pending_for_docs" : [...visibleStages][0]);
-  }, [canViewCompliance, setStage, stage, visibleStages]);
+    if (!visibleStages.has(stage)) {
+      setStage(visibleStages.has("pending_for_docs") ? "pending_for_docs" : [...visibleStages][0]);
+      return;
+    }
+    if (userPickedStageRef.current || stage !== "all") return;
+    const home = complianceRoleHomeStage({
+      debitControlOnly,
+      canVerifyDocuments,
+      canMarkVerified,
+      canViewDocuments,
+      canResubmit,
+      canTabAdvanceVerification,
+      canTabAdvancePayment,
+      canTabSettlementVerification,
+      canTabFinalSettlement,
+      canManagePod,
+      visible: visibleStages,
+    });
+    if (home && home !== "all") setStage(home);
+  }, [
+    canManagePod,
+    canMarkVerified,
+    canResubmit,
+    canTabAdvancePayment,
+    canTabAdvanceVerification,
+    canTabFinalSettlement,
+    canTabSettlementVerification,
+    canVerifyDocuments,
+    canViewCompliance,
+    canViewDocuments,
+    debitControlOnly,
+    setStage,
+    stage,
+    visibleStages,
+  ]);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
   const [mobileReviewing, setMobileReviewing] = useState(false);
+  useEffect(() => {
+    setRootDockHidden(isMobile && mobileReviewing);
+    return () => setRootDockHidden(false);
+  }, [isMobile, mobileReviewing]);
   useEffect(() => {
     if (!isMobile) {
       setMobileReviewing(false);
@@ -545,6 +593,7 @@ export default function ComplianceScreen() {
     };
   }, [stage, filtered]);
   const selectStage = useCallback((next: Parameters<typeof setStage>[0]) => {
+    userPickedStageRef.current = true;
     setStage(next);
     setMobileReviewing(false);
     if (next !== "hard_copy_pod_received") {
@@ -1142,6 +1191,8 @@ export default function ComplianceScreen() {
   useEffect(() => {
     if (summaries == null || search.trim()) return;
     if (!visibleStages.has(stage) && visibleStages.size > 0) return;
+    // All is never the landing page. The role-home effect leaves it; a click on All can still use it.
+    if (stage === "all" && !userPickedStageRef.current) return;
     const currentCount = stageLandingCounts[stage] ?? 0;
     if (currentCount > 0) return;
     const order = STAGE_LANDING_ORDER.filter((item) => visibleStages.has(item));
@@ -1489,6 +1540,7 @@ export default function ComplianceScreen() {
   }, [isAdvanceProcessedStage, searched, tableDateSort, viewMode]);
   const visible = ordered;
   const filteredTotal = ordered.length;
+  const queueStillFilling = pipelinePartial && filteredTotal === 0 && !search.trim();
   const tableResetKey = useMemo(
     () =>
       [
@@ -1981,8 +2033,8 @@ export default function ComplianceScreen() {
         <ComplianceRefreshButton
           compact
           updatedAt={complianceUpdatedAt}
-          refreshing={complianceRefreshing}
-          onRefresh={() => void refetch()}
+          refreshing={complianceRefreshBusy}
+          onRefresh={() => void refreshCompliance()}
         />
       }
     />
@@ -2060,7 +2112,7 @@ export default function ComplianceScreen() {
       {isMobile && !mobileReviewing && (isLoading || isError) && summaries.length === 0
         ? mobileQueueChrome
         : null}
-      {isLoading && summaries.length === 0 ? (
+      {(isLoading && summaries.length === 0) || queueStillFilling ? (
         <View style={styles.emptyFill}>
           <Text style={styles.message}>Loading required trip, document, and payment data…</Text>
         </View>
@@ -2381,8 +2433,8 @@ export default function ComplianceScreen() {
         <View style={styles.footerCenter}>
           <ComplianceRefreshButton
             updatedAt={complianceUpdatedAt}
-            refreshing={complianceRefreshing}
-            onRefresh={() => void refetch()}
+            refreshing={complianceRefreshBusy}
+            onRefresh={() => void refreshCompliance()}
           />
         </View>
         <View style={[styles.footerSide, styles.footerSideEnd]}>

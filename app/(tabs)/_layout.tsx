@@ -9,7 +9,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { AppLoadingSplash } from '@/components/AppLoadingSplash';
 import { View, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { DemoTabBar, type DemoTabId } from '@/components/demo';
-import { DemoTabBarAutoHideShell } from '@/contexts/DemoTabBarScrollContext';
+import { DemoTabBarAutoHideShell, useRootDockHidden } from '@/contexts/DemoTabBarScrollContext';
 import {
   getLastTabRoute,
   resolveRestorableDispatcherRoute,
@@ -22,8 +22,11 @@ import {
   scheduleDispatcherTabPreloads,
 } from '@/lib/preloadRoutes';
 import { preloadChatRoute } from '@/lib/preloadChatWarmup';
+import { preloadStoryStrip } from '@/lib/preloadStoryWarmup';
+import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
 import { DEFAULT_DRIVER_ROUTE, ROUTES } from '@/lib/routes';
 import { shouldMountAuthenticatedDataPlane } from '@/lib/bootGate';
+import { pathnameHasRootTopNav, pathnameIsComplianceTripDetail } from '@/lib/rootChromeRoutes';
 import { hydrateSignupFlowFlags } from '@/lib/onboarding/businessSignupBranding.util';
 import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
@@ -89,9 +92,12 @@ function DemoCustomTabBar(
 
   const routeName = state.routes[state.index]?.name;
   const activeTab: DemoTabId =
-    routeName === 'finance' ? 'finance'
-    : routeName === 'trips' ? 'trips'
-    : routeName === 'network' ? 'network'
+    pathname.startsWith('/find-loads') ? 'loadCenter'
+    : pathname.startsWith('/compliance') ? 'compliance'
+    : pathname.startsWith('/pulse-invoice') || pathname.startsWith('/invoicing-execute') ? 'invoice'
+    : pathname.includes('/finance') || routeName === 'finance' ? 'finance'
+    : pathname.includes('/trips') || routeName === 'trips' ? 'trips'
+    : pathname.includes('/network') || pathname.includes('/hub') || routeName === 'network' ? 'network'
     : routeName === 'resources' ? 'resources'
     : homeTab;
 
@@ -115,6 +121,10 @@ function DemoCustomTabBar(
         router.replace(ROUTES.TABS.NETWORK as Parameters<typeof router.replace>[0]);
         return;
       }
+      if (tab === 'trips') {
+        router.replace(`${ROUTES.TABS.TRIPS}?hub=active` as Parameters<typeof router.replace>[0]);
+        return;
+      }
       navigation.navigate(tab);
     },
     [canOpenLoadCenter, canOpenCompliance, navigation, pathname, router],
@@ -130,6 +140,18 @@ function DemoCustomTabBar(
     void saveLastTabRoute(restorable);
     // Do not resetBarVisible() here — it runs a spring on every tab swap and feels laggy.
   }, [pathname]);
+
+  const dockSuppressed = useRootDockHidden();
+  // Compliance and Find Loads draw their own dock. A fixed tabs dock stays on
+  // top of those screens, including a trip's document page and its preview.
+  if (
+    !isDesktopWeb &&
+    (dockSuppressed ||
+      pathnameHasRootTopNav(pathname) ||
+      pathnameIsComplianceTripDetail(pathname))
+  ) {
+    return null;
+  }
 
   const shellStyle = [
     styles.tabBarWrap,
@@ -259,6 +281,14 @@ function AuthenticatedTabLayout() {
     if (__DEV__) return;
     preloadChatRoute(undefined, { bootstrap: false });
   }, [loading, orgId, profile?.role]);
+
+  useEffect(() => {
+    if (loading || !orgId || profile?.role === 'driver') return;
+    if (access.isLoading || !access.sales) return;
+    scheduleIdleWork(() => {
+      preloadStoryStrip(queryClient, orgId);
+    }, 400);
+  }, [access.isLoading, access.sales, loading, orgId, profile?.role, queryClient]);
 
   /** Warm only the tab chunks the member's role can open — staggered to avoid Metro OOM. */
   useEffect(() => {

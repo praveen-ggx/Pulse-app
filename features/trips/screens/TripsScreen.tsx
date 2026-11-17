@@ -27,7 +27,7 @@ import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { useOptionalAuth } from "@/contexts/AuthContext";
-import { HomePageHeader } from "@/components/HomePageHeader";
+import { TopNavNotificationButton, TopNavProfileButton } from "@/components/HomePageHeader";
 import { useProtocolInvitesWithDriverSent } from "@/lib/hooks/useProtocolInvitesWithDriverSent";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -230,7 +230,7 @@ import { useAlertRegistryFinanceHandlers } from "@/lib/hooks/useAlertRegistryFin
 import { useLoadingStuck } from "@/lib/hooks/useLoadingStuck";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import { useOpenTripDetail } from "@/lib/navigation/useOpenTripDetail";
-import { FINITE_LIST_CAP } from "@/lib/pagination";
+import { FINITE_LIST_CAP, mapWithConcurrency } from "@/lib/pagination";
 import { useClientsQuery } from "@/lib/queries/useClientsQuery";
 import { useDriverProfileImagesQuery } from "@/lib/queries/useDriverProfileImagesQuery";
 import { useDriversQuery } from "@/lib/queries/useDriversQuery";
@@ -482,6 +482,9 @@ function asRestoredMetricTab(
   return null;
 }
 
+/** Stable fallback so label callbacks keep their identity while labels load. */
+const EMPTY_HUB_DOC_LABELS: Readonly<Record<string, string>> = Object.freeze({});
+
 export default function TripsScreen() {
   const { width, height } = useWindowDimensions();
   /** Desktop card grid — hub ticket cards (4 per row), aligned with Load Center. */
@@ -587,6 +590,7 @@ export default function TripsScreen() {
   const [customDateTo, setCustomDateTo] = useState<string | null>(null);
   const [tripLedgerExportOpen, setTripLedgerExportOpen] = useState(false);
   const [tripReportDownloading, setTripReportDownloading] = useState(false);
+  const tripReportInFlight = useRef(false);
   const [exportDateModalVisible, setExportDateModalVisible] = useState(false);
   /** Domain flags — finance gates cost columns on Trip Report export. */
   const memberDomains = useMemberCapabilities();
@@ -598,6 +602,7 @@ export default function TripsScreen() {
     );
   const rememberOpenedHubItem = useCallback(
     (id: string) => {
+      lastOpenedTabSearchDoneRef.current = id;
       setLastOpenedHubItem({
         id,
         tripFilter,
@@ -804,11 +809,19 @@ export default function TripsScreen() {
   );
   // Hub counts and lists use get_trips_for_org dated mode for every pill, "All time"
   // included. The undated newest-400 list is only a first paint / error fallback.
+  const hubListBucket: "active" | "history" =
+    tripFilter === "History" || activeMetricTab === "delivered_docs_pending"
+      ? "history"
+      : "active";
   const {
     trips: hubDateRangeTripsRaw,
     isFetched: hubDateRangeFetched,
     isError: hubDateRangeFailed,
-  } = useTripsHubDateRange(orgId, hubDateBounds ?? HUB_ALL_TIME_BOUNDS);
+  } = useTripsHubDateRange(
+    orgId,
+    hubDateBounds ?? HUB_ALL_TIME_BOUNDS,
+    hubListBucket,
+  );
   const hubDateRangeTrips = useMemo(
     () => sourcingScope.filterTrips(hubDateRangeTripsRaw),
     [sourcingScope, hubDateRangeTripsRaw],
@@ -1670,6 +1683,9 @@ export default function TripsScreen() {
     useCallback(() => {
       if (landOnActiveTrips) {
         skipHubRestoreAfterLandingRef.current = true;
+        if (lastOpenedTripId) {
+          lastOpenedTabSearchDoneRef.current = lastOpenedTripId;
+        }
         setTripFilter("Active");
         setActiveMetricTab("all");
         setActiveHistoryMetricTab(null);
@@ -1706,7 +1722,7 @@ export default function TripsScreen() {
           void refetchTrips();
         });
       }
-    }, [refetchTrips, indentDeepLink, landOnActiveTrips, router]),
+    }, [refetchTrips, indentDeepLink, landOnActiveTrips, lastOpenedTripId, router]),
   );
 
   const loading = tripsLoading && trips.length === 0 && !(cachedTripsForOrg?.length);
@@ -1950,12 +1966,36 @@ export default function TripsScreen() {
     if (hubStructuralSearchActive) {
       return { ...hubSearchScoped.metricCounts };
     }
-    return { ...openHubRailCounts, indent: liveIndentCount };
+    const counts = { ...openHubRailCounts, indent: liveIndentCount };
+    const unfiltered =
+      supplyFilter === "all" &&
+      attributionFilter === "all" &&
+      dateRangeFilter === "all";
+    if (unfiltered && hubMetrics) {
+      const activeListReady = hubListBucket === "active" && useRangeList;
+      if (!activeListReady) {
+        counts.unassigned = hubMetrics.unassigned;
+        counts.assigned = hubMetrics.assigned;
+        counts.loading = hubMetrics.loading;
+        counts.in_transit = hubMetrics.inTransit;
+        counts.unloading = hubMetrics.unloading;
+      }
+      if (!(hubListBucket === "history" && useRangeList)) {
+        counts.delivered_docs_pending = hubMetrics.tripsCompleted;
+      }
+    }
+    return counts;
   }, [
     hubStructuralSearchActive,
     hubSearchScoped,
     liveIndentCount,
     openHubRailCounts,
+    supplyFilter,
+    attributionFilter,
+    dateRangeFilter,
+    hubMetrics,
+    hubListBucket,
+    useRangeList,
   ]);
 
   const transactionsByTripId = useMemo(() => {
@@ -2523,8 +2563,8 @@ export default function TripsScreen() {
     staleTime: 60_000,
     queryFn: () => loadHubTripDocumentLabelsByTripIds(visibleHubTripIdsForDocs),
   });
-  const hubLrLabels = hubDocLabels?.lrLabels ?? {};
-  const hubElrLabels = hubDocLabels?.elrLabels ?? {};
+  const hubLrLabels = hubDocLabels?.lrLabels ?? EMPTY_HUB_DOC_LABELS;
+  const hubElrLabels = hubDocLabels?.elrLabels ?? EMPTY_HUB_DOC_LABELS;
   const hubLrLabelFor = useCallback(
     (tripId: string) => {
       const id = tripId.trim().toLowerCase();
@@ -2599,7 +2639,8 @@ export default function TripsScreen() {
   // One-shot: look for the last-opened trip once, then leave tab choice to the user.
   // Without this, tapping Active snaps straight back to History when that trip is completed.
   useEffect(() => {
-    if (!lastOpenedTripId || indentDeepLink) return;
+    if (!lastOpenedTripId || indentDeepLink || landOnActiveTrips) return;
+    if (skipHubRestoreAfterLandingRef.current) return;
     if (lastOpenedTabSearchDoneRef.current === lastOpenedTripId) return;
     if (lastOpenedHubIndex >= 0) {
       lastOpenedTabSearchDoneRef.current = lastOpenedTripId;
@@ -2619,6 +2660,7 @@ export default function TripsScreen() {
     tripFilter,
     activeMetricTab,
     indentDeepLink,
+    landOnActiveTrips,
   ]);
 
   useEffect(() => {
@@ -2755,8 +2797,21 @@ export default function TripsScreen() {
     return missing.join("|");
   }, [allIndentsRaw, indentsFetched, trips]);
 
+  // Supplier per indent already read this session (null = no award), so a new
+  // trips page only fetches indents it has not seen. Each page used to re-read
+  // every missing indent serially. Reset on org switch; loaded indents still
+  // override this fallback in indentAwardOrgByIndentId below.
+  const indentAwardFallbackCacheRef = useRef<{ orgId: string | null; byId: Map<string, string | null> }>({
+    orgId: null,
+    byId: new Map(),
+  });
+
   useEffect(() => {
     let cancelled = false;
+    if (indentAwardFallbackCacheRef.current.orgId !== orgId) {
+      indentAwardFallbackCacheRef.current = { orgId, byId: new Map() };
+    }
+    const cache = indentAwardFallbackCacheRef.current.byId;
     if (!indentAwardFallbackEffectKey) {
       setIndentAwardFallbackByIndentId((prev) =>
         Object.keys(prev).length === 0 ? prev : {},
@@ -2764,31 +2819,34 @@ export default function TripsScreen() {
       return undefined;
     }
     const missingIds = indentAwardFallbackEffectKey.split("|").filter(Boolean);
+    const toFetch = missingIds.filter((id) => !cache.has(id));
     void (async () => {
-      const awards: Record<string, string> = {};
-      for (let i = 0; i < missingIds.length; i += 80) {
-        const chunk = missingIds.slice(i, i + 80);
+      const chunks: string[][] = [];
+      for (let i = 0; i < toFetch.length; i += 80) chunks.push(toFetch.slice(i, i + 80));
+      await mapWithConcurrency(chunks, 6, async (chunk) => {
         const { data, error } = await supabase()
           .from("indents")
           .select("id, assigned_supplier_id")
           .in("id", chunk);
-        if (cancelled) return;
-        if (error) {
-          setIndentAwardFallbackByIndentId((prev) =>
-            Object.keys(prev).length === 0 ? prev : {},
-          );
-          return;
-        }
+        // A failed chunk stays uncached and is retried on the next key change.
+        if (error) return;
+        const found = new Map<string, string>();
         for (const row of data ?? []) {
           const id = String(row.id ?? "").trim();
           const awardedOrgId = String(row.assigned_supplier_id ?? "").trim();
-          if (id && awardedOrgId) {
-            awards[id] = awardedOrgId;
-            awards[id.toLowerCase()] = awardedOrgId;
-          }
+          if (id && awardedOrgId) found.set(id, awardedOrgId);
+        }
+        for (const id of chunk) cache.set(id, found.get(id) ?? null);
+      });
+      if (cancelled) return;
+      const awards: Record<string, string> = {};
+      for (const id of missingIds) {
+        const awardedOrgId = cache.get(id);
+        if (awardedOrgId) {
+          awards[id] = awardedOrgId;
+          awards[id.toLowerCase()] = awardedOrgId;
         }
       }
-      if (cancelled) return;
       setIndentAwardFallbackByIndentId((prev) => {
         const prevKeys = Object.keys(prev);
         const nextKeys = Object.keys(awards);
@@ -2804,7 +2862,7 @@ export default function TripsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [indentAwardFallbackEffectKey]);
+  }, [indentAwardFallbackEffectKey, orgId]);
 
   const indentAwardOrgByIndentId = useMemo(() => {
     const awards: Record<string, string> = { ...indentAwardFallbackByIndentId };
@@ -2904,8 +2962,14 @@ export default function TripsScreen() {
    * - TripOps-only → All Trips ops sheet (20 columns + stage times).
    */
   const handleDownloadTripReport = useCallback(async (exportFrom: string, exportTo: string) => {
-    if (!orgId || tripReportDownloading || isGroundOpsMember || isSourcingMember) return;
+    if (!orgId || tripReportInFlight.current || isGroundOpsMember || isSourcingMember) return;
+    tripReportInFlight.current = true;
     setTripReportDownloading(true);
+    // The catalog scan can hang on a statement timeout. Release the header
+    // button; the in-flight ref still blocks a second export until this one ends.
+    const reportTimeout = setTimeout(() => {
+      setTripReportDownloading(false);
+    }, 20_000);
     try {
       const audience = resolveTripIndentReportAudience(memberDomains);
       const catalog = await loadTripIndentReportCatalog(
@@ -3019,11 +3083,12 @@ export default function TripsScreen() {
       const message = e instanceof Error ? e.message : String(e);
       showAppAlert("Export failed", message || "Could not download the trip report.");
     } finally {
+      clearTimeout(reportTimeout);
+      tripReportInFlight.current = false;
       setTripReportDownloading(false);
     }
   }, [
     orgId,
-    tripReportDownloading,
     hubTrips,
     allIndents,
     sourcingScope,
@@ -3408,8 +3473,32 @@ export default function TripsScreen() {
         cancelled: 0,
       };
     }
-    return hubTabTripCounts(hubScopedTrips);
-  }, [hubStructuralSearchActive, hubSearchScoped, hubScopedTrips]);
+    const fromRows = hubTabTripCounts(hubScopedTrips);
+    const unfiltered =
+      supplyFilter === "all" &&
+      attributionFilter === "all" &&
+      dateRangeFilter === "all";
+    if (unfiltered && hubMetrics) {
+      const activeListReady = hubListBucket === "active" && useRangeList;
+      const historyListReady = hubListBucket === "history" && useRangeList;
+      return {
+        active: activeListReady ? fromRows.active : hubMetrics.tripsActive,
+        history: historyListReady ? fromRows.history : hubMetrics.tripsCompleted,
+        cancelled: hubMetrics.tripsCancelled,
+      };
+    }
+    return fromRows;
+  }, [
+    hubStructuralSearchActive,
+    hubSearchScoped,
+    hubScopedTrips,
+    supplyFilter,
+    attributionFilter,
+    dateRangeFilter,
+    hubMetrics,
+    hubListBucket,
+    useRangeList,
+  ]);
 
   const formatMainTabLabel = useCallback(
     (label: string, count: number) =>
@@ -3616,13 +3705,31 @@ export default function TripsScreen() {
   );
   // ALL = open trips on the rail only. Completed trips belong on History.
   // Indent cards stay on the Indent tile and are not added here.
-  const activeAllCount = useMemo(
-    () =>
-      hubStructuralSearchActive
-        ? hubSearchScoped.activeAllCount
-        : hubActiveAllTripCount(openHubRailCounts),
-    [hubStructuralSearchActive, hubSearchScoped, openHubRailCounts],
-  );
+  const activeAllCount = useMemo(() => {
+    if (hubStructuralSearchActive) return hubSearchScoped.activeAllCount;
+    const unfiltered =
+      supplyFilter === "all" &&
+      attributionFilter === "all" &&
+      dateRangeFilter === "all";
+    if (
+      unfiltered &&
+      hubMetrics &&
+      !(hubListBucket === "active" && useRangeList)
+    ) {
+      return hubMetrics.tripsActive;
+    }
+    return hubActiveAllTripCount(openHubRailCounts);
+  }, [
+    hubStructuralSearchActive,
+    hubSearchScoped,
+    openHubRailCounts,
+    supplyFilter,
+    attributionFilter,
+    dateRangeFilter,
+    hubMetrics,
+    hubListBucket,
+    useRangeList,
+  ]);
   // "Showing X of Y": Y is the current tab's total (or the selected History card's
   // count), X the filtered list. activeMetricTab stays "all" on History, so key on
   // the tab, not the metric.
@@ -4077,6 +4184,7 @@ export default function TripsScreen() {
           <TripsHubAuditFooter
             onExportLedger={openTripLedgerExport}
             tr={tr}
+            partialNote={hubShowsIndentList ? null : hubCompletenessNote}
             pagination={
               showTripsPaginationFooter
                 ? {
@@ -4239,20 +4347,6 @@ export default function TripsScreen() {
         }}
       />
 
-      {isMobileViewport ? (
-        <HomePageHeader
-          autoHide
-          skipSafeAreaTop={Platform.OS !== "web"}
-          invitationBadgeCount={pendingInviteCount}
-          onInvitationsPress={() =>
-            router.push({
-              pathname: "/network",
-              params: { view: "requests", ts: String(Date.now()) },
-            } as never)
-          }
-        />
-      ) : null}
-
       <ScrollView
           style={styles.scroll}
           contentContainerStyle={[
@@ -4307,7 +4401,13 @@ export default function TripsScreen() {
                 <>
                   <HubMobileScreenHeader
                     title={tr("myTrips")}
-                    action={renderLoadNetworkButton(true)}
+                    leading={<TopNavProfileButton size={36} />}
+                    action={
+                      <View style={hubChrome.screenHeaderActions}>
+                        {renderLoadNetworkButton(true)}
+                        <TopNavNotificationButton />
+                      </View>
+                    }
                   />
                   <View style={[hubChrome.tabHeaderRow, styles.tripsMobileTabRow]}>
                     <ScrollView
@@ -4741,7 +4841,7 @@ export default function TripsScreen() {
                       ? indentStageToolbarCountLabel
                       : tripListToolbarCountLabel
                   }
-                  toolbarWarning={hubShowsIndentList ? null : hubCompletenessNote}
+                  toolbarWarning={null}
                   renderAboveBody={null}
                   dateRangeFilter={dateRangeFilter}
                   dateRangeLabel={hubDateRangeLabel}
@@ -4813,7 +4913,7 @@ export default function TripsScreen() {
                 lrLabelByTripId={{ ...hubLrLabels, ...hubLrPreviewByTripId }}
                 elrLabelByTripId={hubElrLabels}
                 toolbarCountLabel={tripListToolbarCountLabel}
-                toolbarWarning={hubCompletenessNote}
+                toolbarWarning={null}
                 renderAboveBody={null}
                 dateRangeFilter={dateRangeFilter}
                 dateRangeLabel={hubDateRangeLabel}

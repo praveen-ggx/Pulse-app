@@ -172,43 +172,23 @@ function LedgerSectionHead({
   );
 }
 
-function FactRow({
+function FactCell({
   label,
   value,
   emphasize,
-  compact,
 }: {
   label: string;
   value: string;
   emphasize?: boolean;
-  compact?: boolean;
 }) {
   return (
-    <View
-      style={[
-        styles.factRow,
-        emphasize && styles.factRowEmphasize,
-        compact && styles.factRowCompact,
-        compact && emphasize && styles.factRowEmphasizeCompact,
-      ]}
-    >
-      <Text
-        style={[
-          styles.factLabel,
-          emphasize && styles.factLabelEmphasize,
-          compact && styles.factLabelCompact,
-        ]}
-      >
+    <View style={[styles.factCell, emphasize && styles.factCellEmphasize]}>
+      <Text style={styles.factCellLabel} numberOfLines={1}>
         {label}
       </Text>
       <Text
-        style={[
-          styles.factValue,
-          emphasize && styles.factValueEmphasize,
-          compact && styles.factValueCompact,
-          compact && emphasize && styles.factValueEmphasizeCompact,
-        ]}
-        numberOfLines={3}
+        style={[styles.factCellValue, emphasize && styles.factCellValueEm]}
+        numberOfLines={2}
       >
         {value}
       </Text>
@@ -768,20 +748,25 @@ export function CompliancePaymentConfirmModal({
         title="Trip"
         hint="Settlement context for this ledger post"
       />
-      <FactRow compact={isInline} label="Supplier" value={supplierLabel?.trim() || "—"} />
-      <FactRow compact={isInline} label="Customer name" value={trip?.client_name?.trim() || "—"} />
-      <FactRow compact={isInline} label="Truck type" value={truckType?.trim() || "—"} />
-      <FactRow compact={isInline} label="Trip" value={tripLabel} />
-      <FactRow compact={isInline} label="Category" value={categoryLabel} />
-      {clientPerMt != null ? (
-        <FactRow compact={isInline} label="Client rate / MT" value={formatInr(clientPerMt)} />
-      ) : null}
-      {supplierPerMt != null ? (
-        <FactRow compact={isInline} label="Supplier rate / MT" value={formatInr(supplierPerMt)} />
-      ) : null}
-      <FactRow compact={isInline} label="Base freight" value={baseFreightLabel} emphasize />
-      <View style={[styles.factRow, isInline && styles.factRowCompact]}>
-        <Text style={[styles.factLabel, isInline && styles.factLabelCompact]}>Memo</Text>
+      <View style={styles.factGrid}>
+        <FactCell label="Supplier" value={supplierLabel?.trim() || "—"} />
+        <FactCell label="Customer" value={trip?.client_name?.trim() || "—"} />
+        <FactCell label="Truck type" value={truckType?.trim() || "—"} />
+        <FactCell label="Trip" value={tripLabel} />
+        <FactCell
+          label="Category"
+          value={categoryLabel === "advance" ? "Advance" : "Balance"}
+        />
+        {clientPerMt != null ? (
+          <FactCell label="Client rate / MT" value={formatInr(clientPerMt)} />
+        ) : null}
+        {supplierPerMt != null ? (
+          <FactCell label="Supplier rate / MT" value={formatInr(supplierPerMt)} />
+        ) : null}
+        <FactCell label="Base freight" value={baseFreightLabel} emphasize />
+      </View>
+      <View style={styles.memoRow}>
+        <Text style={styles.factCellLabel}>Memo</Text>
         <View style={styles.docAction}>
           <Pressable
             style={[
@@ -822,7 +807,7 @@ export function CompliancePaymentConfirmModal({
 
       <View style={[styles.calcRow, isInline && styles.calcRowInline]}>
         <Text style={[styles.calcLabel, styles.calcLabelGrow, isInline && styles.calcLabelInline]}>Base freight</Text>
-        <Text style={[styles.calcValue, isInline && styles.calcValueInline]}>{baseFreightLabel}</Text>
+        <Text style={[styles.calcValue, styles.calcValueColumn, isInline && styles.calcValueInline]}>{baseFreightLabel}</Text>
       </View>
 
       <View style={[styles.calcRow, isInline && styles.calcRowInline]}>
@@ -933,19 +918,23 @@ export function CompliancePaymentConfirmModal({
     </View>
   );
 
+  const besidePay = isInline && inlineWidth >= INLINE_TWO_COLUMN_MIN_WIDTH;
   const sideBySide = twoColumn && !isInline;
   const detailsRow = (
     <View style={[styles.columns, sideBySide && styles.columnsWide, isInline && styles.columnsInline]}>
       <View style={[styles.column, sideBySide && styles.columnWide, isInline && styles.columnInline]}>
         {factsCard}
       </View>
+      {isInline ? null : (
       <View style={[styles.column, sideBySide && styles.columnWide, isInline && styles.columnInline]}>
         {calcCard}
       </View>
+      )}
     </View>
   );
 
-  const modeField = (
+  function renderModeField() {
+    return (
     <View style={[styles.field, styles.ledgerCard, isInline && styles.fieldInline, isInline && styles.fieldFill]}>
       <View style={[styles.paymentBody, isInline && styles.paymentBodyFill]}>
         <View style={isInline ? styles.paymentBand : undefined}>
@@ -1081,6 +1070,20 @@ export function CompliancePaymentConfirmModal({
       </View>
     </View>
   );
+  }
+
+  const calcPayRow = (
+    <View style={[styles.columns, besidePay && styles.columnsWide, !besidePay && styles.columnsInline]}>
+      <View style={[styles.column, besidePay && styles.columnWide, !besidePay && styles.columnInline]}>
+        {calcCard}
+      </View>
+      {readOnly ? null : (
+        <View style={[styles.column, besidePay && styles.columnWide, !besidePay && styles.columnInline]}>
+          {renderModeField()}
+        </View>
+      )}
+    </View>
+  );
 
   const actionsRow = (
     <View style={[styles.actions, (onReject || onCancel || onFlag) && styles.actionsWithSecondary]}>
@@ -1200,7 +1203,7 @@ export function CompliancePaymentConfirmModal({
         )}
         <View style={styles.inlineStack}>
           {detailsRow}
-          {readOnly ? null : modeField}
+          {calcPayRow}
           <View style={[styles.actionsBar, styles.actionsBarInline]}>{actionsRow}</View>
         </View>
       </View>
@@ -1238,7 +1241,7 @@ export function CompliancePaymentConfirmModal({
               {introText}
             </View>
             {detailsRow}
-            {modeField}
+            {renderModeField()}
             <View style={styles.actionsBar}>{actionsRow}</View>
           </ScrollView>
         </View>
@@ -1337,8 +1340,9 @@ const styles = StyleSheet.create({
   },
   ledgerHeadText: { flex: 1, minWidth: 0, gap: 2 },
   ledgerIcon: {
-    width: 34,
-    height: 34,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
@@ -1362,9 +1366,9 @@ const styles = StyleSheet.create({
   },
   modeTileRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "stretch",
     alignSelf: "stretch",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     gap: 8,
   },
   modeTileCell: { flex: 1, minWidth: 0 },
@@ -1470,6 +1474,52 @@ const styles = StyleSheet.create({
     flexGrow: 0,
     paddingBottom: 2,
   },
+  factGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  factCell: {
+    flexGrow: 1,
+    flexBasis: "46%",
+    minWidth: 140,
+    gap: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: Theme.surfaceGray,
+  },
+  factCellEmphasize: {
+    backgroundColor: LedgerSyncPalette.emeraldSoft,
+  },
+  factCellLabel: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: SHOP.muted,
+  },
+  factCellValue: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "600",
+    color: SHOP.ink,
+  },
+  factCellValueEm: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "800",
+    color: Theme.darkGreen,
+  },
+  memoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    minHeight: 36,
+    paddingHorizontal: 2,
+  },
   factRow: {
     minHeight: 28,
     flexDirection: "row",
@@ -1537,7 +1587,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.darkGreen,
   },
-  docAction: { flex: 1, minWidth: 0, alignItems: "flex-end" },
+  docAction: { flexShrink: 0, alignItems: "flex-end" },
   eyeBtn: {
     ...complianceActionButtonStyles.ghost,
     minWidth: 0,
@@ -1554,6 +1604,7 @@ const styles = StyleSheet.create({
   eyeTextInline: { fontSize: 10, lineHeight: 12 },
   calcCard: {
     flexGrow: 1,
+    flexShrink: 1,
     borderRadius: 0,
     borderWidth: 0,
     borderColor: Theme.complianceTripCardBorder,
@@ -1563,7 +1614,7 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   calcCardInline: {
-    flexGrow: 0,
+    flexGrow: 1,
     paddingBottom: 4,
   },
   calcTitle: {
@@ -1594,13 +1645,13 @@ const styles = StyleSheet.create({
     paddingBottom: 1,
   },
   calcRow: {
-    minHeight: 26,
+    minHeight: 36,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    gap: 12,
+    paddingHorizontal: 2,
+    paddingVertical: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: SHOP.hairline,
   },
@@ -1609,13 +1660,13 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   calcRowTds: {
-    minHeight: 32,
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    gap: 12,
+    paddingHorizontal: 2,
+    paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: SHOP.hairline,
   },
@@ -1652,10 +1703,13 @@ const styles = StyleSheet.create({
     lineHeight: 12,
   },
   calcValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
     color: SHOP.ink,
     textAlign: "right",
+  },
+  calcValueColumn: {
+    width: 108,
   },
   calcValueInline: {
     fontSize: 11,
@@ -1669,10 +1723,11 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   tdsValueBlock: {
+    width: 108,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 8,
+    gap: 6,
     flexShrink: 0,
   },
   tdsRateChip: {
@@ -1688,20 +1743,21 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   tdsAmountValue: {
-    minWidth: 68,
+    flexShrink: 1,
     color: SHOP.ink,
   },
   pctField: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    justifyContent: "flex-end",
+    gap: 2,
     height: 28,
-    width: 76,
-    paddingHorizontal: 10,
-    borderRadius: 10,
+    width: 108,
+    paddingHorizontal: 8,
+    borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: SHOP.hairline,
-    backgroundColor: "#F7F7F8",
+    backgroundColor: Theme.surfaceGray,
   },
   pctFieldInline: {
     height: 26,
@@ -1731,12 +1787,13 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   amountResult: {
-    marginTop: 4,
-    marginHorizontal: 0,
-    marginBottom: 0,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 0,
+    marginTop: 8,
+    marginHorizontal: -12,
+    marginBottom: -10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
     backgroundColor: LedgerSyncPalette.emeraldSoft,
     flexDirection: "row",
     alignItems: "center",
@@ -1775,6 +1832,8 @@ const styles = StyleSheet.create({
   },
   field: { gap: 6 },
   fieldInline: {
+    flexGrow: 1,
+    alignSelf: "stretch",
     flexShrink: 0,
     gap: 10,
     padding: 0,
@@ -1796,7 +1855,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     flexBasis: 0,
-    minWidth: 88,
+    minWidth: 0,
     height: 36,
     flexDirection: "row",
     alignItems: "center",

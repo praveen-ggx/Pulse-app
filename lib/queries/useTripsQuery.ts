@@ -86,9 +86,14 @@ export function useCompleteTripsQuery(orgId: string | null) {
  * the Compliance workflow, which the newest-400 list would drop. Lives under the trips
  * key prefix so trip realtime invalidation refreshes it too.
  */
-export function useComplianceTripCatalogQuery(orgId: string | null) {
+export function useComplianceTripCatalogQuery(
+  orgId: string | null,
+  options?: { urgent?: boolean },
+) {
   const { status } = useAuth();
-  const bootQuietOpen = useAppQueryGate(orgId);
+  const queryClient = useQueryClient();
+  // The open Compliance desk skips the post-bootstrap quiet window, same as Trips.
+  const bootQuietOpen = useAppQueryGate(orgId, { urgent: options?.urgent === true });
   return useQuery<TripRow[], Error>({
     queryKey: queryKeys.trips.compliance(orgId ?? ''),
     queryFn: async () => {
@@ -99,6 +104,12 @@ export function useComplianceTripCatalogQuery(orgId: string | null) {
     enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
     staleTime: STALE.realtime,
     refetchOnMount: refetchOnMountIfEntityListEmpty<TripRow[]>(),
+    // Paint from the Trips hub cache while the compliance backlog catalog is in flight.
+    placeholderData: () => {
+      if (!orgId) return undefined;
+      const cached = queryClient.getQueryData<TripRow[]>(queryKeys.trips.finite(orgId));
+      return cached && cached.length > 0 ? cached : undefined;
+    },
   });
 }
 

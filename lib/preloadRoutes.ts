@@ -9,6 +9,8 @@ import {
   preloadTabScreen,
 } from '@/lib/preloadTabChunks';
 import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
+import { STALE } from '@/lib/queryClient';
+import { queryKeys } from '@/lib/queryKeys';
 import type { QueryClient } from '@tanstack/react-query';
 
 export type { PreloadableTab } from '@/lib/preloadTabChunks';
@@ -66,6 +68,62 @@ export function scheduleDispatcherTabPreloads(
 
 export function preloadPulseLoadsRoute(): void {
   preloadPulseLoadsChunk();
+}
+
+/** Compliance catalog, started on press so the queue can paint from cache. */
+export function preloadComplianceData(queryClient: QueryClient, orgId: string): void {
+  void queryClient.prefetchQuery({
+    queryKey: queryKeys.trips.compliance(orgId),
+    staleTime: STALE.realtime,
+    queryFn: async () => {
+      const { getTripsForOrg } = await import('@/features/trips/services/trips.service');
+      const res = await getTripsForOrg(orgId, { includeComplianceBacklog: true });
+      if (res.error) throw res.error;
+      return res.trips;
+    },
+  });
+}
+
+/** Invoice desk trips, same key as useInvoicingExecuteTripsQuery. */
+export function preloadInvoiceData(queryClient: QueryClient, orgId: string): void {
+  void queryClient.prefetchQuery({
+    queryKey: queryKeys.invoicing.trips(orgId),
+    staleTime: 300_000,
+    queryFn: async () => {
+      const { fetchInvoicingTrips } = await import(
+        '@/features/invoicing/services/invoicing.service'
+      );
+      const { error, trips } = await fetchInvoicingTrips(orgId);
+      if (error) throw error;
+      return trips;
+    },
+  });
+}
+
+/** Marketplace lane list and this org's bids, same keys as Find Loads. */
+export function preloadMarketplaceData(queryClient: QueryClient, orgId: string): void {
+  void queryClient.prefetchQuery({
+    queryKey: queryKeys.findLoadsForOrg.searchLanes(orgId),
+    staleTime: STALE.moderate,
+    queryFn: async () => {
+      const { listMarketplaceSearchLanes } = await import(
+        '@/features/network/services/findLoadsForOrg.service'
+      );
+      const { error, lanes } = await listMarketplaceSearchLanes(orgId);
+      if (error && lanes.length === 0) throw error;
+      return lanes;
+    },
+  });
+  void queryClient.prefetchQuery({
+    queryKey: queryKeys.findLoadsForOrg.myBids(orgId),
+    staleTime: STALE.frequent,
+    queryFn: async () => {
+      const { listMyOrgMarketBids } = await import(
+        '@/features/network/services/findLoadsForOrg.service'
+      );
+      return listMyOrgMarketBids(orgId);
+    },
+  });
 }
 
 /** @deprecated Bulk preload caused Metro heap OOM; use {@link preloadTabScreen} or navigate. */

@@ -11,7 +11,7 @@ import {
 import { isIntegratedClientRow } from '@/features/trips/visibility/tripVisibility';
 import { CustomerService } from '@/lib/platform';
 import { supabase } from '@/lib/supabase';
-import { DEFAULT_PAGE_SIZE, type PageOpts } from '@/lib/pagination';
+import { DEFAULT_PAGE_SIZE, mapWithConcurrency, type PageOpts } from '@/lib/pagination';
 import { syncDomainRows } from '@/lib/cache/domainSync';
 import { mergeDeltaRows } from '@/lib/cache/mergeDelta';
 import type { DeltaResponse } from '@/lib/cache/deltaTypes';
@@ -342,18 +342,51 @@ export async function getLinkedOrgProfilesBatch(
 }
 
 const PARTNER_DISPLAY_BATCH_CHUNK = 24;
+const PARTNER_DISPLAY_BATCH_CONCURRENCY = 4;
+/**
+ * Per-id results are reused for this long. A dozen call sites (chat, bids,
+ * mutual connections, story strip, posts, driver avatars, inbound sync) ask
+ * for the same partner orgs on every mount: production ran this RPC ~17 times
+ * per app session. Bounded so logo/name edits still show within a minute.
+ */
+const PARTNER_DISPLAY_TTL_MS = 60_000;
+
+type PartnerDisplayCacheEntry = { at: number; profile: OrgDisplayProfile | null };
+
+/** Scoped to the signed-in user: the RPC masks contact fields per viewer. */
+let partnerDisplayCache: { userId: string | null; byId: Map<string, PartnerDisplayCacheEntry> } = {
+  userId: null,
+  byId: new Map(),
+};
+
+/** Drops cached partner display rows (sign-out, workspace purge, tests). */
+export function clearLinkedOrgProfilesBatchCache(): void {
+  partnerDisplayCache = { userId: null, byId: new Map() };
+}
 
 async function fetchLinkedOrgProfilesBatchUncached(
   linkedOrganizationIds: string[]
 ): Promise<Record<string, OrgDisplayProfile>> {
   const { data: sessionData } = await supabase().auth.getSession();
   if (!sessionData.session?.access_token) return {};
+  const userId = sessionData.session.user?.id ?? null;
+  if (partnerDisplayCache.userId !== userId) {
+    partnerDisplayCache = { userId, byId: new Map() };
+  }
+  const cache = partnerDisplayCache.byId;
   const uniqueIds = [
     ...new Set(linkedOrganizationIds.map((id) => id.trim()).filter(Boolean)),
   ];
-  const result: Record<string, OrgDisplayProfile> = {};
-  for (let i = 0; i < uniqueIds.length; i += PARTNER_DISPLAY_BATCH_CHUNK) {
-    const chunk = uniqueIds.slice(i, i + PARTNER_DISPLAY_BATCH_CHUNK);
+  const now = Date.now();
+  const missing = uniqueIds.filter((id) => {
+    const hit = cache.get(id);
+    return !hit || now - hit.at > PARTNER_DISPLAY_TTL_MS;
+  });
+  const chunks: string[][] = [];
+  for (let i = 0; i < missing.length; i += PARTNER_DISPLAY_BATCH_CHUNK) {
+    chunks.push(missing.slice(i, i + PARTNER_DISPLAY_BATCH_CHUNK));
+  }
+  await mapWithConcurrency(chunks, PARTNER_DISPLAY_BATCH_CONCURRENCY, async (chunk) => {
     const { data, error } = await supabase().rpc('get_connection_partner_display_batch', {
       p_linked_organization_ids: chunk,
     });
@@ -361,9 +394,19 @@ async function fetchLinkedOrgProfilesBatchUncached(
       if (error && isUnauthenticatedPartnerDisplayError(error) && __DEV__) {
         console.warn('[partner-display] skipped unauthenticated batch', error.message);
       }
-      continue;
+      // Failed chunks stay uncached so the next caller retries them.
+      return;
     }
-    Object.assign(result, mapPartnerDisplayBatch(data as Record<string, PartnerDisplayRaw>));
+    // A user switch mid-flight must not write into the new user's cache.
+    if (partnerDisplayCache.byId !== cache) return;
+    const mapped = mapPartnerDisplayBatch(data as Record<string, PartnerDisplayRaw>);
+    const at = Date.now();
+    for (const id of chunk) cache.set(id, { at, profile: mapped[id] ?? null });
+  });
+  const result: Record<string, OrgDisplayProfile> = {};
+  for (const id of uniqueIds) {
+    const profile = cache.get(id)?.profile;
+    if (profile) result[id] = profile;
   }
   return result;
 }

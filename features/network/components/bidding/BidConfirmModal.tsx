@@ -6,7 +6,12 @@ import { LoadingIndicator } from "@/components/LoadingIndicator";
 import Theme from "@/constants/Theme";
 import { formatINR } from "@/lib/format";
 import { platformShadow } from "@/lib/platformShadow";
-import { resolveBidVsTarget } from "@/components/mobile-input/bidVsTarget";
+import {
+  formatTargetBand,
+  resolveBidVsTargetBand,
+  targetBand,
+  targetBandIsRange,
+} from "@/components/mobile-input/bidVsTarget";
 import { BidVsTargetHint } from "@/components/mobile-input/BidVsTargetHint";
 import {
   ArrowRight,
@@ -121,6 +126,8 @@ export type BidConfirmModalProps = {
   weight?: string;
   material?: string;
   targetRate?: number | null;
+  /** High shipper target when the offer is for a pool with more than one target. */
+  targetRateMax?: number | null;
   note?: string;
   submitting?: boolean;
   /** Marketplace-only. Omit entirely for Reach/relationship bidding. */
@@ -181,6 +188,7 @@ export const BidConfirmModal = memo(function BidConfirmModal({
   weight,
   material,
   targetRate,
+  targetRateMax,
   note,
   submitting = false,
   marketplaceFee,
@@ -334,15 +342,19 @@ export const BidConfirmModal = memo(function BidConfirmModal({
 
   const specs = [vehicle, weight, material].filter(Boolean).join(" · ");
 
-  const vsTarget =
-    targetRate != null && targetRate > 0
-      ? deltaLabel(amount, targetRate)
-      : null;
-
+  const band = targetBand(targetRate, targetRateMax);
+  const wide = band != null && targetBandIsRange(band);
   const amountVsTarget = useMemo(
-    () => resolveBidVsTarget(amount, targetRate),
-    [amount, targetRate],
+    () => resolveBidVsTargetBand(amount, band),
+    [amount, band],
   );
+  const vsTarget = wide
+    ? amountVsTarget
+      ? { text: amountVsTarget.caption, tone: amountVsTarget.tone }
+      : null
+    : band != null
+      ? deltaLabel(amount, band.min)
+      : null;
 
   const confirmLabel = isWithdraw
     ? submitting
@@ -752,9 +764,9 @@ export const BidConfirmModal = memo(function BidConfirmModal({
                     tone={amountVsTarget.tone}
                     style={styles.heroDelta}
                   />
-                ) : targetRate != null && targetRate > 0 ? (
+                ) : band != null ? (
                   <Text style={styles.heroTarget}>
-                    Target {formatINR(targetRate)}
+                    Target {formatTargetBand(band)}
                   </Text>
                 ) : (
                   <Text style={styles.heroTarget}>

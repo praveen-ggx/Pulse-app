@@ -92,7 +92,7 @@ export function ComplianceDetailsScreen({ tripId }: { tripId: string }) {
       contentContainerStyle={[
         styles.content,
         {
-          paddingBottom: layout.scrollBottomPadding(24),
+          paddingBottom: layout.isDesktopWeb ? 24 : layout.bottom + 24,
           paddingHorizontal: Layout.screenPaddingHorizontal,
         },
       ]}

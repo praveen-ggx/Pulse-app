@@ -18989,6 +18989,53 @@ export type Database = {
         }
         Returns: Json
       }
+      list_org_hub_trips_keyset_rows: {
+        Args: {
+          p_org_id: string
+          p_limit?: number
+          p_before_created_at?: string | null
+          p_before_id?: string | null
+          p_from?: string | null
+          p_to?: string | null
+          p_bucket?: string
+          p_side?: string
+          p_supplier_id?: string | null
+          p_supplier_name?: string | null
+          p_vehicle_id?: string | null
+          p_vehicle_norm?: string | null
+          p_supply?: string
+          p_attributed?: string
+          p_client_id?: string | null
+          p_driver_id?: string | null
+          p_payment?: string
+          p_load_type?: string | null
+          p_compliance?: boolean
+        }
+        Returns: Json
+      }
+      list_trip_documents_for_trips: {
+        Args: {
+          p_trip_ids: string[]
+          p_after_id?: string | null
+          p_limit?: number
+        }
+        Returns: {
+          id: string
+          trip_id: string
+          document_type: string
+          file_name: string
+          storage_path: string
+          uploaded_at: string
+          uploaded_by: string | null
+          status: string
+          verified_by: string | null
+          verified_at: string | null
+          rejection_reason: string | null
+          mime_type: string | null
+          document_number: string | null
+          source_entity_document_id: string | null
+        }[]
+      }
       get_trips_for_org: {
         Args: {
           p_org_id: string
@@ -19716,6 +19763,17 @@ export type Database = {
           vehicle_number: string
         }[]
       }
+      list_marketplace_lane_bootstrap: {
+        Args: { p_org_id: string }
+        Returns: {
+          drop_location: string
+          load_count: number
+          pickup_area: string
+          target_rate_max: number
+          target_rate_min: number
+          vehicle_type: string
+        }[]
+      }
       list_marketplace_pool_lanes_for_org: {
         Args: { p_after_key?: string; p_limit?: number; p_org_id: string }
         Returns: {
@@ -19744,6 +19802,40 @@ export type Database = {
           p_limit?: number
         }
         Returns: Json
+      }
+      count_my_org_market_bids: {
+        Args: { p_org_id: string }
+        Returns: Json
+      }
+      list_my_org_market_bids_page: {
+        Args: {
+          p_before_created_at?: string
+          p_before_id?: string
+          p_limit?: number
+          p_org_id: string
+        }
+        Returns: {
+          accepted_at: string
+          amount: number
+          created_at: string
+          drop_location: string
+          fee_payment_status: string
+          id: string
+          indent_id: string
+          indent_number: string
+          load_type: string
+          note: string
+          owner_masked_phone: string
+          owner_organization_id: string
+          owner_organization_name: string
+          owner_phone: string
+          pickup_area: string
+          pickup_date: string
+          platform_fee_amount: number
+          status: string
+          vehicle_type: string
+          weight: number
+        }[]
       }
       list_my_org_market_bids: {
         Args: { p_limit?: number; p_org_id: string }

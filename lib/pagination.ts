@@ -25,7 +25,10 @@ export function toRange(offset: number, limit: number): { from: number; to: numb
 
 /** Rows requested per page by `readAllPages`. Correctness does not depend on it. */
 export const READ_ALL_PAGE_SIZE = 500;
-/** Ids per `.in(...)` filter — keeps the request URL small (≈800 uuids → HTTP 400). */
+/**
+ * Ids per `.in(...)` filter. A single filter of ~630 uuids is a ~25KB URL and
+ * the API gateway answers HTTP 400 before PostgREST runs.
+ */
 export const READ_ALL_ID_CHUNK = 100;
 
 /**
@@ -99,4 +102,24 @@ export async function mapWithConcurrency<T, R>(
 
   await Promise.all(Array.from({ length: limit }, () => worker()));
   return out;
+}
+
+/**
+ * One `.in(...)` read per id chunk, rows concatenated. Use for any id list that
+ * can grow with the org (an unchunked list of ~630 uuids is HTTP 400 "Bad Request").
+ * Chunks run one after another so a large list cannot fill the client fetch queue.
+ * Any chunk error returns that error and no rows, never a partial set.
+ */
+export async function readByIdChunks<T, E>(
+  ids: readonly string[],
+  readChunk: (chunk: string[]) => PromiseLike<{ data: T[] | null; error: E | null }>,
+  size: number = READ_ALL_ID_CHUNK,
+): Promise<{ data: T[]; error: E | null }> {
+  const rows: T[] = [];
+  for (const chunk of chunkIdsForRead(ids, size)) {
+    const { data, error } = await readChunk(chunk);
+    if (error) return { data: [], error };
+    if (data) rows.push(...data);
+  }
+  return { data: rows, error: null };
 }

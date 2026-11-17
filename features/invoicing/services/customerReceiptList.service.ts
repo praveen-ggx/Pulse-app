@@ -2,6 +2,7 @@
  * Read customer receipts posted by payment capture.
  * Does not change invoice totals.
  */
+import { readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 import { receiptAppliedFromSnapshot } from "@/features/invoicing/utils/customerReceipt.util";
 import {
@@ -11,7 +12,9 @@ import {
 } from "@/features/invoicing/utils/customerReceiptList.util";
 
 const COLUMNS =
-  "id, trip_id, party_name, description, amount_in, transaction_date, created_at, contact_id, ledger_category, payment_reference";
+  "id, trip_id, party_name, description, amount_in, transaction_date, created_at, contact_id, ledger_category, payment_reference" as const;
+const COLUMNS_WITHOUT_REFERENCE =
+  "id, trip_id, party_name, description, amount_in, transaction_date, created_at, contact_id, ledger_category" as const;
 
 export async function fetchCustomerReceipts(args: {
   orgId: string;
@@ -20,21 +23,31 @@ export async function fetchCustomerReceipts(args: {
 }): Promise<{ error: string | null; receipts: CustomerReceipt[] }> {
   const clientId = args.clientId && !args.clientId.startsWith("name:") ? args.clientId : null;
   const clientName = args.clientName?.trim().toLowerCase() || null;
-  let { data, error } = await supabase()
-    .from("transactions")
-    .select(COLUMNS)
-    .eq("organization_id", args.orgId)
-    .in("ledger_category", ["customer_receipt", "tds_receivable"])
-    .order("transaction_date", { ascending: false })
-    .limit(300);
+  const readReceipts = () =>
+    readAllPages<{ id: string }, { message: string }>(async (afterId, limit) => {
+      let q = supabase()
+        .from("transactions")
+        .select(COLUMNS)
+        .eq("organization_id", args.orgId)
+        .in("ledger_category", ["customer_receipt", "tds_receivable"]);
+      if (afterId) q = q.gt("id", afterId);
+      const page = await q.order("id", { ascending: true }).limit(limit);
+      return { data: page.data, error: page.error };
+    });
+  const readReceiptsWithoutReference = () =>
+    readAllPages<{ id: string }, { message: string }>(async (afterId, limit) => {
+      let q = supabase()
+        .from("transactions")
+        .select(COLUMNS_WITHOUT_REFERENCE)
+        .eq("organization_id", args.orgId)
+        .in("ledger_category", ["customer_receipt", "tds_receivable"]);
+      if (afterId) q = q.gt("id", afterId);
+      const page = await q.order("id", { ascending: true }).limit(limit);
+      return { data: page.data, error: page.error };
+    });
+  let { data, error } = await readReceipts();
   if (error && /payment_reference/i.test(error.message)) {
-    const retry = await supabase()
-      .from("transactions")
-      .select(COLUMNS.replace(", payment_reference", ""))
-      .eq("organization_id", args.orgId)
-      .in("ledger_category", ["customer_receipt", "tds_receivable"])
-      .order("transaction_date", { ascending: false })
-      .limit(300);
+    const retry = await readReceiptsWithoutReference();
     data = retry.data;
     error = retry.error;
   }
@@ -58,11 +71,15 @@ export async function fetchCustomerReceipts(args: {
   });
   const receipts = groupCustomerReceipts(rows);
   const covered = new Set(receipts.map((receipt) => receipt.invoiceNumber).filter((number): number is string => Boolean(number)));
-  const invoices = await supabase()
-    .from("invoices")
-    .select("id, invoice_number, invoice_date, tax_snapshot, client_id, client_name")
-    .eq("org_id", args.orgId)
-    .limit(300);
+  const invoices = await readAllPages<{ id: string }, { message: string }>(async (afterId, limit) => {
+    let q = supabase()
+      .from("invoices")
+      .select("id, invoice_number, invoice_date, tax_snapshot, client_id, client_name")
+      .eq("org_id", args.orgId);
+    if (afterId) q = q.gt("id", afterId);
+    const page = await q.order("id", { ascending: true }).limit(limit);
+    return { data: page.data, error: page.error };
+  });
   if (!invoices.error) {
     for (const row of invoices.data ?? []) {
       const item = row as Record<string, unknown>;

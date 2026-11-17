@@ -2,6 +2,7 @@ import {
   buildActiveHubRailCounts,
   filterHubTripsForActiveList,
   filterHubTripsForHistoryList,
+  rowsForHubStatusList,
   hubActiveAllTripCount,
   hubActiveRailMetric,
   hubCountText,
@@ -13,7 +14,6 @@ import {
   hubTabTripCounts,
   hubTripBucket,
   hubTripCompletenessNote,
-  hubCanUseServerTripCounts,
   isOpenActiveHubTrip,
   resolveHubTripDataset,
 } from "@/features/trips/utils/hubTripListCounts.util";
@@ -67,6 +67,12 @@ describe("canonical hub trip classification", () => {
     ];
     expect(hubTabTripCounts(rows)).toEqual({ active: 3, history: 3, cancelled: 1 });
     expect(filterHubTripsForActiveList(rows).map((r) => r.id)).toEqual(["a", "b", "g"]);
+    expect(
+      rowsForHubStatusList(rows, { history: false, tileBucket: "unassigned" }).map((r) => r.id),
+    ).toEqual(["a", "b", "f", "g"]);
+    expect(
+      rowsForHubStatusList(rows, { history: false, tileBucket: "active" }).map((r) => r.id),
+    ).toEqual(["a", "b", "g"]);
     expect(filterHubTripsForHistoryList(rows).map((r) => r.id)).toEqual(["c", "d", "e"]);
   });
 
@@ -236,6 +242,24 @@ describe("dataset beyond the 400-row default list", () => {
     expect(hubTabTripCounts(newest400)).toEqual({ active: 88, history: 312, cancelled: 0 });
   });
 
+  it("a partial keyset page stays on the loaded rows and is not called complete", () => {
+    const newest400 = buildOrg().slice(0, 400);
+    const page = newest400.slice(0, 250);
+    const ds = resolveHubTripDataset({
+      rangeRows: page,
+      rangeFetched: true,
+      rangeError: false,
+      newestRows: newest400,
+      rangePartial: true,
+    });
+    expect(ds.completeness).toBe("paged");
+    expect(ds.trips).toHaveLength(250);
+    expect(hubTripCompletenessNote(ds.completeness)).toBeNull();
+    expect(hubShowingCountLabel({ shown: 250, total: 51104, partial: true })).toBe(
+      "Showing 250 of 51104+",
+    );
+  });
+
   it("while loading or after an error the 400-row fallback is labelled partial", () => {
     const all = buildOrg();
     const newest400 = all.slice(0, 400);
@@ -257,85 +281,6 @@ describe("dataset beyond the 400-row default list", () => {
         "Showing 312 of 312+",
       );
     }
-  });
-
-  it("a full keyset page is exact when it matches the server count", () => {
-    const rows = Array.from({ length: 2000 }, (_, i) => trip({ id: `s${i}` }));
-    const ds = resolveHubTripDataset({
-      rangeRows: rows,
-      rangeFetched: true,
-      rangeError: false,
-      newestRows: rows.slice(0, 400),
-      serverTotal: 2000,
-    });
-    expect(ds.completeness).toBe("exact");
-    expect(hubTripCompletenessNote(ds.completeness)).toBeNull();
-    expect(hubShowingCountLabel({ shown: 100, total: 2000, partial: false })).toBe(
-      "Showing 100 of 2000",
-    );
-  });
-
-  it("a short page stays capped when the server count is larger", () => {
-    const rows = Array.from({ length: 2000 }, (_, i) => trip({ id: `p${i}` }));
-    const ds = resolveHubTripDataset({
-      rangeRows: rows,
-      rangeFetched: true,
-      rangeError: false,
-      newestRows: [],
-      serverTotal: 5000,
-    });
-    expect(ds.completeness).toBe("capped");
-    expect(hubShowingCountLabel({ shown: rows.length, total: 5000, partial: false })).toBe(
-      "Showing 2000 of 5000",
-    );
-  });
-
-  it("uses the server total on all-time before the range list is ready, and not under search", () => {
-    const counts = { total: 2000, active: 2000, history: 0, cancelled: 0 };
-    expect(
-      hubCanUseServerTripCounts({
-        counts,
-        structuralSearch: false,
-        supplyAll: true,
-        attributionAll: true,
-        sourcingActive: false,
-        rangeListActive: false,
-        allTime: true,
-      }),
-    ).toBe(true);
-    expect(
-      hubCanUseServerTripCounts({
-        counts,
-        structuralSearch: true,
-        supplyAll: true,
-        attributionAll: true,
-        sourcingActive: false,
-        rangeListActive: true,
-        allTime: true,
-      }),
-    ).toBe(false);
-    expect(
-      hubCanUseServerTripCounts({
-        counts,
-        structuralSearch: false,
-        supplyAll: true,
-        attributionAll: false,
-        sourcingActive: false,
-        rangeListActive: true,
-        allTime: true,
-      }),
-    ).toBe(false);
-    expect(
-      hubCanUseServerTripCounts({
-        counts,
-        structuralSearch: false,
-        supplyAll: true,
-        attributionAll: true,
-        sourcingActive: false,
-        rangeListActive: false,
-        allTime: false,
-      }),
-    ).toBe(false);
   });
 
   it("a 2000-row dated page is capped, not exact", () => {

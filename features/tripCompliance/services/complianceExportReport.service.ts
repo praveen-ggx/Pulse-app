@@ -48,11 +48,12 @@ import { buildComplianceTableWorkbook } from "@/features/tripCompliance/utils/co
 import {
   buildVerifiedExportCsvRow,
   buildVerifiedExportWorkbook,
+  type VerifiedExportCsvRow,
   type VerifiedExportEnrichment,
 } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
 import { selectCompliancePipelineTrips } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
-import { getTripsForOrg } from "@/features/trips/services/trips.service";
+import { loadComplianceTripCatalog } from "@/features/tripCompliance/services/complianceTripCatalog.service";
 import { getVehicleById, getVehicleForTripViewer } from "@/features/vehicles/services/vehicles.service";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
@@ -130,7 +131,7 @@ function exportFileStamp(now: Date = new Date()): string {
 }
 
 async function fetchVerifiedStageSummaries(orgId: string): Promise<ComplianceTripSummary[]> {
-  const { error, trips } = await getTripsForOrg(orgId, { includeComplianceBacklog: true });
+  const { error, trips } = await loadComplianceTripCatalog(orgId);
   if (error) throw error;
   const summaries = await buildComplianceTripSummaries(selectCompliancePipelineTrips(trips), orgId);
   return summaries.filter(isComplianceVerifiedQueue);
@@ -140,7 +141,7 @@ async function fetchAdvanceVerificationSummaries(
   orgId: string,
   filter: AdvanceVerificationExportFilter,
 ): Promise<ComplianceTripSummary[]> {
-  const { error, trips } = await getTripsForOrg(orgId, { includeComplianceBacklog: true });
+  const { error, trips } = await loadComplianceTripCatalog(orgId);
   if (error) throw error;
   const summaries = await buildComplianceTripSummaries(selectCompliancePipelineTrips(trips), orgId);
   return advanceVerificationExportSummaries(summaries, filter);
@@ -341,11 +342,20 @@ export async function buildVerifiedExportEnrichment(
  * screen so Confirm exports the same set the dialog counted. A fresh catalog
  * read is only the fallback when the caller has no rows yet.
  */
-export async function exportVerifiedStageComplianceReport(
+export async function prepareVerifiedStageComplianceReport(
   orgId: string,
   filter?: AdvanceVerificationExportFilter,
   loaded?: ComplianceTripSummary[] | null,
-): Promise<number> {
+): Promise<VerifiedExportCsvRow[]> {
+  const prepared = await prepareVerifiedStageComplianceBundle(orgId, filter, loaded);
+  return prepared.rows;
+}
+
+async function prepareVerifiedStageComplianceBundle(
+  orgId: string,
+  filter?: AdvanceVerificationExportFilter,
+  loaded?: ComplianceTripSummary[] | null,
+): Promise<{ rows: VerifiedExportCsvRow[]; advancePercents: number[] }> {
   const summaries = loaded
     ? filter
       ? advanceVerificationExportSummaries(loaded, filter)
@@ -353,7 +363,7 @@ export async function exportVerifiedStageComplianceReport(
     : filter
       ? await fetchAdvanceVerificationSummaries(orgId, filter)
       : await fetchVerifiedStageSummaries(orgId);
-  if (summaries.length === 0) return 0;
+  if (summaries.length === 0) return { rows: [], advancePercents: [] };
 
   const enrichmentByTrip = await withQueueRetry(() =>
     buildVerifiedExportEnrichment(orgId, summaries),
@@ -363,8 +373,20 @@ export async function exportVerifiedStageComplianceReport(
   );
   const advancePercents = summaries.map((summary) => {
     const pct = enrichmentByTrip.get(summary.trip.id)?.advancePercent;
-    return pct != null && Number.isFinite(Number(pct)) ? Number(pct) : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
+    return pct != null && Number.isFinite(Number(pct))
+      ? Number(pct)
+      : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
   });
+  return { rows, advancePercents };
+}
+
+export async function exportVerifiedStageComplianceReport(
+  orgId: string,
+  filter?: AdvanceVerificationExportFilter,
+  loaded?: ComplianceTripSummary[] | null,
+): Promise<number> {
+  const { rows, advancePercents } = await prepareVerifiedStageComplianceBundle(orgId, filter, loaded);
+  if (rows.length === 0) return 0;
   await exportComplianceWorkbook(
     buildVerifiedExportWorkbook(rows, advancePercents),
     `compliance-verified-report_${exportFileStamp()}.xlsx`,

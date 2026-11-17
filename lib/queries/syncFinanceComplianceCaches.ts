@@ -94,6 +94,10 @@ export function syncFinanceComplianceCaches(input: {
   if (input.tripId) {
     scheduleInvalidation(input.queryClient, queryKeys.trips.detail(input.tripId));
     scheduleInvalidation(input.queryClient, queryKeys.trips.bundle(input.tripId));
+    // The write does not carry the new trip row, so the complete catalog cannot
+    // be patched. One debounced refetch reconciles totals. Location pings do
+    // not come through here.
+    scheduleInvalidation(input.queryClient, queryKeys.trips.complete(input.organizationId));
   }
   scheduleInvalidation(input.queryClient, queryKeys.trips.finite(input.organizationId));
 }

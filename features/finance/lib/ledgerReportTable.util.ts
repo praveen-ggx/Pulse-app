@@ -65,6 +65,92 @@ export function uniqueColumnValues(rows: ReportRow[], key: string): string[] {
   return [...seen].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
+export type ReportValueCount = { value: string; count: number };
+
+export type ReportStatusFacet = {
+  key: string;
+  label: string;
+  options: ReportValueCount[];
+};
+
+function normColumnName(value: string): string {
+  return value.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+const EXACT_STATUS_NAMES = new Set([
+  "status",
+  "trip status",
+  "verification status",
+  "payment status",
+]);
+
+export function columnValueCounts(rows: ReportRow[], key: string): ReportValueCount[] {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const value = cellDisplay(row[key]).trim();
+    if (!value) continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, undefined, { numeric: true }));
+}
+
+/**
+ * One status-like column for the preview chips. Skips columns that are really
+ * identifiers (too many distinct values) and falls back to UTR presence when
+ * a payment sheet has no status column.
+ */
+export function pickReportStatusFacet(
+  columns: Array<{ key: string; label: string }>,
+  rows: ReportRow[],
+): ReportStatusFacet | null {
+  const ranked = columns
+    .map((col) => {
+      const label = normColumnName(col.label || col.key);
+      const key = normColumnName(col.key);
+      const rank = EXACT_STATUS_NAMES.has(label) || EXACT_STATUS_NAMES.has(key)
+        ? 3
+        : label.includes("status") || key.includes("status")
+          ? 2
+          : 0;
+      return { col, rank };
+    })
+    .filter((item) => item.rank > 0)
+    .sort((a, b) => b.rank - a.rank || a.col.label.localeCompare(b.col.label));
+
+  for (const item of ranked) {
+    const options = columnValueCounts(rows, item.col.key);
+    const blank = rows.length - options.reduce((sum, option) => sum + option.count, 0);
+    if (blank > 0 && options.length > 0) options.push({ value: "Blank", count: blank });
+    if (options.length >= 2) {
+      return { key: item.col.key, label: "Status", options };
+    }
+  }
+
+  const utr = columns.find((col) => normColumnName(col.key) === "utr" || normColumnName(col.label) === "utr");
+  if (!utr || rows.length === 0) return null;
+  let withUtr = 0;
+  for (const row of rows) {
+    if (cellDisplay(row[utr.key]).trim()) withUtr += 1;
+  }
+  const options = [
+    { value: "With UTR", count: withUtr },
+    { value: "No UTR", count: rows.length - withUtr },
+  ].filter((option) => option.count > 0);
+  return options.length >= 2 ? { key: utr.key, label: "UTR", options } : null;
+}
+
+function matchesStatusFacet(row: ReportRow, key: string, selected: string[]): boolean {
+  if (!selected.length || !key) return true;
+  if (normColumnName(key) === "utr" && selected.some((value) => value === "With UTR" || value === "No UTR")) {
+    const label = cellDisplay(row[key]).trim() ? "With UTR" : "No UTR";
+    return selected.includes(label);
+  }
+  const value = cellDisplay(row[key]).trim() || "Blank";
+  return selected.includes(value);
+}
+
 function rowDateIso(row: ReportRow): string {
   const iso = toReportIsoDate(row.dateIso);
   if (iso) return iso;
@@ -86,6 +172,7 @@ export function rowMatchesLedgerReportView(
   row: ReportRow,
   state: LedgerReportViewState,
   columnKeys: string[],
+  statusKey = "status",
 ): boolean {
   const search = state.search.trim().toLowerCase();
   if (search) {
@@ -99,7 +186,7 @@ export function rowMatchesLedgerReportView(
   if ((state.dateFrom || state.dateTo) && !iso) return false;
 
   if (!matchesEquals(state.typeValues, cellDisplay(row.rowType).trim())) return false;
-  if (!matchesEquals(state.statusValues, cellDisplay(row.status).trim())) return false;
+  if (!matchesStatusFacet(row, statusKey, state.statusValues)) return false;
 
   for (const [key, selected] of Object.entries(state.columnEquals)) {
     if (!matchesEquals(selected, cellDisplay(row[key]).trim())) return false;
@@ -147,9 +234,10 @@ export function applyLedgerReportView(
   rows: ReportRow[],
   state: LedgerReportViewState,
   columnKeys: string[],
+  statusKey = "status",
 ): ReportRow[] {
   const filtered = rows.filter((row) =>
-    rowMatchesLedgerReportView(row, state, columnKeys),
+    rowMatchesLedgerReportView(row, state, columnKeys, statusKey),
   );
   if (!state.sortKey) return filtered;
   const key = state.sortKey;

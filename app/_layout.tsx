@@ -23,7 +23,10 @@ import {
   useRootDockHidden,
 } from '@/contexts/DemoTabBarScrollContext';
 import * as authService from '@/features/auth/services/auth.service';
-import { isSessionExpiredError } from '@/features/auth/services/auth.service';
+import {
+  abandonLocalSession,
+  isSessionExpiredError,
+} from '@/features/auth/services/auth.service';
 import {
     isPublicAuthRoute,
     shouldMountAuthenticatedDataPlane,
@@ -151,7 +154,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
   useEffect(() => {
     if (!sessionExpired) return;
-    authService.signOut().catch(() => {});
+    abandonLocalSession().catch(() => {});
     try {
       router.replace(ROUTES.SIGN_IN_DIRECT);
     } catch {

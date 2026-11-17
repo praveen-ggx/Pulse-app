@@ -1,6 +1,7 @@
 import {
   applyLedgerReportView,
   EMPTY_LEDGER_REPORT_VIEW,
+  pickReportStatusFacet,
   toReportIsoDate,
 } from "./ledgerReportTable.util";
 
@@ -32,6 +33,68 @@ describe("ledgerReportTable.util", () => {
       keys,
     );
     expect(view.map((r) => r.rowType)).toEqual(["TRIP"]);
+  });
+
+  it("filters a status column that is not named status", () => {
+    const paymentRows = [
+      { STATUS: "Pending", TRIP_ID: "1" },
+      { STATUS: "Paid", TRIP_ID: "2" },
+      { STATUS: "Paid", TRIP_ID: "3" },
+    ];
+    const facet = pickReportStatusFacet(
+      [
+        { key: "TRIP_ID", label: "TRIP ID" },
+        { key: "STATUS", label: "STATUS" },
+      ],
+      paymentRows,
+    );
+    expect(facet?.key).toBe("STATUS");
+    expect(facet?.options).toEqual([
+      { value: "Paid", count: 2 },
+      { value: "Pending", count: 1 },
+    ]);
+    const view = applyLedgerReportView(
+      paymentRows,
+      { ...EMPTY_LEDGER_REPORT_VIEW, statusValues: ["Pending"] },
+      ["TRIP_ID", "STATUS"],
+      facet?.key,
+    );
+    expect(view.map((row) => row.TRIP_ID)).toEqual(["1"]);
+  });
+
+  it("uses UTR presence when a payment sheet has no status column", () => {
+    const rows = [
+      { UTR: "HDFC123", AMOUNT: 10 },
+      { UTR: "", AMOUNT: 20 },
+    ];
+    const facet = pickReportStatusFacet(
+      [
+        { key: "AMOUNT", label: "AMOUNT" },
+        { key: "UTR", label: "UTR" },
+      ],
+      rows,
+    );
+    expect(facet?.options).toEqual([
+      { value: "With UTR", count: 1 },
+      { value: "No UTR", count: 1 },
+    ]);
+    const view = applyLedgerReportView(
+      rows,
+      { ...EMPTY_LEDGER_REPORT_VIEW, statusValues: ["No UTR"] },
+      ["AMOUNT", "UTR"],
+      facet?.key,
+    );
+    expect(view).toHaveLength(1);
+    expect(view[0].AMOUNT).toBe(20);
+  });
+
+  it("does not turn a high-cardinality column into a status filter", () => {
+    const rows = Array.from({ length: 20 }, (_, index) => ({
+      note: `note-${index}`,
+    }));
+    expect(
+      pickReportStatusFacet([{ key: "note", label: "Note" }], rows),
+    ).toBeNull();
   });
 
   it("searches across cells", () => {

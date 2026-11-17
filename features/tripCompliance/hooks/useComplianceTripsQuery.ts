@@ -52,6 +52,7 @@ import {
 import { getTripById, type TripRow } from "@/features/trips/services/trips.service";
 import { useComplianceTripCatalogQuery } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
+import { patchTripInEveryCatalog } from "@/lib/queries/tripCatalogFreshness";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -571,6 +572,7 @@ export function useInvalidateComplianceTrips() {
     if (!orgId) return;
     void qc.invalidateQueries({ queryKey: queryKeys.tripCompliance.pipeline(orgId) });
     void qc.invalidateQueries({ queryKey: queryKeys.trips.finite(orgId) });
+    void qc.invalidateQueries({ queryKey: queryKeys.trips.complete(orgId) });
     void qc.invalidateQueries({ queryKey: queryKeys.trips.compliance(orgId) });
     if (tripId) {
       void qc.invalidateQueries({ queryKey: queryKeys.tripCompliance.detail(orgId, tripId) });
@@ -616,13 +618,11 @@ export function useComplianceChangeSync() {
         });
         if (patchedTrip) {
           const trip: TripRow = patchedTrip;
-          for (const key of [queryKeys.trips.finite(orgId), queryKeys.trips.compliance(orgId)]) {
-            qc.setQueriesData<TripRow[]>({ queryKey: key }, (rows) =>
-              rows?.map((row) =>
-                row.id === trip.id ? { ...row, amount_paid: trip.amount_paid, updated_at: trip.updated_at } : row,
-              ),
-            );
-          }
+          patchTripInEveryCatalog(qc, orgId, trip.id, (row: TripRow) =>
+            row.id === trip.id
+              ? { ...row, amount_paid: trip.amount_paid, updated_at: trip.updated_at }
+              : row,
+          );
         }
         // Payment / verify / decline also move Finance Hub + Ledger — bust their caches.
         if (

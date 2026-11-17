@@ -15,9 +15,8 @@ jest.mock("expo-file-system/legacy", () => ({
 
 import { Platform } from "react-native";
 
-jest.mock("@/features/trips/services/trips.service", () => ({
-  getTripsForOrg: jest.fn(),
-  getTripDisplayNumber: (trip: { trip_number?: string | null }) => trip.trip_number ?? "",
+jest.mock("@/features/tripCompliance/services/complianceTripCatalog.service", () => ({
+  loadComplianceTripCatalog: jest.fn(),
 }));
 
 jest.mock("@/features/drivers/services/drivers.service", () => ({
@@ -47,9 +46,9 @@ jest.mock("@/features/vehicles/services/vehicles.service", () => ({
 
 import { exportVerifiedStageComplianceReport } from "@/features/tripCompliance/services/complianceExportReport.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
-import { getTripsForOrg } from "@/features/trips/services/trips.service";
+import { loadComplianceTripCatalog } from "@/features/tripCompliance/services/complianceTripCatalog.service";
 
-const getTripsForOrgMock = getTripsForOrg as jest.Mock;
+const loadCatalogMock = loadComplianceTripCatalog as jest.Mock;
 
 function verifiedTrip(id: string): ComplianceTripSummary {
   return {
@@ -71,7 +70,7 @@ describe("exportVerifiedStageComplianceReport", () => {
   const originalOs = Platform.OS;
 
   beforeEach(() => {
-    getTripsForOrgMock.mockReset();
+    loadCatalogMock.mockReset();
     click.mockReset();
     Object.defineProperty(Platform, "OS", { configurable: true, get: () => "web" });
     const anchor = { href: "", download: "", rel: "", click };
@@ -102,12 +101,12 @@ describe("exportVerifiedStageComplianceReport", () => {
     ]);
 
     expect(count).toBe(2);
-    expect(getTripsForOrgMock).not.toHaveBeenCalled();
+    expect(loadCatalogMock).not.toHaveBeenCalled();
     expect(click).toHaveBeenCalledTimes(1);
   });
 
   it("reports a catalog failure only when the screen has no rows to export", async () => {
-    getTripsForOrgMock.mockResolvedValue({ error: new Error("Bad Request"), trips: [] });
+    loadCatalogMock.mockResolvedValue({ error: new Error("Bad Request"), trips: [] });
 
     await expect(exportVerifiedStageComplianceReport("org-1", "all")).rejects.toThrow("Bad Request");
     expect(click).not.toHaveBeenCalled();

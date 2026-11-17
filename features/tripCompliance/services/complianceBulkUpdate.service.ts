@@ -18,7 +18,7 @@ import {
 } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 
 const TRIP_COLUMNS =
-  "id, trip_number, trip_code, trip_operational_code, display_trip_id, booking_ref";
+  "id, trip_number, trip_code, trip_operational_code, display_trip_id, booking_ref, client_price";
 const CODE_COLUMNS = [
   "trip_number",
   "trip_code",
@@ -35,6 +35,7 @@ type TripHit = {
   trip_operational_code?: string | null;
   display_trip_id?: string | null;
   booking_ref?: string | null;
+  client_price?: number | string | null;
 };
 
 function isUuid(value: string): boolean {
@@ -88,6 +89,7 @@ export async function previewComplianceBulkUpdate(params: {
         id: hit.id,
         label: getTripOperationalDisplayCode(hit),
         keys: tripKeys(hit),
+        clientPrice: hit.client_price == null || hit.client_price === "" ? null : Number(hit.client_price),
       });
     }
   }
@@ -125,6 +127,12 @@ export async function previewComplianceBulkUpdate(params: {
         mode,
         cash: isCashPaymentMode(mode),
         requestId: readLedgerRequestId(latest.description as string | null) ?? "",
+        postedAmount:
+          latest.amount_out != null
+            ? Number(latest.amount_out)
+            : latest.amount_in != null
+              ? Number(latest.amount_in)
+              : null,
       });
     }
   }

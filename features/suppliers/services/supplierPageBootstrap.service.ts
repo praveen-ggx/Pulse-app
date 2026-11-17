@@ -20,6 +20,7 @@ import {
   type TripRow,
 } from "@/features/trips/services/trips.service";
 import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
+import { readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 
 export type SupplierPageBootstrap = {
@@ -103,14 +104,16 @@ async function fetchSupplierPageBootstrapScoped(
       .from("suppliers")
       .select("id, linked_organization_id")
       .eq("organization_id", orgId),
-    supabase()
-      .from("trips")
-      .select("*")
-      .eq("organization_id", orgId)
-      .eq("supplier_id", supplierId)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(400),
+    readAllPages<{ id: string; created_at?: string | null }, { message: string }>((afterId, limit) => {
+      let q = supabase()
+        .from("trips")
+        .select("*")
+        .eq("organization_id", orgId)
+        .eq("supplier_id", supplierId)
+        .is("deleted_at", null);
+      if (afterId) q = q.gt("id", afterId);
+      return q.order("id", { ascending: true }).limit(limit);
+    }),
     getTransactionsByOrganizationAndContactId(orgId, supplierId),
     getTripsWhereOrgIsClient(orgId),
     getTripsWhereOrgIsSupplier(orgId),
@@ -135,7 +138,9 @@ async function fetchSupplierPageBootstrapScoped(
   const sharedTrips = (asSupplierRes.error ? [] : asSupplierRes.trips).map(
     supplierRowToTripRow,
   );
-  const ownTrips = (ownTripsRes.data ?? []) as TripRow[];
+  const ownTrips = ((ownTripsRes.data ?? []) as TripRow[]).sort(
+    (a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")),
+  );
   const candidateIds = [...ownTrips, ...extra, ...sharedTrips]
     .map((trip) => trip.id)
     .filter(Boolean);

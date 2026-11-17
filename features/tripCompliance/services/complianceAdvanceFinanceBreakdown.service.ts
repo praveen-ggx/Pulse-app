@@ -11,6 +11,7 @@ import { fetchTripAdvanceLedger } from "@/features/tripCompliance/services/tripC
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
   COMPLIANCE_DEFAULT_ADVANCE_PERCENT,
+  canonicalSupplierRateBasis,
   computeCompliancePaymentAmount,
   computeComplianceTdsAmount,
   resolveComplianceDocumentationCharge,
@@ -46,9 +47,11 @@ function supplierBaseFreight(input: {
   supplierRateBasis: string | null | undefined;
   loadTons: number | null | undefined;
 }): number | null {
+  const basis = canonicalSupplierRateBasis(input.supplierRateBasis);
+  if (!basis) return null;
   const rate = Number(input.supplierRate);
   if (!Number.isFinite(rate) || rate <= 0) return null;
-  if (input.supplierRateBasis === "per_mt") {
+  if (basis === "per_mt") {
     const tons = Number(input.loadTons);
     if (Number.isFinite(tons) && tons > 0) return rate * tons;
     return null;

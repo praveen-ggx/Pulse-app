@@ -17,6 +17,7 @@ import {
   guessCompliancePreviewMime,
   signCompliancePreviewUrl,
 } from "@/features/tripCompliance/services/complianceDocumentView.service";
+import { fetchLiveAdvanceApproval } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
 import {
   fetchOrganizationPayoutAccounts,
   type OrganizationPayoutAccount,
@@ -86,9 +87,11 @@ function formatInr(value: number): string {
 }
 
 function supplierCostTotal(trip: PaymentTripFacts): number | null {
+  const basis = (trip.supplier_rate_basis ?? "").trim().toLowerCase();
+  if (basis !== "per_mt" && basis !== "per_trip") return null;
   const rate = Number(trip.supplier_rate);
   if (!Number.isFinite(rate) || rate <= 0) return null;
-  if (trip.supplier_rate_basis === "per_mt") {
+  if (basis === "per_mt") {
     const tons = Number(trip.load_tons);
     if (Number.isFinite(tons) && tons > 0) return rate * tons;
     return null;
@@ -421,7 +424,7 @@ export function CompliancePaymentConfirmModal({
    * no payment mode; Finance Verify replaces Confirm payment.
    */
   readOnly?: boolean;
-  onFinanceVerify?: () => void;
+  onFinanceVerify?: (advancePercent: number) => void;
   financeVerifySubmitting?: boolean;
   /** Opens the memo in the workspace viewer (zoom / rotate) instead of a new tab. */
   onPreviewMemo?: () => void;
@@ -430,6 +433,8 @@ export function CompliancePaymentConfirmModal({
 }) {
   const { height, width: windowWidth } = useWindowDimensions();
   const isInline = presentation === "inline";
+  const [serverPayable, setServerPayable] = useState<number | null>(null);
+  const [approvalLookup, setApprovalLookup] = useState<"loading" | "ready" | "error">("loading");
   const [advancePercentText, setAdvancePercentText] = useState(
     String(COMPLIANCE_DEFAULT_ADVANCE_PERCENT),
   );
@@ -488,7 +493,11 @@ export function CompliancePaymentConfirmModal({
     [baseFreight, tdsRatePercent],
   );
   const advancePercent = Number(advancePercentText);
+  const serverLocked = isAdvance && serverPayable != null;
+  const approvalBlocked = isAdvance && approvalLookup !== "ready";
   const computedAmount = useMemo(() => {
+    if (approvalBlocked) return 0;
+    if (serverLocked && serverPayable != null) return serverPayable;
     if (!isAdvance && suggestedAmount != null && Number.isFinite(suggestedAmount) && suggestedAmount > 0) {
       return Math.round(suggestedAmount * 100) / 100;
     }
@@ -499,7 +508,7 @@ export function CompliancePaymentConfirmModal({
       documentationCharges,
       tdsAmount,
     });
-  }, [isAdvance, suggestedAmount, baseFreight, advancePercent, documentationCharges, tdsAmount]);
+  }, [approvalBlocked, serverLocked, serverPayable, isAdvance, suggestedAmount, baseFreight, advancePercent, documentationCharges, tdsAmount]);
   const tripLabel = trip
     ? getTripDisplayNumber(trip, trip.organization_id ?? null)
     : "—";
@@ -586,6 +595,30 @@ export function CompliancePaymentConfirmModal({
     };
   }, [visible, trip?.supplier_id, trip?.organization_id, trip?.supplier_name]);
 
+  useEffect(() => {
+    const tripId = trip?.id?.trim();
+    if (!visible || !isAdvance || !tripId) {
+      setServerPayable(null);
+      setApprovalLookup("ready");
+      return;
+    }
+    let cancelled = false;
+    setApprovalLookup("loading");
+    setServerPayable(null);
+    void fetchLiveAdvanceApproval(tripId).then((approval) => {
+      if (cancelled) return;
+      setServerPayable(approval?.formulaVersion === 1 ? approval.approvedAmount : null);
+      setApprovalLookup("ready");
+    }).catch(() => {
+      if (cancelled) return;
+      setServerPayable(null);
+      setApprovalLookup("error");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, isAdvance, trip?.id]);
+
   /** Load vendor advance % + FY TDS rate from supplier vault (source of truth). */
   useEffect(() => {
     const supplierId = trip?.supplier_id?.trim();
@@ -607,6 +640,12 @@ export function CompliancePaymentConfirmModal({
       const resolved = resolveComplianceTdsRate(tds.rates);
       setTdsRatePercent(resolved?.ratePercent ?? null);
       setTdsRateFy(resolved?.financialYear ?? null);
+      const approval = trip?.id ? await fetchLiveAdvanceApproval(trip.id).catch(() => null) : null;
+      if (cancelled) return;
+      if (approval?.formulaVersion === 1 && approval.advancePercent != null) {
+        setAdvancePercentText(String(approval.advancePercent));
+        return;
+      }
       const adv = profile.profile?.advance_percentage;
       const vendorPct =
         adv != null && Number.isFinite(Number(adv)) ? Number(adv) : null;
@@ -671,6 +710,7 @@ export function CompliancePaymentConfirmModal({
     !txnDateError &&
     !submitting &&
     !docChargeLoading &&
+    !approvalBlocked &&
     !!summary &&
     !!category;
 
@@ -818,7 +858,7 @@ export function CompliancePaymentConfirmModal({
             keyboardType="numeric"
             value={advancePercentText}
             onChangeText={(text) => setAdvancePercentText(sanitizePercentInput(text))}
-            editable={!submitting && !readOnly}
+            editable={!submitting && !readOnly && !serverLocked}
             selectTextOnFocus
             accessibilityLabel={percentLabel}
             placeholder="90"
@@ -900,9 +940,15 @@ export function CompliancePaymentConfirmModal({
             {isAdvance ? "Final advance payable" : "Final balance payable"}
           </Text>
           <Text style={styles.amountResultHint} numberOfLines={2}>
-            {tdsHasRate
-              ? "Auto-calculated · TDS from vendor vault"
-              : "Auto-calculated · editable % above"}
+            {approvalLookup === "error"
+              ? "The approved advance could not be loaded. Refresh and try again."
+              : approvalLookup === "loading"
+                ? "Loading the approved advance…"
+                : serverLocked
+                  ? "Approved amount from the server"
+                  : tdsHasRate
+                    ? "Auto-calculated · TDS from vendor vault"
+                    : "Auto-calculated · editable % above"}
           </Text>
         </View>
         <View style={styles.amountHeroValue}>
@@ -1145,7 +1191,7 @@ export function CompliancePaymentConfirmModal({
             hitSlop={isInline ? INLINE_ACTION_HIT_SLOP : undefined}
             accessibilityRole="button"
             accessibilityLabel="Approve advance"
-            onPress={onFinanceVerify}
+            onPress={() => onFinanceVerify?.(advancePercent)}
           >
             {financeVerifySubmitting ? (
               <ActivityIndicator color={Theme.buttonDarkText} />

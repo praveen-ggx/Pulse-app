@@ -734,40 +734,51 @@ export default function ComplianceScreen() {
   /** Finance approval: Compliance Verified → Finance Verified, and its undo. */
   const [financeVerifySubmitting, setFinanceVerifySubmitting] = useState(false);
   const financeVerifyTrip = useCallback(
-    async (tripId: string) => {
+    async (tripId: string, advancePercent?: number) => {
       if (!canManageFinance) {
         alertMessage("Couldn't approve advance", "You don't have permission to approve the advance for this trip.");
         return;
       }
+      const trip = (summaries ?? []).find((summary) => summary.trip.id === tripId)?.trip;
+      const orgId = trip?.organization_id ?? currentOrganization?.id ?? null;
+      const suppliedPercent = Number(advancePercent);
+      let percent = Number.isFinite(suppliedPercent) ? suppliedPercent : Number.NaN;
+      if (!Number.isFinite(percent)) {
+        if (!trip || !orgId) {
+          alertMessage("Couldn't approve advance", "The advance percent could not be loaded. Refresh and try again.");
+          return;
+        }
+        try {
+          const breakdown = await fetchComplianceAdvanceFinanceBreakdown({
+            orgId,
+            tripId,
+            supplierId: trip.supplier_id,
+            supplierRate: trip.supplier_rate,
+            supplierRateBasis: (trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
+            loadTons: trip.load_tons ?? null,
+          });
+          percent = breakdown?.advancePercent ?? 90;
+        } catch {
+          alertMessage("Couldn't approve advance", "The advance percent could not be loaded. Refresh and try again.");
+          return;
+        }
+      }
+      if (!Number.isFinite(percent)) {
+        alertMessage("Couldn't approve advance", "The advance percent could not be loaded. Refresh and try again.");
+        return;
+      }
       const confirmed = await confirmAction(
         "Approve advance?",
-        "The trip moves to Advance Payment, where the advance can be posted. You can undo this until the advance is posted.",
+        `The server will calculate the advance at ${percent}% of base freight, after documentation charges and TDS. You can undo this until the advance is posted.`,
         "Approve",
       );
       if (!confirmed) return;
       setFinanceVerifySubmitting(true);
       try {
-        // Snapshot the advance payable (same math as the payment card) on the
-        // payment request issued by this approval. Unknown terms → no snapshot.
-        const trip = (summaries ?? []).find((summary) => summary.trip.id === tripId)?.trip;
-        const orgId = trip?.organization_id ?? currentOrganization?.id ?? null;
-        const approvedAmount =
-          trip && orgId
-            ? await fetchComplianceAdvanceFinanceBreakdown({
-                orgId,
-                tripId,
-                supplierId: trip.supplier_id,
-                supplierRate: trip.supplier_rate,
-                supplierRateBasis: (trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
-                loadTons: trip.load_tons ?? null,
-              })
-                .then((breakdown) => breakdown?.computedAdvancePayable ?? null)
-                .catch(() => null)
-            : null;
         const { error } = await markTripFinanceVerified({
           tripId,
           idempotencyKey: `${tripId}:fv:${Date.now()}`,
-          approvedAmount,
+          advancePercent: percent,
         });
         await syncChange({ type: "tripFlags", tripId }).catch(() => undefined);
         if (error) {

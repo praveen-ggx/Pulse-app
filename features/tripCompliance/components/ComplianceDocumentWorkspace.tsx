@@ -3432,7 +3432,7 @@ export function ComplianceDocumentWorkspace({
   /** Resolves `false` when verification failed (the handler already alerted). */
   onMarkComplianceVerified?: (tripId: string) => Promise<boolean | void>;
   /** Finance approval of a Compliance Verified trip (moves it to Finance Verified). */
-  onFinanceVerify?: (tripId: string) => Promise<void>;
+  onFinanceVerify?: (tripId: string, advancePercent?: number) => Promise<void>;
   /** Undo Finance Verify while no advance is posted. */
   onUndoFinanceVerify?: (tripId: string) => Promise<void>;
   financeVerifySubmitting?: boolean;
@@ -7156,7 +7156,7 @@ export function ComplianceDocumentWorkspace({
                       // verifies it again (compliance_cleared() enforces the same).
                       onFinanceVerify={
                         canManageFinance && onFinanceVerify && !isComplianceVerifiedRejected(summary)
-                          ? () => void onFinanceVerify(summary.trip.id)
+                          ? (advancePercent?: number) => void onFinanceVerify(summary.trip.id, advancePercent)
                           : undefined
                       }
                       onUndoFinanceVerify={
@@ -9388,8 +9388,8 @@ function ChecklistAdvancePaymentPanel({
   onFlag?: () => void;
   /** Compliance: clear the finance flag. */
   onClearFlag?: () => void;
-  /** Finance staff: approve a Compliance Verified trip. */
-  onFinanceVerify?: () => void;
+  /** Finance staff: approve a Compliance Verified trip at an explicit percent. */
+  onFinanceVerify?: (advancePercent?: number) => void;
   /** Finance staff: undo Finance Verify while no advance is posted. */
   onUndoFinanceVerify?: () => void;
   financeVerifySubmitting?: boolean;
@@ -9613,7 +9613,7 @@ function ChecklistAdvancePaymentPanel({
             <TouchableOpacity
               style={[styles.checklistPayBtn, styles.checklistAdvancePayFallback]}
               activeOpacity={0.85}
-              onPress={onFinanceVerify}
+              onPress={() => onFinanceVerify?.()}
               disabled={financeVerifySubmitting}
               accessibilityRole="button"
               accessibilityLabel="Approve advance"

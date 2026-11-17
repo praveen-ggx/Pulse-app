@@ -7505,6 +7505,7 @@ export type Database = {
           payment_type: string
           request_no: string
           status: string
+          terms_snapshot: Json | null
           trip_id: string
         }
         Insert: {
@@ -7521,6 +7522,7 @@ export type Database = {
           payment_type: string
           request_no: string
           status?: string
+          terms_snapshot?: Json | null
           trip_id: string
         }
         Update: {
@@ -7537,6 +7539,7 @@ export type Database = {
           payment_type?: string
           request_no?: string
           status?: string
+          terms_snapshot?: Json | null
           trip_id?: string
         }
         Relationships: [
@@ -20037,11 +20040,13 @@ export type Database = {
       }
       mark_trip_finance_verified: {
         Args: {
+          p_advance_percent: number
           p_approved_amount?: number
+          p_formula_version: number
           p_idempotency_key?: string
           p_trip_id: string
         }
-        Returns: undefined
+        Returns: Json
       }
       market_indents_for_org: {
         Args: { p_org_id: string }

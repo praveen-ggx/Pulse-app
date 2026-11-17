@@ -74,7 +74,8 @@ interface DriverChatContextType {
   conversations: TripConversation[];
   driverIds: string[];
   isLoading: boolean;
-  sendMessage: (conversationId: string, organizationId: string, content: string) => Promise<void>;
+  /** Resolves false when the message could not be sent (it is removed again). */
+  sendMessage: (conversationId: string, organizationId: string, content: string) => Promise<boolean>;
   getTotalUnreadCount: () => number;
   refreshConversations: () => Promise<TripConversation[]>;
   ensureDriverTripConversation: (tripId: string) => Promise<{ convId: string; orgId: string } | null>;
@@ -229,7 +230,7 @@ export function DriverChatProvider({
 
   const sendMessage = useCallback(
     async (conversationId: string, organizationId: string, content: string) => {
-      if (!uid) return;
+      if (!uid) return false;
       const senderName =
         (profile as { full_name?: string; displayName?: string })?.full_name ||
         (profile as { displayName?: string })?.displayName ||
@@ -276,13 +277,21 @@ export function DriverChatProvider({
           persisted.created_at ?? optimisticMsg.created_at ?? new Date().toISOString(),
         );
         notifyTripChatMessagesChanged();
+        return true;
       } catch {
         queryClient.setQueryData<InfiniteData<DriverChatMessagesPage>>(msgKey, (old) =>
           removeDriverChatMessageFromCache(old, optimisticMsg.id),
         );
+        // Undo the inbox preview that already showed this text as sent.
+        if (driverIdsKey) {
+          void queryClient.invalidateQueries({
+            queryKey: driverChatConversationsQueryKey(driverIdsKey),
+          });
+        }
+        return false;
       }
     },
-    [uid, profile, queryClient, patchConversationListPreview],
+    [uid, profile, queryClient, patchConversationListPreview, driverIdsKey],
   );
 
   // No driver mark-read: `mark_conversation_read` is the dispatcher's RPC — it zeroes

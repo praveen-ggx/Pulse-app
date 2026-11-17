@@ -47,6 +47,11 @@ import { setCrashReporterUser, clearCrashReporterUser } from "@/lib/crashReporte
 import { resetIndexBootRedirect } from "@/lib/indexBootRedirect.util";
 import { getKeepSignedIn, setKeepSignedIn } from "@/lib/keepSignedInPreference";
 import { clearAllRealtimeChannels } from "@/lib/realtimeRegistry";
+import { getQueryClient } from "@/lib/queryClient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+/** Must match the persister key in app/_layout.tsx. */
+const PERSISTED_QUERY_CACHE_KEY = "pulse-cache-v1";
 import {
   createContext,
   useCallback,
@@ -846,6 +851,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     signOutRequestedRef.current = true;
+    // Stop trip GPS / background task / live broadcast while the session still
+    // exists — otherwise a driver who logs out mid-trip keeps being tracked.
+    try {
+      const { stopDriverLiveTracking } = await import(
+        "@/features/tracking/services/driverLiveTracking.service"
+      );
+      await withTimeout(() => stopDriverLiveTracking(), AUTH_TIMEOUT_MS);
+    } catch (e) {
+      logAuth("sign_out_stop_tracking_failed", { message: String((e as Error)?.message ?? e) }, "warn");
+    }
     clearAllRealtimeChannels();
     try {
       await withTimeout(() => authService.signOut(), AUTH_TIMEOUT_MS);
@@ -860,6 +875,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setRestoreError(null);
     clearAuthState(false);
+    // Shared phones: don't leave the previous user's trips / earnings in the
+    // in-memory cache or the 6-hour on-device cache for the next person.
+    try {
+      getQueryClient().clear();
+    } catch {
+      // cache already gone — nothing to clear
+    }
+    void AsyncStorage.removeItem(PERSISTED_QUERY_CACHE_KEY).catch(() => undefined);
   }, [clearAuthState]);
 
   // ---- render ----

@@ -1,4 +1,5 @@
 import { DriverBrandMark } from "@/components/driver/DriverBrandMark";
+import { showAppAlert } from "@/lib/appAlert";
 import { DriverSelfAvatar } from "@/components/driver/DriverSelfAvatar";
 import { TripListAssignerRow } from "@/components/driver/TripListAssignerRow";
 import {
@@ -415,8 +416,16 @@ export default function DriverTripsScreen() {
             if (invitesRes.error && __DEV__) {
               console.warn("[trip-history] getDriverInvitesReceived:", invitesRes.error.message);
             }
-            setTrips(tRes.error ? [] : (tRes.trips ?? []));
-            setInvites(invitesRes.error ? [] : (invitesRes.invites ?? []));
+            // On a failed load keep the trips already on screen — replacing them
+            // with [] looked like "no trips" with no error at all.
+            if (tRes.error) {
+              if (!initialLoadDoneRef.current) {
+                showAppAlert("Couldn't load your trips", "Check your connection and pull down to try again.");
+              }
+            } else {
+              setTrips(tRes.trips ?? []);
+            }
+            if (!invitesRes.error) setInvites(invitesRes.invites ?? []);
             setLoading(false);
             initialLoadDoneRef.current = true;
             isRefreshingRef.current = false;
@@ -425,8 +434,9 @@ export default function DriverTripsScreen() {
           .catch((e) => {
             if (stale()) return;
             if (__DEV__) console.warn("[trip-history] trips/invites fetch failed:", e);
-            setTrips([]);
-            setInvites([]);
+            if (!initialLoadDoneRef.current) {
+              showAppAlert("Couldn't load your trips", "Check your connection and pull down to try again.");
+            }
             setLoading(false);
             initialLoadDoneRef.current = true;
             isRefreshingRef.current = false;

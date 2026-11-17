@@ -1,4 +1,8 @@
 import { AppLoadingSplash } from "@/components/AppLoadingSplash";
+import {
+  DriverDeclineReasonModal,
+  type DriverDeclineReasonKey,
+} from "@/features/drivers/components/DriverDeclineReasonModal";
 import { DriverHeader } from "@/components/driver/DriverHeader";
 import { LiveRouteInfoCard } from "@/components/driver/LiveRouteInfoCard";
 import {
@@ -8,7 +12,6 @@ import {
 import { DriverInviteCard } from "@/components/driver/DriverInviteCard";
 import { JobRequestCard } from "@/components/JobRequestCard";
 import { ThemedAlertModal } from "@/components/ThemedAlertModal";
-import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
 import { DriverMapAvatarMarker } from "@/components/driver/DriverMapAvatarMarker";
 import {
     LeafletMap,
@@ -816,7 +819,7 @@ export default function DriverRadarScreen() {
 
 
   const runDeclineTrip = useCallback(
-    async (tripId: string) => {
+    async (tripId: string, reason: DriverDeclineReasonKey | null = null) => {
       if (declineLoading) return;
       setAcceptError(null);
       if (otpClaimTripId === tripId) {
@@ -835,7 +838,7 @@ export default function DriverRadarScreen() {
       const requiresOtp = !!pendingOtpTrip && !isRosterTrip(pendingOtpTrip);
       const { error } = requiresOtp
         ? await tripsService.driverDeclinePendingAssignment(tripId)
-        : await tripsService.driverRejectTrip(tripId);
+        : await tripsService.driverRejectTrip(tripId, reason);
       setDeclineLoading(false);
       if (error) {
         // Alert.alert is a no-op on web — use the themed modal so the failure
@@ -884,26 +887,12 @@ export default function DriverRadarScreen() {
     ],
   );
 
-  const confirmDeclineTrip = useCallback(
-    (tripId: string) => {
-      // Some mobile browsers (in-app/WebView tabs) silently block window.confirm,
-      // so use the app's own themed modal on web instead of relying on it.
-      if (Platform.OS === "web") {
-        setDeclineConfirmTripId(tripId);
-        return;
-      }
-
-      Alert.alert(DECLINE_WARNING_TITLE, DECLINE_WARNING_MSG, [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Decline trip",
-          style: "destructive",
-          onPress: () => runDeclineTrip(tripId),
-        },
-      ]);
-    },
-    [runDeclineTrip],
-  );
+  const confirmDeclineTrip = useCallback((tripId: string) => {
+    // One in-app modal on every platform: the warning plus "Why are you
+    // declining?" (native Alert can't show 4 reasons on Android, and
+    // window.confirm is blocked in some mobile browsers).
+    setDeclineConfirmTripId(tripId);
+  }, []);
 
   // Ensure notification channel exists for Android foreground services (fixes APK crashes).
   // Do not import expo-notifications in Expo Go on Android (SDK 53+): it triggers a noisy error
@@ -2200,6 +2189,9 @@ export default function DriverRadarScreen() {
     enabled: Boolean(driver && activeGuidanceTrip),
     communicationActive,
     shouldPersistCheckpoint: shouldPersistCheckpointPing,
+    // Background GPS only once the trip is started (pickup / transit / reached),
+    // not from the moment a future trip is accepted.
+    liveLaneAllowed: guidanceStepForPing !== "accepted",
     minDisplacementM: null,
     source: "background",
     onLocationFix: onPingLocationFix,
@@ -2633,6 +2625,9 @@ export default function DriverRadarScreen() {
     setOtpError(null);
     setOtpSubmitting(true);
     setIsOtpClaiming(true);
+    // Success clears the flag after its feedback timeout; every other exit
+    // (wrong OTP, network error, throw) must clear it here or it stays stuck.
+    let claimSucceeded = false;
     try {
       const { error: err, result } = await claimTripByOtp(trimmed);
       if (err) {
@@ -2640,6 +2635,7 @@ export default function DriverRadarScreen() {
         return;
       }
       if (result?.ok) {
+        claimSucceeded = true;
         // 1. Force the success state IMMEDIATELY and await it to ensure React processes the render
         setAssignmentFeedback("accepted");
         setOtpValue("");
@@ -2694,6 +2690,7 @@ export default function DriverRadarScreen() {
       setOtpError(result?.error ?? "Could not claim trip");
     } finally {
       setOtpSubmitting(false);
+      if (!claimSucceeded) setIsOtpClaiming(false);
     }
   }, [uid, invalidateDriverHome, otpValue, otpClaimTripId, otpSubmitting, assignmentFeedback]);
 
@@ -6248,18 +6245,15 @@ export default function DriverRadarScreen() {
           </View>
         </>
       )}
-      <ThemedConfirmModal
-        variant="warning"
-        confirmVariant="destructive"
+      <DriverDeclineReasonModal
         visible={declineConfirmTripId != null}
         title={DECLINE_WARNING_TITLE}
         message={DECLINE_WARNING_MSG}
-        confirmText="Decline trip"
         onCancel={() => setDeclineConfirmTripId(null)}
-        onConfirm={() => {
+        onSelect={(reason) => {
           const tripId = declineConfirmTripId;
           setDeclineConfirmTripId(null);
-          if (tripId) void runDeclineTrip(tripId);
+          if (tripId) void runDeclineTrip(tripId, reason);
         }}
       />
       <ThemedAlertModal

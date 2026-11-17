@@ -270,7 +270,23 @@ export function useDriverTripSettlement(
       linkedDrivers.find((d) => String(d.id) === String(driverId))?.organization_id ??
       trip.organization_id ??
       null;
-    const reqAmount = Math.round(settlementView.amount);
+    // Only claimable trips (completed, not settled, not already marked paid by
+    // the fleet, real agreed terms), and only for what is still owed — the old
+    // code asked for the full amount even on part-paid or unfinished trips.
+    if (!settlementView.canRequestPayment) {
+      const why =
+        settlementView.status === "settled"
+          ? "This trip is already paid."
+          : settlementView.status === "fleet_marked"
+            ? "The fleet has marked this trip paid. Confirm the payment instead."
+            : settlementView.status === "incomplete"
+              ? "Complete the trip before requesting payment."
+              : "This trip has nothing to request yet.";
+      if (Platform.OS === "web") window.alert(why);
+      else Alert.alert("Can't request payment", why);
+      return;
+    }
+    const reqAmount = Math.round(settlementView.outstandingAmount);
     if (!driverId || !orgId || reqAmount <= 0) return;
 
     setRequestPaymentLoading(true);
@@ -359,24 +375,15 @@ export function useDriverTripSettlement(
         .trim();
 
       setMarkPaidLoading(true);
-      let { error, row } = await driversService.createDriverLedgerEntry(
-        targetTrip.organization_id,
+      const { error, row } = await driversService.confirmFleetPaidSettlement({
+        orgId: targetTrip.organization_id,
         driverId,
-        Math.round(amount),
-        "settlement",
-        { tripId: targetTrip.id, createdBy: profile?.uid ?? null, description: settledDescription },
-      );
-      if (error?.message?.includes("driver_ledger_created_by_fkey")) {
-        const retry = await driversService.createDriverLedgerEntry(
-          targetTrip.organization_id,
-          driverId,
-          Math.round(amount),
-          "settlement",
-          { tripId: targetTrip.id, createdBy: null, description: settledDescription },
-        );
-        error = retry.error;
-        if (retry.row) row = retry.row;
-      }
+        amount,
+        tripId: targetTrip.id,
+        createdBy: profile?.uid ?? null,
+        description: settledDescription,
+        sourceLedgerId: sourceLedger?.id ?? null,
+      });
       if (!mountedRef.current) return;
       setMarkPaidLoading(false);
 

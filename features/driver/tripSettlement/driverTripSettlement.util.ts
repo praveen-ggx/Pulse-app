@@ -81,6 +81,17 @@ export function sumTripOtherIncome(
     if (String(entry.trip_id ?? "").trim() !== tid) continue;
     const type = String(entry.type ?? "").toLowerCase();
     if (type !== "bonus" && type !== "adjustment") continue;
+    // A fleet payout is mirrored into the driver ledger as an `adjustment`
+    // tagged "Sync: FLEET_PAID_PENDING" (sync_driver_ledger_from_transaction).
+    // That is the trip payment itself — already shown in the payment row — not
+    // extra income, so counting it here would show the same money twice.
+    if (
+      type === "adjustment" &&
+      (hasFleetPaidPendingToken(entry.description) ||
+        isLegacyFleetPendingEvidence(entry.description))
+    ) {
+      continue;
+    }
     const amt = Math.round(Number(entry.amount) || 0);
     if (amt > 0) total += amt;
   }

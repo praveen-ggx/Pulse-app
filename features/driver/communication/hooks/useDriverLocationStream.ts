@@ -24,6 +24,13 @@ export type UseDriverLocationStreamArgs = {
   /** Foreground guard from DriverCommunicationProvider — pauses loop in background. */
   communicationActive: boolean;
   shouldPersistCheckpoint: boolean;
+  /**
+   * Live lane (background GPS + broadcast) gate. Defaults to true so callers
+   * that don't pass it keep the old behaviour. DriverHome passes false while
+   * the trip is only accepted, so high-accuracy background GPS and the
+   * "trip in progress" notification start when the driver actually starts.
+   */
+  liveLaneAllowed?: boolean;
   minDisplacementM: number | null;
   source: DriverLocationSource;
   onLocationFix: (args: {
@@ -40,6 +47,7 @@ export function useDriverLocationStream({
   enabled,
   communicationActive,
   shouldPersistCheckpoint,
+  liveLaneAllowed = true,
   minDisplacementM,
   source,
   onLocationFix,
@@ -138,7 +146,7 @@ export function useDriverLocationStream({
     tripId: trip?.id ?? null,
     driverId: driver?.id ?? null,
     orgId: driver?.organization_id ?? null,
-    active: tripActive && sessionOwnsDriver,
+    active: tripActive && liveLaneAllowed && sessionOwnsDriver,
   });
 
   // Legacy flag-gated session lifecycle — only when the live lane is switched off

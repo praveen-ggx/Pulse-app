@@ -6,10 +6,10 @@ import { OpsEntryBodyPhotoSlot } from "@/features/trips/operations/shared/OpsEnt
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   StyleSheet,
   View,
 } from "react-native";
+import { showAppAlert } from "@/lib/appAlert";
 
 import { normalizeOdometerRaw } from "./applyOdometerScan.util";
 import { OdometerEntryShell } from "./components/OdometerEntryShell";
@@ -122,6 +122,23 @@ export function OdometerStartEndScreen({ trip }: { trip: TripRow }) {
 
   const handleSave = async () => {
     if (saving) return;
+    // Clearing a field and saving sent null and erased the saved reading.
+    if (trip.start_odometer_km != null && startOdometerKm == null) {
+      showAppAlert("Enter the start reading", "The start reading can't be left empty once saved.");
+      return;
+    }
+    if (trip.end_odometer_km != null && endOdometerKm == null) {
+      showAppAlert("Enter the end reading", "The end reading can't be left empty once saved.");
+      return;
+    }
+    // End lower than start silently blanked the trip distance.
+    if (startOdometerKm != null && endOdometerKm != null && endOdometerKm < startOdometerKm) {
+      showAppAlert(
+        "Check the reading",
+        `End reading (${endOdometerKm} km) is lower than the start reading (${startOdometerKm} km).`,
+      );
+      return;
+    }
     setSyncHint(null);
     try {
       const result = await saveOdometer.mutateAsync({
@@ -143,7 +160,7 @@ export function OdometerStartEndScreen({ trip }: { trip: TripRow }) {
       await refresh();
       router.back();
     } catch (e) {
-      Alert.alert(
+      showAppAlert(
         "Could not save odometer",
         e instanceof Error ? e.message : "Unknown error",
       );

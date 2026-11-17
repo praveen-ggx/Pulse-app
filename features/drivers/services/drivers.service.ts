@@ -2237,6 +2237,59 @@ export async function findDriverLedgerByReference(
   return { error: null, row: (data as DriverLedgerRow | null) ?? null };
 }
 
+const FLEET_PAID_VERIFY_REFERENCE = "fleet_paid_verify";
+
+/**
+ * Driver confirms "fleet marked this trip paid" → settlement row.
+ * Idempotent per fleet-paid ledger row: a retry after a timeout, or confirming
+ * the same payment from two screens, returns the existing settlement instead
+ * of adding a second one (which would inflate the driver's received amount).
+ */
+export async function confirmFleetPaidSettlement(input: {
+  orgId: string;
+  driverId: string;
+  amount: number;
+  tripId: string;
+  createdBy: string | null;
+  description: string;
+  sourceLedgerId?: string | null;
+}): Promise<{ error: Error | null; row: DriverLedgerRow | null }> {
+  const sourceId = String(input.sourceLedgerId ?? "").trim();
+  if (sourceId) {
+    const { data, error } = await supabase()
+      .from("driver_ledger")
+      .select(DRIVER_LEDGER_COLUMNS)
+      .eq("organization_id", input.orgId)
+      .eq("reference_type", FLEET_PAID_VERIFY_REFERENCE)
+      .eq("reference_id", sourceId)
+      .limit(1);
+    const existing = (data ?? []) as unknown as DriverLedgerRow[];
+    if (!error && existing.length > 0) {
+      return { error: null, row: existing[0] };
+    }
+  }
+  const reference = sourceId
+    ? { referenceType: FLEET_PAID_VERIFY_REFERENCE, referenceId: sourceId }
+    : {};
+  const amount = Math.round(input.amount);
+  let result = await createDriverLedgerEntry(input.orgId, input.driverId, amount, "settlement", {
+    tripId: input.tripId,
+    createdBy: input.createdBy,
+    description: input.description,
+    ...reference,
+  });
+  if (result.error?.message?.includes("driver_ledger_created_by_fkey")) {
+    const retry = await createDriverLedgerEntry(input.orgId, input.driverId, amount, "settlement", {
+      tripId: input.tripId,
+      createdBy: null,
+      description: input.description,
+      ...reference,
+    });
+    result = { error: retry.error, row: retry.row ?? result.row };
+  }
+  return result;
+}
+
 /** Driver still linked to a fleet vehicle. Used when a plate change should suggest who already runs it. */
 export async function findActiveDriverForVehicle(
   vehicleId: string,

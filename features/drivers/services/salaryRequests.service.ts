@@ -203,6 +203,28 @@ export async function markSalaryRequestPaidOnce(
   return { error: null, alreadyClosed: (data ?? []).length === 0 };
 }
 
+/**
+ * Driver withdraws their own request while it is still pending.
+ * `withdrawn: false` = the fleet already approved / paid / rejected it.
+ */
+export async function withdrawSalaryRequest(
+  requestId: string,
+): Promise<{ error: Error | null; withdrawn: boolean }> {
+  const { data, error } = await supabase().rpc('driver_withdraw_salary_request' as never, {
+    p_request_id: requestId,
+  } as never);
+  if (error) {
+    const notDeployed = /could not find the function|schema cache|PGRST202/i.test(
+      `${error.code ?? ''} ${error.message ?? ''}`,
+    );
+    return {
+      error: new Error(notDeployed ? 'Withdrawing requests is not available yet. Please contact your fleet.' : error.message),
+      withdrawn: false,
+    };
+  }
+  return { error: null, withdrawn: data === true };
+}
+
 /** Current status of one request (org side). Null when not found / not visible. */
 export async function getSalaryRequestStatus(
   requestId: string,

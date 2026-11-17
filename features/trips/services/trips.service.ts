@@ -991,18 +991,30 @@ export async function getTripByIndentId(
 /**
  * Driver rejects/declines an assigned trip.
  *
- * Backend contract: RPC `driver_reject_trip(p_trip_id uuid)` that:
+ * Backend contract: RPC `driver_reject_trip(p_trip_id uuid, p_reason text)` that:
  * - verifies current user owns the assigned driver row
+ * - only allows it before the trip starts (draft / pending_acceptance / assigned)
  * - sets trips.driver_id = null (unassign)
- * - records an assignment-audit row so the fleet can see the decline
+ * - records an assignment-audit row (with the reason) so the fleet can see the decline
  */
 export async function driverRejectTrip(
   tripId: string,
+  reason: string | null = null,
 ): Promise<{ error: Error | null; trip: TripRow | null }> {
-  const { error } = await supabase().rpc("driver_reject_trip", {
+  let { error } = await supabase().rpc("driver_reject_trip" as never, {
     p_trip_id: tripId,
-  });
-  if (error) return { error: new Error(error.message), trip: null };
+    p_reason: reason,
+  } as never);
+  // Database not migrated yet (old 1-argument function): decline without the reason.
+  if (error && /could not find the function|schema cache|PGRST202/i.test(`${error.code ?? ""} ${error.message ?? ""}`)) {
+    ({ error } = await supabase().rpc("driver_reject_trip", { p_trip_id: tripId }));
+  }
+  if (error) {
+    const message = /already started|trip_already_started/i.test(error.message ?? "")
+      ? "This trip has already started, so it can't be declined. Call your fleet if you can't continue."
+      : error.message;
+    return { error: new Error(message), trip: null };
+  }
   // Fetch updated row for local UI consistency (RPC may not return the trip row).
   const refreshed = await getDriverTripById(tripId);
   return {

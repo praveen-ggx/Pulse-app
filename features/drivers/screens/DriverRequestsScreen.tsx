@@ -40,6 +40,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { confirmDialog } from '@/lib/confirmDialog';
+import { showAppAlert } from '@/lib/appAlert';
+import { driverInvitesReceivedQueryKey } from '@/lib/queries/useDriverInvitesQuery';
+import { queryKeys } from '@/lib/queryKeys';
+import { getQueryClient } from '@/lib/queryClient';
+import { syncAndInvalidateLinkedDrivers } from '@/lib/syncLinkedDriversForDriverHome';
 import {
   buildFleetDisconnectConfirmMessage,
   fleetDisconnectConfirmTitle,
@@ -75,6 +80,20 @@ export default function DriverRequestsScreen() {
   const isDark = theme === 'dark';
   const { profile } = useAuth();
   const { avatarUri } = useDriverAvatarUri();
+  /**
+   * After joining / leaving / declining a fleet, refresh the rest of the app
+   * too (Home, DCO status, Market), not just this list — otherwise Home keeps
+   * the old fleet until its 2-minute poll.
+   */
+  const refreshAfterFleetChange = useCallback(() => {
+    const uid = profile?.uid;
+    if (!uid) return;
+    // App-wide singleton (same instance the root provider uses).
+    const queryClient = getQueryClient();
+    void queryClient.invalidateQueries({ queryKey: queryKeys.driverApp.driverOperatingMode(uid) });
+    void queryClient.invalidateQueries({ queryKey: driverInvitesReceivedQueryKey(uid) });
+    void syncAndInvalidateLinkedDrivers(queryClient, uid);
+  }, [profile?.uid]);
 
   const [invites, setInvites] = useState<driversService.DriverInviteRow[]>([]);
   const [linkedDrivers, setLinkedDrivers] = useState<driversService.DriverRow[]>([]);
@@ -355,18 +374,18 @@ export default function DriverRequestsScreen() {
       setLeavingOrgId(null);
       if (error) {
         const msg = error.message ?? 'Could not leave fleet.';
-        Alert.alert(
+        showAppAlert(
           'Leave fleet failed',
           /function.*does not exist|relation.*does not exist/i.test(msg)
             ? 'Server is not set up for leaving fleets yet. Please try again later or contact support.'
             : msg,
-          [{ text: 'OK' }]
         );
         return;
       }
       fetch();
+      refreshAfterFleetChange();
     },
-    [fetch]
+    [fetch, refreshAfterFleetChange]
   );
 
   const handleLeaveFleetPress = useCallback(
@@ -919,7 +938,7 @@ export default function DriverRequestsScreen() {
           </View>
         </View>
         <TouchableOpacity
-          onPress={() => {}}
+          onPress={() => router.push('/(driver)/notifications')}
           style={[styles.notificationBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
           activeOpacity={0.8}
           accessibilityLabel="Notifications"
@@ -1078,9 +1097,10 @@ export default function DriverRequestsScreen() {
                           const { error } = await driversService.rejectDriverInvite(inv.id);
                           setInviteActionId(null);
                           if (error) {
-                            Alert.alert('Decline failed', error.message ?? 'Could not decline. Try again.', [{ text: 'OK' }]);
+                            showAppAlert('Decline failed', error.message ?? 'Could not decline. Try again.');
                           }
                           fetch();
+                          refreshAfterFleetChange();
                         })();
                       }
                       return;
@@ -1099,9 +1119,10 @@ export default function DriverRequestsScreen() {
                             const { error } = await driversService.rejectDriverInvite(inv.id);
                             setInviteActionId(null);
                             if (error) {
-                              Alert.alert('Decline failed', error.message ?? 'Could not decline. Try again.', [{ text: 'OK' }]);
+                              showAppAlert('Decline failed', error.message ?? 'Could not decline. Try again.');
                             }
                             fetch();
+                            refreshAfterFleetChange();
                           }
                         }
                       ]
@@ -1112,11 +1133,12 @@ export default function DriverRequestsScreen() {
                     const { error } = await driversService.acceptDriverInvite(inv.id);
                     setInviteActionId(null);
                     if (error) {
-                      Alert.alert('Accept failed', error.message ?? 'Could not accept. Try again.', [{ text: 'OK' }]);
+                      showAppAlert('Accept failed', error.message ?? 'Could not accept. Try again.');
                       fetch();
                       return;
                     }
                     fetch();
+                    refreshAfterFleetChange();
                   }}
                 />
               ))}
@@ -1183,7 +1205,10 @@ export default function DriverRequestsScreen() {
                       <TouchableOpacity
                         style={[styles.premiumInfoBtn, { backgroundColor: colors.surfaceElevated }]}
                         activeOpacity={0.8}
-                        onPress={() => {}}
+                        accessibilityLabel="Offer details"
+                        onPress={() =>
+                          showAppAlert(inv.from_org_name || 'Organisation', buildOfferText(inv))
+                        }
                       >
                         <FontAwesome name="info" size={12} color={colors.textMuted} />
                       </TouchableOpacity>

@@ -20,6 +20,7 @@ export function salaryRequestStatusLabel(status: string): string {
   if (normalized === 'paid') return 'Paid';
   if (normalized === 'approved') return 'Approved';
   if (normalized === 'rejected') return 'Rejected';
+  if (normalized === 'withdrawn') return 'Withdrawn';
   return 'Pending';
 }
 
@@ -29,7 +30,8 @@ export function salaryRequestStatusTone(status: string): SalaryRequestStatusTone
   const normalized = String(status || '').trim().toLowerCase();
   if (normalized === 'paid') return 'paid';
   if (normalized === 'approved') return 'approved';
-  if (normalized === 'rejected') return 'rejected';
+  // Withdrawn by the driver: closed, shown with the same muted-red tone as rejected.
+  if (normalized === 'rejected' || normalized === 'withdrawn') return 'rejected';
   return 'pending';
 }
 
@@ -101,15 +103,19 @@ export function buildSalaryRequestActivityLog(request: SalaryRequestRow): Salary
     return entries;
   }
 
+  const withdrawnByDriver = String(request.status || '').trim().toLowerCase() === 'withdrawn';
   const statusTitle =
     status === 'paid'
       ? 'Marked paid by fleet'
       : status === 'approved'
         ? 'Approved by fleet'
-        : 'Rejected by fleet';
+        : withdrawnByDriver
+          ? 'Withdrawn by you'
+          : 'Rejected by fleet';
 
-  const statusDetail =
-    status === 'paid'
+  const statusDetail = withdrawnByDriver
+    ? 'You withdrew this request. Its trips can be requested again.'
+    : status === 'paid'
       ? `${amount} recorded as paid. Check your settlement history if payment was via bank or cash.`
       : status === 'approved'
         ? 'Fleet approved this request. Payout may still be pending.'

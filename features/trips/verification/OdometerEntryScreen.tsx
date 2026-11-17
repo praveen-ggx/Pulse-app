@@ -1,4 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { showAppAlert } from "@/lib/appAlert";
 import { useIsOnline } from "@/contexts/NetworkContext";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { DriverOpsEntryFooter } from "@/features/trips/operations/shared/DriverOpsEntryFooter";
@@ -144,6 +145,23 @@ export function OdometerEntryScreen({
 
   const handleSave = async () => {
     if (saving) return;
+    // A blank save sends null, which erased a reading already saved for this
+    // side. Only allow a blank reading when a photo is attached and nothing
+    // was saved before (photo now, number later).
+    const existingKm = side === "start" ? trip.start_odometer_km : trip.end_odometer_km;
+    if (odometerKm == null && (existingKm != null || !photoUri)) {
+      showAppAlert("Enter the reading", "Type the odometer reading before saving.");
+      return;
+    }
+    // End lower than start silently blanked the trip distance.
+    const startKm = rawToKm(kmToRaw(trip.start_odometer_km));
+    if (side === "end" && odometerKm != null && startKm != null && odometerKm < startKm) {
+      showAppAlert(
+        "Check the reading",
+        `End reading (${odometerKm} km) is lower than the start reading (${startKm} km).`,
+      );
+      return;
+    }
     setSyncHint(null);
     try {
       const result = await saveVerification.mutateAsync({

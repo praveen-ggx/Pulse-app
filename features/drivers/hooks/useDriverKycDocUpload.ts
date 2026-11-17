@@ -215,12 +215,19 @@ export function useDriverKycDocUpload(onUploaded: () => void | Promise<void>) {
       if (doc?.storage_path) {
         actions.splice(1, 0, { text: 'View current', onPress: () => void openDriverKycDocument(doc) });
       }
+      // Android shows at most 3 buttons: with "View current" added, Camera was
+      // silently dropped. There, drop Cancel (tap outside / Back cancels).
+      const shownActions =
+        Platform.OS === 'android' && actions.length > 3
+          ? actions.filter((a) => a.style !== 'cancel')
+          : actions;
       Alert.alert(
         label,
         doc?.status === 'rejected' && doc.rejection_notes
           ? `Rejected: ${doc.rejection_notes}\n\nUpload a new one?`
           : 'Upload this document now?',
-        actions,
+        shownActions,
+        { cancelable: true },
       );
     },
     [uploadDocumentFrom],

@@ -30,6 +30,8 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { confirmDialog } from '@/lib/confirmDialog';
+import { showAppAlert } from '@/lib/appAlert';
 
 const LIST_BG = '#eef2f6';
 const HERO_FROM = '#022c22';
@@ -54,6 +56,7 @@ export default function DriverSalaryRequestDetailScreen() {
   const [orgName, setOrgName] = useState('Fleet');
   const [linkedTrips, setLinkedTrips] = useState<tripsService.TripRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
 
   const load = useCallback(async () => {
     if (!requestId) {
@@ -103,6 +106,29 @@ export default function DriverSalaryRequestDetailScreen() {
     setRefreshing(true);
     void load();
   }, [load]);
+
+  /** Driver takes back a request the fleet has not acted on yet. */
+  const withdraw = useCallback(async () => {
+    if (!request || withdrawing) return;
+    const ok = await confirmDialog({
+      title: 'Withdraw this request?',
+      message: 'The fleet will no longer see it. You can request these trips again later.',
+      confirmLabel: 'Withdraw',
+      destructive: true,
+    });
+    if (!ok) return;
+    setWithdrawing(true);
+    const { error: withdrawError, withdrawn } = await salaryRequestsService.withdrawSalaryRequest(request.id);
+    setWithdrawing(false);
+    if (withdrawError) {
+      showAppAlert('Could not withdraw', withdrawError.message);
+      return;
+    }
+    if (!withdrawn) {
+      showAppAlert('Already handled', 'The fleet has already acted on this request, so it can no longer be withdrawn.');
+    }
+    void load();
+  }, [load, request, withdrawing]);
 
   const tripNumberById = useMemo(() => buildDriverTripNumberMap(linkedTrips), [linkedTrips]);
   const activityLog = useMemo(
@@ -184,6 +210,19 @@ export default function DriverSalaryRequestDetailScreen() {
           ) : null}
           {request.note?.trim() ? (
             <DetailRow label="Your note" value={request.note.trim()} colors={colors} multiline />
+          ) : null}
+          {String(request.status).toLowerCase() === 'pending' ? (
+            <TouchableOpacity
+              onPress={() => void withdraw()}
+              disabled={withdrawing}
+              style={[styles.withdrawBtn, { borderColor: colors.border, opacity: withdrawing ? 0.6 : 1 }]}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.withdrawText, { color: Theme.negative }]}>
+                {withdrawing ? 'Withdrawing…' : 'Withdraw request'}
+              </Text>
+            </TouchableOpacity>
           ) : null}
         </View>
 
@@ -269,6 +308,18 @@ function DetailRow({
 }
 
 const styles = StyleSheet.create({
+  withdrawBtn: {
+    marginTop: 12,
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  withdrawText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
   root: { flex: 1 },
   hero: {
     paddingHorizontal: Layout.screenPaddingHorizontal,

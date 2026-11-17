@@ -416,18 +416,31 @@ export default function SalaryRequestScreen() {
     return byTrip;
   }, [ledgerEntries]);
 
+  // Trips already inside a pending / approved / paid request. Offering them
+  // again lets the same trip be requested (and paid) twice. Rejected requests
+  // free their trips so the driver can ask again.
+  const tripIdsInOpenRequests = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of salaryRequests) {
+      if (r.status !== 'pending' && r.status !== 'approved' && r.status !== 'paid') continue;
+      for (const id of r.trip_ids ?? []) ids.add(String(id));
+    }
+    return ids;
+  }, [salaryRequests]);
+
   const pendingTripsForSalaryOrg = useMemo(() => {
     if (!effectiveSalaryOrg) return [];
     return completedTrips.filter(
       (t) =>
         t.driver_id === effectiveSalaryOrg.driverId &&
+        !tripIdsInOpenRequests.has(String(t.id)) &&
         (receivedByTripId[t.id] ?? 0) === 0 &&
         // A trip with no agreed commission/salary terms has nothing real to
         // request — excluded here (not just hidden) so the legacy 10% guess
         // can't become the basis of an actual salary claim.
         !tripEarningsDetailForDriver(t).isEstimated,
     );
-  }, [effectiveSalaryOrg, completedTrips, receivedByTripId]);
+  }, [effectiveSalaryOrg, completedTrips, receivedByTripId, tripIdsInOpenRequests]);
 
   const pendingTotalForSalaryOrg = useMemo(
     () => Math.round(pendingTripsForSalaryOrg.reduce((s, t) => s + tripEarnings(t), 0)),
@@ -641,6 +654,15 @@ export default function SalaryRequestScreen() {
       }
     }
 
+    // The advance "Needed by" date is required on the form but had nowhere to
+    // go, so the fleet never saw it. Until there is a column for it, put it at
+    // the start of the note.
+    const neededByPrefix =
+      salaryRequestType === 'advance' && neededByDate
+        ? `Needed by ${neededByDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
+        : '';
+    const noteText = [neededByPrefix, trimmedReason].filter(Boolean).join(' · ');
+
     setSalaryRequestSubmitting(true);
     const { error, request } = await salaryRequestsService.createSalaryRequest(
       org.driverId,
@@ -648,7 +670,7 @@ export default function SalaryRequestScreen() {
       salaryRequestType,
       amount,
       {
-        note: trimmedReason ? trimmedReason.slice(0, VALIDATION.NOTES_MAX_LENGTH) : null,
+        note: noteText ? noteText.slice(0, VALIDATION.NOTES_MAX_LENGTH) : null,
         createdBy: profile?.uid ?? null,
         tripIds: salaryRequestType === 'trip_based' && selectedSalaryTripIds.length > 0 ? selectedSalaryTripIds : undefined,
         salaryMonth: monthForDb,

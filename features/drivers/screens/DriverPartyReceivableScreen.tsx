@@ -29,6 +29,7 @@ import {
   tripsForDriverParty,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
 import * as tripsService from "@/features/trips/services/trips.service";
+import { showAppAlert } from "@/lib/appAlert";
 import { ROUTES } from "@/lib/routes";
 import { useSafeBack } from "@/lib/useSafeBack";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
@@ -84,6 +85,18 @@ export default function DriverPartyReceivableScreen() {
         tripsService.getDriverUiTripsByDriverIds(driverIds),
         driversService.getDriverLedgerByDriverIds(driverIds),
       ]);
+      // A failed load used to show every trip as fully unpaid (no ledger →
+      // nothing received), inviting the driver to collect again. Keep the
+      // last good numbers and say so instead.
+      if (tRes.error || ledgerRes.error) {
+        showAppAlert(
+          "Couldn't refresh",
+          hasLoadedRef.current
+            ? "Showing the last loaded amounts. Pull back in when you have signal."
+            : "Could not load payments for this party. Check your connection and try again.",
+        );
+        return;
+      }
       setTrips(tRes.trips ?? []);
       const byTrip: Record<string, number> = {};
       for (const entry of ledgerRes.entries ?? []) {

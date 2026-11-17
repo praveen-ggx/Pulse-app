@@ -26,6 +26,7 @@ import {
   type DriverKycDocRequirement,
 } from '@/features/drivers/services/driverKycDocuments.service';
 import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
+import { showAppAlert } from '@/lib/appAlert';
 import {
   useDriverKycDocUpload,
 } from '@/features/drivers/hooks/useDriverKycDocUpload';
@@ -115,9 +116,18 @@ export default function DocumentsScreen() {
   };
 
   const loadDocuments = useCallback(async () => {
-    const { documents: docs } = await listMyDriverKycDocuments();
+    // On a failed load keep what is on screen. Replacing it with an empty list
+    // told the driver "Not added" for documents they had already uploaded.
+    const { documents: docs, error: docsError } = await listMyDriverKycDocuments();
+    const { submission: sub, error: subError } = await getMyDriverKycSubmission();
+    if (docsError || subError) {
+      showAppAlert(
+        "Couldn't load your documents",
+        'Check your connection and open this screen again. Your uploaded documents are safe.',
+      );
+      return;
+    }
     setDocuments(docs);
-    const { submission: sub } = await getMyDriverKycSubmission();
     setSubmission(sub);
     setRequirements(await listDriverKycDocRequirements());
   }, []);

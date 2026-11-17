@@ -154,6 +154,8 @@ export type HubServerTripCounts = {
  * narrower client filter (search, supply, attribution, sourcing).
  * All-time can use it during the newest-400 first paint. A dated pill waits
  * until that pill's range list is the list on screen.
+ * `attributionAll` means the count request used this screen's attribution
+ * filter (including "attributed"), not that the filter is off.
  */
 export function hubCanUseServerTripCounts(opts: {
   counts: HubServerTripCounts | null;

@@ -17,14 +17,16 @@ export function useTripsHubDateRange(
   orgId: string | null,
   bounds: { from: string; to: string } | null,
   bucket: "active" | "history" | "all" = "all",
+  attributed: "all" | "attributed" = "all",
 ) {
   const from = bounds?.from ?? "";
   const to = bounds?.to ?? "";
   const enabled = Boolean(orgId && from && to);
   const rangeKey = queryKeys.trips.hubDateRange(orgId ?? "", from, to);
   // One counted page. The list walk below does not block this total.
+  // The key includes attribution so a pill change cannot reuse the previous total.
   const countsQuery = useQuery<HubServerTripCounts>({
-    queryKey: [...rangeKey, "server-counts"],
+    queryKey: [...rangeKey, "server-counts", attributed],
     queryFn: async () => {
       const page = await getHubTripKeysetPage(orgId!, {
         from,
@@ -32,6 +34,7 @@ export function useTripsHubDateRange(
         bucket: "all",
         limit: 1,
         withCounts: true,
+        attributed,
       });
       if (page.error || page.total == null) {
         throw page.error ?? new Error("Hub trip count is unavailable.");
@@ -47,9 +50,9 @@ export function useTripsHubDateRange(
     staleTime: STALE.frequent,
   });
   const query = useQuery<TripRow[]>({
-    queryKey: [...rangeKey, "keyset", bucket],
+    queryKey: [...rangeKey, "keyset", bucket, attributed],
     queryFn: async () => {
-      const res = await loadHubTripKeysetRange(orgId!, { from, to, bucket });
+      const res = await loadHubTripKeysetRange(orgId!, { from, to, bucket, attributed });
       if (res.error) throw res.error;
       return res.trips;
     },

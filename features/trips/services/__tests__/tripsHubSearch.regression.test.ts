@@ -6,6 +6,7 @@ import fs from "fs";
 import path from "path";
 import { loadHubPodReceiptFlags } from "../tripDocumentLrPod.service";
 import { getTripStatusTimes } from "../tripStatusTimes.service";
+import { HUB_SEARCH_PAGE_SIZE, searchTripsForOrg } from "../trips.service";
 
 const mockFrom = jest.fn();
 const mockRpc = jest.fn();
@@ -142,5 +143,29 @@ describe("search_trips_for_org migration", () => {
     expect(sql).toMatch(/WHERE public\.is_org_member\(p_org_id\)/);
     expect(sql).toMatch(/'ground_ops'/);
     expect(sql).toMatch(/organization_member_warehouses/);
+  });
+});
+
+describe("searchTripsForOrg page cap", () => {
+  beforeEach(() => mockRpc.mockReset());
+
+  it("keeps a short result and marks a full page as capped", async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: [{ id: "a", created_at: "2026-01-01T00:00:00Z" }],
+      error: null,
+    });
+    const short = await searchTripsForOrg("org-1", "ab");
+    expect(short.capped).toBe(false);
+    expect(short.trips).toHaveLength(1);
+    expect(mockRpc.mock.calls[0][1].p_limit).toBe(HUB_SEARCH_PAGE_SIZE + 1);
+
+    const full = Array.from({ length: HUB_SEARCH_PAGE_SIZE + 1 }, (_, i) => ({
+      id: `t${i}`,
+      created_at: "2026-01-01T00:00:00Z",
+    }));
+    mockRpc.mockResolvedValueOnce({ data: full, error: null });
+    const capped = await searchTripsForOrg("org-1", "ab");
+    expect(capped.capped).toBe(true);
+    expect(capped.trips).toHaveLength(HUB_SEARCH_PAGE_SIZE);
   });
 });

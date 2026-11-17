@@ -398,24 +398,33 @@ export async function getAllTripsForOrg(
  * phone, indent code and LR number server-side. Same row shape as getTripsForOrg.
  * Returns no hits (not an error) until the RPC is deployed.
  */
+/** search_trips_for_org default page. One extra row tells us the page is full. */
+export const HUB_SEARCH_PAGE_SIZE = 200;
+
 export async function searchTripsForOrg(
   orgId: string,
   query: string,
-): Promise<{ error: Error | null; trips: TripRow[] }> {
+): Promise<{ error: Error | null; trips: TripRow[]; capped: boolean }> {
   const needle = query.trim();
-  if (!orgId || needle.length < 2) return { error: null, trips: [] };
+  if (!orgId || needle.length < 2) return { error: null, trips: [], capped: false };
   const { data, error } = await supabase().rpc("search_trips_for_org", {
     p_org_id: orgId,
     p_query: needle,
+    p_limit: HUB_SEARCH_PAGE_SIZE + 1,
   });
   if (error) {
-    if (shouldFallbackTripsTableScan(error)) return { error: null, trips: [] };
-    return { error: new Error(error.message), trips: [] };
+    if (shouldFallbackTripsTableScan(error)) return { error: null, trips: [], capped: false };
+    return { error: new Error(error.message), trips: [], capped: false };
   }
   const trips = ((data ?? []) as TripRow[]).map((row) =>
     normalizeTripRowWithIndent(row as TripRow & { indents?: TripIndentJoin | null }),
   );
-  return { error: null, trips };
+  const capped = trips.length > HUB_SEARCH_PAGE_SIZE;
+  return {
+    error: null,
+    trips: capped ? trips.slice(0, HUB_SEARCH_PAGE_SIZE) : trips,
+    capped,
+  };
 }
 
 export type TripPartyCounts = {
@@ -546,6 +555,8 @@ export async function getHubTripKeysetPage(
     from?: string | null;
     to?: string | null;
     bucket?: "all" | "active" | "history" | "cancelled" | "closed";
+    /** Matches the hub Attributed pill. `all` leaves the set unchanged. */
+    attributed?: "all" | "attributed";
     /** false: rows only (list_org_hub_trips_keyset_rows), no six-tab recount. */
     withCounts?: boolean;
   },
@@ -588,7 +599,7 @@ export async function getHubTripKeysetPage(
     p_vehicle_id: null,
     p_vehicle_norm: null,
     p_supply: "all",
-    p_attributed: "all",
+    p_attributed: opts?.attributed === "attributed" ? "attributed" : "all",
     p_client_id: null,
     p_driver_id: null,
     p_payment: "all",
@@ -641,6 +652,7 @@ export async function loadHubTripKeysetRange(
     from?: string | null;
     to?: string | null;
     bucket?: "all" | "active" | "history" | "cancelled" | "closed";
+    attributed?: "all" | "attributed";
   },
 ): Promise<{
   error: Error | null;
@@ -668,6 +680,7 @@ export async function loadHubTripKeysetRange(
       from: opts?.from,
       to: opts?.to,
       bucket,
+      attributed: opts?.attributed,
       cursor,
       limit: HUB_KEYSET_PAGE_SIZE,
       withCounts: page === 0,
@@ -702,6 +715,7 @@ export async function loadHubTripKeysetRange(
       from: opts?.from,
       to: opts?.to,
       bucket,
+      attributed: opts?.attributed,
       cursor: null,
       limit: 1,
       withCounts: true,

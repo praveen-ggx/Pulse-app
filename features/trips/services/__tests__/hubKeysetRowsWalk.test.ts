@@ -50,6 +50,7 @@ describe("loadHubTripKeysetRange", () => {
     expect(res.error).toBeNull();
     expect(res.trips.map((t) => t.id)).toEqual(mockTrips.map((t) => t.id));
     expect(res.counts?.total).toBe(1_234);
+    expect(mockRpc.mock.calls.every((c) => c[1].p_attributed === "all")).toBe(true);
     expect(calls("list_org_hub_trips_keyset")).toBe(1);
     expect(calls("list_org_hub_trips_keyset_rows")).toBe(4);
     expect(mockRpc.mock.calls.every((c) => c[1].p_limit === 250)).toBe(true);
@@ -90,6 +91,14 @@ describe("loadHubTripKeysetRange", () => {
     expect(res.error).toBeNull();
     expect(res.trips).toHaveLength(599);
     expect(calls("list_org_hub_trips_keyset")).toBe(2);
+  });
+
+  it("sends the attributed filter on the count page and the row pages", async () => {
+    mockTrips = makeTrips(10);
+    serve();
+    const res = await loadHubTripKeysetRange("org-1", { attributed: "attributed" });
+    expect(res.error).toBeNull();
+    expect(mockRpc.mock.calls.every((c) => c[1].p_attributed === "attributed")).toBe(true);
   });
 
   it("is an error when the walk and the fresh count still disagree", async () => {

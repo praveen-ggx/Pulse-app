@@ -319,6 +319,17 @@ describe("dataset beyond the 400-row default list", () => {
         counts,
         structuralSearch: false,
         supplyAll: true,
+        attributionAll: false,
+        sourcingActive: false,
+        rangeListActive: true,
+        allTime: true,
+      }),
+    ).toBe(false);
+    expect(
+      hubCanUseServerTripCounts({
+        counts,
+        structuralSearch: false,
+        supplyAll: true,
         attributionAll: true,
         sourcingActive: false,
         rangeListActive: false,

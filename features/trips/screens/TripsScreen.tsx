@@ -823,6 +823,7 @@ export default function TripsScreen() {
     orgId,
     hubDateBounds ?? HUB_ALL_TIME_BOUNDS,
     hubListBucket,
+    attributionFilter === "attributed" ? "attributed" : "all",
   );
   const hubDateRangeTrips = useMemo(
     () => sourcingScope.filterTrips(hubDateRangeTripsRaw),
@@ -845,6 +846,7 @@ export default function TripsScreen() {
   const {
     hits: hubSearchHitsRaw,
     needle: hubSearchNeedle,
+    capped: hubSearchCapped,
   } = useTripsHubSearch(orgId, searchQuery);
   const hubSearchHits = useMemo(
     () => sourcingScope.filterTrips(hubSearchHitsRaw),
@@ -3472,14 +3474,16 @@ export default function TripsScreen() {
 
   const useServerTripCounts = hubCanUseServerTripCounts({
     counts: hubServerCounts,
-    structuralSearch: hubStructuralSearchActive,
+    structuralSearch: hubStructuralSearchActive || searchQuery.trim().length >= 2,
     supplyAll: supplyFilter === "all",
-    attributionAll: attributionFilter === "all",
+    attributionAll: true,
     sourcingActive: sourcingScope.active,
     rangeListActive: useRangeList,
     allTime: dateRangeFilter === "all",
   });
-  const tabCountPartial = useServerTripCounts ? false : hubCountsPartial;
+  const searchCountPartial = hubSearchHitsCurrent && hubSearchCapped;
+  const tabCountPartial =
+    (useServerTripCounts ? false : hubCountsPartial) || searchCountPartial;
 
   const tripMainTabCounts = useMemo(() => {
     if (hubStructuralSearchActive) {

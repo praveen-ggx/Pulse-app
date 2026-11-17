@@ -1,8 +1,10 @@
 import {
   COMPLIANCE_DEFAULT_ADVANCE_PERCENT,
   COMPLIANCE_PAYMENT_DOC_CHARGES_PLACEHOLDER,
+  canonicalSupplierRateBasis,
   computeCompliancePaymentAmount,
   computeComplianceTdsAmount,
+  quoteComplianceAdvance,
   resolveComplianceDocumentationCharge,
   resolveComplianceTdsRate,
 } from "@/features/tripCompliance/utils/compliancePaymentAmount.util";
@@ -128,5 +130,82 @@ describe("resolveComplianceTdsRate", () => {
 
   it("returns null when no rates exist", () => {
     expect(resolveComplianceTdsRate([])).toBeNull();
+  });
+});
+
+describe("quoteComplianceAdvance", () => {
+  const slabs = {
+    enabled: true,
+    slabs: [
+      { id: "1", from: 1000, to: 15000, charge: 200 },
+      { id: "2", from: 15000, to: 25000, charge: 300 },
+    ],
+  };
+
+  it("matches the client formula and does not round the per-MT product", () => {
+    const quoted = quoteComplianceAdvance({
+      supplierRate: 100.5,
+      supplierRateBasis: " PER_MT ",
+      loadTons: 3,
+      advancePercent: 90,
+      tdsRatePercent: 0,
+      documentation: null,
+    });
+    expect(quoted.baseFreight).toBe(301.5);
+    expect(quoted.payable).toBe(
+      computeCompliancePaymentAmount({
+        baseFreight: 301.5,
+        advancePercent: 90,
+        documentationCharges: 0,
+        tdsAmount: 0,
+      }),
+    );
+    expect(quoted.payable).toBe(271.35);
+  });
+
+  it("subtracts rounded TDS and the matching slab", () => {
+    const quoted = quoteComplianceAdvance({
+      supplierRate: 10000,
+      supplierRateBasis: "per_trip",
+      loadTons: null,
+      advancePercent: 90,
+      tdsRatePercent: 1,
+      documentation: slabs,
+    });
+    expect(quoted.tdsAmount).toBe(100);
+    expect(quoted.documentationCharges).toBe(200);
+    expect(quoted.payable).toBe(8700);
+  });
+
+  it("rejects an unknown basis, a percent outside 0–100, and a non-positive payable", () => {
+    expect(canonicalSupplierRateBasis("flat")).toBeNull();
+    expect(() =>
+      quoteComplianceAdvance({
+        supplierRate: 1000,
+        supplierRateBasis: "flat",
+        loadTons: null,
+        advancePercent: 90,
+        tdsRatePercent: null,
+      }),
+    ).toThrow("supplier rate basis is not valid");
+    expect(() =>
+      quoteComplianceAdvance({
+        supplierRate: 1000,
+        supplierRateBasis: "per_trip",
+        loadTons: null,
+        advancePercent: 101,
+        tdsRatePercent: null,
+      }),
+    ).toThrow("advance percent must be between 0 and 100");
+    expect(() =>
+      quoteComplianceAdvance({
+        supplierRate: 100,
+        supplierRateBasis: "per_trip",
+        loadTons: null,
+        advancePercent: 1,
+        tdsRatePercent: null,
+        documentation: { enabled: true, slabs: [{ id: "1", from: 0, to: null, charge: 50 }] },
+      }),
+    ).toThrow("calculated advance is not positive");
   });
 });

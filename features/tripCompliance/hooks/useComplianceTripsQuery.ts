@@ -260,7 +260,10 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     // cache and trips realtime patches POD/settlement, so 2 min is enough.
     staleTime: 2 * 60_000,
     placeholderData: keepPreviousData,
-    refetchOnWindowFocus: true,
+    // Focus used to re-read documents, flags, events and the ledger for every
+    // pipeline trip. Writes and realtime patch the cache; the header refresh
+    // still forces a read.
+    refetchOnWindowFocus: false,
     select: selectSummaries,
   });
 

@@ -13,6 +13,7 @@ import {
   hubTabTripCounts,
   hubTripBucket,
   hubTripCompletenessNote,
+  hubCanUseServerTripCounts,
   isOpenActiveHubTrip,
   resolveHubTripDataset,
 } from "@/features/trips/utils/hubTripListCounts.util";
@@ -256,6 +257,85 @@ describe("dataset beyond the 400-row default list", () => {
         "Showing 312 of 312+",
       );
     }
+  });
+
+  it("a full keyset page is exact when it matches the server count", () => {
+    const rows = Array.from({ length: 2000 }, (_, i) => trip({ id: `s${i}` }));
+    const ds = resolveHubTripDataset({
+      rangeRows: rows,
+      rangeFetched: true,
+      rangeError: false,
+      newestRows: rows.slice(0, 400),
+      serverTotal: 2000,
+    });
+    expect(ds.completeness).toBe("exact");
+    expect(hubTripCompletenessNote(ds.completeness)).toBeNull();
+    expect(hubShowingCountLabel({ shown: 100, total: 2000, partial: false })).toBe(
+      "Showing 100 of 2000",
+    );
+  });
+
+  it("a short page stays capped when the server count is larger", () => {
+    const rows = Array.from({ length: 2000 }, (_, i) => trip({ id: `p${i}` }));
+    const ds = resolveHubTripDataset({
+      rangeRows: rows,
+      rangeFetched: true,
+      rangeError: false,
+      newestRows: [],
+      serverTotal: 5000,
+    });
+    expect(ds.completeness).toBe("capped");
+    expect(hubShowingCountLabel({ shown: rows.length, total: 5000, partial: false })).toBe(
+      "Showing 2000 of 5000",
+    );
+  });
+
+  it("uses the server total on all-time before the range list is ready, and not under search", () => {
+    const counts = { total: 2000, active: 2000, history: 0, cancelled: 0 };
+    expect(
+      hubCanUseServerTripCounts({
+        counts,
+        structuralSearch: false,
+        supplyAll: true,
+        attributionAll: true,
+        sourcingActive: false,
+        rangeListActive: false,
+        allTime: true,
+      }),
+    ).toBe(true);
+    expect(
+      hubCanUseServerTripCounts({
+        counts,
+        structuralSearch: true,
+        supplyAll: true,
+        attributionAll: true,
+        sourcingActive: false,
+        rangeListActive: true,
+        allTime: true,
+      }),
+    ).toBe(false);
+    expect(
+      hubCanUseServerTripCounts({
+        counts,
+        structuralSearch: false,
+        supplyAll: true,
+        attributionAll: false,
+        sourcingActive: false,
+        rangeListActive: true,
+        allTime: true,
+      }),
+    ).toBe(false);
+    expect(
+      hubCanUseServerTripCounts({
+        counts,
+        structuralSearch: false,
+        supplyAll: true,
+        attributionAll: true,
+        sourcingActive: false,
+        rangeListActive: false,
+        allTime: false,
+      }),
+    ).toBe(false);
   });
 
   it("a 2000-row dated page is capped, not exact", () => {

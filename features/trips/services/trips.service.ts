@@ -37,7 +37,8 @@ import { TimeoutError, withTimeout } from "@/lib/authEngine";
 import type { DeltaResponse } from "@/lib/cache/deltaTypes";
 import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
-import { runSingleflight } from "@/lib/cache/singleflight";
+import { runSingleflight, singleflightHas } from "@/lib/cache/singleflight";
+import { recordTripCatalogFetch } from "@/lib/trips/tripCatalogFetchMetrics";
 import {
     DEFAULT_PAGE_SIZE,
     DRIVER_TRIPS_PAGE_SIZE,
@@ -329,7 +330,10 @@ export async function getTripsForOrg(
   const rpcArgs = tripsForOrgRpcArgs(orgId, opts);
   const rangeKey =
     rpcArgs.p_from && rpcArgs.p_to ? `:${rpcArgs.p_from}:${rpcArgs.p_to}` : "";
-  return runSingleflight(`get_trips_for_org:${orgId}${backlog ? ":compliance" : ""}${rangeKey}`, async () => {
+  const flightKey = `get_trips_for_org:${orgId}${backlog ? ":compliance" : ""}${rangeKey}`;
+  const joined = singleflightHas(flightKey);
+  const started = Date.now();
+  const result = await runSingleflight(flightKey, async () => {
     try {
       const { data, error } = await supabase().rpc("get_trips_for_org", rpcArgs);
       if (!error) {
@@ -349,6 +353,14 @@ export async function getTripsForOrg(
     }
     return getTripsByOrganization(orgId);
   });
+  recordTripCatalogFetch({
+    orgId,
+    kind: backlog ? "compliance" : rangeKey ? "range" : "catalog",
+    joined,
+    ok: result.error == null,
+    durationMs: Date.now() - started,
+  });
+  return result;
 }
 
 /**
@@ -386,24 +398,33 @@ export async function getAllTripsForOrg(
  * phone, indent code and LR number server-side. Same row shape as getTripsForOrg.
  * Returns no hits (not an error) until the RPC is deployed.
  */
+/** search_trips_for_org default page. One extra row tells us the page is full. */
+export const HUB_SEARCH_PAGE_SIZE = 200;
+
 export async function searchTripsForOrg(
   orgId: string,
   query: string,
-): Promise<{ error: Error | null; trips: TripRow[] }> {
+): Promise<{ error: Error | null; trips: TripRow[]; capped: boolean }> {
   const needle = query.trim();
-  if (!orgId || needle.length < 2) return { error: null, trips: [] };
+  if (!orgId || needle.length < 2) return { error: null, trips: [], capped: false };
   const { data, error } = await supabase().rpc("search_trips_for_org", {
     p_org_id: orgId,
     p_query: needle,
+    p_limit: HUB_SEARCH_PAGE_SIZE + 1,
   });
   if (error) {
-    if (shouldFallbackTripsTableScan(error)) return { error: null, trips: [] };
-    return { error: new Error(error.message), trips: [] };
+    if (shouldFallbackTripsTableScan(error)) return { error: null, trips: [], capped: false };
+    return { error: new Error(error.message), trips: [], capped: false };
   }
   const trips = ((data ?? []) as TripRow[]).map((row) =>
     normalizeTripRowWithIndent(row as TripRow & { indents?: TripIndentJoin | null }),
   );
-  return { error: null, trips };
+  const capped = trips.length > HUB_SEARCH_PAGE_SIZE;
+  return {
+    error: null,
+    trips: capped ? trips.slice(0, HUB_SEARCH_PAGE_SIZE) : trips,
+    capped,
+  };
 }
 
 export type TripPartyCounts = {
@@ -534,6 +555,8 @@ export async function getHubTripKeysetPage(
     from?: string | null;
     to?: string | null;
     bucket?: "all" | "active" | "history" | "cancelled" | "closed";
+    /** Matches the hub Attributed pill. `all` leaves the set unchanged. */
+    attributed?: "all" | "attributed";
     /** false: rows only (list_org_hub_trips_keyset_rows), no six-tab recount. */
     withCounts?: boolean;
   },
@@ -543,8 +566,19 @@ export async function getHubTripKeysetPage(
   nextCursor: HubKeysetCursor | null;
   total: number | null;
   bucketCount: number | null;
+  activeCount: number | null;
+  historyCount: number | null;
+  cancelledCount: number | null;
 }> {
-  const empty = { trips: [] as TripRow[], nextCursor: null, total: null, bucketCount: null };
+  const empty = {
+    trips: [] as TripRow[],
+    nextCursor: null,
+    total: null,
+    bucketCount: null,
+    activeCount: null,
+    historyCount: null,
+    cancelledCount: null,
+  };
   const rowsOnly = opts?.withCounts === false && !hubRowsRpcMissing;
   const limit = Math.min(HUB_KEYSET_PAGE_SIZE, Math.max(1, opts?.limit ?? HUB_KEYSET_PAGE_SIZE));
   const dated = tripsForOrgRpcArgs(orgId, {
@@ -565,7 +599,7 @@ export async function getHubTripKeysetPage(
     p_vehicle_id: null,
     p_vehicle_norm: null,
     p_supply: "all",
-    p_attributed: "all",
+    p_attributed: opts?.attributed === "attributed" ? "attributed" : "all",
     p_client_id: null,
     p_driver_id: null,
     p_payment: "all",
@@ -597,6 +631,9 @@ export async function getHubTripKeysetPage(
     nextCursor,
     total: hubCount(payload.total),
     bucketCount: hubCount(payload.bucket_count),
+    activeCount: hubCount(payload.active_count),
+    historyCount: hubCount(payload.history_count),
+    cancelledCount: hubCount(payload.cancelled_count),
   };
 }
 
@@ -615,31 +652,56 @@ export async function loadHubTripKeysetRange(
     from?: string | null;
     to?: string | null;
     bucket?: "all" | "active" | "history" | "cancelled" | "closed";
+    attributed?: "all" | "attributed";
   },
-): Promise<{ error: Error | null; trips: TripRow[] }> {
+): Promise<{
+  error: Error | null;
+  trips: TripRow[];
+  counts: {
+    total: number;
+    active: number | null;
+    history: number | null;
+    cancelled: number | null;
+  } | null;
+}> {
   const trips: TripRow[] = [];
   const seen = new Set<string>();
   let cursor: HubKeysetCursor | null = null;
   let total: number | null = null;
+  let counts: {
+    total: number;
+    active: number | null;
+    history: number | null;
+    cancelled: number | null;
+  } | null = null;
   const bucket = opts?.bucket ?? "all";
   for (let page = 0; page < HUB_KEYSET_MAX_PAGES; page += 1) {
     const result = await getHubTripKeysetPage(orgId, {
       from: opts?.from,
       to: opts?.to,
       bucket,
+      attributed: opts?.attributed,
       cursor,
       limit: HUB_KEYSET_PAGE_SIZE,
       withCounts: page === 0,
     });
-    if (result.error) return { error: result.error, trips: [] };
+    if (result.error) return { error: result.error, trips: [], counts: null };
     const pageTarget = bucket === "all" ? result.total : (result.bucketCount ?? result.total);
     if (page === 0 || pageTarget != null) total = pageTarget;
+    if (page === 0 && result.total != null) {
+      counts = {
+        total: result.total,
+        active: result.activeCount,
+        history: result.historyCount,
+        cancelled: result.cancelledCount,
+      };
+    }
     if (total == null) {
-      return { error: new Error("Hub trip count is unavailable."), trips: [] };
+      return { error: new Error("Hub trip count is unavailable."), trips: [], counts: null };
     }
     for (const trip of result.trips) {
       if (!trip.id || seen.has(trip.id)) {
-        return { error: new Error("Hub page cursor repeated a trip."), trips: [] };
+        return { error: new Error("Hub page cursor repeated a trip."), trips: [], counts };
       }
       seen.add(trip.id);
     }
@@ -653,20 +715,30 @@ export async function loadHubTripKeysetRange(
       from: opts?.from,
       to: opts?.to,
       bucket,
+      attributed: opts?.attributed,
       cursor: null,
       limit: 1,
       withCounts: true,
     });
     const recounted = bucket === "all" ? recount.total : (recount.bucketCount ?? recount.total);
-    if (!recount.error && recounted != null) total = recounted;
+    if (!recount.error && recounted != null) {
+      total = recounted;
+      counts = {
+        total: recounted,
+        active: recount.activeCount,
+        history: recount.historyCount,
+        cancelled: recount.cancelledCount,
+      };
+    }
   }
   if (total == null || trips.length !== total) {
     return {
       error: new Error(`Hub trip list loaded ${trips.length} of ${total ?? "unknown"} trips.`),
       trips: [],
+      counts,
     };
   }
-  return { error: null, trips };
+  return { error: null, trips, counts };
 }
 
 export async function getTripsDelta(

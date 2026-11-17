@@ -59,6 +59,23 @@ describe("Sourcing scope — trips", () => {
     expect(tripInSourcingScope(s, { indent_id: null, client_id: "client-b" })).toBe(false);
     expect(tripInSourcingScope(s, { indent_id: null, client_id: null })).toBe(false);
   });
+
+  it("fails closed when nothing is assigned, including a trip that names a client", () => {
+    const empty = scope([], [], []);
+    expect(tripInSourcingScope(empty, { indent_id: "ind-in", client_id: "client-a" })).toBe(false);
+    expect(tripInSourcingScope(empty, { indent_id: null, client_id: "client-a" })).toBe(false);
+  });
+
+  it("does not treat another member's indent list as this member's scope", () => {
+    const otherMember = scope(["client-a"], ["wh-1"], ["ind-other"]);
+    const trips = [
+      { indent_id: "ind-in", client_id: "client-a" },
+      { indent_id: "ind-other", client_id: "client-a" },
+      { indent_id: null, client_id: "client-b" },
+    ];
+    expect(trips.filter((trip) => tripInSourcingScope(s, trip))).toEqual([trips[0]]);
+    expect(trips.filter((trip) => tripInSourcingScope(otherMember, trip))).toEqual([trips[1]]);
+  });
 });
 
 describe("Sourcing scope — stored clients", () => {

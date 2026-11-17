@@ -7,6 +7,7 @@ import { getTripLedgerEmbed, toLedgerRow, type LedgerRow } from '@/features/fina
 import { refreshCompliancePodForTrip } from '@/lib/queries/invalidateHardCopyPodCaches';
 import { invalidateComplianceSettlementCaches } from '@/lib/queries/syncFinanceComplianceCaches';
 import { queryKeys } from '@/lib/queryKeys';
+import { applyTripRealtimeCatalogUpdate } from '@/lib/queries/tripRealtimeChange';
 import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
 import { scheduleInvalidation } from '@/lib/platform/moderator';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
@@ -29,92 +30,30 @@ export function useRealtimeTripsInvalidation(organizationId: string | null) {
         },
       ],
       (payload) => {
-        const tripId = (payload.new as { id?: string })?.id ?? (payload.old as { id?: string })?.id;
-        const newRow = payload.new as Record<string, unknown> | null;
-        const oldRow = payload.old as Record<string, unknown> | null;
+        const decision = applyTripRealtimeCatalogUpdate(qc, organizationId, payload);
+        if (decision.ignore) return;
+        const tripId = decision.tripId;
 
-        // Silent merge on UPDATE — avoids refetch storm when status is mirrored in chat payloads.
-        if (tripId && payload.eventType === 'UPDATE' && payload.new && typeof payload.new === 'object') {
-          qc.setQueryData(queryKeys.trips.detail(tripId), (old: unknown) => {
-            if (!old || typeof old !== 'object') return old;
-            return { ...(old as Record<string, unknown>), ...(payload.new as object) };
-          });
-        } else if (tripId) {
-          qc.invalidateQueries({ queryKey: queryKeys.trips.detail(tripId) });
+        // A primary-key-only old row is not a POD or settlement change. Comparing
+        // it with the full new row reloaded the compliance catalog on every update.
+        if (decision.podChanged && tripId) {
+          qc.invalidateQueries({ queryKey: queryKeys.trips.hardCopyPod(tripId) });
+          qc.invalidateQueries({ queryKey: queryKeys.trips.timeline(tripId) });
+          void refreshCompliancePodForTrip(qc, tripId);
+          qc.invalidateQueries({ queryKey: ["q", "invoicing"] });
+          qc.invalidateQueries({ queryKey: ["q", "log-pods"] });
+        }
+        if (decision.settlementChanged) {
+          invalidateComplianceSettlementCaches(qc, organizationId, tripId);
         }
 
-        // Invalidate list only on INSERT or DELETE (UPDATE just changes the row in-place)
-        if (payload.eventType !== 'UPDATE') {
-          // Debounced: a convoy of inserts collapses these four keys into one
-          // flush per window instead of four invalidations per event.
-          scheduleInvalidation(qc, queryKeys.trips.all(organizationId));
-          scheduleInvalidation(qc, queryKeys.trips.finite(organizationId));
-          scheduleInvalidation(qc, queryKeys.trips.whereOrgIsClient(organizationId));
-          scheduleInvalidation(qc, queryKeys.trips.whereOrgIsSupplier(organizationId));
-        } else {
-          // UPDATE: update the list cache in-place to avoid a full refetch
-          qc.setQueriesData(
-            { queryKey: queryKeys.trips.finite(organizationId) },
-            (old: unknown) => {
-              if (!Array.isArray(old) || !tripId) return old;
-              const updated = payload.new as Record<string, unknown>;
-              return old.map((t: { id: string }) => (t.id === tripId ? { ...t, ...updated } : t));
-            },
-          );
-          const podChanged =
-            newRow?.pod_received_at !== oldRow?.pod_received_at ||
-            newRow?.pod_hard_copy_courier !== oldRow?.pod_hard_copy_courier ||
-            newRow?.pod_hard_copy_awb_number !== oldRow?.pod_hard_copy_awb_number ||
-            newRow?.pod_hard_copy_received_by !== oldRow?.pod_hard_copy_received_by;
-          if (podChanged && tripId) {
-            qc.invalidateQueries({ queryKey: queryKeys.trips.hardCopyPod(tripId) });
-            qc.invalidateQueries({ queryKey: queryKeys.trips.timeline(tripId) });
-            void refreshCompliancePodForTrip(qc, tripId);
-            qc.invalidateQueries({ queryKey: ["q", "invoicing"] });
-            qc.invalidateQueries({ queryKey: ["q", "log-pods"] });
-          }
-          // Settlement / advance stage also reads these trip flags — keep Compliance tabs in sync.
-          const settlementChanged =
-            newRow?.compliance_verified_at !== oldRow?.compliance_verified_at ||
-            newRow?.compliance_decision !== oldRow?.compliance_decision ||
-            newRow?.compliance_declined_at !== oldRow?.compliance_declined_at ||
-            newRow?.amount_paid !== oldRow?.amount_paid;
-          if (settlementChanged) {
-            invalidateComplianceSettlementCaches(qc, organizationId, tripId);
-          }
-        }
-
-        // Shipper names only change when client_id or client_name changes — not on status/location
-        // updates. Firing this on every realtime event caused a spurious RPC call on every GPS ping.
-        const clientChanged =
-          payload.eventType !== 'UPDATE' ||
-          newRow?.client_id !== oldRow?.client_id ||
-          newRow?.client_name !== oldRow?.client_name;
-        if (clientChanged) {
+        if (decision.clientChanged) {
           qc.invalidateQueries({ queryKey: queryKeys.trips.shipperNamesForSupplier(organizationId) });
         }
-
-        // Assignment audit only matters when driver/vehicle/assigner fields change.
-        const assignmentChanged =
-          payload.eventType !== 'UPDATE' ||
-          newRow?.driver_id !== oldRow?.driver_id ||
-          newRow?.vehicle_id !== oldRow?.vehicle_id ||
-          newRow?.assigned_by_user_id !== oldRow?.assigned_by_user_id ||
-          newRow?.status !== oldRow?.status;
-        if (assignmentChanged) {
+        if (decision.assignmentChanged) {
           qc.invalidateQueries({ queryKey: queryKeys.trips.assignmentAuditRoot });
         }
-
-        // Unlinked counterparties change when: a new trip is inserted/deleted, OR
-        // when the name or FK fields change on UPDATE. GPS pings (last_location_at)
-        // and status updates must NOT trigger this — they're the hot path.
-        const counterpartyChanged =
-          payload.eventType !== 'UPDATE' ||
-          newRow?.supplier_name !== oldRow?.supplier_name ||
-          newRow?.client_name !== oldRow?.client_name ||
-          newRow?.supplier_id !== oldRow?.supplier_id ||
-          newRow?.client_id !== oldRow?.client_id;
-        if (counterpartyChanged) {
+        if (decision.counterpartyChanged) {
           qc.invalidateQueries({
             queryKey: queryKeys.unlinkedCounterparties(organizationId),
           });

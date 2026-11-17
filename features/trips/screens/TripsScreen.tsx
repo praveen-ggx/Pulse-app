@@ -143,6 +143,7 @@ import {
     hubHistoryPodMetricIds,
     hubSoftPodCheckedTripIds,
     hubSoftPodChipState,
+    hubCanUseServerTripCounts,
     hubShowingCountLabel,
     hubTabTripCounts,
     hubTripCompletenessNote,
@@ -817,20 +818,28 @@ export default function TripsScreen() {
     trips: hubDateRangeTripsRaw,
     isFetched: hubDateRangeFetched,
     isError: hubDateRangeFailed,
+    counts: hubServerCounts,
   } = useTripsHubDateRange(
     orgId,
     hubDateBounds ?? HUB_ALL_TIME_BOUNDS,
     hubListBucket,
+    attributionFilter === "attributed" ? "attributed" : "all",
   );
   const hubDateRangeTrips = useMemo(
     () => sourcingScope.filterTrips(hubDateRangeTripsRaw),
     [sourcingScope, hubDateRangeTripsRaw],
   );
+  const hubRangeServerTotal =
+    hubListBucket === "history" ? hubServerCounts?.history : hubServerCounts?.active;
+  // Completeness is the unfiltered walk. Sourcing narrows the rows afterwards;
+  // comparing the narrowed length with the server total would call a short
+  // subset of a truncated walk "exact".
   const hubTripCompleteness = resolveHubTripDataset({
-    rangeRows: hubDateRangeTrips,
+    rangeRows: hubDateRangeTripsRaw,
     rangeFetched: hubDateRangeFetched,
     rangeError: hubDateRangeFailed,
     newestRows: tripsData,
+    serverTotal: hubRangeServerTotal,
   }).completeness;
   const hubCountsPartial = hubTripCompleteness !== "exact";
   const useRangeList = hubTripCompleteness === "exact" || hubTripCompleteness === "capped";
@@ -840,6 +849,7 @@ export default function TripsScreen() {
   const {
     hits: hubSearchHitsRaw,
     needle: hubSearchNeedle,
+    capped: hubSearchCapped,
   } = useTripsHubSearch(orgId, searchQuery);
   const hubSearchHits = useMemo(
     () => sourcingScope.filterTrips(hubSearchHitsRaw),
@@ -3465,6 +3475,19 @@ export default function TripsScreen() {
     hardPodTripIds,
   ]);
 
+  const useServerTripCounts = hubCanUseServerTripCounts({
+    counts: hubServerCounts,
+    structuralSearch: hubStructuralSearchActive || searchQuery.trim().length >= 2,
+    supplyAll: supplyFilter === "all",
+    attributionAll: true,
+    sourcingActive: sourcingScope.active,
+    rangeListActive: useRangeList,
+    allTime: dateRangeFilter === "all",
+  });
+  const searchCountPartial = hubSearchHitsCurrent && hubSearchCapped;
+  const tabCountPartial =
+    (useServerTripCounts ? false : hubCountsPartial) || searchCountPartial;
+
   const tripMainTabCounts = useMemo(() => {
     if (hubStructuralSearchActive) {
       return {
@@ -3474,6 +3497,17 @@ export default function TripsScreen() {
       };
     }
     const fromRows = hubTabTripCounts(hubScopedTrips);
+    if (
+      useServerTripCounts &&
+      hubServerCounts?.active != null &&
+      hubServerCounts.history != null
+    ) {
+      return {
+        active: hubServerCounts.active,
+        history: hubServerCounts.history,
+        cancelled: hubServerCounts.cancelled ?? 0,
+      };
+    }
     const unfiltered =
       supplyFilter === "all" &&
       attributionFilter === "all" &&
@@ -3498,12 +3532,14 @@ export default function TripsScreen() {
     hubMetrics,
     hubListBucket,
     useRangeList,
+    useServerTripCounts,
+    hubServerCounts,
   ]);
 
   const formatMainTabLabel = useCallback(
     (label: string, count: number) =>
-      `${label} (${hubCountText(count, hubCountsPartial)})`,
-    [hubCountsPartial],
+      `${label} (${hubCountText(count, tabCountPartial)})`,
+    [tabCountPartial],
   );
 
   const mainTabs = useMemo(
@@ -3745,10 +3781,14 @@ export default function TripsScreen() {
           ? tripMainTabCounts.history
           : historyMetricCards[activeHistoryMetricTab].count;
     }
+    const toolbarUsesServerTotal =
+      useServerTripCounts &&
+      ((showCompletedList && activeHistoryMetricTab == null) ||
+        (!showCompletedList && activeMetricTab === "all"));
     return hubShowingCountLabel({
       shown: filtered.length,
       total,
-      partial: hubCountsPartial,
+      partial: toolbarUsesServerTotal ? false : hubCountsPartial,
     });
   }, [
     activeHistoryMetricTab,
@@ -3759,6 +3799,7 @@ export default function TripsScreen() {
     metricCounts,
     showCompletedList,
     tripMainTabCounts,
+    useServerTripCounts,
   ]);
 
   /**

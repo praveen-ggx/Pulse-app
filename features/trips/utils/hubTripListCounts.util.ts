@@ -123,13 +123,59 @@ export function resolveHubTripDataset<T>(opts: {
   rangeFetched: boolean;
   rangeError: boolean;
   newestRows: readonly T[];
+  /**
+   * Exact size of this same range from list_org_hub_trips_keyset.
+   * A full page is exact when it matches that count, including past 2,000 rows.
+   */
+  serverTotal?: number | null;
 }): { trips: readonly T[]; completeness: HubTripCompleteness } {
   if (opts.rangeError) return { trips: opts.newestRows, completeness: "error" };
   if (!opts.rangeFetched) return { trips: opts.newestRows, completeness: "loading" };
+  const matchedServer =
+    opts.serverTotal != null && opts.rangeRows.length === opts.serverTotal;
   return {
     trips: opts.rangeRows,
-    completeness: isDatedGetTripsForOrgCapped(opts.rangeRows.length) ? "capped" : "exact",
+    completeness:
+      matchedServer || !isDatedGetTripsForOrgCapped(opts.rangeRows.length)
+        ? "exact"
+        : "capped",
   };
+}
+
+export type HubServerTripCounts = {
+  total: number;
+  active: number | null;
+  history: number | null;
+  cancelled: number | null;
+};
+
+/**
+ * The keyset count matches the list only when the screen is not applying a
+ * narrower client filter (search, supply, attribution, sourcing).
+ * All-time can use it during the newest-400 first paint. A dated pill waits
+ * until that pill's range list is the list on screen.
+ * `attributionAll` means the count request used this screen's attribution
+ * filter (including "attributed"), not that the filter is off.
+ */
+export function hubCanUseServerTripCounts(opts: {
+  counts: HubServerTripCounts | null;
+  structuralSearch: boolean;
+  supplyAll: boolean;
+  attributionAll: boolean;
+  sourcingActive: boolean;
+  rangeListActive: boolean;
+  allTime: boolean;
+}): boolean {
+  if (
+    !opts.counts ||
+    opts.structuralSearch ||
+    !opts.supplyAll ||
+    !opts.attributionAll ||
+    opts.sourcingActive
+  ) {
+    return false;
+  }
+  return opts.rangeListActive || opts.allTime;
 }
 
 export function hubTripCompletenessNote(

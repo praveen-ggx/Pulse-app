@@ -6,6 +6,7 @@
 import { getTripLedgerEmbed, toLedgerRow, type LedgerRow } from '@/features/finance/services/finance.service';
 import { refreshCompliancePodForTrip } from '@/lib/queries/invalidateHardCopyPodCaches';
 import { invalidateComplianceSettlementCaches } from '@/lib/queries/syncFinanceComplianceCaches';
+import { mergeTripRowIntoList } from '@/lib/queries/patchTripListCache';
 import { queryKeys } from '@/lib/queryKeys';
 import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
 import { scheduleInvalidation } from '@/lib/platform/moderator';
@@ -49,18 +50,21 @@ export function useRealtimeTripsInvalidation(organizationId: string | null) {
           // flush per window instead of four invalidations per event.
           scheduleInvalidation(qc, queryKeys.trips.all(organizationId));
           scheduleInvalidation(qc, queryKeys.trips.finite(organizationId));
+          scheduleInvalidation(qc, queryKeys.trips.compliance(organizationId));
           scheduleInvalidation(qc, queryKeys.trips.whereOrgIsClient(organizationId));
           scheduleInvalidation(qc, queryKeys.trips.whereOrgIsSupplier(organizationId));
         } else {
-          // UPDATE: update the list cache in-place to avoid a full refetch
-          qc.setQueriesData(
-            { queryKey: queryKeys.trips.finite(organizationId) },
-            (old: unknown) => {
-              if (!Array.isArray(old) || !tripId) return old;
-              const updated = payload.new as Record<string, unknown>;
-              return old.map((t: { id: string }) => (t.id === tripId ? { ...t, ...updated } : t));
-            },
-          );
+          // UPDATE: patch both catalogs in place. The compliance catalog is not
+          // under trips.all, so a hub invalidation cannot reload those ~630 trips.
+          const updated = payload.new as Record<string, unknown>;
+          for (const queryKey of [
+            queryKeys.trips.finite(organizationId),
+            queryKeys.trips.compliance(organizationId),
+          ]) {
+            qc.setQueriesData({ queryKey }, (old: unknown) =>
+              mergeTripRowIntoList(old, tripId ?? "", updated),
+            );
+          }
           const podChanged =
             newRow?.pod_received_at !== oldRow?.pod_received_at ||
             newRow?.pod_hard_copy_courier !== oldRow?.pod_hard_copy_courier ||

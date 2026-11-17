@@ -37,7 +37,8 @@ import { TimeoutError, withTimeout } from "@/lib/authEngine";
 import type { DeltaResponse } from "@/lib/cache/deltaTypes";
 import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
-import { runSingleflight } from "@/lib/cache/singleflight";
+import { runSingleflight, singleflightHas } from "@/lib/cache/singleflight";
+import { recordTripCatalogFetch } from "@/lib/trips/tripCatalogFetchMetrics";
 import {
     DEFAULT_PAGE_SIZE,
     DRIVER_TRIPS_PAGE_SIZE,
@@ -329,7 +330,10 @@ export async function getTripsForOrg(
   const rpcArgs = tripsForOrgRpcArgs(orgId, opts);
   const rangeKey =
     rpcArgs.p_from && rpcArgs.p_to ? `:${rpcArgs.p_from}:${rpcArgs.p_to}` : "";
-  return runSingleflight(`get_trips_for_org:${orgId}${backlog ? ":compliance" : ""}${rangeKey}`, async () => {
+  const flightKey = `get_trips_for_org:${orgId}${backlog ? ":compliance" : ""}${rangeKey}`;
+  const joined = singleflightHas(flightKey);
+  const started = Date.now();
+  const result = await runSingleflight(flightKey, async () => {
     try {
       const { data, error } = await supabase().rpc("get_trips_for_org", rpcArgs);
       if (!error) {
@@ -349,6 +353,14 @@ export async function getTripsForOrg(
     }
     return getTripsByOrganization(orgId);
   });
+  recordTripCatalogFetch({
+    orgId,
+    kind: backlog ? "compliance" : rangeKey ? "range" : "catalog",
+    joined,
+    ok: result.error == null,
+    durationMs: Date.now() - started,
+  });
+  return result;
 }
 
 /**

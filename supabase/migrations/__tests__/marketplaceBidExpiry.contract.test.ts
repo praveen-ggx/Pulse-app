@@ -17,6 +17,9 @@ describe("marketplace individual bid expiry", () => {
     expect(sql).toContain("NEW.expires_at := coalesce(NEW.created_at, pg_catalog.now()) + interval '48 hours'");
     expect(sql).toContain("BEFORE INSERT ON public.market_bids");
     expect(sql).toContain("created_at + interval '48 hours'");
+    const backfill = sql.indexOf("SET expires_at = created_at + interval '48 hours'");
+    expect(sql.lastIndexOf("DISABLE TRIGGER set_market_bids_updated_at", backfill)).toBeGreaterThan(-1);
+    expect(sql.indexOf("ENABLE TRIGGER set_market_bids_updated_at", backfill)).toBeGreaterThan(backfill);
     expect(sql).toContain("ALTER COLUMN expires_at SET NOT NULL");
   });
 

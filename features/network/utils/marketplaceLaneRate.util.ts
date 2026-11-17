@@ -27,6 +27,9 @@ export function laneRateConfirmation(input: {
   reused?: boolean;
   rateChanged?: boolean;
   renewed?: boolean;
+  /** The current pool screen still passes these. They do not reserve a vehicle or set the clock. */
+  vehicleLimit?: number;
+  validUntilDate?: unknown;
 }): { title: string; message: string } {
   const placed =
     input.attached > 0

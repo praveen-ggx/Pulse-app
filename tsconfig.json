@@ -18,6 +18,8 @@
     "analytics/**",
     "tools/**",
     "_reference/**",
-    "packages/**"
+    "packages/**",
+    ".worktrees/**",
+    "pr109-accept/**"
   ]
 }

@@ -6,7 +6,8 @@
 # from the pooled rate; 20271117013000 makes a pooled rate a 48-hour lane
 # commitment; 20271117021500 gives every bid its own 48-hour expires_at,
 # refuses expired bids at award, and returns expires_at to the shipper list.
-# Apply all six together, in order.
+# 20271117144500 lets a carrier place a fresh bid after that clock passes.
+# Apply all seven together, in order.
 # Needs standing_lane_key on the target; 20271114185200 (indent-lane-index) is
 # independent and may already be applied.
 # Not applied anywhere. Path: V1 -> preprod -> prod.
@@ -20,5 +21,7 @@
 20271116144500
 # sha256 4df18a44045801ed76ab66294b97dd228707dd8daef69d3031bd038fd8ef0333  20271117013000_marketplace_lane_commitment_on_pool_rate.sql
 20271117013000
-# sha256 0068da80940d262a2ba86662b295f9fbfd3c2367c17b126c00259e826c8d3b5d  20271117021500_marketplace_bid_individual_expiry.sql
+# sha256 e345eb52a667fdd5e47bf730ae3fdef31dada49d70a56f768adbd6170aa1904d  20271117021500_marketplace_bid_individual_expiry.sql
 20271117021500
+# sha256 86481ac1ce97cf9a1a9c81fc87d9da0d9294b7a0325a71091e968da41df5196d  20271117144500_marketplace_expired_bid_resubmission.sql
+20271117144500

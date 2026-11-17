@@ -73,9 +73,14 @@ CREATE TRIGGER market_bids_guard_expiry
   FOR EACH ROW
   EXECUTE FUNCTION public.tg_market_bid_guard_expiry();
 
+-- set_market_bids_updated_at would stamp every existing row as just edited.
+-- Nothing reads that stamp to decide expiry, and the backfill must not
+-- reorder "recently updated" lists. The trigger change is transactional.
+ALTER TABLE public.market_bids DISABLE TRIGGER set_market_bids_updated_at;
 UPDATE public.market_bids
 SET expires_at = created_at + interval '48 hours'
 WHERE expires_at IS NULL;
+ALTER TABLE public.market_bids ENABLE TRIGGER set_market_bids_updated_at;
 
 ALTER TABLE public.market_bids
   ALTER COLUMN expires_at SET NOT NULL;

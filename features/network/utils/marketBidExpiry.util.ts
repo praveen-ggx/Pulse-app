@@ -52,6 +52,9 @@ export function formatMarketBidExpiry(iso: string | null | undefined): string | 
 
 /** What to show under a bid: its validity while pending, nothing once decided. */
 export function marketBidExpiryView(bid: ExpiringBid, nowMs: number): MarketBidExpiryView {
+  if ((bid.status ?? "").toLowerCase() === "expired") {
+    return { kind: "expired", label: MARKET_BID_EXPIRED_LABEL };
+  }
   if (!isPending(bid) || !bid.expires_at) return { kind: "none" };
   if (isMarketBidExpired(bid, nowMs)) return { kind: "expired", label: MARKET_BID_EXPIRED_LABEL };
   const when = formatMarketBidExpiry(bid.expires_at);

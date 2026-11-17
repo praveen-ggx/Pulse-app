@@ -104,6 +104,14 @@ export async function mapWithConcurrency<T, R>(
   return out;
 }
 
+function isQueueFullError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { name?: string }).name === "SupabaseQueueRejectedError"
+  );
+}
+
 /**
  * One `.in(...)` read per id chunk, rows concatenated. Use for any id list that
  * can grow with the org (an unchunked list of ~630 uuids is HTTP 400 "Bad Request").
@@ -117,7 +125,15 @@ export async function readByIdChunks<T, E>(
 ): Promise<{ data: T[]; error: E | null }> {
   const rows: T[] = [];
   for (const chunk of chunkIdsForRead(ids, size)) {
-    const { data, error } = await readChunk(chunk);
+    let result: { data: T[] | null; error: E | null };
+    try {
+      result = await readChunk(chunk);
+    } catch (error) {
+      if (!isQueueFullError(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      result = await readChunk(chunk);
+    }
+    const { data, error } = result;
     if (error) return { data: [], error };
     if (data) rows.push(...data);
   }

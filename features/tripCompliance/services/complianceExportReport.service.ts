@@ -60,14 +60,10 @@ import * as XLSX from "xlsx";
 import { Platform, Share } from "react-native";
 import { formatTruckTypeWithSize } from "@/features/tripCompliance/utils/complianceTruckType.util";
 import { mapWithConcurrency } from "@/features/tripCompliance/utils/mapWithConcurrency.util";
-import {
-  EXPORT_DRIVER_PHONE_CONCURRENCY,
-  resolveExportDriverPhones,
-} from "@/features/tripCompliance/utils/resolveExportDriverPhones.util";
 import { isSupabaseQueueRejectedError } from "@/lib/supabaseHttp.util";
 
 /** Stay under MAX_CONCURRENT_DATA_FETCHES (8) so Export Report cannot fill the queue. */
-const EXPORT_FETCH_CONCURRENCY = EXPORT_DRIVER_PHONE_CONCURRENCY;
+const EXPORT_FETCH_CONCURRENCY = 4;
 
 async function withQueueRetry<T>(op: () => Promise<T>): Promise<T> {
   try {
@@ -297,13 +293,34 @@ export async function buildVerifiedExportEnrichment(
     byTrip.set(trip.id, enrichment);
     }),
   ]);
-  const phoneByDriverId = await resolveExportDriverPhones(
-    summaries,
-    orgId,
-    await phonesPromise,
-    async (driverOrgId, driverId) => {
+  const { error: phoneError, phoneByDriverId } = await phonesPromise;
+  if (phoneError) {
+    throw new Error(
+      `Couldn't load driver phone numbers (${phoneError.message}). The report was not created.`,
+    );
+  }
+
+  // Bulk read is RLS-scoped. Fill only the phones it did not return, a few at a time.
+  // A failed bulk read never reaches here, so it cannot fan out into one request per driver.
+  const missingDriverOrg = new Map<string, string>();
+  for (const summary of summaries) {
+    const driverId = summary.trip.driver_id?.trim() || "";
+    if (driverId && !phoneByDriverId.get(driverId) && !missingDriverOrg.has(driverId)) {
+      missingDriverOrg.set(driverId, (summary.trip.organization_id ?? orgId).trim() || orgId);
+    }
+  }
+  await mapWithConcurrency(
+    Array.from(missingDriverOrg),
+    EXPORT_FETCH_CONCURRENCY,
+    async ([driverId, driverOrgId]) => {
       const { error, driver } = await getDriverDetailBundle(driverOrgId, driverId);
-      return { error, phone: driver?.phone ?? "" };
+      if (error) {
+        throw new Error(
+          `Couldn't load a driver phone number (${error.message}). The report was not created.`,
+        );
+      }
+      const phone = (driver?.phone ?? "").trim();
+      if (phone) phoneByDriverId.set(driverId, phone);
     },
   );
 
@@ -319,7 +336,11 @@ export async function buildVerifiedExportEnrichment(
   return byTrip;
 }
 
-/** Download Verified-stage Excel report (.xlsx). Returns trip row count exported. */
+/**
+ * Download the Advance Verification Excel report. Pass the trips already on
+ * screen so Confirm exports the same set the dialog counted. A fresh catalog
+ * read is only the fallback when the caller has no rows yet.
+ */
 export async function exportVerifiedStageComplianceReport(
   orgId: string,
   filter?: AdvanceVerificationExportFilter,

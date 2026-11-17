@@ -8,14 +8,17 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
+import { Eye } from "lucide-react-native";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import type { ComplianceLedgerCategory } from "@/features/tripCompliance/services/tripComplianceWrite.service";
@@ -89,16 +92,58 @@ function Tag({ label, tone }: { label: string; tone: string }) {
   );
 }
 
+const STEP_COPY = [
+  "Choose Advance or Balance, then the fields to change.",
+  "Upload the CSV. Use the template for the fields you selected.",
+  "Open the preview. We check the Trip ID and the fields you selected.",
+  "Confirm. Only rows that pass are updated.",
+] as const;
+
+export function BulkPaymentSteps({
+  activeStep,
+  nextLine,
+  copies = STEP_COPY,
+}: {
+  activeStep: number;
+  nextLine: string;
+  copies?: readonly string[];
+}) {
+  const labels = ["Choose", "Upload", "Preview", "Confirm"] as const;
+  return (
+    <View style={styles.summaryPane}>
+      <Text style={styles.sectionLabel}>Follow these steps</Text>
+      {labels.map((label, index) => {
+        const on = activeStep === index + 1;
+        const done = activeStep > index + 1;
+        return (
+          <View key={label} style={styles.guideRow}>
+            <View style={[styles.summaryStepNo, (on || done) && styles.summaryStepNoOn]}>
+              <Text style={[styles.summaryStepNoText, (on || done) && styles.summaryStepNoTextOn]}>{index + 1}</Text>
+            </View>
+            <View style={styles.fileCopy}>
+              <Text style={[styles.fieldName, !on && !done && styles.summaryStepLabel]}>{label}</Text>
+              <Text style={styles.muted}>{copies[index]}</Text>
+            </View>
+          </View>
+        );
+      })}
+      <Text style={styles.nextLine}>{nextLine}</Text>
+    </View>
+  );
+}
+
 export function BulkOperationWorkspace({
   organizationId,
   category,
   grantedSurfaces,
   onBatchSaved,
+  onProgress,
 }: {
   organizationId: string;
   category: ComplianceLedgerCategory;
   grantedSurfaces: readonly string[];
   onBatchSaved?: () => void;
+  onProgress?: (progress: { activeStep: number; nextLine: string }) => void;
 }) {
   const granted = useMemo(() => new Set(grantedSurfaces), [grantedSurfaces]);
   const canReview = canPerformBulkAction("review", compliancePaymentBulkPermissions, granted);
@@ -113,17 +158,65 @@ export function BulkOperationWorkspace({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
   const [result, setResult] = useState<string | null>(null);
+  const { width, height } = useWindowDimensions();
+  const sheetWidth = Math.min(760, Math.max(320, width - 48));
+  const sheetHeight = Math.min(720, Math.max(420, height - 80));
 
   const template = useMemo(() => paymentFieldTemplate(selection), [selection]);
+  const pasted = useMemo(() => parseBulkCsv(asCsv(pasteText)), [pasteText]);
   useEffect(() => {
     if (headers.length === 0) return;
-    setMapping((current) => ({ ...suggestMapping(headers, template.fields), ...current }));
+    setMapping((current) => {
+      const next = suggestMapping(headers, template.fields);
+      const used = new Set(Object.values(next).filter((value): value is string => Boolean(value)));
+      for (const field of template.fields) {
+        const chosen = current[field.key];
+        if (!chosen || !headers.includes(chosen) || used.has(chosen) || next[field.key]) continue;
+        next[field.key] = chosen;
+        used.add(chosen);
+      }
+      return next;
+    });
   }, [headers, template]);
   const issues = useMemo(() => mappingIssues(template, mapping), [template, mapping]);
   const ignored = useMemo(() => unmappedHeaders(headers, mapping), [headers, mapping]);
   const readyCount = includedReadyCount(rows);
   const blockedCount = rows.filter((row) => row.status !== "ready").length;
+  const hasInvalid = rows.some((row) => row.status === "invalid");
+
+  const loadSheet = useCallback((name: string, text: string) => {
+    const bytes = new TextEncoder().encode(text).length;
+    if (bulkFileExceedsLimit(bytes)) {
+      setError("This file is over the 1 MB limit. Split it into smaller files. No payment was changed.");
+      return false;
+    }
+    const sheet = parseBulkCsv(asCsv(text));
+    if (sheet.headers.length === 0 || sheet.rows.length === 0) {
+      setError("This needs a header row and at least one data row. No payment was changed.");
+      return false;
+    }
+    const detected = PAYMENT_UPDATE_FIELDS.filter((field) =>
+      Boolean(suggestMapping(sheet.headers, paymentFieldTemplate([field]).fields)[field]),
+    );
+    const nextSelection: PaymentUpdateField[] = detected.length > 0 ? [...detected] : ["utr"];
+    setSelection(nextSelection);
+    setFileName(name);
+    setFileText(asCsv(text));
+    setHeaders(sheet.headers);
+    setMatrix(sheet.rows);
+    setMapping(suggestMapping(sheet.headers, paymentFieldTemplate(nextSelection).fields));
+    setRows([]);
+    setPreviewOpen(false);
+    setConfirmOpen(false);
+    setError(null);
+    setResult(null);
+    return true;
+  }, []);
 
   const pick = useCallback(async () => {
     setError(null);
@@ -137,28 +230,13 @@ export function BulkOperationWorkspace({
     setBusy("Reading the file…");
     try {
       const text = await readUri(asset.uri);
-      const bytes = new TextEncoder().encode(text).length;
-      if (bulkFileExceedsLimit(bytes)) {
-        setError("This file is over the 1 MB limit. Split it into smaller files. No payment was changed.");
-        return;
-      }
-      const sheet = parseBulkCsv(text);
-      if (sheet.headers.length === 0 || sheet.rows.length === 0) {
-        setError("The file needs a header row and at least one data row.");
-        return;
-      }
-      setFileName(asset.name ?? "payments.csv");
-      setFileText(text);
-      setHeaders(sheet.headers);
-      setMatrix(sheet.rows);
-      setMapping(suggestMapping(sheet.headers, template.fields));
-      setRows([]);
+      loadSheet(asset.name ?? "payments.csv", text);
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
       setBusy(null);
     }
-  }, [template.fields]);
+  }, [loadSheet]);
 
   const review = useCallback(async () => {
     if (!canReview) {
@@ -191,6 +269,11 @@ export function BulkOperationWorkspace({
   }, [canReview, issues, matrix, headers, mapping, template.fields, organizationId, category, selection]);
 
   const confirm = useCallback(async () => {
+    if (rows.some((row) => row.status === "invalid")) {
+      setError("Nothing was updated. An invalid Trip ID blocks the whole file.");
+      setConfirmOpen(false);
+      return;
+    }
     if (!canExecute) {
       setError("Confirming a payment update needs compliance finance manage access.");
       return;
@@ -217,7 +300,7 @@ export function BulkOperationWorkspace({
       outcome.replayed
         ? "This file was already confirmed. It is listed in the update log."
         : status === "completed"
-          ? "Updated. The file, time and user are in the update log. Amount and mode were not changed."
+          ? `Updated. The file, time and user are in the update log.${keptAfter(selection) ? ` ${keptAfter(selection)}` : ""}`
           : status === "partial"
             ? "Some rows were not updated. Nothing else was retried. Open the update log for each row."
             : status === "failed"
@@ -225,94 +308,225 @@ export function BulkOperationWorkspace({
               : "The update did not finish. No further rows were retried.",
     );
     setRows([]);
+    setPreviewOpen(false);
     onBatchSaved?.();
   }, [canExecute, organizationId, category, fileName, fileText, mapping, selection, rows, onBatchSaved]);
 
   const fieldLabel = (field: PaymentUpdateField) =>
-    field === "utr" ? "UTR" : field === "requestId" ? "Request ID" : "Transaction date";
+    field === "utr" ? "UTR" : field === "requestId" ? "Request ID" : field === "amount" ? "Amount" : field === "mode" ? "Mode" : "Transaction date";
   const fieldHint = (field: PaymentUpdateField) =>
-    field === "utr" ? "Bank reference" : field === "requestId" ? "Internal request" : "Settlement date";
-  const stage = rows.length > 0 ? 3 : headers.length > 0 ? 2 : 1;
+    field === "utr" ? "Bank reference" : field === "requestId" ? "Internal request" : field === "amount" ? "Paid value" : field === "mode" ? "How it was paid" : "Settlement date";
+  const keptNote = keptStay(selection);
+
+  const activeStep = confirmOpen ? 4 : rows.length > 0 ? 3 : headers.length > 0 ? 2 : 1;
+  const nextLine =
+    headers.length === 0
+      ? "Next: select the CSV. Nothing is checked until you open the preview."
+      : rows.length === 0
+        ? "Next: open the file. Preview shows every cell, then checks each Trip ID."
+          : hasInvalid
+          ? "Nothing will be updated. An invalid Trip ID blocks the whole file."
+          : confirmOpen
+            ? `Next: confirm. Only ready rows are written. ${keptNote}`
+            : `Next: confirm ${readyCount} ready ${readyCount === 1 ? "row" : "rows"}. You will see each change before it is written.`;
+
+  useEffect(() => {
+    onProgress?.({ activeStep, nextLine });
+  }, [activeStep, nextLine, onProgress]);
 
   return (
     <View style={styles.stack}>
-      <View style={styles.stageRow}>
-        {["Fields", "File", "Review"].map((label, index) => {
-          const on = stage === index + 1;
-          const done = stage > index + 1;
-          return (
-            <View key={label} style={[styles.stage, (on || done) && styles.stageOn]}>
-              <Text style={[styles.stageText, (on || done) && styles.stageTextOn]}>
-                {index + 1}  {label}
-              </Text>
-            </View>
-          );
-        })}
+      <View style={styles.mainPane}>
+      <View style={styles.panel}>
+        <Text style={styles.sectionLabel}>Fields to update</Text>
+        <View style={styles.fieldGrid}>
+          {PAYMENT_UPDATE_FIELDS.map((field) => {
+            const on = selection.includes(field);
+            return (
+              <Pressable
+                key={field}
+                style={[styles.fieldTile, on && styles.fieldTileOn]}
+                onPress={() =>
+                  setSelection((current) => {
+                    const next = on ? current.filter((item) => item !== field) : [...current, field];
+                    return next.length === 0 ? current : next;
+                  })
+                }
+              >
+                <Text style={styles.fieldName}>{fieldLabel(field)}</Text>
+                <Text style={styles.fieldHint}>{fieldHint(field)}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.templateRow}>
+          <Pressable style={styles.templateCard} onPress={() => void downloadTemplate("compliance-payment-update.csv", templateCsv(template))}>
+            <Text style={styles.link}>CSV template v{template.version}</Text>
+          </Pressable>
+          <Pressable
+            style={styles.templateCard}
+            onPress={async () => {
+              const XLSX = await import("xlsx");
+              const notes = template.fields.map((field) => `${field.label}: ${field.format}${field.required ? " (required)" : ""}`);
+              const sheet = XLSX.utils.aoa_to_sheet([
+                [`# ${template.id} ${template.version}`],
+                [notes.join(" | ")],
+                template.fields.map((field) => field.label),
+                template.fields.map((field) => field.example),
+              ]);
+              const book = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(book, sheet, "Template");
+              if (Platform.OS === "web") {
+                XLSX.writeFile(book, "compliance-payment-update.xlsx");
+                return;
+              }
+              const base64 = XLSX.write(book, { type: "base64", bookType: "xlsx" });
+              const path = `${FileSystem.cacheDirectory ?? ""}compliance-payment-update.xlsx`;
+              await FileSystem.writeAsStringAsync(path, base64, { encoding: FileSystem.EncodingType.Base64 });
+              if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(path);
+            }}
+          >
+            <Text style={styles.link}>Excel template v{template.version}</Text>
+          </Pressable>
+        </View>
       </View>
 
-      <View style={styles.panel}>
-      <Text style={styles.sectionLabel}>Fields to update</Text>
-      <View style={styles.fieldGrid}>
-        {PAYMENT_UPDATE_FIELDS.map((field) => {
-          const on = selection.includes(field);
-          return (
-            <Pressable
-              key={field}
-              style={[styles.fieldTile, on && styles.fieldTileOn]}
-              onPress={() =>
-                setSelection((current) => {
-                  const next = on ? current.filter((item) => item !== field) : [...current, field];
-                  return next.length === 0 ? current : next;
-                })
-              }
-            >
-              <Text style={[styles.choiceText, on && styles.choiceTextOn]}>{fieldLabel(field)}</Text>
-              <Text style={[styles.fieldHint, on && styles.fieldHintOn]}>{fieldHint(field)}</Text>
-            </Pressable>
-          );
-        })}
+      <View style={styles.dropWrap}>
+        <Pressable style={styles.drop} onPress={() => void pick()} disabled={!canReview}>
+          <Text style={styles.dropTitle}>{fileName || (canReview ? "Select CSV" : "View access required")}</Text>
+          <Text style={styles.dropHint}>
+            {fileName ? `${matrix.length} data ${matrix.length === 1 ? "row" : "rows"}` : "One header row, then one row per payment."}
+          </Text>
+        </Pressable>
+        {fileName ? (
+          <Pressable
+            style={styles.removeFile}
+            onPress={() => setRemoveOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Remove file"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.removeFileMark}>×</Text>
+          </Pressable>
+        ) : null}
       </View>
-      <View style={styles.templateRow}>
-      <Pressable style={styles.templateCard} onPress={() => void downloadTemplate("compliance-payment-update.csv", templateCsv(template))}>
-        <Text style={styles.templateKicker}>CSV</Text>
-        <Text style={styles.link}>Download CSV template v{template.version}</Text>
-      </Pressable>
       <Pressable
-        style={styles.templateCard}
-        onPress={async () => {
-          const XLSX = await import("xlsx");
-          const notes = template.fields.map((field) => `${field.label}: ${field.format}${field.required ? " (required)" : ""}`);
-          const sheet = XLSX.utils.aoa_to_sheet([
-            [`# ${template.id} ${template.version}`],
-            [notes.join(" | ")],
-            template.fields.map((field) => field.label),
-            template.fields.map((field) => field.example),
-          ]);
-          const book = XLSX.utils.book_new();
-          XLSX.utils.book_append_sheet(book, sheet, "Template");
-          if (Platform.OS === "web") {
-            XLSX.writeFile(book, "compliance-payment-update.xlsx");
-            return;
-          }
-          const base64 = XLSX.write(book, { type: "base64", bookType: "xlsx" });
-          const path = `${FileSystem.cacheDirectory ?? ""}compliance-payment-update.xlsx`;
-          await FileSystem.writeAsStringAsync(path, base64, { encoding: FileSystem.EncodingType.Base64 });
-          if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(path);
-        }}
+        style={styles.pasteLink}
+        onPress={() => { setPasteText(""); setPasteOpen(true); }}
+        disabled={!canReview}
+        accessibilityRole="button"
       >
-        <Text style={styles.templateKicker}>Excel</Text>
-        <Text style={styles.link}>Download Excel template v{template.version}</Text>
+        <Text style={styles.link}>Paste CSV</Text>
       </Pressable>
-      </View>
-      </View>
-      <Pressable style={styles.drop} onPress={() => void pick()} disabled={!canReview}>
-        <Text style={styles.dropTitle}>{canReview ? "Select CSV" : "View access required to upload"}</Text>
-        <Text style={styles.dropHint}>
-          {fileName
-            ? fileName
-            : "CSV up to 1 MB. UTR, request ID and transaction date only. Amount and mode stay as posted."}
-        </Text>
-      </Pressable>
+      <Modal visible={removeOpen} transparent animationType="fade" onRequestClose={() => setRemoveOpen(false)}>
+        <View style={styles.confirmBackdrop}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.sheetTitle}>Remove this file?</Text>
+            <Text style={styles.muted}>
+              {fileName} will be cleared from this page. Payments already posted stay as they are.
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable style={styles.confirmCancel} onPress={() => setRemoveOpen(false)}>
+                <Text style={styles.sheetCloseText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={styles.confirmProceed}
+                onPress={() => {
+                  setFileName("");
+                  setFileText("");
+                  setHeaders([]);
+                  setMatrix([]);
+                  setMapping({});
+                  setRows([]);
+                  setPreviewOpen(false);
+                  setConfirmOpen(false);
+                  setError(null);
+                  setResult(null);
+                  setRemoveOpen(false);
+                }}
+              >
+                <Text style={styles.confirmProceedText}>Remove</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={pasteOpen} transparent animationType="fade" onRequestClose={() => setPasteOpen(false)}>
+        <View style={styles.backdrop}>
+          <View style={[styles.sheet, { width: Math.min(920, sheetWidth + 160), maxHeight: sheetHeight }]}>
+            <View style={styles.sheetHead}>
+              <View style={styles.fileCopy}>
+                <Text style={styles.kicker}>Paste</Text>
+                <Text style={styles.sheetTitle}>Paste CSV</Text>
+                <Text style={styles.muted}>Header on the first row. A spreadsheet paste is read as columns too.</Text>
+              </View>
+              <Pressable onPress={() => setPasteOpen(false)} style={styles.sheetClose} accessibilityRole="button" accessibilityLabel="Cancel paste">
+                <Text style={styles.sheetCloseText}>Cancel</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetBody}>
+              <TextInput
+                value={pasteText}
+                onChangeText={setPasteText}
+                placeholder={"Trip ID,UTR\nTRP-1001,HDFC123456"}
+                placeholderTextColor={Theme.textMuted}
+                multiline
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.pasteInput, styles.pasteMono, Platform.OS === "web" ? { tabSize: 4 } : null]}
+              />
+              {pasteText.trim() && pasted.rows.length === 0 ? (
+                <Text style={styles.error}>Add a header row and at least one data row.</Text>
+              ) : null}
+              {pasted.rows.length > 0 ? (
+                <View style={styles.stack}>
+                  <Text style={styles.muted}>
+                    {pasted.rows.length} data {pasted.rows.length === 1 ? "row" : "rows"} · {pasted.headers.length} columns.
+                    {" "}Will update {pasteFieldLabels(pasted.headers) || "UTR"}.
+                    {" "}Nothing is written until you confirm the update.
+                  </Text>
+                  <ScrollView horizontal>
+                    <View>
+                      <View style={styles.tableRow}>
+                        {pasted.headers.map((header, column) => (
+                          <Text key={header} style={[styles.tableHead, styles.pasteCell, { width: pasteColumnWidth(header, pasted.rows, column) }]} numberOfLines={1}>{header}</Text>
+                        ))}
+                      </View>
+                      {pasted.rows.slice(0, 12).map((cells, index) => (
+                        <View key={index} style={styles.tableRow}>
+                          {pasted.headers.map((header, column) => (
+                            <Text key={`${index}-${header}`} style={[styles.tableCell, styles.pasteCell, { width: pasteColumnWidth(header, pasted.rows, column) }]} numberOfLines={1}>{cells[column] || "—"}</Text>
+                          ))}
+                        </View>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  {pasted.rows.length > 12 ? <Text style={styles.muted}>Showing the first 12 of {pasted.rows.length} rows.</Text> : null}
+                </View>
+              ) : null}
+            </ScrollView>
+            <View style={styles.sheetFoot}>
+              <View style={styles.footRow}>
+                <Pressable style={styles.secondaryAction} onPress={() => setPasteOpen(false)}>
+                  <Text style={styles.link}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.primary, styles.footPrimary, pasted.rows.length === 0 && styles.disabled]}
+                  disabled={pasted.rows.length === 0}
+                  onPress={() => {
+                    if (loadSheet("pasted.csv", pasteText)) {
+                      setPasteOpen(false);
+                      setPasteText("");
+                    }
+                  }}
+                >
+                  <Text style={styles.primaryText}>Proceed</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
       {busy ? (
         <View style={styles.inline}>
           <ActivityIndicator color={Theme.textMuted} />
@@ -320,126 +534,248 @@ export function BulkOperationWorkspace({
         </View>
       ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
       {headers.length > 0 ? (
-        <View style={styles.card}>
-          <View style={styles.rowTop}>
-            <View style={styles.fileMark}>
-              <Text style={styles.fileMarkText}>CSV</Text>
-            </View>
-            <View style={styles.fileCopy}>
-              <Text style={styles.title}>{fileName}</Text>
-              <Text style={styles.muted}>{matrix.length} data {matrix.length === 1 ? "row" : "rows"}</Text>
-            </View>
-          </View>
-          {template.fields.map((field) => (
-            <View key={field.key} style={styles.detail}>
-              <Text style={styles.mapLabel}>{field.label}{field.required ? " · required" : ""}</Text>
-              <Text style={styles.muted}>{field.format}</Text>
-              <View style={styles.tagRow}>
-                {headers.map((header) => {
-                  const on = mapping[field.key] === header;
-                  return (
-                    <Pressable
-                      key={`${field.key}-${header}`}
-                      style={[styles.choice, on && styles.choiceOn]}
-                      onPress={() => setMapping((current) => ({ ...current, [field.key]: header }))}
-                    >
-                      <Text style={[styles.choiceText, on && styles.choiceTextOn]}>{header}</Text>
-                    </Pressable>
-                  );
-                })}
+        <View style={styles.panel}>
+          <Text style={styles.sectionLabel}>Sample from the file</Text>
+          <Text style={styles.muted}>First {Math.min(4, matrix.length)} {Math.min(4, matrix.length) === 1 ? "row" : "rows"}, lined up with the columns below.</Text>
+          <View style={styles.mapHead}>
+            <View style={styles.mapLabelCol} />
+            {headers.map((header) => (
+              <View key={`sample-${header}`} style={styles.mapHeadCell}>
+                <Text style={styles.mapHeadText} numberOfLines={2}>{header}</Text>
               </View>
-            </View>
-          ))}
-          {issues.map((issue) => (
-            <Text key={issue.message} style={styles.error}>{issue.message}</Text>
-          ))}
-          {ignored.length > 0 ? <Text style={styles.muted}>Not used: {ignored.join(", ")}</Text> : null}
-          <Pressable style={styles.primary} onPress={() => void review()}>
-            <Text style={styles.primaryText}>Review rows</Text>
-          </Pressable>
-        </View>
-      ) : null}
-      {rows.length > 0 ? (
-        <View style={styles.stack}>
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryCell}>
-              <Text style={styles.summaryValue}>{readyCount}</Text>
-              <Text style={styles.summaryLabel}>Will update</Text>
-            </View>
-            <View style={styles.summaryCell}>
-              <Text style={[styles.summaryValue, blockedCount > 0 && styles.summaryValueWarn]}>{blockedCount}</Text>
-              <Text style={styles.summaryLabel}>Need attention</Text>
-            </View>
-            <View style={styles.summaryCell}>
-              <Text style={styles.summaryValue}>{rows.length}</Text>
-              <Text style={styles.summaryLabel}>Rows read</Text>
-            </View>
+            ))}
           </View>
-          {rows.map((row) => {
-            const tone = TONE[row.status] ?? TONE.unchanged;
-            return (
-            <View key={row.rowIndex} style={[styles.card, styles.resultCard, { borderLeftColor: tone.fg }]}>
-              <View style={styles.rowTop}>
-                <Text style={styles.title}>{row.matchKey || `Row ${row.rowIndex}`}</Text>
-                <Tag label={row.status} tone={row.status} />
-              </View>
-              <Text style={styles.muted}>{row.message}</Text>
-              {selection.map((field) => (
-                <View key={field} style={styles.diff}>
-                  <Text style={styles.mapLabel}>{fieldLabel(field)}</Text>
-                  <View style={styles.diffCols}>
-                    <View style={styles.diffCol}>
-                      <Text style={styles.diffKicker}>Now</Text>
-                      <Text style={styles.diffValue}>{row.before[field] || "—"}</Text>
-                    </View>
-                    <View style={styles.diffCol}>
-                      <Text style={styles.diffKicker}>After</Text>
-                      <Text style={styles.diffValue}>{row.proposed[field] || "—"}</Text>
-                    </View>
-                  </View>
+          {matrix.slice(0, 4).map((cells, index) => (
+            <View key={`sample-row-${index}`} style={styles.mapRow}>
+              <Text style={[styles.sampleIndex, styles.mapLabelCol]}>{index + 1}</Text>
+              {headers.map((header, column) => (
+                <View key={`${index}-${header}`} style={styles.mapHeadCell}>
+                  <Text style={styles.sampleValue} numberOfLines={2}>{cells[column] || "—"}</Text>
                 </View>
               ))}
-              <Text style={styles.kept}>Kept  ·  amount {row.preserved.amount || "—"}  ·  mode {row.preserved.mode || "—"}</Text>
-              {row.status === "ready" ? (
-                <Pressable
-                  style={styles.skip}
-                  onPress={() => setRows((current) => current.map((item) => item.rowIndex === row.rowIndex ? { ...item, included: !item.included } : item))}
-                >
-                  <Text style={styles.link}>{row.included ? "Skip this row" : "Include this row"}</Text>
-                </Pressable>
-              ) : null}
             </View>
-            );
-          })}
-          <Pressable
-            style={[styles.primary, (!canExecute || readyCount === 0) && styles.disabled]}
-            disabled={!canExecute || readyCount === 0}
-            onPress={() => setConfirmOpen(true)}
-          >
-            <Text style={styles.primaryText}>{canExecute ? `Confirm ${readyCount} updates` : "Manage access required to confirm"}</Text>
-          </Pressable>
+          ))}
+          <Text style={styles.sectionLabel}>Match each field to a column</Text>
+          <Text style={styles.muted}>One mark per column. Tap a mark to give that column to the field.</Text>
+          <View style={styles.mapHead}>
+            <View style={styles.mapLabelCol} />
+            {headers.map((header) => (
+              <View key={header} style={styles.mapHeadCell}>
+                <Text style={styles.mapHeadText} numberOfLines={2}>{header}</Text>
+              </View>
+            ))}
+          </View>
+          {template.fields.map((field) => (
+            <View key={field.key} style={styles.mapRow}>
+              <Text style={[styles.mapLabel, styles.mapLabelCol]} numberOfLines={1}>{field.label}</Text>
+              {headers.map((header) => {
+                const on = mapping[field.key] === header;
+                const taken = template.fields.some((other) => other.key !== field.key && mapping[other.key] === header);
+                return (
+                  <Pressable
+                    key={`${field.key}-${header}`}
+                    style={styles.mapHeadCell}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${field.label} uses ${header}`}
+                    accessibilityState={{ selected: on }}
+                    onPress={() => setMapping((current) => {
+                      const next = { ...current };
+                      if (next[field.key] === header) {
+                        next[field.key] = null;
+                        return next;
+                      }
+                      for (const key of Object.keys(next)) {
+                        if (next[key] === header) next[key] = null;
+                      }
+                      next[field.key] = header;
+                      return next;
+                    })}
+                  >
+                    <View style={[styles.mapMark, on && styles.mapMarkOn, taken && !on && styles.mapMarkTaken]}>
+                      {on ? <Text style={styles.mapMarkText}>✓</Text> : taken ? <View style={styles.mapMarkDot} /> : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ))}
+          {issues.length > 0 ? (
+            <Text style={styles.error}>
+              {unmappedHeaders(headers, mapping).length === 0
+                ? `This file has no column for ${issues.map((issue) => template.fields.find((field) => field.key === issue.field)?.label ?? issue.field).join(" or ")}. Turn ${issues.length === 1 ? "that field" : "those fields"} off, or upload a file that includes ${issues.length === 1 ? "it" : "them"}.`
+                : issues.map((issue) => issue.message).join(" ")}
+            </Text>
+          ) : null}
+          {ignored.length > 0 ? <Text style={styles.muted}>Not used: {ignored.join(", ")}</Text> : null}
         </View>
       ) : null}
-      {result ? <Text style={styles.muted}>{result}</Text> : null}
-      <Modal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
+
+      <View style={styles.nextBar}>
+        <Pressable
+          style={[styles.primary, (headers.length === 0 || issues.length > 0) && styles.disabled]}
+          disabled={headers.length === 0 || issues.length > 0}
+          onPress={() => setPreviewOpen(true)}
+        >
+          <Text style={styles.primaryText}>{rows.length > 0 ? "Open validation" : "Preview file"}</Text>
+        </Pressable>
+      </View>
+
+      <Modal visible={previewOpen} transparent animationType="fade" onRequestClose={() => { setPreviewOpen(false); setConfirmOpen(false); }}>
         <View style={styles.backdrop}>
-          <View style={styles.modal}>
-            <Text style={styles.title}>Update {readyCount} payments?</Text>
-            <Text style={styles.muted}>
-              This is the only step that changes payments. Amount and mode stay as they are. The batch is stored before the first payment write.
-            </Text>
-            <Pressable style={styles.primary} onPress={() => void confirm()}>
-              <Text style={styles.primaryText}>Confirm update</Text>
-            </Pressable>
-            <Pressable onPress={() => setConfirmOpen(false)}>
-              <Text style={styles.link}>Back to preview</Text>
-            </Pressable>
+          <View style={[styles.sheet, { width: Math.min(920, sheetWidth + 160), maxHeight: sheetHeight }]}>
+            <View style={styles.sheetHead}>
+              <View style={styles.fileCopy}>
+                <Text style={styles.kicker}>File preview</Text>
+                <Text style={styles.sheetTitle} numberOfLines={1}>{fileName || "Payment file"}</Text>
+                <Text style={styles.muted}>{matrix.length} data {matrix.length === 1 ? "row" : "rows"} · {headers.length} columns</Text>
+              </View>
+              <Pressable onPress={() => { setPreviewOpen(false); setConfirmOpen(false); }} style={styles.sheetClose} accessibilityRole="button" accessibilityLabel="Close preview">
+                <Text style={styles.sheetCloseText}>Close</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetBody}>
+              <Text style={styles.muted}>
+                Check the Trip ID against this workspace, then the fields you selected.
+              </Text>
+              <ScrollView horizontal>
+                <View>
+                  <View style={styles.tableRow}>
+                    {headers.map((header) => (
+                      <Text key={header} style={styles.tableHead} numberOfLines={1}>{header}</Text>
+                    ))}
+                  </View>
+                  {matrix.slice(0, 30).map((cells, index) => (
+                    <View key={index} style={styles.tableRow}>
+                      {headers.map((header, column) => (
+                        <Text key={`${index}-${header}`} style={styles.tableCell} numberOfLines={1}>{cells[column] || "—"}</Text>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+              {matrix.length > 30 ? <Text style={styles.muted}>Showing the first 30 of {matrix.length} rows.</Text> : null}
+
+              {rows.length > 0 ? (
+                <View style={styles.stack}>
+                  <Text style={styles.sectionLabel}>{hasInvalid ? "Nothing will be updated" : "This will be updated"}</Text>
+                  <Text style={styles.muted}>
+                    {hasInvalid
+                      ? "An invalid Trip ID blocks the whole file. Fix the file and preview it again."
+                      : `${readyCount} matching ${readyCount === 1 ? "payment" : "payments"}. ${keptNote}`}
+                  </Text>
+                  {rows.map((row) => {
+                    const tone = TONE[row.status] ?? TONE.unchanged;
+                    const matched = row.status === "ready";
+                    return (
+                      <View key={row.rowIndex} style={[styles.previewRow, { borderLeftColor: tone.fg }]}>
+                        <View style={styles.rowTop}>
+                          <Text style={styles.title}>{row.matchKey || `Row ${row.rowIndex}`}</Text>
+                          <Tag label={matched ? "will update" : row.status} tone={row.status} />
+                        </View>
+                        <Text style={styles.muted}>{row.message}</Text>
+                        {matched ? selection.map((field) => (
+                          <View key={field} style={styles.diffCols}>
+                            <View style={styles.diffCol}>
+                              <Text style={styles.diffKicker}>Now · {fieldLabel(field)}</Text>
+                              <Text style={styles.diffValue}>{row.before[field] || "—"}</Text>
+                            </View>
+                            <View style={styles.diffCol}>
+                              <Text style={styles.diffKicker}>After</Text>
+                              <Text style={styles.diffValue}>{row.proposed[field] || "—"}</Text>
+                            </View>
+                          </View>
+                        )) : null}
+                        {matched && (row.preserved.amount != null || row.preserved.mode != null) ? (
+                          <Text style={styles.kept}>
+                            Kept
+                            {row.preserved.amount != null ? ` · amount ${row.preserved.amount || "—"}` : ""}
+                            {row.preserved.mode != null ? ` · mode ${row.preserved.mode || "—"}` : ""}
+                          </Text>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
+              {confirmOpen && !hasInvalid ? (
+                <Text style={styles.muted}>Proceed writes only these changes. Back returns to this preview. Close leaves the file unchanged.</Text>
+              ) : null}
+            </ScrollView>
+            <View style={styles.sheetFoot}>
+              {rows.length === 0 ? (
+                <Pressable
+                  style={[styles.primary, issues.length > 0 && styles.disabled]}
+                  disabled={issues.length > 0}
+                  onPress={() => void review()}
+                >
+                  <Text style={styles.primaryText}>Validate rows</Text>
+                </Pressable>
+              ) : hasInvalid ? (
+                <Pressable style={styles.secondaryAction} onPress={() => { setPreviewOpen(false); setConfirmOpen(false); }}>
+                  <Text style={styles.link}>Close</Text>
+                </Pressable>
+              ) : confirmOpen ? (
+                <View style={styles.footRow}>
+                  <Pressable style={styles.secondaryAction} onPress={() => { setPreviewOpen(false); setConfirmOpen(false); }}>
+                    <Text style={styles.link}>Close</Text>
+                  </Pressable>
+                  <Pressable style={styles.secondaryAction} onPress={() => setConfirmOpen(false)}>
+                    <Text style={styles.link}>Back</Text>
+                  </Pressable>
+                  <Pressable style={[styles.primary, styles.footPrimary, !canExecute && styles.disabled]} disabled={!canExecute} onPress={() => void confirm()}>
+                    <Text style={styles.primaryText}>Proceed</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable style={[styles.primary, !canExecute && styles.disabled]} disabled={!canExecute} onPress={() => setConfirmOpen(true)}>
+                  <Text style={styles.primaryText}>Confirm this update</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
         </View>
       </Modal>
+      {result ? <Text style={styles.muted}>{result}</Text> : null}
+      </View>
     </View>
   );
+}
+
+
+function pasteFieldLabels(headers: string[]): string {
+  const labels: string[] = [];
+  for (const header of headers) {
+    const field = PAYMENT_UPDATE_FIELDS.find((item) => suggestMapping([header], paymentFieldTemplate([item]).fields)[item]);
+    const label = field ? paymentFieldTemplate([field]).fields.find((item) => item.key === field)?.label : null;
+    if (label) labels.push(label);
+  }
+  return labels.join(", ");
+}
+
+function pasteColumnWidth(header: string, rows: string[][], column: number): number {
+  const samples = [header, ...rows.slice(0, 12).map((cells) => cells[column] ?? "")];
+  const longest = samples.reduce((max, value) => Math.max(max, value.trim().length), 0);
+  return Math.min(240, Math.max(96, longest * 8 + 24));
+}
+
+function asCsv(text: string): string {
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+  const sample = lines.find((line) => line.trim() && !line.trim().startsWith("#")) ?? "";
+  if (!sample.includes("\t") || sample.includes(",")) return text;
+  return lines
+    .map((line) => line.split("\t").map((cell) => {
+      const value = cell.trim();
+      return /[",\n]/.test(value) ? `"${value.replace(/"/g, "\"\"")}"` : value;
+    }).join(","))
+    .join("\n");
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2);
+  const letters = parts.map((part) => part[0]?.toUpperCase() ?? "").join("");
+  return letters || "?";
 }
 
 function categoryOf(batch: StoredBatch): ComplianceLedgerCategory {
@@ -466,10 +802,12 @@ export function BulkPaymentAuditLog({
 }) {
   const [batches, setBatches] = useState<StoredBatch[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [previewBatch, setPreviewBatch] = useState<StoredBatch | null>(null);
   const [detail, setDetail] = useState<{ rows: Array<Record<string, unknown>>; events: Array<Record<string, unknown>> } | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [correction, setCorrection] = useState("");
+  const { width, height } = useWindowDimensions();
 
   useEffect(() => {
     let cancelled = false;
@@ -488,7 +826,25 @@ export function BulkPaymentAuditLog({
     };
   }, [organizationId, category, refreshKey]);
 
+  const openPreview = async (batch: StoredBatch) => {
+    setPreviewBatch(batch);
+    setDetail(null);
+    setCorrection("");
+    setPreviewBusy(true);
+    const loaded = await loadBulkBatchDetail(batch.id);
+    setPreviewBusy(false);
+    if (loaded.error) setNote(loaded.error.message);
+    else setDetail({ rows: loaded.rows, events: loaded.events });
+  };
+
   const categoryLabel = category === "compliance_advance" ? "Advance" : "Balance";
+  const actionLabel = (batch: StoredBatch) => {
+    const fields = batch.field_selection?.length ? batch.field_selection.join(", ") : "selected fields";
+    if (batch.status === "completed") return `Updated ${fields}`;
+    if (batch.status === "partial") return `Partly updated ${fields}`;
+    if (batch.status === "failed") return "Update did not finish";
+    return `Confirmed ${fields}`;
+  };
 
   return (
     <View style={styles.stack}>
@@ -497,98 +853,220 @@ export function BulkPaymentAuditLog({
         <Text style={styles.muted}>No {categoryLabel.toLowerCase()} files confirmed yet.</Text>
       ) : null}
       {batches.map((batch) => {
-        const open = openId === batch.id;
         const who = names[batch.confirmed_by ?? ""] || names[batch.uploaded_by ?? ""] || "Unknown user";
         return (
-          <View key={batch.id} style={styles.card}>
-            <Pressable
-              onPress={async () => {
-                if (open) {
-                  setOpenId(null);
-                  setDetail(null);
-                  return;
-                }
-                setOpenId(batch.id);
-                const loaded = await loadBulkBatchDetail(batch.id);
-                if (loaded.error) setNote(loaded.error.message);
-                else setDetail({ rows: loaded.rows, events: loaded.events });
-              }}
-            >
-            <View style={styles.rowTop}>
-              <Text style={styles.title}>{batch.file_name}</Text>
-              <Tag label={batch.status} tone={batch.status === "completed" ? "applied" : batch.status === "failed" ? "failed" : "unchanged"} />
-            </View>
-            </Pressable>
-            <Text style={styles.muted}>
-              {categoryLabel} · {stamp(batch.created_at)} · {who}
-              {batch.file_sha256 ? ` · ${batch.file_sha256.slice(0, 12)}` : ""}
-            </Text>
-            {open && detail ? (
-              <View style={styles.stack}>
-                {detail.events.map((event) => (
-                  <Text key={String(event.id)} style={styles.muted}>
-                    {stamp(String(event.created_at ?? ""))} · {String(event.event_type)} · {names[String(event.actor_id ?? "")] || who}
-                  </Text>
-                ))}
-                {detail.rows.map((row) => {
-                  const before = (row.before_values ?? {}) as Record<string, string>;
-                  const proposed = (row.proposed_values ?? {}) as Record<string, string>;
-                  const linked = [...detail.events].reverse().find((event) => String(event.row_id ?? "") === String(row.id));
-                  return (
-                    <View key={String(row.id)} style={styles.detail}>
-                      <Text style={styles.title}>{String(row.match_key ?? "Row")}</Text>
-                      <Text style={styles.muted}>
-                        {String(row.status)} · {before.utr || "—"} → {proposed.utr || before.utr || "—"}
-                      </Text>
-                      {canCorrect && row.record_id ? (
-                        <View style={styles.stack}>
-                          <TextInput
-                            value={open ? correction : ""}
-                            onChangeText={setCorrection}
-                            placeholder="Replacement UTR"
-                            placeholderTextColor={Theme.textMuted}
-                            autoCapitalize="characters"
-                            style={styles.input}
-                          />
-                          <Pressable
-                            onPress={async () => {
-                              if (!linked?.id) {
-                                setNote("This row has no audit event to correct yet.");
-                                return;
-                              }
-                              const saved = await correctPaymentField({
-                                batchId: batch.id,
-                                rowId: String(row.id),
-                                field: "utr",
-                                value: correction,
-                                correctsEventId: String(linked.id),
-                              });
-                              setNote(saved.error ? saved.error.message : "Correction added. The original event stays in the log.");
-                              if (!saved.error) {
-                                const loaded = await loadBulkBatchDetail(batch.id);
-                                if (!loaded.error) setDetail({ rows: loaded.rows, events: loaded.events });
-                              }
-                            }}
-                          >
-                            <Text style={styles.link}>Save correction</Text>
-                          </Pressable>
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                })}
+          <View key={batch.id} style={styles.logItem}>
+            <View style={styles.logHead}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initials(who)}</Text>
               </View>
-            ) : null}
+              <View style={styles.fileCopy}>
+                <Text style={styles.logName} numberOfLines={1}>{who}</Text>
+                <Text style={styles.logAction} numberOfLines={2}>{actionLabel(batch)}</Text>
+                <Text style={styles.logFile} numberOfLines={1}>{batch.file_name}</Text>
+                <Text style={styles.logTime}>{stamp(batch.created_at)} · {categoryLabel}</Text>
+              </View>
+              <Pressable
+                style={styles.eyeButton}
+                onPress={() => void openPreview(batch)}
+                accessibilityRole="button"
+                accessibilityLabel={`Preview ${batch.file_name}`}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Eye size={15} color={Theme.complianceStageBalanceFg} strokeWidth={2.2} />
+              </Pressable>
+            </View>
           </View>
         );
-        })}
+      })}
+      <Modal visible={previewBatch != null} transparent animationType="fade" onRequestClose={() => setPreviewBatch(null)}>
+        <View style={styles.backdrop}>
+          <View style={[styles.sheet, { width: Math.min(760, Math.max(320, width - 48)), maxHeight: Math.min(720, Math.max(420, height - 80)) }]}>
+            <View style={styles.sheetHead}>
+              <View style={styles.fileCopy}>
+                <Text style={styles.kicker}>Updated fields</Text>
+                <Text style={styles.sheetTitle} numberOfLines={1}>{previewBatch?.file_name || "Payment file"}</Text>
+                <Text style={styles.muted}>
+                  {previewBatch ? `${names[previewBatch.confirmed_by ?? ""] || names[previewBatch.uploaded_by ?? ""] || "Unknown user"} · ${stamp(previewBatch.created_at)} · ${previewBatch.status}` : ""}
+                </Text>
+              </View>
+              <Pressable onPress={() => setPreviewBatch(null)} style={styles.sheetClose} accessibilityRole="button" accessibilityLabel="Close preview">
+                <Text style={styles.sheetCloseText}>Close</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetBody}>
+              {previewBusy ? (
+                <View style={styles.inline}>
+                  <ActivityIndicator color={Theme.textMuted} />
+                  <Text style={styles.muted}>Opening the saved update…</Text>
+                </View>
+              ) : null}
+              {detail?.rows.map((row) => {
+                const before = (row.before_values ?? {}) as Record<string, string>;
+                const proposed = (row.proposed_values ?? {}) as Record<string, string>;
+                const changed = LOG_FIELDS.filter((field) => proposed[field.key]);
+                const linked = [...(detail.events ?? [])].reverse().find((event) => String(event.row_id ?? "") === String(row.id));
+                return (
+                  <View key={String(row.id)} style={styles.previewRow}>
+                    <View style={styles.rowTop}>
+                      <Text style={styles.title}>{String(row.match_key ?? "Row")}</Text>
+                      <Tag label={String(row.status)} tone={String(row.status)} />
+                    </View>
+                    {changed.length === 0 ? <Text style={styles.muted}>{String(row.message ?? "No field changed on this row.")}</Text> : null}
+                    {changed.map((field) => (
+                      <View key={field.key} style={styles.diffCols}>
+                        <View style={styles.diffCol}>
+                          <Text style={styles.diffKicker}>Was · {field.label}</Text>
+                          <Text style={styles.diffValue}>{before[field.key] || "—"}</Text>
+                        </View>
+                        <View style={styles.diffCol}>
+                          <Text style={styles.diffKicker}>Now</Text>
+                          <Text style={styles.diffValue}>{proposed[field.key]}</Text>
+                        </View>
+                      </View>
+                    ))}
+                    {before.mode ? <Text style={styles.kept}>Kept · mode {before.mode}</Text> : null}
+                    {canCorrect && row.record_id && changed.some((field) => field.key === "utr") ? (
+                      <View style={styles.stack}>
+                        <TextInput
+                          value={correction}
+                          onChangeText={setCorrection}
+                          placeholder="Replacement UTR"
+                          placeholderTextColor={Theme.textMuted}
+                          autoCapitalize="characters"
+                          style={styles.input}
+                        />
+                        <Pressable
+                          onPress={async () => {
+                            if (!previewBatch) return;
+                            if (!linked?.id) {
+                              setNote("This row has no audit event to correct yet.");
+                              return;
+                            }
+                            const saved = await correctPaymentField({
+                              batchId: previewBatch.id,
+                              rowId: String(row.id),
+                              field: "utr",
+                              value: correction,
+                              correctsEventId: String(linked.id),
+                            });
+                            setNote(saved.error ? saved.error.message : "Correction added. The original event stays in the log.");
+                            if (!saved.error) {
+                              const loaded = await loadBulkBatchDetail(previewBatch.id);
+                              if (!loaded.error) setDetail({ rows: loaded.rows, events: loaded.events });
+                            }
+                          }}
+                        >
+                          <Text style={styles.link}>Save correction</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+              {detail && detail.rows.length === 0 ? <Text style={styles.muted}>This file has no saved rows.</Text> : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
+const LOG_FIELDS = [
+  { key: "utr", label: "UTR" },
+  { key: "requestId", label: "Request ID" },
+  { key: "transactionDate", label: "Transaction date" },
+  { key: "amount", label: "Amount" },
+  { key: "mode", label: "Mode" },
+] as const;
+
+function keptNames(selection: readonly PaymentUpdateField[]): string[] {
+  return [
+    selection.includes("amount") ? null : "Amount",
+    selection.includes("mode") ? null : "Mode",
+  ].filter((name): name is string => Boolean(name));
+}
+
+function keptStay(selection: readonly PaymentUpdateField[]): string {
+  const names = keptNames(selection);
+  return names.length === 0 ? "" : `${names.join(" and ")} stay as posted.`;
+}
+
+function keptAfter(selection: readonly PaymentUpdateField[]): string {
+  const names = keptNames(selection);
+  if (names.length === 0) return "";
+  return `${names.join(" and ")} ${names.length === 1 ? "stays" : "stay"} as posted.`;
+}
+
 const styles = StyleSheet.create({
   sectionLabel: { fontSize: 12, fontWeight: "700", color: Theme.textPrimary, letterSpacing: 0.2 },
+  logItem: {
+    gap: 8,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.surfaceBorder,
+  },
+  logHead: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  avatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.complianceIconWash,
+  },
+  avatarText: { fontSize: 10, fontWeight: "700", color: Theme.complianceStageBalanceFg, letterSpacing: 0.2 },
+  logName: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
+  logAction: { fontSize: 11, lineHeight: 15, color: Theme.textPrimary },
+  logFile: { fontSize: 11, color: Theme.textMuted },
+  logTime: { fontSize: 10, color: Theme.textMuted, marginTop: 2 },
+  eyeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.complianceIconWash,
+  },
   stack: { gap: 12 },
+  mainPane: { width: "100%", minWidth: 0, gap: 12 },
+  summaryPane: {
+    width: "100%",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    borderRadius: 16,
+    padding: 16,
+    gap: 14,
+  },
+  guideRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, minHeight: 28 },
+  nextBar: { alignSelf: "stretch" },
+  nextLine: { fontSize: 13, lineHeight: 18, color: Theme.textPrimary, marginTop: 4 },
+  tableRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: Theme.surfaceBorder },
+  tableHead: {
+    width: 148,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    fontSize: 11,
+    fontWeight: "800",
+    color: Theme.textMuted,
+    backgroundColor: Theme.complianceSelectedWash,
+  },
+  tableCell: { width: 148, paddingHorizontal: 8, paddingVertical: 8, fontSize: 12, color: Theme.textPrimaryDark },
+  summaryStep: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 28 },
+  summaryStepNo: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.complianceSelectedWash,
+  },
+  summaryStepNoOn: { backgroundColor: Theme.buttonDark },
+  summaryStepNoText: { fontSize: 11, fontWeight: "800", color: Theme.textMuted },
+  summaryStepNoTextOn: { color: Theme.buttonDarkText },
+  summaryStepLabel: { fontSize: 13, fontWeight: "600", color: Theme.textMuted },
   stageRow: { flexDirection: "row", gap: 8 },
   stage: {
     flex: 1,
@@ -612,27 +1090,31 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 12,
   },
-  fieldGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  fieldGrid: { flexDirection: "row", flexWrap: "wrap", alignItems: "stretch", gap: 8 },
   fieldTile: {
     flexGrow: 1,
     flexBasis: 140,
-    minHeight: Layout.minTouchTargetSize,
-    borderRadius: 12,
+    minWidth: 120,
+    minHeight: 40,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
-    backgroundColor: Theme.complianceSelectedWash,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     justifyContent: "center",
-    gap: 2,
+    gap: 1,
   },
-  fieldTileOn: { backgroundColor: Theme.buttonDark, borderColor: Theme.buttonDark },
+  fieldTileOn: { borderColor: Theme.buttonDark, backgroundColor: Theme.complianceSelectedWash },
+  fieldName: { fontSize: 13, fontWeight: "700", color: Theme.textPrimaryDark },
+  fieldNameOn: { color: Theme.textPrimaryDark },
   fieldHint: { fontSize: 11, color: Theme.textMuted },
-  fieldHintOn: { color: Theme.compliancePayTableTitleMuted },
-  templateRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  templateRow: { flexDirection: "row", alignItems: "stretch", gap: 8 },
   templateCard: {
     flexGrow: 1,
-    flexBasis: 180,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
     minHeight: Layout.minTouchTargetSize,
     borderRadius: 12,
     borderWidth: 1,
@@ -643,16 +1125,81 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   templateKicker: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5, color: Theme.complianceStageBalanceFg },
-  drop: {
-    minHeight: 88,
+  dropWrap: { position: "relative" },
+  removeFile: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.complianceIconWash,
+  },
+  removeFileMark: { fontSize: 18, lineHeight: 20, fontWeight: "600", color: Theme.textPrimaryDark },
+  pasteLink: { alignSelf: "flex-start", minHeight: 36, justifyContent: "center" },
+  pasteCell: { width: 120 },
+  pasteMono: {
+    fontFamily: Platform.OS === "web" ? "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" : "Courier",
+    fontSize: 12,
+  },
+  pasteInput: {
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: Theme.textPrimaryDark,
+    backgroundColor: Theme.cardWhite,
+    textAlignVertical: "top",
+  },
+  confirmBackdrop: {
+    flex: 1,
+    backgroundColor: Theme.overlayBackdrop,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  confirmCard: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: Theme.cardWhite,
     borderRadius: 16,
+    padding: 20,
+    gap: 12,
+  },
+  confirmActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  confirmCancel: {
+    flex: 1,
+    minHeight: Layout.minTouchTargetSize,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmProceed: {
+    flex: 1,
+    minHeight: Layout.minTouchTargetSize,
+    borderRadius: 10,
+    backgroundColor: Theme.buttonDark,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmProceedText: { fontSize: 14, fontWeight: "700", color: Theme.buttonDarkText },
+  drop: {
+    minHeight: 64,
+    borderRadius: 12,
     borderWidth: 1,
     borderStyle: "dashed",
     borderColor: Theme.complianceHoverBorder,
     backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: 44,
     paddingVertical: 16,
     gap: 4,
   },
@@ -668,22 +1215,116 @@ const styles = StyleSheet.create({
   },
   fileMarkText: { fontSize: 10, fontWeight: "800", color: Theme.complianceStageBalanceFg },
   fileCopy: { flex: 1, minWidth: 0, gap: 2 },
-  mapLabel: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
+  mapLabel: { fontSize: 13, fontWeight: "700", color: Theme.textPrimaryDark },
+  mapHead: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.complianceCardBorder,
+  },
+  mapHeadCell: { flex: 1, minWidth: 0, minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: 2 },
+  mapHeadText: { fontSize: 11, fontWeight: "700", color: Theme.textMuted, textAlign: "center" },
+  sampleIndex: { fontSize: 11, fontWeight: "700", color: Theme.textMuted },
+  sampleValue: { fontSize: 12, fontWeight: "600", color: Theme.textPrimary, textAlign: "center" },
+  mapRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 48,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.surfaceBorder,
+  },
+  mapLabelCol: { width: 132, minWidth: 132 },
+  mapValueCol: { flex: 1, minWidth: 0 },
+  mapMark: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mapMarkOn: { backgroundColor: Theme.buttonDark, borderColor: Theme.buttonDark },
+  mapMarkTaken: { backgroundColor: Theme.complianceIconWash },
+  mapMarkText: { fontSize: 14, fontWeight: "700", color: Theme.buttonDarkText },
+  mapMarkDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Theme.textMuted },
+  stepStripInline: { flexDirection: "row", gap: 8 },
+  stepChip: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.complianceSelectedWash,
+  },
+  stepChipOn: { backgroundColor: Theme.buttonDark },
+  stepChipText: { fontSize: 12, fontWeight: "700", color: Theme.textMuted },
+  stepChipTextOn: { color: Theme.buttonDarkText },
+  mapBlock: { gap: 0 },
+  previewScroll: { maxHeight: 280 },
+  previewList: { gap: 8 },
+  previewRow: {
+    borderWidth: 1,
+    borderLeftWidth: 3,
+    borderColor: Theme.complianceCardBorder,
+    borderRadius: 12,
+    padding: 10,
+    gap: 4,
+  },
+  kicker: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, textTransform: "uppercase", color: Theme.complianceStageBalanceFg },
+  sheet: { backgroundColor: Theme.cardWhite, borderRadius: 16, overflow: "hidden" },
+  sheetHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  sheetTitle: { fontSize: 18, fontWeight: "800", color: Theme.textPrimaryDark },
+  sheetClose: { minHeight: Layout.minTouchTargetSize, justifyContent: "center", paddingHorizontal: 4 },
+  sheetCloseText: { fontSize: 13, fontWeight: "700", color: Theme.textMuted },
+  stepStrip: { flexDirection: "row", marginHorizontal: 20, borderWidth: 1, borderColor: Theme.complianceCardBorder, borderRadius: 12, overflow: "hidden" },
+  stepCell: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", backgroundColor: Theme.cardWhite },
+  stepCellOn: { backgroundColor: Theme.buttonDark },
+  stepIndex: { fontSize: 10, fontWeight: "800", color: Theme.textMuted },
+  stepIndexOn: { color: Theme.buttonDarkText },
+  stepLabel: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
+  stepLabelOn: { color: Theme.buttonDarkText },
+  sheetScroll: { flexGrow: 1, flexShrink: 1 },
+  sheetBody: { padding: 20, gap: 10 },
+  sheetFoot: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16, gap: 8, borderTopWidth: 1, borderTopColor: Theme.complianceCardBorder },
+  footRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  footPrimary: { flex: 1 },
+  secondaryAction: {
+    minHeight: Layout.minTouchTargetSize,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryButton: { minHeight: Layout.minTouchTargetSize, alignItems: "center", justifyContent: "center" },
   summaryRow: { flexDirection: "row", gap: 8 },
   summaryCell: {
     flex: 1,
     minWidth: 0,
-    backgroundColor: Theme.cardWhite,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
+    minHeight: 72,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.complianceSelectedWash,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
     gap: 2,
   },
-  summaryValue: { fontSize: 22, fontWeight: "800", color: Theme.textPrimaryDark },
+  summaryValue: { fontSize: 22, fontWeight: "800", color: Theme.textPrimaryDark, textAlign: "center" },
   summaryValueWarn: { color: Theme.complianceStageDocsFg },
-  summaryLabel: { fontSize: 11, fontWeight: "700", color: Theme.textMuted },
+  summaryLabel: { fontSize: 11, fontWeight: "700", color: Theme.textMuted, textAlign: "center" },
   resultCard: { borderLeftWidth: 3 },
   diff: { gap: 6, paddingTop: 4 },
   diffCols: { flexDirection: "row", gap: 8 },
@@ -728,19 +1369,6 @@ const styles = StyleSheet.create({
   tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   tag: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   tagText: { fontSize: 11, fontWeight: "700" },
-  choice: {
-    minHeight: 36,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    paddingHorizontal: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Theme.cardWhite,
-  },
-  choiceOn: { backgroundColor: Theme.buttonDark, borderColor: Theme.buttonDark },
-  choiceText: { fontSize: 12, fontWeight: "700", color: Theme.textMuted },
-  choiceTextOn: { color: Theme.buttonDarkText },
   input: {
     minHeight: Layout.minTouchTargetSize,
     borderWidth: 1,

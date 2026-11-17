@@ -19,6 +19,8 @@ import {
 } from "@/features/bulkOperations/utils/bulkOperation.engine.util";
 import {
   compliancePaymentBulkPermissions,
+  parsePaidAmount,
+  parsePaymentMode,
   paymentFieldTemplate,
 } from "@/features/tripCompliance/paymentBulk/compliancePaymentField.adapter";
 
@@ -51,6 +53,24 @@ describe("bulk operation engine", () => {
     expect(decideDuplicateBatch("confirmed")).toBe("in_progress");
     expect(bulkFingerprint(["a", "b"])).toBe(bulkFingerprint(["a", "b"]));
     expect(bulkFingerprint(["a", "b"])).not.toBe(bulkFingerprint(["a", "c"]));
+  });
+
+  it("writes a changed paid amount and rejects a blank or oversized value", () => {
+    const patch = buildWritablePatch(
+      ["amount"],
+      ["mode"],
+      { amount: "100" },
+      { amount: "250" },
+    );
+    expect(patch).toEqual({ amount: "250" });
+    expect(parsePaidAmount("₹9,000.50")).toEqual({ text: "9000.5" });
+    expect(parsePaidAmount("0")).toEqual({ error: "Paid amount must be a number greater than zero, with up to 2 decimals." });
+    expect(paymentFieldTemplate(["amount"]).fields.map((field) => field.key)).toEqual(["tripId", "amount"]);
+    expect(parsePaymentMode("Bank Transfer")).toEqual({ text: "BANK" });
+    expect(parsePaymentMode("upi")).toEqual({ text: "UPI" });
+    expect(parsePaymentMode("wallet")).toEqual({ error: "Mode must be UPI, BANK, CASH, CHEQUE, FUEL_CARD, FASTAG or CREDIT." });
+    const modePatch = buildWritablePatch(["mode"], ["amount"], { mode: "UPI" }, { mode: "BANK" });
+    expect(modePatch).toEqual({ mode: "BANK" });
   });
 
   it("keeps amount and mode out of the write and detects a stale UTR", () => {

@@ -130,6 +130,8 @@ export async function confirmPaymentFieldBatch(params: {
         utr: row.proposed.utr ?? "",
         requestId: row.proposed.requestId ?? "",
         transactionDate: row.proposed.transactionDate ?? "",
+        amount: row.proposed.amount ?? "",
+        mode: row.proposed.mode ?? "",
       },
     })),
   });

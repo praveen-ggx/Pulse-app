@@ -24,6 +24,7 @@ export type BulkUpdateTripMatch = {
   id: string;
   label: string;
   keys: string[];
+  clientPrice?: number | null;
 };
 
 export type BulkUpdatePaymentMatch = {
@@ -35,6 +36,8 @@ export type BulkUpdatePaymentMatch = {
   mode: string;
   cash: boolean;
   requestId?: string;
+  /** Posted `amount_out` for this payment, when the preview loaded it. */
+  postedAmount?: number | null;
 };
 
 export type BulkUpdatePreviewRow = {
@@ -50,6 +53,8 @@ export type BulkUpdatePreviewRow = {
   requestId: string;
   mode: string;
   amount: number | null;
+  postedAmount: number | null;
+  clientPrice: number | null;
   tag: BulkUpdateTag;
   detail: string;
   included: boolean;
@@ -218,6 +223,8 @@ export function classifyBulkUpdateRows(params: {
       requestId: "",
       mode: row.mode,
       amount: row.amount,
+      postedAmount: null,
+      clientPrice: null,
       included: false,
     };
 
@@ -242,6 +249,8 @@ export function classifyBulkUpdateRows(params: {
       currentDate: payment?.date ?? "",
       requestId: payment?.requestId ?? "",
       mode: payment?.mode || row.mode,
+      postedAmount: payment?.postedAmount ?? null,
+      clientPrice: trip.clientPrice ?? null,
     };
     if (!payment) {
       return { ...located, tag: "no_payment" as const, detail: "No posted payment to update." };

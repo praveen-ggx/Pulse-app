@@ -172,7 +172,7 @@ export async function listMarketplaceSearchLanes(
  * Phase 3), not at bid time. Membership, self-bid, and indent-eligibility
  * checks are all enforced server-side by submit_market_bid() itself.
  */
-export type MyOrgMarketBidStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'superseded';
+export type MyOrgMarketBidStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'superseded' | 'expired';
 
 /** A8.6.2 — independent of MyOrgMarketBidStatus; see network/services/marketBids.service.ts for full doc. */
 export type FeePaymentStatus = 'not_required' | 'required' | 'pending' | 'paid' | 'failed' | 'expired' | 'refunded';

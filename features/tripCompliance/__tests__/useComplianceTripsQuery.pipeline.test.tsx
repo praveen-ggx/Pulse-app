@@ -2,7 +2,7 @@
  * Phase 2 — hook-level guarantees of the Compliance pipeline query:
  *  - one stable pipeline query per org (trips `dataUpdatedAt` never re-keys it)
  *  - trips-list change / window focus never produce a loading state
- *  - focus refetch is incremental, not a full rebuild
+ *  - window focus does not reload the pipeline; the header refresh does
  *  - Approve patches the cache: no pipeline refetch, no trips-catalog
  *    (`get_trips_for_org`) refetch or invalidation
  */
@@ -135,23 +135,22 @@ it("trips-list change (new dataUpdatedAt) keeps ONE pipeline query and never sho
   expect(mockLoad.mock.calls[0][2]).toEqual({ full: true, viewerOrgId: "org-trips-change" });
 });
 
-it("window focus refetch is incremental and shows no loading state", async () => {
+it("window focus does not reload the pipeline", async () => {
   const { hook, loadingHistory, pipelineQueries } = setup("org-focus");
   await waitFor(() => expect(hook.result.current.query.summaries).toHaveLength(2));
   const settledAt = loadingHistory.length;
 
   const realNow = Date.now;
-  jest.spyOn(Date, "now").mockImplementation(() => realNow() + 3 * 60_000); // past staleTime (2 min)
+  jest.spyOn(Date, "now").mockImplementation(() => realNow() + 3 * 60_000);
   await act(async () => {
     focusManager.setFocused(false);
     focusManager.setFocused(true);
   });
-  await waitFor(() => expect(mockLoad).toHaveBeenCalledTimes(2));
   (Date.now as jest.Mock).mockRestore();
   focusManager.setFocused(undefined);
 
-  expect(mockLoad.mock.calls[1][2]).toEqual({ full: false, viewerOrgId: "org-focus" });
-  expect(mockLoad.mock.calls[1][0]).toHaveLength(2); // previous inputs handed in → incremental
+  expect(mockLoad).toHaveBeenCalledTimes(1);
+  expect(mockTripsRefetch).not.toHaveBeenCalled();
   expect(pipelineQueries()).toHaveLength(1);
   expect(loadingHistory.slice(settledAt).every((loading) => loading === false)).toBe(true);
 });

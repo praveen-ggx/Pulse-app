@@ -49,6 +49,7 @@ describe("loadHubTripKeysetRange", () => {
     const res = await loadHubTripKeysetRange("org-1", {});
     expect(res.error).toBeNull();
     expect(res.trips.map((t) => t.id)).toEqual(mockTrips.map((t) => t.id));
+    expect(res.counts?.total).toBe(1_234);
     expect(calls("list_org_hub_trips_keyset")).toBe(1);
     expect(calls("list_org_hub_trips_keyset_rows")).toBe(4);
     expect(mockRpc.mock.calls.every((c) => c[1].p_limit === 250)).toBe(true);

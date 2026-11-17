@@ -143,6 +143,7 @@ import {
     hubHistoryPodMetricIds,
     hubSoftPodCheckedTripIds,
     hubSoftPodChipState,
+    hubCanUseServerTripCounts,
     hubShowingCountLabel,
     hubTabTripCounts,
     hubTripCompletenessNote,
@@ -817,6 +818,7 @@ export default function TripsScreen() {
     trips: hubDateRangeTripsRaw,
     isFetched: hubDateRangeFetched,
     isError: hubDateRangeFailed,
+    counts: hubServerCounts,
   } = useTripsHubDateRange(
     orgId,
     hubDateBounds ?? HUB_ALL_TIME_BOUNDS,
@@ -826,11 +828,14 @@ export default function TripsScreen() {
     () => sourcingScope.filterTrips(hubDateRangeTripsRaw),
     [sourcingScope, hubDateRangeTripsRaw],
   );
+  const hubRangeServerTotal =
+    hubListBucket === "history" ? hubServerCounts?.history : hubServerCounts?.active;
   const hubTripCompleteness = resolveHubTripDataset({
     rangeRows: hubDateRangeTrips,
     rangeFetched: hubDateRangeFetched,
     rangeError: hubDateRangeFailed,
     newestRows: tripsData,
+    serverTotal: hubRangeServerTotal,
   }).completeness;
   const hubCountsPartial = hubTripCompleteness !== "exact";
   const useRangeList = hubTripCompleteness === "exact" || hubTripCompleteness === "capped";
@@ -3465,6 +3470,17 @@ export default function TripsScreen() {
     hardPodTripIds,
   ]);
 
+  const useServerTripCounts = hubCanUseServerTripCounts({
+    counts: hubServerCounts,
+    structuralSearch: hubStructuralSearchActive,
+    supplyAll: supplyFilter === "all",
+    attributionAll: attributionFilter === "all",
+    sourcingActive: sourcingScope.active,
+    rangeListActive: useRangeList,
+    allTime: dateRangeFilter === "all",
+  });
+  const tabCountPartial = useServerTripCounts ? false : hubCountsPartial;
+
   const tripMainTabCounts = useMemo(() => {
     if (hubStructuralSearchActive) {
       return {
@@ -3474,6 +3490,17 @@ export default function TripsScreen() {
       };
     }
     const fromRows = hubTabTripCounts(hubScopedTrips);
+    if (
+      useServerTripCounts &&
+      hubServerCounts?.active != null &&
+      hubServerCounts.history != null
+    ) {
+      return {
+        active: hubServerCounts.active,
+        history: hubServerCounts.history,
+        cancelled: hubServerCounts.cancelled ?? 0,
+      };
+    }
     const unfiltered =
       supplyFilter === "all" &&
       attributionFilter === "all" &&
@@ -3498,12 +3525,14 @@ export default function TripsScreen() {
     hubMetrics,
     hubListBucket,
     useRangeList,
+    useServerTripCounts,
+    hubServerCounts,
   ]);
 
   const formatMainTabLabel = useCallback(
     (label: string, count: number) =>
-      `${label} (${hubCountText(count, hubCountsPartial)})`,
-    [hubCountsPartial],
+      `${label} (${hubCountText(count, tabCountPartial)})`,
+    [tabCountPartial],
   );
 
   const mainTabs = useMemo(
@@ -3745,10 +3774,14 @@ export default function TripsScreen() {
           ? tripMainTabCounts.history
           : historyMetricCards[activeHistoryMetricTab].count;
     }
+    const toolbarUsesServerTotal =
+      useServerTripCounts &&
+      ((showCompletedList && activeHistoryMetricTab == null) ||
+        (!showCompletedList && activeMetricTab === "all"));
     return hubShowingCountLabel({
       shown: filtered.length,
       total,
-      partial: hubCountsPartial,
+      partial: toolbarUsesServerTotal ? false : hubCountsPartial,
     });
   }, [
     activeHistoryMetricTab,
@@ -3759,6 +3792,7 @@ export default function TripsScreen() {
     metricCounts,
     showCompletedList,
     tripMainTabCounts,
+    useServerTripCounts,
   ]);
 
   /**

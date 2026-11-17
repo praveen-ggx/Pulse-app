@@ -555,8 +555,19 @@ export async function getHubTripKeysetPage(
   nextCursor: HubKeysetCursor | null;
   total: number | null;
   bucketCount: number | null;
+  activeCount: number | null;
+  historyCount: number | null;
+  cancelledCount: number | null;
 }> {
-  const empty = { trips: [] as TripRow[], nextCursor: null, total: null, bucketCount: null };
+  const empty = {
+    trips: [] as TripRow[],
+    nextCursor: null,
+    total: null,
+    bucketCount: null,
+    activeCount: null,
+    historyCount: null,
+    cancelledCount: null,
+  };
   const rowsOnly = opts?.withCounts === false && !hubRowsRpcMissing;
   const limit = Math.min(HUB_KEYSET_PAGE_SIZE, Math.max(1, opts?.limit ?? HUB_KEYSET_PAGE_SIZE));
   const dated = tripsForOrgRpcArgs(orgId, {
@@ -609,6 +620,9 @@ export async function getHubTripKeysetPage(
     nextCursor,
     total: hubCount(payload.total),
     bucketCount: hubCount(payload.bucket_count),
+    activeCount: hubCount(payload.active_count),
+    historyCount: hubCount(payload.history_count),
+    cancelledCount: hubCount(payload.cancelled_count),
   };
 }
 
@@ -628,11 +642,26 @@ export async function loadHubTripKeysetRange(
     to?: string | null;
     bucket?: "all" | "active" | "history" | "cancelled" | "closed";
   },
-): Promise<{ error: Error | null; trips: TripRow[] }> {
+): Promise<{
+  error: Error | null;
+  trips: TripRow[];
+  counts: {
+    total: number;
+    active: number | null;
+    history: number | null;
+    cancelled: number | null;
+  } | null;
+}> {
   const trips: TripRow[] = [];
   const seen = new Set<string>();
   let cursor: HubKeysetCursor | null = null;
   let total: number | null = null;
+  let counts: {
+    total: number;
+    active: number | null;
+    history: number | null;
+    cancelled: number | null;
+  } | null = null;
   const bucket = opts?.bucket ?? "all";
   for (let page = 0; page < HUB_KEYSET_MAX_PAGES; page += 1) {
     const result = await getHubTripKeysetPage(orgId, {
@@ -643,15 +672,23 @@ export async function loadHubTripKeysetRange(
       limit: HUB_KEYSET_PAGE_SIZE,
       withCounts: page === 0,
     });
-    if (result.error) return { error: result.error, trips: [] };
+    if (result.error) return { error: result.error, trips: [], counts: null };
     const pageTarget = bucket === "all" ? result.total : (result.bucketCount ?? result.total);
     if (page === 0 || pageTarget != null) total = pageTarget;
+    if (page === 0 && result.total != null) {
+      counts = {
+        total: result.total,
+        active: result.activeCount,
+        history: result.historyCount,
+        cancelled: result.cancelledCount,
+      };
+    }
     if (total == null) {
-      return { error: new Error("Hub trip count is unavailable."), trips: [] };
+      return { error: new Error("Hub trip count is unavailable."), trips: [], counts: null };
     }
     for (const trip of result.trips) {
       if (!trip.id || seen.has(trip.id)) {
-        return { error: new Error("Hub page cursor repeated a trip."), trips: [] };
+        return { error: new Error("Hub page cursor repeated a trip."), trips: [], counts };
       }
       seen.add(trip.id);
     }
@@ -670,15 +707,24 @@ export async function loadHubTripKeysetRange(
       withCounts: true,
     });
     const recounted = bucket === "all" ? recount.total : (recount.bucketCount ?? recount.total);
-    if (!recount.error && recounted != null) total = recounted;
+    if (!recount.error && recounted != null) {
+      total = recounted;
+      counts = {
+        total: recounted,
+        active: recount.activeCount,
+        history: recount.historyCount,
+        cancelled: recount.cancelledCount,
+      };
+    }
   }
   if (total == null || trips.length !== total) {
     return {
       error: new Error(`Hub trip list loaded ${trips.length} of ${total ?? "unknown"} trips.`),
       trips: [],
+      counts,
     };
   }
-  return { error: null, trips };
+  return { error: null, trips, counts };
 }
 
 export async function getTripsDelta(

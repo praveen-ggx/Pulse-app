@@ -1,5 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { loadHubTripKeysetRange, type TripRow } from "@/features/trips/services/trips.service";
+import {
+  getHubTripKeysetPage,
+  loadHubTripKeysetRange,
+  type TripRow,
+} from "@/features/trips/services/trips.service";
+import type { HubServerTripCounts } from "@/features/trips/utils/hubTripListCounts.util";
 import { STALE } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 
@@ -15,14 +20,40 @@ export function useTripsHubDateRange(
 ) {
   const from = bounds?.from ?? "";
   const to = bounds?.to ?? "";
+  const enabled = Boolean(orgId && from && to);
+  const rangeKey = queryKeys.trips.hubDateRange(orgId ?? "", from, to);
+  // One counted page. The list walk below does not block this total.
+  const countsQuery = useQuery<HubServerTripCounts>({
+    queryKey: [...rangeKey, "server-counts"],
+    queryFn: async () => {
+      const page = await getHubTripKeysetPage(orgId!, {
+        from,
+        to,
+        bucket: "all",
+        limit: 1,
+        withCounts: true,
+      });
+      if (page.error || page.total == null) {
+        throw page.error ?? new Error("Hub trip count is unavailable.");
+      }
+      return {
+        total: page.total,
+        active: page.activeCount,
+        history: page.historyCount,
+        cancelled: page.cancelledCount,
+      };
+    },
+    enabled,
+    staleTime: STALE.frequent,
+  });
   const query = useQuery<TripRow[]>({
-    queryKey: [...queryKeys.trips.hubDateRange(orgId ?? "", from, to), "keyset", bucket],
+    queryKey: [...rangeKey, "keyset", bucket],
     queryFn: async () => {
       const res = await loadHubTripKeysetRange(orgId!, { from, to, bucket });
       if (res.error) throw res.error;
       return res.trips;
     },
-    enabled: Boolean(orgId && from && to),
+    enabled,
     staleTime: STALE.frequent,
   });
   return {
@@ -30,5 +61,6 @@ export function useTripsHubDateRange(
     isFetching: query.isFetching,
     isFetched: query.isSuccess,
     isError: query.isError,
+    counts: countsQuery.data ?? null,
   };
 }

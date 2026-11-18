@@ -40,6 +40,22 @@ export function filterHubTripsForHistoryList<T extends Pick<TripRow, "status">>(
   return trips.filter((trip) => hubTripBucket(trip.status) === "history");
 }
 
+/**
+ * Rows the hub list may show for the current tab.
+ * The Unassigned server page includes cancelled trips. The Active filter drops
+ * those, so a full 250-row page was labelled 249. Keep cancelled rows on that tile.
+ */
+export function rowsForHubStatusList<T extends Pick<TripRow, "status">>(
+  trips: readonly T[],
+  opts: { history: boolean; tileBucket: string },
+): T[] {
+  if (opts.history) return filterHubTripsForHistoryList(trips);
+  if (opts.tileBucket === "unassigned") {
+    return trips.filter((trip) => hubTripBucket(trip.status) !== "history");
+  }
+  return filterHubTripsForActiveList(trips);
+}
+
 export function hubHistoryTripCount(
   trips: readonly Pick<TripRow, "status">[],
 ): number {
@@ -94,6 +110,41 @@ export function buildActiveHubRailCounts(
   return counts;
 }
 
+const HUB_SERVER_TILES = new Set([
+  "unassigned",
+  "assigned",
+  "loading",
+  "in_transit",
+  "unloading",
+]);
+
+/**
+ * Badges while a single tile page is loaded.
+ * The selected tile uses the server bucket count, which includes cancelled rows
+ * on Unassigned. The other tiles keep the counts from the last full Active or
+ * History page for the same filters, so one tile page does not zero them.
+ */
+export function hubTileBadgeCounts(
+  rail: Record<TripMetricId, number>,
+  opts: {
+    tileBucket: string;
+    tileTotal: number | null;
+    preservedRail: Record<TripMetricId, number> | null;
+  },
+): Record<TripMetricId, number> {
+  const tileQuery = HUB_SERVER_TILES.has(opts.tileBucket);
+  const counts: Record<TripMetricId, number> =
+    tileQuery && opts.preservedRail ? { ...opts.preservedRail } : { ...rail };
+  if (
+    tileQuery &&
+    opts.tileTotal != null &&
+    opts.tileBucket in counts
+  ) {
+    counts[opts.tileBucket as TripMetricId] = opts.tileTotal;
+  }
+  return counts;
+}
+
 /** ALL = open trips (Active tab). Delivered (History) is not part of it. */
 export function hubActiveAllTripCount(
   rail: Pick<
@@ -116,66 +167,23 @@ export function hubActiveAllTripCount(
  * - capped: dated mode hit 2000, so older matching trips are missing.
  * - loading / error: only the newest-400 list is on screen.
  */
-export type HubTripCompleteness = "exact" | "capped" | "loading" | "error";
+export type HubTripCompleteness = "exact" | "capped" | "paged" | "loading" | "error";
 
 export function resolveHubTripDataset<T>(opts: {
   rangeRows: readonly T[];
   rangeFetched: boolean;
   rangeError: boolean;
   newestRows: readonly T[];
-  /**
-   * Exact size of this same range from list_org_hub_trips_keyset.
-   * A full page is exact when it matches that count, including past 2,000 rows.
-   */
-  serverTotal?: number | null;
+  /** The server has more rows than this page window. Totals stay on the count RPC. */
+  rangePartial?: boolean;
 }): { trips: readonly T[]; completeness: HubTripCompleteness } {
   if (opts.rangeError) return { trips: opts.newestRows, completeness: "error" };
   if (!opts.rangeFetched) return { trips: opts.newestRows, completeness: "loading" };
-  const matchedServer =
-    opts.serverTotal != null && opts.rangeRows.length === opts.serverTotal;
+  if (opts.rangePartial) return { trips: opts.rangeRows, completeness: "paged" };
   return {
     trips: opts.rangeRows,
-    completeness:
-      matchedServer || !isDatedGetTripsForOrgCapped(opts.rangeRows.length)
-        ? "exact"
-        : "capped",
+    completeness: isDatedGetTripsForOrgCapped(opts.rangeRows.length) ? "capped" : "exact",
   };
-}
-
-export type HubServerTripCounts = {
-  total: number;
-  active: number | null;
-  history: number | null;
-  cancelled: number | null;
-};
-
-/**
- * The keyset count matches the list only when the screen is not applying a
- * narrower client filter (search, supply, attribution, sourcing).
- * All-time can use it during the newest-400 first paint. A dated pill waits
- * until that pill's range list is the list on screen.
- * `attributionAll` means the count request used this screen's attribution
- * filter (including "attributed"), not that the filter is off.
- */
-export function hubCanUseServerTripCounts(opts: {
-  counts: HubServerTripCounts | null;
-  structuralSearch: boolean;
-  supplyAll: boolean;
-  attributionAll: boolean;
-  sourcingActive: boolean;
-  rangeListActive: boolean;
-  allTime: boolean;
-}): boolean {
-  if (
-    !opts.counts ||
-    opts.structuralSearch ||
-    !opts.supplyAll ||
-    !opts.attributionAll ||
-    opts.sourcingActive
-  ) {
-    return false;
-  }
-  return opts.rangeListActive || opts.allTime;
 }
 
 export function hubTripCompletenessNote(
@@ -186,6 +194,8 @@ export function hubTripCompletenessNote(
       return null;
     case "capped":
       return `Partial: newest ${GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP} matching trips loaded`;
+    case "paged":
+      return null;
     case "loading":
       return `Partial: loading all trips (newest ${GET_TRIPS_FOR_ORG_DEFAULT_CAP} shown)`;
     case "error":

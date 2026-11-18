@@ -52,6 +52,7 @@ import {
 import { getTripById, type TripRow } from "@/features/trips/services/trips.service";
 import { useComplianceTripCatalogQuery } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
+import { patchTripInEveryCatalog } from "@/lib/queries/tripCatalogFreshness";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -254,10 +255,9 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
       return preserveNewerWrites(rows, current, protectedTripIds(log, startedAt, previous, current));
     },
     enabled: !!orgId && tripsQuery.isSuccess,
-    // Every refetch re-reads documents/flags/events/ledger for the whole pipeline
-    // (~360 trips, 6 tables). At 15s, focus refetches made this the top DB load
-    // (prod 2026-10-29: 4.6k trip_documents reads, ~1,035s/day). Writes patch the
-    // cache and trips realtime patches POD/settlement, so 2 min is enough.
+    // Incremental refetches re-read documents, flags, events, and the ledger
+    // only for trips whose settlement or assignment fields changed. A location
+    // ping does not. Writes patch the cache, so 2 min is enough for the rest.
     staleTime: 2 * 60_000,
     placeholderData: keepPreviousData,
     // Focus used to re-read documents, flags, events and the ledger for every
@@ -571,6 +571,7 @@ export function useInvalidateComplianceTrips() {
     if (!orgId) return;
     void qc.invalidateQueries({ queryKey: queryKeys.tripCompliance.pipeline(orgId) });
     void qc.invalidateQueries({ queryKey: queryKeys.trips.finite(orgId) });
+    void qc.invalidateQueries({ queryKey: queryKeys.trips.complete(orgId) });
     void qc.invalidateQueries({ queryKey: queryKeys.trips.compliance(orgId) });
     if (tripId) {
       void qc.invalidateQueries({ queryKey: queryKeys.tripCompliance.detail(orgId, tripId) });
@@ -616,13 +617,11 @@ export function useComplianceChangeSync() {
         });
         if (patchedTrip) {
           const trip: TripRow = patchedTrip;
-          for (const key of [queryKeys.trips.finite(orgId), queryKeys.trips.compliance(orgId)]) {
-            qc.setQueriesData<TripRow[]>({ queryKey: key }, (rows) =>
-              rows?.map((row) =>
-                row.id === trip.id ? { ...row, amount_paid: trip.amount_paid, updated_at: trip.updated_at } : row,
-              ),
-            );
-          }
+          patchTripInEveryCatalog(qc, orgId, trip.id, (row: TripRow) =>
+            row.id === trip.id
+              ? { ...row, amount_paid: trip.amount_paid, updated_at: trip.updated_at }
+              : row,
+          );
         }
         // Payment / verify / decline also move Finance Hub + Ledger — bust their caches.
         if (

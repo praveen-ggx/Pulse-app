@@ -1,69 +1,70 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   getHubTripKeysetPage,
-  loadHubTripKeysetRange,
+  type HubKeysetBucket,
+  type HubKeysetCursor,
   type TripRow,
 } from "@/features/trips/services/trips.service";
-import type { HubServerTripCounts } from "@/features/trips/utils/hubTripListCounts.util";
 import { STALE } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 
 /**
- * Trips hub trip rows for a date range (HUB_ALL_TIME_BOUNDS for "All time").
- * Pages come from list_org_hub_trips_keyset. A short walk is an error.
- * The newest-400 catalog is not a fallback.
+ * One keyset page of the selected hub bucket or rail tile, then the next
+ * matching page only when the screen asks. Counts come from that first page.
+ * The walk of every historical row is not used here.
  */
 export function useTripsHubDateRange(
   orgId: string | null,
   bounds: { from: string; to: string } | null,
-  bucket: "active" | "history" | "all" = "all",
+  bucket: HubKeysetBucket = "all",
   attributed: "all" | "attributed" = "all",
 ) {
   const from = bounds?.from ?? "";
   const to = bounds?.to ?? "";
-  const enabled = Boolean(orgId && from && to);
-  const rangeKey = queryKeys.trips.hubDateRange(orgId ?? "", from, to);
-  // One counted page. The list walk below does not block this total.
-  // The key includes attribution so a pill change cannot reuse the previous total.
-  const countsQuery = useQuery<HubServerTripCounts>({
-    queryKey: [...rangeKey, "server-counts", attributed],
-    queryFn: async () => {
+  const query = useInfiniteQuery({
+    queryKey: [
+      ...queryKeys.trips.hubDateRange(orgId ?? "", from, to),
+      "keyset-page",
+      bucket,
+      attributed,
+    ],
+    initialPageParam: null as HubKeysetCursor | null,
+    queryFn: async ({ pageParam }) => {
       const page = await getHubTripKeysetPage(orgId!, {
         from,
         to,
-        bucket: "all",
-        limit: 1,
-        withCounts: true,
+        bucket,
         attributed,
+        cursor: pageParam,
+        withCounts: pageParam == null,
       });
-      if (page.error || page.total == null) {
-        throw page.error ?? new Error("Hub trip count is unavailable.");
-      }
-      return {
-        total: page.total,
-        active: page.activeCount,
-        history: page.historyCount,
-        cancelled: page.cancelledCount,
-      };
+      if (page.error) throw page.error;
+      return page;
     },
-    enabled,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: Boolean(orgId && from && to),
     staleTime: STALE.frequent,
   });
-  const query = useQuery<TripRow[]>({
-    queryKey: [...rangeKey, "keyset", bucket, attributed],
-    queryFn: async () => {
-      const res = await loadHubTripKeysetRange(orgId!, { from, to, bucket, attributed });
-      if (res.error) throw res.error;
-      return res.trips;
-    },
-    enabled,
-    staleTime: STALE.frequent,
-  });
+  const pages = query.data?.pages ?? [];
+  const trips = pages.flatMap((page) => page.trips);
+  const first = pages[0];
+  const total = first
+    ? bucket === "all"
+      ? first.total
+      : (first.bucketCount ?? first.total)
+    : null;
   return {
-    trips: query.data ?? [],
+    trips,
+    total,
+    activeCount: first?.activeCount ?? null,
+    historyCount: first?.historyCount ?? null,
+    attributedCount: first?.attributedCount ?? null,
+    hasMore: query.hasNextPage,
+    loadMore: query.fetchNextPage,
     isFetching: query.isFetching,
     isFetched: query.isSuccess,
     isError: query.isError,
-    counts: countsQuery.data ?? null,
   };
 }
+
+export type { TripRow };

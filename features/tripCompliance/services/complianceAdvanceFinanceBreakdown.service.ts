@@ -6,6 +6,7 @@
  * Same formula / vault sources as CompliancePaymentConfirmModal.
  */
 import { getDocumentChargeConfig } from "@/features/organization/services/documentCharges.service";
+import { supabase } from "@/lib/supabase";
 import { formatSlabRange } from "@/features/organization/utils/documentChargeSlabs.util";
 import { fetchTripAdvanceLedger } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
@@ -41,6 +42,87 @@ export type ComplianceAdvanceFinanceBreakdown = {
   postedPaymentMode: string | null;
   postedUtr: string | null;
 };
+
+export type TripSupplierFreight = {
+  supplierRate: number | null;
+  supplierRateBasis: string | null;
+  loadTons: number | null;
+};
+
+/**
+ * The compliance trip list comes from get_trips_for_org, which returns
+ * supplier_rate but not supplier_rate_basis. Without the basis the amount
+ * panel treats freight as unset. Read the stored terms for these trips.
+ */
+export async function readTripSupplierFreightByIds(
+  tripIds: readonly string[],
+): Promise<Map<string, TripSupplierFreight>> {
+  const out = new Map<string, TripSupplierFreight>();
+  const ids = [...new Set(tripIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const { data, error } = await supabase()
+      .from("trips")
+      .select("id, supplier_rate, supplier_rate_basis, load_tons, indent_id, source_indent_id")
+      .in("id", chunk);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    const indentIds = [
+      ...new Set(
+        rows
+          .filter((row) => !(row.supplier_rate_basis ?? "").trim())
+          .map((row) => (row.indent_id ?? row.source_indent_id ?? "").trim())
+          .filter((id) => id.length > 0),
+      ),
+    ];
+    const indentBasis = new Map<string, string | null>();
+    if (indentIds.length > 0) {
+      const indentRead = await supabase()
+        .from("indents")
+        .select("id, supplier_rate_basis")
+        .in("id", indentIds);
+      if (!indentRead.error) {
+        for (const indent of indentRead.data ?? []) {
+          indentBasis.set(indent.id, indent.supplier_rate_basis ?? null);
+        }
+      }
+    }
+    for (const row of rows) {
+      const indentId = (row.indent_id ?? row.source_indent_id ?? "").trim();
+      const basis =
+        (row.supplier_rate_basis ?? "").trim() ||
+        (indentId ? indentBasis.get(indentId) : null) ||
+        null;
+      out.set(row.id, {
+        supplierRate: row.supplier_rate == null ? null : Number(row.supplier_rate),
+        supplierRateBasis: basis,
+        loadTons: row.load_tons == null ? null : Number(row.load_tons),
+      });
+    }
+  }
+  return out;
+}
+
+export async function readTripSupplierFreight(tripId: string): Promise<TripSupplierFreight | null> {
+  const map = await readTripSupplierFreightByIds([tripId]);
+  return map.get(tripId.trim()) ?? null;
+}
+
+export function mergeSupplierFreight<
+  T extends {
+    supplier_rate?: number | null;
+    supplier_rate_basis?: string | null;
+    load_tons?: number | null;
+  },
+>(trip: T, freight: TripSupplierFreight | null): T {
+  if (!freight) return trip;
+  return {
+    ...trip,
+    supplier_rate: freight.supplierRate == null ? trip.supplier_rate : freight.supplierRate,
+    supplier_rate_basis: freight.supplierRateBasis,
+    load_tons: freight.loadTons == null ? trip.load_tons : freight.loadTons,
+  };
+}
 
 function supplierBaseFreight(input: {
   supplierRate: number | null | undefined;
@@ -88,14 +170,23 @@ export async function fetchComplianceAdvanceFinanceBreakdown(input: {
   const supplierId = (input.supplierId ?? "").trim();
   if (!orgId || !tripId || !supplierId) return null;
 
-  const baseFreight = supplierBaseFreight(input);
-
-  const [tdsResult, profileResult, docChargeResult, ledger] = await Promise.all([
+  const [tdsResult, profileResult, docChargeResult, ledger, freight] = await Promise.all([
     listSupplierTdsRates(orgId, supplierId),
     getVendorOnboardingProfile(orgId, supplierId),
     getDocumentChargeConfig(orgId),
     fetchTripAdvanceLedger(tripId),
+    readTripSupplierFreight(tripId).catch(() => null),
   ]);
+
+  const baseFreight = supplierBaseFreight(
+    freight
+      ? {
+          supplierRate: freight.supplierRate,
+          supplierRateBasis: freight.supplierRateBasis,
+          loadTons: freight.loadTons,
+        }
+      : input,
+  );
 
   const resolvedTds = resolveComplianceTdsRate(tdsResult.rates);
   const tdsRatePercent = resolvedTds?.ratePercent ?? null;
@@ -204,6 +295,10 @@ export async function fetchComplianceAdvancePayablesForTrips(
     supplierKeys.push({ orgId, supplierId });
   }
 
+  const freightByTrip = await readTripSupplierFreightByIds(summaries.map((summary) => summary.trip.id)).catch(
+    () => new Map<string, TripSupplierFreight>(),
+  );
+
   const docByOrg = new Map<string, Awaited<ReturnType<typeof getDocumentChargeConfig>>["data"]>();
   await mapWithConcurrency([...orgIds], 2, async (orgId) => {
     const { data } = await getDocumentChargeConfig(orgId);
@@ -228,13 +323,20 @@ export async function fetchComplianceAdvancePayablesForTrips(
     if (!orgId || !supplierId) continue;
     const vault = terms.get(`${orgId}:${supplierId}`);
     if (!vault) continue;
+    const freight = freightByTrip.get(summary.trip.id);
     out[summary.trip.id] = payableFromVaultTerms(
-      {
-        supplierRate: summary.trip.supplier_rate,
-        supplierRateBasis:
-          (summary.trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
-        loadTons: summary.trip.load_tons ?? null,
-      },
+      freight
+        ? {
+            supplierRate: freight.supplierRate,
+            supplierRateBasis: freight.supplierRateBasis,
+            loadTons: freight.loadTons,
+          }
+        : {
+            supplierRate: summary.trip.supplier_rate,
+            supplierRateBasis:
+              (summary.trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
+            loadTons: summary.trip.load_tons ?? null,
+          },
       vault.profile,
       vault.rates,
       docByOrg.get(orgId) ?? null,

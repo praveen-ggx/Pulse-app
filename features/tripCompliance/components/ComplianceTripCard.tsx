@@ -275,13 +275,14 @@ function PartyChip({
 }
 
 function GroupDecisionIcon({ mark }: { mark: ComplianceGroupDecisionMark | null }) {
-  if (mark === "verified") {
-    return <Check size={12} color={Theme.complianceDocOkFg} strokeWidth={2.6} />;
-  }
-  if (mark === "declined") {
-    return <CircleX size={12} color={Theme.complianceDocNeedFg} strokeWidth={2.4} />;
-  }
-  return null;
+  const icon =
+    mark === "verified" ? (
+      <Check size={12} color={Theme.complianceDocOkFg} strokeWidth={2.6} />
+    ) : mark === "declined" ? (
+      <CircleX size={12} color={Theme.complianceDocNeedFg} strokeWidth={2.4} />
+    ) : null;
+  if (!icon) return null;
+  return <View style={styles.groupDecisionIcon}>{icon}</View>;
 }
 
 function ChecklistGroupTile({
@@ -345,12 +346,19 @@ function ChecklistGroupTile({
           requiredComplete && { backgroundColor: tone.bg, borderColor: tone.fg },
         ];
   const compactContent = (
-    <View style={styles.groupMetricInner}>
-      <Text style={styles.groupMetricLabel} numberOfLines={1}>
+    <View style={[styles.groupMetricInner, pills && styles.groupPillInner]}>
+      <Text
+        style={[styles.groupMetricLabel, pills && styles.groupPillLabel]}
+        numberOfLines={1}
+      >
         {group.label}
       </Text>
       <Text
-        style={[styles.groupMetricCount, requiredComplete && { color: tone.fg }]}
+        style={[
+          styles.groupMetricCount,
+          pills && styles.groupPillCount,
+          requiredComplete && { color: tone.fg },
+        ]}
         numberOfLines={1}
       >
         {countLabel}
@@ -683,7 +691,11 @@ export function ComplianceTripCard({
                     accessibilityRole="tab"
                     accessibilityState={{ selected: action.active }}
                     accessibilityLabel={action.label}
-                    style={[styles.stripAction, action.active && styles.stripActionOn]}
+                    style={[
+                      styles.stripAction,
+                      dense && styles.stripActionDense,
+                      action.active && styles.stripActionOn,
+                    ]}
                   >
                     <Text
                       style={[styles.stripActionText, action.active && styles.stripActionTextOn]}
@@ -1408,49 +1420,80 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     flexBasis: 0,
     minWidth: 0,
-    minHeight: 28,
+    height: 32,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "#D4D5D9",
     backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 0,
   },
   stripAction: {
     flexGrow: 0,
     flexShrink: 0,
-    minHeight: 28,
+    height: 32,
     paddingHorizontal: 12,
+    paddingVertical: 0,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "#D4D5D9",
     backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
+  },
+  stripActionDense: {
+    height: 28,
+    paddingHorizontal: 10,
   },
   stripActionOn: {
     backgroundColor: Theme.buttonDark,
     borderColor: Theme.buttonDark,
   },
   stripActionText: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: "600",
     color: Theme.textPrimary,
+    includeFontPadding: false,
+    textAlignVertical: "center",
   },
   stripActionTextOn: {
-    fontWeight: "700",
     color: Theme.buttonDarkText,
   },
   groupPillDense: {
     flexGrow: 0,
     flexShrink: 0,
     flexBasis: "auto",
-    minHeight: 22,
+    height: 28,
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 0,
+  },
+  groupPillInner: {
+    minHeight: 0,
+    height: 16,
+    alignItems: "center",
+  },
+  groupPillLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+    includeFontPadding: false,
+    textAlignVertical: "center",
+  },
+  groupPillCount: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+    includeFontPadding: false,
+    textAlignVertical: "center",
+  },
+  groupDecisionIcon: {
+    width: 14,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
   groupMetric: {
     flex: 1,

@@ -1,14 +1,9 @@
-import { DatePresetPillBar } from "@/components/DatePresetPillBar";
-import {
-  WEB_POINTER,
-  WEB_TRANSITION,
-  hoverOnDarkWash,
-  isHovered,
-  type HoverPressState,
-} from "@/constants/hoverSelection";
+import { SmartFilterButton, type SmartFilterKind } from "@/components/SmartFilterButton";
 import Theme from "@/constants/Theme";
+import { formatCalendarPeriodRangeLabel } from "@/lib/dateRangePresets";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Calendar, Layers, Truck, Wallet } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Animated, {
     Easing,
@@ -33,87 +28,184 @@ import {
 } from "./financeFilterDock";
 import { TreasurySummaryCard } from "./TreasurySummaryCard";
 
-const ENTITY_STATUS_OPTIONS = ["all", "has_due", "no_due"] as const;
+const LEDGER_CHOICE_LABELS: Record<LedgerCategory, { name: string; meta: string }> = {
+  all: { name: "All", meta: "Every party" },
+  customers: { name: "Customers", meta: "Client ledger" },
+  suppliers: { name: "Suppliers", meta: "Supplier ledger" },
+  vehicle: { name: "Vehicle", meta: "Vehicle ledger" },
+  driver: { name: "Driver", meta: "Driver ledger" },
+};
 
-function entityStatusLabel(
-  id: (typeof ENTITY_STATUS_OPTIONS)[number],
-  labels?: Partial<Record<EntityListFilter, string>>,
-): string {
-  return labels?.[id] ?? (id === "all" ? "All" : id === "has_due" ? "Pending" : "Collected");
-}
+type FinanceSheetKind = "date" | "type" | "status" | "source";
 
-/** All / Has expense / No expense, collapsed to one pill until opened. */
-function EntityStatusFilter({
-  open,
-  onOpenChange,
-  value,
-  labels,
-  onChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  value: EntityListFilter;
-  labels?: Partial<Record<EntityListFilter, string>>;
-  onChange: (value: EntityListFilter) => void;
-}) {
-  const current = entityStatusLabel(value, labels);
-  const triggerLabel = value === "all" ? "STATUS" : `STATUS · ${current}`;
-  const triggerActive = open || value !== "all";
+function FinanceSmartFilter({
+  datePreset,
+  ledgerCategory,
+  onLedgerCategoryChange,
+  allowedLedgerCategories,
+  entityFilter,
+  onEntityFilterChange,
+  entityFilterLabels,
+  sourceFilter,
+  onSourceFilterChange,
+}: Pick<
+  FinanceSummarySectionProps,
+  | "datePreset"
+  | "ledgerCategory"
+  | "onLedgerCategoryChange"
+  | "allowedLedgerCategories"
+  | "entityFilter"
+  | "onEntityFilterChange"
+  | "entityFilterLabels"
+  | "sourceFilter"
+  | "onSourceFilterChange"
+>) {
+  const kinds = useMemo(() => {
+    const next: SmartFilterKind<FinanceSheetKind>[] = [];
+    if (datePreset) {
+      const range =
+        formatCalendarPeriodRangeLabel("CUSTOM", {
+          customFrom: datePreset.customFrom,
+          customTo: datePreset.customTo,
+        }) ?? "Choose a start and end";
+      next.push({
+        id: "date",
+        label: "Date",
+        allLabel: "All dates",
+        hint: "Which period to show",
+        icon: Calendar,
+        searchPlaceholder: "Search periods",
+        selectedId: datePreset.period === "RANGE" ? null : datePreset.period,
+        choices: [
+          { id: "TODAY", name: "Today", meta: "Records from today" },
+          { id: "YESTERDAY", name: "Yesterday", meta: "The day before" },
+          { id: "WEEK", name: "This week", meta: "This calendar week" },
+          { id: "MONTH", name: "This month", meta: "This calendar month" },
+          { id: "CUSTOM", name: "Custom range", meta: range },
+        ],
+      });
+    }
+    if (onLedgerCategoryChange && ledgerCategory != null) {
+      const allowed = allowedLedgerCategories ?? (["all", "customers", "suppliers", "vehicle", "driver"] as const);
+      next.push({
+        id: "type",
+        label: "Type",
+        allLabel: "All types",
+        hint: "Which ledger to show",
+        icon: Layers,
+        searchPlaceholder: "Search types",
+        selectedId: ledgerCategory === "all" ? null : ledgerCategory,
+        choices: allowed
+          .filter((id) => id !== "all")
+          .map((id) => ({ id, name: LEDGER_CHOICE_LABELS[id].name, meta: LEDGER_CHOICE_LABELS[id].meta })),
+      });
+    }
+    if (onEntityFilterChange) {
+      const pending = entityFilterLabels?.has_due ?? "Has due";
+      const clear = entityFilterLabels?.no_due ?? "No due";
+      next.push({
+        id: "status",
+        label: "Status",
+        allLabel: "All statuses",
+        hint: "What is still open",
+        icon: Wallet,
+        searchPlaceholder: "Search statuses",
+        selectedId: !entityFilter || entityFilter === "all" ? null : entityFilter,
+        choices: [
+          { id: "has_due", name: pending, meta: "Still outstanding" },
+          { id: "no_due", name: clear, meta: "Nothing outstanding" },
+        ],
+      });
+    }
+    if (onSourceFilterChange && sourceFilter) {
+      next.push({
+        id: "source",
+        label: "Source",
+        allLabel: "All sources",
+        hint: "Whose fleet carried it",
+        icon: Truck,
+        searchPlaceholder: "Search sources",
+        selectedId: sourceFilter === "all" ? null : sourceFilter,
+        choices: [
+          { id: "asset", name: "Asset", meta: "Own fleet" },
+          { id: "aggregate", name: "Aggregate", meta: "Market fleet" },
+        ],
+      });
+    }
+    return next;
+  }, [
+    allowedLedgerCategories,
+    datePreset,
+    entityFilter,
+    entityFilterLabels,
+    ledgerCategory,
+    onEntityFilterChange,
+    onLedgerCategoryChange,
+    onSourceFilterChange,
+    sourceFilter,
+  ]);
+  const [kind, setKind] = useState<FinanceSheetKind>("date");
+  const active = kinds.some((item) => item.id === kind) ? kind : (kinds[0]?.id ?? "date");
+  if (kinds.length === 0) return null;
+  const dateName =
+    datePreset?.period === "TODAY"
+      ? "Today"
+      : datePreset?.period === "YESTERDAY"
+        ? "Yesterday"
+        : datePreset?.period === "WEEK"
+          ? "This week"
+          : datePreset?.period === "MONTH"
+            ? "This month"
+            : datePreset?.period === "CUSTOM"
+              ? "Custom"
+              : null;
+  const typeName =
+    ledgerCategory && ledgerCategory !== "all" ? LEDGER_CHOICE_LABELS[ledgerCategory].name : null;
+  const statusName =
+    entityFilter === "has_due"
+      ? (entityFilterLabels?.has_due ?? "Has due")
+      : entityFilter === "no_due"
+        ? (entityFilterLabels?.no_due ?? "No due")
+        : null;
+  const sourceName =
+    sourceFilter === "asset" ? "Asset" : sourceFilter === "aggregate" ? "Aggregate" : null;
+  const triggerLabel = dateName
+    ? `Date · ${dateName}`
+    : typeName
+      ? `Type · ${typeName}`
+      : statusName
+        ? `Status · ${statusName}`
+        : sourceName
+          ? `Source · ${sourceName}`
+          : "Filter";
   return (
-    <>
-      <Pressable
-        style={[styles.financeDockedPill, triggerActive && styles.financeDockedPillActive]}
-        onPress={() => onOpenChange(!open)}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open, selected: triggerActive }}
-        accessibilityLabel={`Status filter ${triggerLabel}`}
-        hitSlop={8}
-      >
-        <Text
-          style={[styles.financeDockedPillText, triggerActive && styles.financeDockedPillTextActive]}
-          numberOfLines={1}
-        >
-          {triggerLabel}
-        </Text>
-        <FontAwesome
-          name="chevron-down"
-          size={9}
-          color={triggerActive ? Theme.primary : Theme.textRouteCard}
-          style={{
-            marginLeft: 3,
-            transform: [{ rotate: open ? "180deg" : "0deg" }],
-          }}
-        />
-      </Pressable>
-      {open
-        ? ENTITY_STATUS_OPTIONS.map((id) => {
-            const selected = value === id;
-            return (
-              <Pressable
-                key={id}
-                style={[styles.financeDockedPill, selected && styles.financeDockedPillActive]}
-                onPress={() => {
-                  onChange(id);
-                  onOpenChange(false);
-                }}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                hitSlop={8}
-              >
-                <Text
-                  style={[
-                    styles.financeDockedPillText,
-                    selected && styles.financeDockedPillTextActive,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {entityStatusLabel(id, labels)}
-                </Text>
-              </Pressable>
-            );
-          })
-        : null}
-    </>
+    <SmartFilterButton
+      title="Filter finance"
+      triggerLabel={triggerLabel}
+      triggerActive={triggerLabel !== "Filter"}
+      kinds={kinds}
+      kind={active}
+      onKindChange={setKind}
+      onSelect={(selectedKind, id) => {
+        if (selectedKind === "date" && datePreset) {
+          if (id == null) datePreset.onPeriodChange("RANGE");
+          else if (id === "CUSTOM") datePreset.onCustomRangePress();
+          else datePreset.onPeriodChange(id as FinancePeriodFilter);
+          return;
+        }
+        if (selectedKind === "type" && onLedgerCategoryChange) {
+          onLedgerCategoryChange((id ?? "all") as LedgerCategory);
+          return;
+        }
+        if (selectedKind === "status" && onEntityFilterChange) {
+          onEntityFilterChange((id ?? "all") as EntityListFilter);
+          return;
+        }
+        if (selectedKind === "source" && onSourceFilterChange) {
+          onSourceFilterChange((id ?? "all") as "all" | "asset" | "aggregate");
+        }
+      }}
+    />
   );
 }
 
@@ -314,7 +406,6 @@ export function FinanceSummarySection({
   datePreset,
   auditedTotalIn,
   auditedTotalOut,
-  onQuickCustomRange,
   desktopCardMetrics,
   omitTabRow = false,
   visibleTabs,
@@ -327,12 +418,6 @@ export function FinanceSummarySection({
   const desktopParity = Platform.OS === "web" && screenWidth >= 1024;
   const heroDecorDrift = useSharedValue(0);
   const heroStatPulse = useSharedValue(0);
-  const rangePills = [
-    { id: "RANGE" as FinancePeriodFilter, label: "All" },
-    { id: "TODAY" as FinancePeriodFilter, label: "Today" },
-    { id: "WEEK" as FinancePeriodFilter, label: "Last 7 Days" },
-    { id: "MONTH" as FinancePeriodFilter, label: "This Month" },
-  ];
 
   useEffect(() => {
     if (!desktopParity) return;
@@ -362,7 +447,6 @@ export function FinanceSummarySection({
   }));
 
   const [dockedFilters, setDockedFilters] = useState<FinanceFilterDockParts | null>(null);
-  const [entityMenuOpen, setEntityMenuOpen] = useState(false);
   const publishDockedFilters = useCallback((parts: FinanceFilterDockParts | null) => {
     setDockedFilters(parts);
   }, []);
@@ -423,6 +507,7 @@ export function FinanceSummarySection({
               cashNetworkLayout
               onClearFilters={onClearFilters}
               isAnyFilterActive={isAnyFilterActive}
+              suppressSmartChoices
             />
           </View>
         </View>
@@ -457,26 +542,18 @@ export function FinanceSummarySection({
                 </Pressable>
               ) : null}
             </View>
-            {onEntityFilterChange != null ? (
-              <EntityStatusFilter
-                open={entityMenuOpen}
-                onOpenChange={setEntityMenuOpen}
-                value={entityFilter ?? "all"}
-                labels={entityFilterLabels}
-                onChange={onEntityFilterChange}
-              />
-            ) : null}
+            <FinanceSmartFilter
+              datePreset={datePreset}
+              ledgerCategory={ledgerCategory}
+              onLedgerCategoryChange={onLedgerCategoryChange}
+              allowedLedgerCategories={allowedLedgerCategories}
+              entityFilter={entityFilter}
+              onEntityFilterChange={onEntityFilterChange}
+              entityFilterLabels={entityFilterLabels}
+              sourceFilter={sourceFilter}
+              onSourceFilterChange={onSourceFilterChange}
+            />
             {dockedFilters?.filters}
-            {datePreset != null ? (
-              <DatePresetPillBar
-                variant="dropdown"
-                period={datePreset.period}
-                onPeriodChange={datePreset.onPeriodChange}
-                onCustomRangePress={datePreset.onCustomRangePress}
-                customFrom={datePreset.customFrom}
-                customTo={datePreset.customTo}
-              />
-            ) : null}
             {dockedFilters?.actions != null ? (
               <View style={styles.financeDockedActions}>{dockedFilters.actions}</View>
             ) : null}
@@ -519,103 +596,6 @@ export function FinanceSummarySection({
                   <Text style={styles.financeBalanceEyebrow}>
                     Audited Operating Balance
                   </Text>
-                  {datePreset != null && (
-                    <View style={styles.financeRangeDesktopWrap}>
-                      <View style={styles.financeRangeDesktopPillRow}>
-                        {rangePills.map((pill) => {
-                          const active = datePreset.period === pill.id;
-                          return (
-                            <Pressable
-                              key={pill.id}
-                              onPress={() => datePreset.onPeriodChange(pill.id)}
-                              style={(state: HoverPressState) => [
-                                styles.financeRangePill,
-                                styles.financeRangePillDesktop,
-                                active && styles.financeRangePillActive,
-                                WEB_POINTER,
-                                WEB_TRANSITION,
-                                !active && isHovered(state) && hoverOnDarkWash,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.financeRangePillText,
-                                  active && styles.financeRangePillTextActive,
-                                ]}
-                              >
-                                {pill.label}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
-                        <Pressable
-                          onPress={() => {
-                            if (onQuickCustomRange) {
-                              const now = new Date();
-                              const from = new Date(
-                                now.getFullYear(),
-                                now.getMonth() - 1,
-                                1,
-                              );
-                              const to = new Date(
-                                now.getFullYear(),
-                                now.getMonth(),
-                                0,
-                                23,
-                                59,
-                                59,
-                              );
-                              onQuickCustomRange(
-                                from.toISOString(),
-                                to.toISOString(),
-                              );
-                            }
-                          }}
-                          style={(state: HoverPressState) => [
-                            styles.financeRangePill,
-                            styles.financeRangePillDesktop,
-                            datePreset.period === "CUSTOM" &&
-                              styles.financeRangePillActive,
-                            WEB_POINTER,
-                            WEB_TRANSITION,
-                            datePreset.period !== "CUSTOM" &&
-                              isHovered(state) &&
-                              hoverOnDarkWash,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.financeRangePillText,
-                              datePreset.period === "CUSTOM" &&
-                                styles.financeRangePillTextActive,
-                            ]}
-                          >
-                            Last Month
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => datePreset.onCustomRangePress()}
-                          style={(state: HoverPressState) => [
-                            styles.financeRangePill,
-                            styles.financeRangePillDesktop,
-                            styles.financeRangePillCustom,
-                            WEB_POINTER,
-                            WEB_TRANSITION,
-                            isHovered(state) && hoverOnDarkWash,
-                          ]}
-                        >
-                          <FontAwesome
-                            name="calendar"
-                            size={10}
-                            color={Theme.textOnDarkMuted}
-                          />
-                          <Text style={styles.financeRangePillText}>
-                            Custom
-                          </Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  )}
                 </View>
                 <Text style={styles.financeBalanceValue}>
                   {formatAmount(auditedNet)}
@@ -715,6 +695,20 @@ export function FinanceSummarySection({
             cashNetworkLayout
             onClearFilters={onClearFilters}
             isAnyFilterActive={isAnyFilterActive}
+            toolbarLeading={
+              <FinanceSmartFilter
+                datePreset={datePreset}
+                ledgerCategory={ledgerCategory}
+                onLedgerCategoryChange={onLedgerCategoryChange}
+                allowedLedgerCategories={allowedLedgerCategories}
+                entityFilter={entityFilter}
+                onEntityFilterChange={onEntityFilterChange}
+                entityFilterLabels={entityFilterLabels}
+                sourceFilter={sourceFilter}
+                onSourceFilterChange={onSourceFilterChange}
+              />
+            }
+            suppressSmartChoices
           />
         </View>
       </View>

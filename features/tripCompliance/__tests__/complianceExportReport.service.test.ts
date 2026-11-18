@@ -15,14 +15,17 @@ jest.mock("expo-file-system/legacy", () => ({
 
 import { Platform } from "react-native";
 
-jest.mock("@/features/trips/services/trips.service", () => ({
-  getTripsForOrg: jest.fn(),
-  getTripDisplayNumber: (trip: { trip_number?: string | null }) => trip.trip_number ?? "",
+jest.mock("@/features/tripCompliance/services/complianceTripCatalog.service", () => ({
+  loadComplianceTripCatalog: jest.fn(),
 }));
 
 jest.mock("@/features/drivers/services/drivers.service", () => ({
   getDriverPhonesByIds: jest.fn(async () => ({ error: null, phoneByDriverId: new Map() })),
   getDriverDetailBundle: jest.fn(async () => ({ driver: null })),
+}));
+
+jest.mock("@/features/tripCompliance/services/tripDriverPhones.service", () => ({
+  getTripDriverPhones: jest.fn(async () => new Map()),
 }));
 
 jest.mock("@/features/organization/services/documentCharges.service", () => ({
@@ -45,11 +48,16 @@ jest.mock("@/features/vehicles/services/vehicles.service", () => ({
   getVehicleForTripViewer: jest.fn(async () => ({ error: null, vehicle: null })),
 }));
 
-import { exportVerifiedStageComplianceReport } from "@/features/tripCompliance/services/complianceExportReport.service";
+import {
+  buildVerifiedExportEnrichment,
+  exportVerifiedStageComplianceReport,
+} from "@/features/tripCompliance/services/complianceExportReport.service";
+import { getTripDriverPhones } from "@/features/tripCompliance/services/tripDriverPhones.service";
+import { buildVerifiedExportCsvRow } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
-import { getTripsForOrg } from "@/features/trips/services/trips.service";
+import { loadComplianceTripCatalog } from "@/features/tripCompliance/services/complianceTripCatalog.service";
 
-const getTripsForOrgMock = getTripsForOrg as jest.Mock;
+const loadCatalogMock = loadComplianceTripCatalog as jest.Mock;
 
 function verifiedTrip(id: string): ComplianceTripSummary {
   return {
@@ -71,7 +79,7 @@ describe("exportVerifiedStageComplianceReport", () => {
   const originalOs = Platform.OS;
 
   beforeEach(() => {
-    getTripsForOrgMock.mockReset();
+    loadCatalogMock.mockReset();
     click.mockReset();
     Object.defineProperty(Platform, "OS", { configurable: true, get: () => "web" });
     const anchor = { href: "", download: "", rel: "", click };
@@ -102,12 +110,24 @@ describe("exportVerifiedStageComplianceReport", () => {
     ]);
 
     expect(count).toBe(2);
-    expect(getTripsForOrgMock).not.toHaveBeenCalled();
+    expect(loadCatalogMock).not.toHaveBeenCalled();
     expect(click).toHaveBeenCalledTimes(1);
   });
 
+  it("uses the trip phone when the drivers table hides the vendor driver", async () => {
+    (getTripDriverPhones as jest.Mock).mockResolvedValue(
+      new Map([["a", "9876543210"]]),
+    );
+    const trip = verifiedTrip("a");
+    trip.trip.driver_id = "vendor-driver";
+    trip.trip.driver_display_name = "KASMANNA A";
+    const enrichment = await buildVerifiedExportEnrichment("org-1", [trip]);
+    const row = buildVerifiedExportCsvRow(trip, enrichment.get("a") ?? {});
+    expect(row["Driver No."]).toBe("+919876543210");
+  });
+
   it("reports a catalog failure only when the screen has no rows to export", async () => {
-    getTripsForOrgMock.mockResolvedValue({ error: new Error("Bad Request"), trips: [] });
+    loadCatalogMock.mockResolvedValue({ error: new Error("Bad Request"), trips: [] });
 
     await expect(exportVerifiedStageComplianceReport("org-1", "all")).rejects.toThrow("Bad Request");
     expect(click).not.toHaveBeenCalled();

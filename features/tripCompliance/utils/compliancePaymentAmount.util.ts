@@ -101,12 +101,16 @@ export function resolveComplianceDocumentationCharge(
 
 export const COMPLIANCE_DEFAULT_ADVANCE_PERCENT = 90;
 
-/** `per_mt` and `per_trip` only. Blank and unknown bases are not per-trip. */
+/**
+ * `per_mt` and `per_trip` only. A blank basis is the legacy untagged rate and
+ * is read as per_trip (the indent column contract). Unknown values stay invalid.
+ */
 export function canonicalSupplierRateBasis(
   basis: string | null | undefined,
 ): "per_mt" | "per_trip" | null {
   const value = (basis ?? "").trim().toLowerCase();
-  if (value === "per_mt" || value === "per_trip") return value;
+  if (value === "per_mt") return "per_mt";
+  if (value === "per_trip" || value === "") return "per_trip";
   return null;
 }
 

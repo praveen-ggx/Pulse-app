@@ -19,6 +19,11 @@ import {
 } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import { fetchLiveAdvanceApproval } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
 import {
+  mergeSupplierFreight,
+  readTripSupplierFreight,
+  type TripSupplierFreight,
+} from "@/features/tripCompliance/services/complianceAdvanceFinanceBreakdown.service";
+import {
   fetchOrganizationPayoutAccounts,
   type OrganizationPayoutAccount,
 } from "@/features/tripCompliance/services/tripComplianceRead.service";
@@ -26,6 +31,7 @@ import type { ComplianceLedgerCategory } from "@/features/tripCompliance/service
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
   COMPLIANCE_DEFAULT_ADVANCE_PERCENT,
+  canonicalSupplierRateBasis,
   computeCompliancePaymentAmount,
   computeComplianceTdsAmount,
   resolveComplianceDocumentationCharge,
@@ -87,8 +93,8 @@ function formatInr(value: number): string {
 }
 
 function supplierCostTotal(trip: PaymentTripFacts): number | null {
-  const basis = (trip.supplier_rate_basis ?? "").trim().toLowerCase();
-  if (basis !== "per_mt" && basis !== "per_trip") return null;
+  const basis = canonicalSupplierRateBasis(trip.supplier_rate_basis);
+  if (!basis) return null;
   const rate = Number(trip.supplier_rate);
   if (!Number.isFinite(rate) || rate <= 0) return null;
   if (basis === "per_mt") {
@@ -453,22 +459,27 @@ export function CompliancePaymentConfirmModal({
     useState<ComplianceDocumentChargeConfig | null>(null);
   const [docChargeLoading, setDocChargeLoading] = useState(false);
   const [inlineWidth, setInlineWidth] = useState(0);
+  const [freightTerms, setFreightTerms] = useState<TripSupplierFreight | null>(null);
   const modalContentWidth = Math.min(windowWidth - 32, MODAL_MAX_WIDTH);
   const twoColumn = isInline
     ? inlineWidth >= INLINE_TWO_COLUMN_MIN_WIDTH
     : modalContentWidth >= MODAL_TWO_COLUMN_MIN_WIDTH;
 
   const trip = summary?.trip as PaymentTripFacts | undefined;
+  const freightTrip = useMemo(
+    () => (trip ? mergeSupplierFreight(trip, freightTerms) : undefined),
+    [trip, freightTerms],
+  );
   const categoryLabel =
     category === "compliance_balance" ? "balance" : "advance";
   const isAdvance = category !== "compliance_balance";
   const baseFreight = useMemo(
-    () => baseFreightAmount(trip, category, summary?.advance?.amount),
-    [trip, category, summary?.advance?.amount],
+    () => baseFreightAmount(freightTrip, category, summary?.advance?.amount),
+    [freightTrip, category, summary?.advance?.amount],
   );
   const baseFreightLabel = baseFreight != null ? formatInr(baseFreight) : "—";
-  const clientPerMt = clientRatePerMt(trip);
-  const supplierPerMt = supplierRatePerMt(trip);
+  const clientPerMt = clientRatePerMt(freightTrip);
+  const supplierPerMt = supplierRatePerMt(freightTrip);
   const docCharge = useMemo(
     () =>
       isAdvance
@@ -494,7 +505,10 @@ export function CompliancePaymentConfirmModal({
   );
   const advancePercent = Number(advancePercentText);
   const serverLocked = isAdvance && serverPayable != null;
-  const approvalBlocked = isAdvance && approvalLookup !== "ready";
+  // Only the in-flight lookup holds the amount. A failed read (no saved
+  // request yet, or the request was blocked) must still show the calculated
+  // advance. A formula v1 snapshot, when one loads, replaces that number.
+  const approvalBlocked = isAdvance && approvalLookup === "loading";
   const computedAmount = useMemo(() => {
     if (approvalBlocked) return 0;
     if (serverLocked && serverPayable != null) return serverPayable;
@@ -594,6 +608,25 @@ export function CompliancePaymentConfirmModal({
       cancelled = true;
     };
   }, [visible, trip?.supplier_id, trip?.organization_id, trip?.supplier_name]);
+
+  useEffect(() => {
+    const tripId = trip?.id?.trim();
+    if (!visible || !tripId) {
+      setFreightTerms(null);
+      return;
+    }
+    let cancelled = false;
+    void readTripSupplierFreight(tripId)
+      .then((freight) => {
+        if (!cancelled) setFreightTerms(freight);
+      })
+      .catch(() => {
+        if (!cancelled) setFreightTerms(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, trip?.id]);
 
   useEffect(() => {
     const tripId = trip?.id?.trim();
@@ -941,7 +974,7 @@ export function CompliancePaymentConfirmModal({
           </Text>
           <Text style={styles.amountResultHint} numberOfLines={2}>
             {approvalLookup === "error"
-              ? "The approved advance could not be loaded. Refresh and try again."
+              ? "Showing the calculated advance. A saved approval could not be loaded."
               : approvalLookup === "loading"
                 ? "Loading the approved advance…"
                 : serverLocked

@@ -65,6 +65,92 @@ export function uniqueColumnValues(rows: ReportRow[], key: string): string[] {
   return [...seen].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
+export type ReportValueCount = { value: string; count: number };
+
+export type ReportStatusFacet = {
+  key: string;
+  label: string;
+  options: ReportValueCount[];
+};
+
+function normColumnName(value: string): string {
+  return value.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+const EXACT_STATUS_NAMES = new Set([
+  "status",
+  "trip status",
+  "verification status",
+  "payment status",
+]);
+
+export function columnValueCounts(rows: ReportRow[], key: string): ReportValueCount[] {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const value = cellDisplay(row[key]).trim();
+    if (!value) continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, undefined, { numeric: true }));
+}
+
+/**
+ * One status-like column for the preview chips. Skips columns that are really
+ * identifiers (too many distinct values) and falls back to UTR presence when
+ * a payment sheet has no status column.
+ */
+export function pickReportStatusFacet(
+  columns: Array<{ key: string; label: string }>,
+  rows: ReportRow[],
+): ReportStatusFacet | null {
+  const ranked = columns
+    .map((col) => {
+      const label = normColumnName(col.label || col.key);
+      const key = normColumnName(col.key);
+      const rank = EXACT_STATUS_NAMES.has(label) || EXACT_STATUS_NAMES.has(key)
+        ? 3
+        : label.includes("status") || key.includes("status")
+          ? 2
+          : 0;
+      return { col, rank };
+    })
+    .filter((item) => item.rank > 0)
+    .sort((a, b) => b.rank - a.rank || a.col.label.localeCompare(b.col.label));
+
+  for (const item of ranked) {
+    const options = columnValueCounts(rows, item.col.key);
+    const blank = rows.length - options.reduce((sum, option) => sum + option.count, 0);
+    if (blank > 0 && options.length > 0) options.push({ value: "Blank", count: blank });
+    if (options.length >= 2) {
+      return { key: item.col.key, label: "Status", options };
+    }
+  }
+
+  const utr = columns.find((col) => normColumnName(col.key) === "utr" || normColumnName(col.label) === "utr");
+  if (!utr || rows.length === 0) return null;
+  let withUtr = 0;
+  for (const row of rows) {
+    if (cellDisplay(row[utr.key]).trim()) withUtr += 1;
+  }
+  const options = [
+    { value: "With UTR", count: withUtr },
+    { value: "No UTR", count: rows.length - withUtr },
+  ].filter((option) => option.count > 0);
+  return options.length >= 2 ? { key: utr.key, label: "UTR", options } : null;
+}
+
+function matchesStatusFacet(row: ReportRow, key: string, selected: string[]): boolean {
+  if (!selected.length || !key) return true;
+  if (normColumnName(key) === "utr" && selected.some((value) => value === "With UTR" || value === "No UTR")) {
+    const label = cellDisplay(row[key]).trim() ? "With UTR" : "No UTR";
+    return selected.includes(label);
+  }
+  const value = cellDisplay(row[key]).trim() || "Blank";
+  return selected.includes(value);
+}
+
 function rowDateIso(row: ReportRow): string {
   const iso = toReportIsoDate(row.dateIso);
   if (iso) return iso;
@@ -86,6 +172,7 @@ export function rowMatchesLedgerReportView(
   row: ReportRow,
   state: LedgerReportViewState,
   columnKeys: string[],
+  statusKey = "status",
 ): boolean {
   const search = state.search.trim().toLowerCase();
   if (search) {
@@ -99,7 +186,7 @@ export function rowMatchesLedgerReportView(
   if ((state.dateFrom || state.dateTo) && !iso) return false;
 
   if (!matchesEquals(state.typeValues, cellDisplay(row.rowType).trim())) return false;
-  if (!matchesEquals(state.statusValues, cellDisplay(row.status).trim())) return false;
+  if (!matchesStatusFacet(row, statusKey, state.statusValues)) return false;
 
   for (const [key, selected] of Object.entries(state.columnEquals)) {
     if (!matchesEquals(selected, cellDisplay(row[key]).trim())) return false;
@@ -147,14 +234,54 @@ export function applyLedgerReportView(
   rows: ReportRow[],
   state: LedgerReportViewState,
   columnKeys: string[],
+  statusKey = "status",
 ): ReportRow[] {
   const filtered = rows.filter((row) =>
-    rowMatchesLedgerReportView(row, state, columnKeys),
+    rowMatchesLedgerReportView(row, state, columnKeys, statusKey),
   );
   if (!state.sortKey) return filtered;
   const key = state.sortKey;
   const dir = state.sortDir;
   return [...filtered].sort((a, b) => compareRows(a, b, key, dir));
+}
+
+/**
+ * Preview column width from the header and the longest cell.
+ * Header is 10px bold uppercase with letter-spacing, plus sort and filter icons.
+ * Cells are 11px. Caps and digits are wider than mixed case. One very long cell
+ * stops at 480 so one cell cannot take the whole sheet. Drag a column edge to open it further.
+ */
+export function fitReportColumnWidth(label: string, values: readonly string[]): number {
+  const header = label.trim();
+  let longest = "";
+  for (const value of values) {
+    const text = value.trim();
+    if (text.length > longest.length) longest = text;
+  }
+  const sample = longest.length >= header.length ? longest : header;
+  const charPx = /[a-z]/.test(sample) ? 7.1 : 8.4;
+  const content = Math.ceil(sample.length * charPx) + 16;
+  const headerPx = Math.ceil(header.length * 8.1) + 52;
+  return Math.min(480, Math.max(88, content, headerPx));
+}
+
+const EXCEL_NUMBER = /^-?\d+(?:\.\d+)?$/;
+
+/**
+ * Money columns must be Excel numbers. A numeric string ("4725", "₹4,725", "13.2%")
+ * is stored as text, and Excel's status bar then shows Count only — no Sum or Average.
+ * Identifiers, phones, and account numbers stay text when `numeric` is false.
+ */
+export function excelReportCell(value: ReportCell, numeric: boolean): string | number {
+  if (value == null) return "";
+  if (typeof value === "number") return Number.isFinite(value) ? value : "";
+  const text = String(value).trim();
+  if (!text || text === "—" || text === "-") return numeric ? "" : text;
+  if (!numeric) return text;
+  const cleaned = text.replace(/[₹,\s]/g, "").replace(/%$/, "");
+  if (!EXCEL_NUMBER.test(cleaned)) return text;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : text;
 }
 
 export function ledgerReportViewIsActive(state: LedgerReportViewState): boolean {

@@ -23,7 +23,10 @@ import {
   useRootDockHidden,
 } from '@/contexts/DemoTabBarScrollContext';
 import * as authService from '@/features/auth/services/auth.service';
-import { isSessionExpiredError } from '@/features/auth/services/auth.service';
+import {
+  abandonLocalSession,
+  isSessionExpiredError,
+} from '@/features/auth/services/auth.service';
 import {
     isPublicAuthRoute,
     shouldMountAuthenticatedDataPlane,

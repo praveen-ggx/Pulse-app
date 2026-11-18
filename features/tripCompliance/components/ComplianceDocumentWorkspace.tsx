@@ -9184,10 +9184,10 @@ function ChecklistTripDetailsPanel({
             >
               <View style={styles.tripDetailStatHead}>
                 <TripDetailAnimatedIcon>
-                  <FileText size={14} color={Theme.complianceDocNeedFg} strokeWidth={2.1} />
+                  <FileText size={12} color={Theme.complianceDocNeedFg} strokeWidth={2.1} />
                 </TripDetailAnimatedIcon>
                 <Text style={[styles.tripDetailStatLabel, styles.tripDetailStatLabelMissing]} numberOfLines={1}>
-                  Docs missing
+                  Missing
                 </Text>
               </View>
               <Text style={[styles.tripDetailStatValue, styles.tripDetailStatValueMissing]}>
@@ -9207,10 +9207,10 @@ function ChecklistTripDetailsPanel({
             >
               <View style={styles.tripDetailStatHead}>
                 <TripDetailAnimatedIcon>
-                  <Clock size={14} color={Theme.complianceStagePendingFg} strokeWidth={2.1} />
+                  <Clock size={12} color={Theme.complianceStagePendingFg} strokeWidth={2.1} />
                 </TripDetailAnimatedIcon>
                 <Text style={[styles.tripDetailStatLabel, styles.tripDetailStatLabelPending]} numberOfLines={1}>
-                  Docs pending
+                  Pending
                 </Text>
               </View>
               <Text style={[styles.tripDetailStatValue, styles.tripDetailStatValuePending]}>
@@ -9230,10 +9230,10 @@ function ChecklistTripDetailsPanel({
             >
               <View style={styles.tripDetailStatHead}>
                 <TripDetailAnimatedIcon>
-                  <CircleCheck size={14} color={Theme.complianceDocOkFg} strokeWidth={2.1} />
+                  <CircleCheck size={12} color={Theme.complianceDocOkFg} strokeWidth={2.1} />
                 </TripDetailAnimatedIcon>
                 <Text style={[styles.tripDetailStatLabel, styles.tripDetailStatLabelAccepted]} numberOfLines={1}>
-                  Docs accepted
+                  Accepted
                 </Text>
               </View>
               <Text style={[styles.tripDetailStatValue, styles.tripDetailStatValueAccepted]}>
@@ -9289,7 +9289,7 @@ function ChecklistTripDetailsPanel({
                         ]}
                       >
                         <FileText
-                          size={13}
+                          size={12}
                           color={
                             chipTone === "accepted"
                               ? Theme.complianceDocOkFg
@@ -11688,8 +11688,8 @@ const styles = StyleSheet.create({
   },
   tripDetailNextStep: {
     flexShrink: 0,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: "500",
     color: Theme.textPrimary,
   },
@@ -11709,30 +11709,30 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minHeight: 0,
     flexDirection: "column",
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 12,
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 10,
     overflow: "hidden",
   },
   tripDetailStatRow: {
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 8,
+    gap: 6,
   },
   tripDetailStatTile: {
     flex: 1,
     minWidth: 0,
-    minHeight: 48,
+    height: 36,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 0,
+    gap: 6,
     ...Platform.select({
       web: { cursor: "pointer" } as ViewStyle,
       default: {},
@@ -11761,11 +11761,14 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   tripDetailStatLabel: {
-    flexGrow: 0,
+    flex: 1,
     flexShrink: 1,
+    minWidth: 0,
     fontSize: 12,
+    lineHeight: 16,
     fontWeight: "600",
     letterSpacing: -0.1,
+    includeFontPadding: false,
   },
   tripDetailStatLabelMissing: {
     color: Theme.complianceDocNeedFg,
@@ -11777,14 +11780,14 @@ const styles = StyleSheet.create({
     color: Theme.complianceDocOkFg,
   },
   tripDetailStatValue: {
-    width: 56,
     flexShrink: 0,
-    fontSize: 16,
-    fontWeight: "800",
-    letterSpacing: -0.3,
-    lineHeight: 20,
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+    lineHeight: 16,
     textAlign: "right",
     fontVariant: ["tabular-nums"],
+    includeFontPadding: false,
   },
   tripDetailStatValueMissing: {
     color: Theme.complianceDocNeedFg,
@@ -11796,10 +11799,11 @@ const styles = StyleSheet.create({
     color: Theme.complianceDocOkFg,
   },
   tripDetailStatTotal: {
-    fontSize: 12,
-    lineHeight: 20,
+    fontSize: 11,
+    lineHeight: 16,
     fontWeight: "600",
     color: Theme.complianceGroupSuccessFg,
+    includeFontPadding: false,
   },
   tripDetailDocGroups: {
     flexGrow: 1,
@@ -11823,15 +11827,16 @@ const styles = StyleSheet.create({
     flex: 1,
     flexBasis: 0,
     alignSelf: "stretch",
-    borderRadius: 10,
-    padding: 8,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
     backgroundColor: Theme.compliancePageBg,
   },
   tripDetailDocGroupLabelHit: {
     alignSelf: "stretch",
-    minHeight: 28,
+    height: 22,
     justifyContent: "center",
-    marginBottom: 2,
+    marginBottom: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
     ...Platform.select({
@@ -11866,15 +11871,15 @@ const styles = StyleSheet.create({
   tripDetailMissingChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    minHeight: 40,
-    borderRadius: 8,
+    height: 30,
+    borderRadius: 7,
     borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 0,
     ...Platform.select({
       web: { cursor: "pointer" } as ViewStyle,
       default: {},
@@ -11915,6 +11920,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "600",
+    includeFontPadding: false,
   },
   tripDetailMissingChipTitleRequired: {
     color: Theme.complianceDocNeedFg,
@@ -11926,13 +11932,15 @@ const styles = StyleSheet.create({
     color: Theme.complianceDocOkFg,
   },
   tripDetailMissingChipMeta: {
-    width: 68,
+    flexGrow: 0,
     flexShrink: 0,
-    fontSize: 11,
+    marginLeft: 4,
+    fontSize: 10,
     lineHeight: 14,
     fontWeight: "600",
     color: Theme.textMuted,
     textAlign: "right",
+    includeFontPadding: false,
   },
   tripDetailMissingEmpty: {
     flexShrink: 0,

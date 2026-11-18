@@ -19,7 +19,7 @@ import Animated, {
 const PADDING = 6;
 const GAP = 6;
 const INACTIVE_W = 44;
-const ACTIVE_W = 172;
+const ACTIVE_W = 210;
 const HEIGHT = 44;
 
 const WIDTH_MOTION = {
@@ -53,7 +53,7 @@ function segmentWidthFor(
   activeIndex: number,
   hoverIndex: number | null,
 ): number {
-  if (index === activeIndex) return ACTIVE_W;
+  if (activeIndex >= 0 && index === activeIndex) return ACTIVE_W;
   if (hoverIndex === index && hoverIndex !== activeIndex) return ACTIVE_W;
   return INACTIVE_W;
 }
@@ -226,11 +226,15 @@ export function WebNavMirrorToggle({
 
   const activeThumbStyle = useAnimatedStyle(() => {
     const active = activeIndexSV.value;
+    if (active < 0) {
+      return { opacity: 0, width: 0, transform: [{ translateX: 0 }] };
+    }
     let x = 0;
     for (let i = 0; i < active; i += 1) {
       x += (segmentWidths[i]?.value ?? INACTIVE_W) + GAP;
     }
     return {
+      opacity: 1,
       transform: [{ translateX: x }],
       width: segmentWidths[active]?.value ?? ACTIVE_W,
     };

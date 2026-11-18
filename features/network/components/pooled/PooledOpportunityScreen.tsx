@@ -18,6 +18,10 @@ import {
   titleCaseWord,
 } from "@/features/network/components/MarketplaceLoadCardChrome";
 import {
+  PoolBidCommitSheet,
+  type PoolBidCommitValue,
+} from "@/features/network/components/bidding/PoolBidCommitSheet";
+import {
   PoolBidPanel,
   plural,
 } from "@/features/network/components/pooled/PoolBidPanel";
@@ -32,7 +36,15 @@ import {
   submitOrgPoolBid,
   type OrgOpenMarketplaceLoad,
 } from "@/features/network/services/findLoadsForOrg.service";
-import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplaceLoadsPage.util";
+import { commitMarketplaceLaneRate } from "@/features/network/services/standingLaneBids.service";
+import {
+  MARKETPLACE_LANE_RATE_COPY,
+  laneRateConfirmation,
+} from "@/features/network/utils/marketplaceLaneRate.util";
+import {
+  clampPoolVehicleCommit,
+  endOfLocalDayIso,
+} from "@/features/network/utils/networkPoolBidCommit.util";
 import { isMarketplaceSearchReady } from "@/features/network/utils/marketplaceSearch.util";
 import {
   POOL_STATE_COPY,
@@ -47,6 +59,7 @@ import {
 } from "@/features/network/utils/pooledOpportunity.util";
 import { formatStoryDate } from "@/features/network/utils/storyDisplay";
 import { getVehiclesByOrganization } from "@/features/vehicles/services/vehicles.service";
+import { showAppAlert } from "@/lib/appAlert";
 import { formatINR } from "@/lib/format";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import { STALE } from "@/lib/queryClient";
@@ -58,8 +71,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
-import { Layers, X } from "lucide-react-native";
-import { useMemo, useState } from "react";
+import { ChevronLeft, Layers } from "lucide-react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -76,8 +89,6 @@ const WEB_COPY = Platform.select({
 });
 
 const TWO_COLUMN_MIN_WIDTH = 900;
-/** list_my_org_market_bids caps p_limit at 100. */
-const POOL_BIDS_LIMIT = 100;
 
 function paramString(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
@@ -94,9 +105,9 @@ function dateRangeLabel(
   return a === b ? a : `${a} – ${b}`;
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({ label, value, half }: { label: string; value: string; half?: boolean }) {
   return (
-    <View style={styles.fact}>
+    <View style={[styles.fact, half && styles.factHalf]}>
       <Text style={styles.factLabel}>{label}</Text>
       <Text style={styles.factValue} numberOfLines={2}>
         {value}
@@ -114,6 +125,7 @@ export function PooledOpportunityScreen() {
     pickup?: string;
     drop?: string;
     vehicle?: string;
+    bid?: string;
   }>();
   const key = useMemo(
     () =>
@@ -126,7 +138,6 @@ export function PooledOpportunityScreen() {
   );
   const keyReady = isMarketplaceSearchReady(key);
   const poolId = keyReady ? poolKeyId(key) : "";
-  const searchKey = keyReady ? `pool:${poolId}` : "";
 
   const orgCtx = useOptionalOrganization();
   const organization = orgCtx?.currentOrganization ?? null;
@@ -145,6 +156,11 @@ export function PooledOpportunityScreen() {
   const [bidTargets, setBidTargets] = useState<string[] | null>(null);
   const [bidError, setBidError] = useState<string | undefined>();
   const [result, setResult] = useState<PoolBidSubmissionResult | null>(null);
+  /** Rate the carrier just placed on the whole pool; offered as a lane rate after Done. */
+  const [laneRateAmount, setLaneRateAmount] = useState<number | null>(null);
+  const [laneRateOpen, setLaneRateOpen] = useState(false);
+  const [laneRateSubmitting, setLaneRateSubmitting] = useState(false);
+  const [laneRateError, setLaneRateError] = useState<string | undefined>();
 
   const poolQueryKey = queryKeys.findLoadsForOrg.pool(orgId ?? "", poolId);
   const poolQ = useQuery({
@@ -164,20 +180,18 @@ export function PooledOpportunityScreen() {
     [poolQ.data],
   );
 
-  /** Org bids beyond the manifest, so awards on loads that left the pool this session stay attributable. */
+  /** Same cache as the marketplace list, so opening a pool does not refetch bids. */
   const myBidsQ = useQuery({
-    queryKey: [
-      ...queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
-      "pool",
-      POOL_BIDS_LIMIT,
-    ],
-    queryFn: () => listMyOrgMarketBids(orgId as string, POOL_BIDS_LIMIT),
+    queryKey: queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
+    queryFn: () => listMyOrgMarketBids(orgId as string, 100),
     enabled: !!orgId,
+    staleTime: STALE.frequent,
   });
   const vehiclesQ = useQuery({
     queryKey: queryKeys.vehicles.all(orgId ?? ""),
     queryFn: () => getVehiclesByOrganization(orgId as string),
     enabled: !!orgId,
+    staleTime: STALE.moderate,
   });
 
   const myBids = useMemo(
@@ -210,8 +224,28 @@ export function PooledOpportunityScreen() {
   const eligibleCount = summary.biddableIds.length;
   const readiness = poolBidReadiness({ fetch: fetchProgress, eligibleCount });
   const preparing = !loadsError && poolQ.data == null;
+  const bidNow = paramString(params.bid) === "1";
+  const openedDirectBid = useRef(false);
+  const directBidIds = summary.biddableIds.join(",");
+
+  useEffect(() => {
+    if (!bidNow || openedDirectBid.current || !readiness.ready || !directBidIds) return;
+    openedDirectBid.current = true;
+    setBidTargets(directBidIds.split(","));
+  }, [bidNow, readiness.ready, directBidIds]);
 
   const handleBack = () => {
+    router.replace(ROUTES.FIND_LOADS as Href);
+  };
+
+  const closeBid = () => {
+    setBidError(undefined);
+    if (!bidNow) {
+      setBidTargets(null);
+      return;
+    }
+    // The card pushed this screen. Pop back to that list so the same card
+    // is still in place. replace() opens a new Marketplace and loses it.
     if (router.canGoBack()) {
       router.back();
       return;
@@ -228,11 +262,7 @@ export function PooledOpportunityScreen() {
       queryKey: queryKeys.findLoadsForOrg.pool(orgId, poolId),
     });
     queryClient.invalidateQueries({
-      queryKey: queryKeys.findLoadsForOrg.infinite(
-        orgId,
-        MARKETPLACE_LOAD_PAGE_SIZE,
-        searchKey,
-      ),
+      queryKey: queryKeys.findLoadsForOrg.searchLanes(orgId),
     });
   };
 
@@ -288,7 +318,51 @@ export function PooledOpportunityScreen() {
       refreshAfterBid();
       return false;
     }
+    setLaneRateAmount(amount);
     return true;
+  };
+
+  const closeLaneRate = () => {
+    if (laneRateSubmitting) return;
+    setLaneRateOpen(false);
+    setLaneRateAmount(null);
+    setLaneRateError(undefined);
+  };
+
+  const commitLaneRate = async ({ vehicleLimit, validUntilDate }: PoolBidCommitValue) => {
+    if (!orgId || laneRateAmount == null) return;
+    const validUntilIso = endOfLocalDayIso(validUntilDate);
+    if (!validUntilIso) {
+      setLaneRateError("Pick a valid date.");
+      return;
+    }
+    const limit = clampPoolVehicleCommit(vehicleLimit);
+    setLaneRateSubmitting(true);
+    setLaneRateError(undefined);
+    const { error, commit } = await commitMarketplaceLaneRate({
+      orgId,
+      pickup: key.pickup,
+      drop: key.drop,
+      vehicleType: key.vehicleType,
+      amount: laneRateAmount,
+      vehicleLimit: limit,
+      validUntilIso,
+    });
+    setLaneRateSubmitting(false);
+    if (error || !commit) {
+      setLaneRateError(formatMarketplaceTransactionError(error?.message ?? ""));
+      return;
+    }
+    const notice = laneRateConfirmation({
+      amountLabel: formatINR(laneRateAmount),
+      attached: commit.attached,
+      vehicleLimit: limit,
+      validUntilDate,
+    });
+    setLaneRateOpen(false);
+    setLaneRateAmount(null);
+    refreshAfterBid();
+    showAppAlert(notice.title, notice.message);
   };
 
   const contentTopInset = layout.isDesktopWeb
@@ -315,6 +389,7 @@ export function PooledOpportunityScreen() {
   }
 
   const twoColumn = !!layout.isDesktopWeb && width >= TWO_COLUMN_MIN_WIDTH;
+  const pageMode = !layout.isDesktopWeb;
   /** Server member count: the whole pool, also when it is too large to list. */
   const poolCount = summary.poolSize ?? members.length;
   const countLabel = plural(poolCount, "load");
@@ -324,39 +399,41 @@ export function PooledOpportunityScreen() {
   const dates = dateRangeLabel(summary.earliestPickup, summary.latestPickup);
 
   const header = (
-    <View style={styles.header}>
-      <View style={styles.headerCopy}>
-        <View style={styles.headerEyebrow}>
-          <Layers size={13} color={Theme.primary} strokeWidth={2.4} />
-          <Text style={styles.eyebrow}>Pooled opportunity</Text>
+    <View style={[styles.header, pageMode && styles.headerPage]}>
+      <Pressable
+        onPress={handleBack}
+        style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
+        accessibilityRole="button"
+        accessibilityLabel="Back to marketplace"
+        hitSlop={Layout.touchTargetHitSlop}
+      >
+        <ChevronLeft size={18} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
+        <Text style={styles.backBtnText}>Marketplace</Text>
+      </Pressable>
+      <View style={styles.headerBody}>
+        <View style={styles.headerCopy}>
+          <View style={styles.headerEyebrow}>
+            <Layers size={13} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
+            <Text style={styles.eyebrow}>Pooled opportunity</Text>
+          </View>
+          <Text style={styles.title} numberOfLines={2}>
+            {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
+          </Text>
+          <Text style={styles.subtitle} numberOfLines={2}>
+            {vehicleLabel}
+            {poolQ.data != null ? ` · ${countLabel}` : ""} · one rate for the pool
+          </Text>
+          <Text style={styles.stateDetail} numberOfLines={2}>
+            {POOL_STATE_COPY[summary.state].detail}
+          </Text>
         </View>
-        <Text style={styles.title} numberOfLines={2}>
-          {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
-        </Text>
-        <Text style={styles.subtitle} numberOfLines={2}>
-          {vehicleLabel} · {countLabel} · one rate for the pool
-        </Text>
-        <Text style={styles.stateDetail} numberOfLines={2}>
-          {POOL_STATE_COPY[summary.state].detail}
-        </Text>
-      </View>
-      <View style={styles.headerActions}>
         <PoolStatusPill state={summary.state} label={summary.stateLabel} />
-        <Pressable
-          onPress={handleBack}
-          style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
-          accessibilityRole="button"
-          accessibilityLabel="Close pooled opportunity"
-          hitSlop={Layout.touchTargetHitSlop}
-        >
-          <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.4} />
-        </Pressable>
       </View>
     </View>
   );
 
   const summaryCard = (
-    <View style={styles.card} testID="pool-requirement">
+    <View style={[styles.card, pageMode && styles.cardPage]} testID="pool-requirement">
       <Text style={styles.cardEyebrow}>
         {countLabel.toUpperCase()} IN THIS POOL
       </Text>
@@ -368,10 +445,11 @@ export function PooledOpportunityScreen() {
         />
       </View>
       <View style={styles.facts}>
-        <Fact label="Vehicle" value={vehicleLabel || "—"} />
-        <Fact label="Loads in pool" value={String(poolCount)} />
-        <Fact label="Pickup window" value={dates ?? "Not listed"} />
+        <Fact half={pageMode} label="Vehicle" value={vehicleLabel || "—"} />
+        <Fact half={pageMode} label="Loads in pool" value={poolQ.data != null ? String(poolCount) : "…"} />
+        <Fact half={pageMode} label="Pickup window" value={dates ?? "Not listed"} />
         <Fact
+          half={pageMode}
           label="Material"
           value={
             summary.loadTypes.length > 0
@@ -380,6 +458,7 @@ export function PooledOpportunityScreen() {
           }
         />
         <Fact
+          half={pageMode}
           label="Shippers"
           value={
             summary.shipperCount > 0
@@ -455,35 +534,79 @@ export function PooledOpportunityScreen() {
   return (
     <View
       style={[
-        styles.overlay,
-        {
-          paddingTop: contentTopInset + 16,
-          paddingBottom: layout.bottom + 16,
-          paddingLeft: 16 + layout.left,
-          paddingRight: 16 + layout.right,
-        },
+        pageMode ? styles.page : styles.overlay,
+        pageMode
+          ? {
+              paddingTop: contentTopInset,
+              paddingLeft: layout.left,
+              paddingRight: layout.right,
+            }
+          : {
+              paddingTop: contentTopInset + 16,
+              paddingBottom: layout.bottom + 16,
+              paddingLeft: 16 + layout.left,
+              paddingRight: 16 + layout.right,
+            },
       ]}
     >
-      <Pressable
-        style={styles.backdrop}
-        onPress={handleBack}
-        accessibilityRole="button"
-        accessibilityLabel="Close pooled opportunity"
-      />
+      {pageMode ? null : (
+        <Pressable
+          style={styles.backdrop}
+          onPress={handleBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back to marketplace"
+        />
+      )}
+      {bidNow || bidTargets != null ? (
+        bidTargets == null ? (
+          <View
+            style={[
+              pageMode ? styles.pageBody : [styles.dialog, styles.dialogNarrow],
+              styles.directBidWait,
+            ]}
+          >
+            <Text style={styles.title} numberOfLines={2}>
+              {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
+            </Text>
+            <Text style={styles.message}>
+              {preparing
+                ? "Opening the bid…"
+                : readiness.blocked ?? "This pool is not open for a bid."}
+            </Text>
+            <Pressable
+              onPress={handleBack}
+              style={({ pressed }) => [styles.retryBtn, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Back to marketplace"
+            >
+              <Text style={styles.retryBtnText}>Back</Text>
+            </Pressable>
+          </View>
+        ) : null
+      ) : (
       <View
-        style={[
-          styles.dialog,
-          { maxHeight: Math.min(dialogMaxHeight, 840) },
-          twoColumn ? styles.dialogWide : styles.dialogNarrow,
-        ]}
-        accessibilityViewIsModal
+        style={
+          pageMode
+            ? styles.pageBody
+            : [
+                styles.dialog,
+                { maxHeight: Math.min(dialogMaxHeight, 840) },
+                twoColumn ? styles.dialogWide : styles.dialogNarrow,
+              ]
+        }
+        accessibilityViewIsModal={!pageMode}
       >
-        {header}
+        {pageMode ? null : header}
         <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.content}
+          style={pageMode ? styles.pageScroll : styles.scroll}
+          contentContainerStyle={
+            pageMode
+              ? [styles.pageContent, { paddingBottom: layout.scrollBottomPadding(16) }]
+              : styles.content
+          }
           showsVerticalScrollIndicator={false}
         >
+          {pageMode ? header : null}
           {twoColumn ? (
             <View style={styles.columns}>
               <View style={styles.mainCol}>
@@ -505,15 +628,16 @@ export function PooledOpportunityScreen() {
           )}
         </ScrollView>
       </View>
+      )}
 
       <MarketLoadBidSheet
         visible={bidTargets != null}
-        onClose={() => {
-          setBidTargets(null);
-          setBidError(undefined);
-        }}
+        onClose={closeBid}
         onSubmitAmount={submitPoolRate}
-        onSuccessDone={refreshAfterBid}
+        onSuccessDone={() => {
+          refreshAfterBid();
+          if (laneRateAmount != null && viewerCanBidCapability) setLaneRateOpen(true);
+        }}
         shipperName={`Pooled opportunity · ${countLabel}`}
         pickup={key.pickup}
         drop={key.drop}
@@ -532,6 +656,18 @@ export function PooledOpportunityScreen() {
         validationError={bidError}
         onClearValidationError={() => setBidError(undefined)}
       />
+
+      <PoolBidCommitSheet
+        visible={laneRateOpen && laneRateAmount != null}
+        onClose={closeLaneRate}
+        onSubmit={(value) => void commitLaneRate(value)}
+        amount={laneRateAmount ?? 0}
+        poolSize={poolCount}
+        routeLabel={`${titleCaseWord(key.pickup)} → ${titleCaseWord(key.drop)} · ${key.vehicleType}`}
+        submitting={laneRateSubmitting}
+        error={laneRateError}
+        copy={MARKETPLACE_LANE_RATE_COPY}
+      />
     </View>
   );
 }
@@ -546,6 +682,11 @@ const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
   },
+  page: { flex: 1, backgroundColor: Theme.cardWhite },
+  pageBody: { flex: 1, width: "100%", backgroundColor: Theme.cardWhite },
+  pageScroll: { flex: 1, width: "100%" },
+  pageContent: { flexGrow: 1, paddingHorizontal: 16, gap: 16 },
+  headerPage: { paddingHorizontal: 0, paddingTop: 8, paddingBottom: 14 },
   dialog: {
     width: "100%",
     backgroundColor: Theme.cardWhite,
@@ -557,6 +698,7 @@ const styles = StyleSheet.create({
   },
   dialogWide: { maxWidth: 1080 },
   dialogNarrow: { maxWidth: 560 },
+  directBidWait: { padding: 24, gap: 16, alignItems: "center" },
   scroll: { flexGrow: 0, flexShrink: 1, width: "100%" },
   content: {
     paddingHorizontal: 20,
@@ -571,30 +713,30 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   header: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
+    gap: 10,
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 14,
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.borderLight,
   },
-  headerActions: {
+  backBtn: {
+    alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    flexShrink: 0,
+    gap: 2,
+    minHeight: 36,
+    paddingRight: 8,
   },
-  closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Theme.actionBtnGhostBorder,
-    backgroundColor: Theme.cardWhite,
-    alignItems: "center",
-    justifyContent: "center",
+  backBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.buttonPrimaryText,
+  },
+  headerBody: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
   },
   headerCopy: { flex: 1, minWidth: 0, gap: 4 },
   headerEyebrow: {
@@ -659,6 +801,8 @@ const styles = StyleSheet.create({
     borderColor: Theme.surfaceBorder,
   },
   facts: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  factHalf: { minWidth: 0, flexBasis: "40%" },
+  cardPage: { padding: 16, gap: 14 },
   fact: {
     minWidth: 140,
     flexGrow: 1,
@@ -698,8 +842,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     minHeight: Layout.minTouchTargetSize,
     justifyContent: "center",
-    borderRadius: 10,
     backgroundColor: Theme.buttonPrimary,
+    borderWidth: Theme.buttonPrimaryBorderWidth,
+    borderColor: Theme.buttonPrimaryBorder,
+    borderRadius: Theme.buttonPrimaryRadius,
   },
   retryBtnText: {
     fontSize: 14,

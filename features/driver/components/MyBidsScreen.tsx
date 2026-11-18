@@ -40,6 +40,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LaneBidInvitesCard } from '@/features/network/components/laneOffers/LaneBidInvitesCard';
 
 function formatSubmittedAt(iso: string): string {
   try {
@@ -213,6 +214,7 @@ export function MyBidsContent({
     >
       {listHeader}
       <View style={{ paddingHorizontal: DRIVER_DETAIL_HORIZONTAL_PAD, gap: 14 }}>
+      <LaneBidInvitesCard onResponded={() => void refetch()} />
       {error ? (
         <Text style={styles.errorText}>
           {error instanceof Error ? error.message : 'Could not load your bids.'}

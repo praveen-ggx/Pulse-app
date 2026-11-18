@@ -23,7 +23,7 @@ describe('resolveSignedInHomeRoute', () => {
         finance: true,
         network: true,
       }),
-    ).toBe('/pulse-loads');
+    ).toBe('/find-loads');
   });
 
   it('opens Finance when that is the first allowed work page', () => {

@@ -49,6 +49,7 @@ import { getKeepSignedIn, setKeepSignedIn } from "@/lib/keepSignedInPreference";
 import { clearAllRealtimeChannels } from "@/lib/realtimeRegistry";
 import { getQueryClient } from "@/lib/queryClient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { purgeSessionScopedLaneOfferQueries } from "@/lib/queryKeys";
 
 /** Must match the persister key in app/_layout.tsx. */
 const PERSISTED_QUERY_CACHE_KEY = "pulse-cache-v1";
@@ -862,6 +863,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logAuth("sign_out_stop_tracking_failed", { message: String((e as Error)?.message ?? e) }, "warn");
     }
     clearAllRealtimeChannels();
+    // Remove the signed-in carrier's invite inbox before the next account
+    // can mount. Unrelated persisted state (theme, drafts) is left alone.
+    purgeSessionScopedLaneOfferQueries(getQueryClient());
     try {
       await withTimeout(() => authService.signOut(), AUTH_TIMEOUT_MS);
     } catch (e) {

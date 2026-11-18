@@ -14,6 +14,7 @@ import type { CurrentOrganization } from "@/types/organization";
 
 import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.types";
 import {
+  laneBidInviteChannel,
   networkNotificationPartyName,
 } from "@/lib/alertRegistry/networkNotificationParty.util";
 
@@ -148,6 +149,17 @@ export function resolveNetworkRegistryAvatar(
       entityType: "driver",
       avatarSeed: driverId ? driverAvatarSeedFromId(driverId) : undefined,
       initialsColorSeed: driverId || item.id,
+    };
+  }
+  if (laneBidInviteChannel(item) === "marketplace") {
+    return {
+      name: "Marketplace",
+      entityType: "client",
+      organizationImageUrl: null,
+      organizationAvatarSeed: null,
+      avatarUrl: null,
+      avatarSeed: null,
+      initialsColorSeed: item.id,
     };
   }
   const orgId = item.actor_org_id?.trim() || "";

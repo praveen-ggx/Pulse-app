@@ -13,6 +13,7 @@ import {
 } from "@/constants/hoverSelection";
 import type { FinancePeriodFilter } from "@/features/finance/types";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -44,8 +45,8 @@ export interface DatePresetPillBarProps {
   onCustomRangePress: () => void;
   customFrom?: string | null;
   customTo?: string | null;
-  /** Dark background (legacy headers) vs light card (Finance / Trips parity). */
-  variant?: "onDark" | "onLight";
+  /** Dark background, light tray, or Trips-style dropdown pills. */
+  variant?: "onDark" | "onLight" | "dropdown";
 }
 
 export function DatePresetPillBar({
@@ -59,6 +60,95 @@ export function DatePresetPillBar({
   const onLight = variant === "onLight";
   const presets = onLight ? LIGHT_PRESETS : DARK_PRESETS;
   const customActive = period === "CUSTOM";
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  if (variant === "dropdown") {
+    const selected = LIGHT_PRESETS.find((preset) => preset.id === period);
+    const dateLabel =
+      period === "CUSTOM"
+        ? "DATE · RANGE"
+        : selected
+          ? period === "RANGE"
+            ? "DATE"
+            : `DATE · ${selected.label}`
+          : "DATE";
+    const dateActive = menuOpen || period !== "RANGE";
+    return (
+      <View style={styles.dropdownRow}>
+        <Pressable
+          style={[styles.dropdownChip, dateActive && styles.dropdownChipActive]}
+          onPress={() => setMenuOpen((open) => !open)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: menuOpen, selected: dateActive }}
+          accessibilityLabel={`Date filter ${dateLabel}`}
+          hitSlop={8}
+        >
+          <Text
+            style={[
+              styles.dropdownChipText,
+              dateActive && styles.dropdownChipTextActive,
+            ]}
+            numberOfLines={1}
+          >
+            {dateLabel}
+          </Text>
+          <FontAwesome
+            name="chevron-down"
+            size={9}
+            color={dateActive ? Theme.primary : Theme.textRouteCard}
+            style={{
+              marginLeft: 3,
+              transform: [{ rotate: menuOpen ? "180deg" : "0deg" }],
+            }}
+          />
+        </Pressable>
+        {menuOpen
+          ? LIGHT_PRESETS.map(({ id, label }) => {
+              const active = period === id;
+              return (
+                <Pressable
+                  key={id}
+                  style={[styles.dropdownChip, active && styles.dropdownChipActive]}
+                  onPress={() => {
+                    onPeriodChange(id);
+                    setMenuOpen(false);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={label}
+                  hitSlop={8}
+                >
+                  <Text
+                    style={[
+                      styles.dropdownChipText,
+                      active && styles.dropdownChipTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })
+          : null}
+        {menuOpen ? (
+          <Pressable
+            style={[styles.dropdownIcon, customActive && styles.dropdownChipActive]}
+            onPress={onCustomRangePress}
+            accessibilityRole="button"
+            accessibilityLabel="Pick custom date range"
+            hitSlop={8}
+          >
+            <FontAwesome
+              name="calendar"
+              size={12}
+              color={customActive ? Theme.primary : Theme.textRouteCard}
+            />
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.wrap}>
@@ -259,6 +349,47 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.18)",
     backgroundColor: Theme.driverSurfaceElevated,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dropdownRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  dropdownChip: {
+    minHeight: 30,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    backgroundColor: Theme.cardWhite,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dropdownChipActive: {
+    borderColor: Theme.primary,
+    backgroundColor: Theme.pulseIndigoWash,
+  },
+  dropdownChipText: {
+    fontSize: 8,
+    fontWeight: "600",
+    color: Theme.textRouteCard,
+    letterSpacing: 0.55,
+    textTransform: "uppercase",
+  },
+  dropdownChipTextActive: {
+    color: Theme.primary,
+  },
+  dropdownIcon: {
+    minHeight: 30,
+    minWidth: 30,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
   },

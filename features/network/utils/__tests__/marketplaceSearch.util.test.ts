@@ -76,6 +76,16 @@ describe("marketplaceSearch", () => {
     ).toBe(true);
   });
 
+  it("keeps the lowest and highest target on a lane", () => {
+    const lanes = lanesFromMarketplaceLoads([
+      { pickup_area: "Bhandara", drop_location: "Bengaluru", vehicle_type: "40 FT", rate_offer: 18000 },
+      { pickup_area: "Bhandara", drop_location: "Bengaluru", vehicle_type: "40 FT", rate_offer: 12400 },
+      { pickup_area: "Bhandara", drop_location: "Bengaluru", vehicle_type: "40 FT", rate_offer: 0 },
+    ]);
+    expect(lanes[0]?.target_rate_min).toBe(12400);
+    expect(lanes[0]?.target_rate_max).toBe(18000);
+  });
+
   it("builds dropdown lanes from an unfiltered marketplace page", () => {
     const lanes = lanesFromMarketplaceLoads([
       { pickup_area: "Bhandara", drop_location: "Bengaluru", vehicle_type: "40 FT" },
@@ -87,6 +97,8 @@ describe("marketplaceSearch", () => {
       drop_location: "Bengaluru",
       vehicle_type: "40 FT",
       load_count: 2,
+      target_rate_min: null,
+      target_rate_max: null,
     });
     expect(isUnsupportedMarketplaceSearchRpc("Could not find the function public.list_marketplace_search_lanes")).toBe(
       true,

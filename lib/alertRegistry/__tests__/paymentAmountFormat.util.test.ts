@@ -1,6 +1,7 @@
 import {
   formatBareRupeeTokens,
   tripBalanceHint,
+  tripPaymentProgress,
 } from "@/lib/alertRegistry/paymentAmountFormat.util";
 
 describe("payment amount format", () => {
@@ -47,5 +48,34 @@ describe("payment amount format", () => {
         supplierPaid: 0,
       }),
     ).toBeNull();
+  });
+});
+
+describe("trip payment progress", () => {
+  const money = { clientTotal: 0, clientPaid: 0, supplierTotal: 50000, supplierPaid: 0 };
+
+  it("counts this payment when the money snapshot has not caught up", () => {
+    expect(tripPaymentProgress("paid", money, 44500)).toEqual({
+      ratio: 0.89,
+      caption: "₹5,500 left of ₹50,000",
+    });
+  });
+
+  it("uses the snapshot when it already covers more than this payment", () => {
+    expect(tripPaymentProgress("paid", { ...money, supplierPaid: 48000 }, 4000)?.caption).toBe(
+      "₹2,000 left of ₹50,000",
+    );
+  });
+
+  it("caps at the total and reads as settled", () => {
+    expect(tripPaymentProgress("paid", money, 60000)).toEqual({
+      ratio: 1,
+      caption: "₹50,000 settled",
+    });
+  });
+
+  it("returns nothing without a trip total", () => {
+    expect(tripPaymentProgress("received", money, 1000)).toBeNull();
+    expect(tripPaymentProgress("paid", undefined, 1000)).toBeNull();
   });
 });

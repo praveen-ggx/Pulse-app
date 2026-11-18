@@ -11,12 +11,12 @@ import {
   type RegistryNotificationAvatar,
   resolveOpsRegistryAvatar,
 } from "@/lib/alertRegistry/registryNotificationAvatar.util";
-import { classifyPayment } from "@/lib/globalSync/registryPaymentLane.util";
+import { classifyPayment, paymentCategoryTitle } from "@/lib/globalSync/registryPaymentLane.util";
 import {
-  formatBareRupeeTokens,
   formatInrAmount,
-  tripBalanceHint,
+  tripPaymentProgress,
   type TripMoneySnapshot,
+  type TripPaymentProgress,
 } from "@/lib/alertRegistry/paymentAmountFormat.util";
 
 export type RegistryPartyLookup = {
@@ -37,8 +37,13 @@ export type OpsRegistryCardPresentation = {
   highlightText?: string;
   trailingText?: string;
   detail?: string;
+  /** Structured detail title; when set, `detail` is not split into lines. */
+  detailTitle?: string;
   /** Route and date, shown smaller than the detail title. */
   detailMeta?: string;
+  detailProgress?: TripPaymentProgress;
+  /** The tag already names the kind, so the meta line shows only the time. */
+  hideContextLabel?: boolean;
 };
 
 function readMeta(event: ActiveTripRecentEvent | null): Record<string, unknown> | null {
@@ -153,17 +158,6 @@ function formatOpsAmount(amount: number | null | undefined): string | undefined 
   return formatInrAmount(Number(amount));
 }
 
-function paymentDetail(
-  raw: string | null | undefined,
-  fallback: string,
-  lane: "received" | "paid",
-  money: TripMoneySnapshot | undefined,
-): string {
-  const formatted = formatBareRupeeTokens((raw ?? "").trim() || fallback);
-  const hint = tripBalanceHint(lane, money);
-  return hint ? `${formatted} · ${hint}` : formatted;
-}
-
 function buildPaymentPresentation(
   ops: GlobalOperationAlert,
   ctx: RegistryPartyLookup,
@@ -175,12 +169,19 @@ function buildPaymentPresentation(
     content: event?.content ?? ops.subtitle,
     metadata: event?.metadata ?? meta,
   });
-  const tripLabel = ops.trip_number ?? trip?.display_trip_id ?? trip?.trip_number ?? "trip";
-  const amountLabel = formatOpsAmount(ops.amount ?? Number(meta?.amount ?? NaN));
-  const kindLabel = classified.kind === "advance" ? "Advance" : classified.categoryLabel;
+  const tripLabel = ops.trip_number ?? trip?.display_trip_id ?? trip?.trip_number ?? null;
+  const amount = ops.amount ?? Number(meta?.amount ?? NaN);
+  const amountLabel = formatOpsAmount(amount);
   const moneyId = ops.trip_id ?? trip?.trip_id ?? null;
   const money = moneyId ? ctx.tripMoneyById?.get(moneyId) : undefined;
-  const rawDetail = event?.content?.trim() || ops.subtitle?.trim() || null;
+  // The event text repeats the headline ("X paid ₹… to Y · category"), so the
+  // detail card carries only what the headline doesn't: trip, kind, lane, balance.
+  const detail = {
+    detailTitle: [tripLabel, paymentCategoryTitle(classified)].filter(Boolean).join(" · "),
+    detailMeta: tripTinyLine(trip, ctx, { client: false, date: false }),
+    detailProgress: tripPaymentProgress(classified.lane, money, amount) ?? undefined,
+    hideContextLabel: true,
+  };
 
   if (classified.lane === "paid") {
     const senderName =
@@ -210,9 +211,8 @@ function buildPaymentPresentation(
       actorName: senderName,
       actionText: "paid",
       highlightText: amountLabel,
-      trailingText: `to ${payee} on ${tripLabel}`,
-      detail: paymentDetail(rawDetail, `${kindLabel} · ${tripLabel}`, "paid", money),
-      detailMeta: tripTinyLine(trip, ctx, { client: false, date: false }),
+      trailingText: `to ${payee}`,
+      ...detail,
     };
   }
 
@@ -230,9 +230,7 @@ function buildPaymentPresentation(
     actorName: clientName,
     actionText: "paid",
     highlightText: amountLabel,
-    trailingText: `on ${tripLabel}`,
-    detail: paymentDetail(rawDetail, `${kindLabel} captured · ${tripLabel}`, "received", money),
-    detailMeta: tripTinyLine(trip, ctx, { client: false, date: false }),
+    ...detail,
   };
 }
 

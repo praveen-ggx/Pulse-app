@@ -54,8 +54,13 @@ import { createIndent, type CreateIndentInput } from "@/features/indents/service
 import {
     createSharedIndentCopies,
     getIndentById,
+    updateIndent,
     updateIndentDraft,
 } from "@/features/indents/services/indents.service";
+import {
+  LaneOffersAfterCreateDialog,
+  type LaneOffersDialogResult,
+} from "@/features/network/components/laneOffers/LaneOffersAfterCreateDialog";
 import {
   INDENT_WIZARD_PROGRESS_STEPS,
   INDENT_WIZARD_STEPS,
@@ -586,6 +591,35 @@ export default function CreateIndentScreen() {
   const showDialog = useCallback((title: string, message?: string) => {
     setAlertState({ visible: true, title, message: message ?? "" });
   }, []);
+
+  const [laneOffersIndentId, setLaneOffersIndentId] = useState<string | null>(null);
+  const laneOffersResolveRef = useRef<((result: LaneOffersDialogResult) => void) | null>(null);
+  const presentLaneOffers = useCallback(
+    (indentId: string) =>
+      new Promise<LaneOffersDialogResult>((resolve) => {
+        laneOffersResolveRef.current = resolve;
+        setLaneOffersIndentId(indentId);
+      }),
+    [],
+  );
+  const handleLaneOffersDone = useCallback((result: LaneOffersDialogResult) => {
+    setLaneOffersIndentId(null);
+    const resolve = laneOffersResolveRef.current;
+    laneOffersResolveRef.current = null;
+    resolve?.(result);
+  }, []);
+  const handleLaneOffersPostToMarketplace = useCallback(
+    async (indentId: string) => {
+      const { error } = await updateIndent(indentId, { circulation_target: "both" });
+      if (error) {
+        showDialog("Could not post to Marketplace", error.message);
+        return false;
+      }
+      if (orgId) invalidateIndents(orgId, { bustPartnerSupplierMarket: true });
+      return true;
+    },
+    [orgId, invalidateIndents, showDialog],
+  );
 
   /** Same as Create Trip: modal route + PartyRegistrationPortal (web) / phone + invite (native). */
   const openAddClientFlow = useCallback(() => {
@@ -1297,8 +1331,11 @@ export default function CreateIndentScreen() {
       if (draftIndentId) {
         await AsyncStorage.removeItem(draftVehicleCountStorageKey(draftIndentId));
       }
+      const laneResult = await presentLaneOffers(first.id);
       router.replace(
-        indentShareSuccessPath(vehicleCount, first.id) as import("expo-router").Href,
+        (laneResult === "review"
+          ? `/indent/${first.id}`
+          : indentShareSuccessPath(vehicleCount, first.id)) as import("expo-router").Href,
       );
     } finally {
       releaseSubmitLock(submitLockRef);
@@ -1314,6 +1351,7 @@ export default function CreateIndentScreen() {
     showDialog,
     requestIndentTicketConfirm,
     submitting,
+    presentLaneOffers,
   ]);
 
   const canSubmit =
@@ -1775,11 +1813,21 @@ export default function CreateIndentScreen() {
                 compact={compactWizard}
                 value={form.circulation_target}
                 onChange={(value) => update({ circulation_target: value })}
+                lane={{
+                  pickup: form.pickup_area,
+                  drop: form.drop_location,
+                  vehicleType: form.vehicle_type,
+                }}
               />
             ) : null}
           </View>
         </AddTripModalLayout>
 
+        <LaneOffersAfterCreateDialog
+          indentId={laneOffersIndentId}
+          onDone={handleLaneOffersDone}
+          onPostToMarketplace={handleLaneOffersPostToMarketplace}
+        />
         <ThemedAlertModal
           visible={alertState.visible}
           title={alertState.title}
@@ -3241,6 +3289,11 @@ export default function CreateIndentScreen() {
         </View>
       </AddTripModalLayout>
 
+      <LaneOffersAfterCreateDialog
+        indentId={laneOffersIndentId}
+        onDone={handleLaneOffersDone}
+        onPostToMarketplace={handleLaneOffersPostToMarketplace}
+      />
       <ThemedAlertModal
         visible={alertState.visible}
         title={alertState.title}

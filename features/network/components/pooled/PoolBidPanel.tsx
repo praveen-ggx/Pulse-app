@@ -254,12 +254,12 @@ const styles = StyleSheet.create({
   cta: {
     marginTop: 4,
     minHeight: Layout.minTouchTargetSize,
-    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.buttonPrimary,
     borderWidth: Theme.buttonPrimaryBorderWidth,
     borderColor: Theme.buttonPrimaryBorder,
+    borderRadius: Theme.buttonPrimaryRadius,
   },
   ctaDisabled: { opacity: 0.45 },
   ctaPressed: { opacity: 0.88 },

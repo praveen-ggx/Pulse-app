@@ -97,6 +97,7 @@ export type IndentMobileLoadDetailProps = {
   onQuotePress?: () => void;
   primaryActionLabel?: string;
   onPrimaryAction?: () => void;
+  hideActions?: boolean;
   secondaryActionLabel?: string;
   onSecondaryAction?: () => void;
   bidsSlot?: ReactNode;
@@ -411,6 +412,7 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
   onQuotePress,
   primaryActionLabel,
   onPrimaryAction,
+  hideActions = false,
   secondaryActionLabel,
   onSecondaryAction,
   bidsSlot,
@@ -907,7 +909,7 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
       </View>
 
       {/* CTA bar */}
-      {showPrimary || showSecondary ? (
+      {!hideActions && (showPrimary || showSecondary) ? (
         <View style={styles.ctaBar}>
           {showSecondary && resolvedSecondary ? (
             <TouchableOpacity

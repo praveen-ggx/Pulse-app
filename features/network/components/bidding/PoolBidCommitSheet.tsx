@@ -32,6 +32,28 @@ export type PoolBidCommitValue = {
   validUntilDate: string;
 };
 
+/** Wording for one use of the sheet; defaults are the Network pool bid. */
+export type PoolBidCommitCopy = {
+  title: string;
+  scope: string;
+  countHint: (count: number, max: number) => string;
+  dateHint: string;
+  submitLabel: (count: number) => string;
+  submitA11y: string;
+  /** Secondary action that closes without committing. */
+  dismissLabel?: string;
+};
+
+const NETWORK_POOL_COPY: PoolBidCommitCopy = {
+  title: "Keep this bid active",
+  scope: "on this pool",
+  countHint: (count, max) =>
+    `Shippers see this bid until ${count} load${count === 1 ? "" : "s"} from this pool are awarded to you. Then they will not see it until you bid again. You can commit up to ${max}.`,
+  dateHint: "After this date the bid is hidden and a shipper cannot award it.",
+  submitLabel: (count) => `Commit ${count} and send bid`,
+  submitA11y: "Commit vehicles and send pool bid",
+};
+
 export function PoolBidCommitSheet({
   visible,
   onClose,
@@ -42,6 +64,7 @@ export function PoolBidCommitSheet({
   routeLabel,
   submitting = false,
   error,
+  copy = NETWORK_POOL_COPY,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -52,6 +75,7 @@ export function PoolBidCommitSheet({
   routeLabel?: string;
   submitting?: boolean;
   error?: string;
+  copy?: PoolBidCommitCopy;
 }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -112,7 +136,7 @@ export function PoolBidCommitSheet({
           <X size={18} color={Theme.textPrimaryDark} strokeWidth={2.2} />
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
-          Keep this bid active
+          {copy.title}
         </Text>
         <View style={styles.close} />
       </View>
@@ -128,7 +152,7 @@ export function PoolBidCommitSheet({
       >
         <Text style={styles.sub}>
           {routeLabel ? `${routeLabel} · ` : ""}
-          {formatINR(amount)} on this pool
+          {formatINR(amount)} {copy.scope}
         </Text>
 
         <View style={styles.fleet}>
@@ -188,11 +212,7 @@ export function PoolBidCommitSheet({
             <Plus size={16} color={Theme.primary} strokeWidth={2.4} />
           </TouchableOpacity>
         </View>
-        <Text style={styles.hint}>
-          Shippers see this bid until {count} load{count === 1 ? "" : "s"} from
-          this pool are awarded to you. Then they will not see it until you bid
-          again. You can commit up to {maxCommit}.
-        </Text>
+        <Text style={styles.hint}>{copy.countHint(count, maxCommit)}</Text>
 
         <Text style={styles.fieldLabel}>Accept awards until</Text>
         <Pressable
@@ -223,9 +243,7 @@ export function PoolBidCommitSheet({
             />
           </View>
         ) : null}
-        <Text style={styles.hint}>
-          After this date the bid is hidden and a shipper cannot award it.
-        </Text>
+        <Text style={styles.hint}>{copy.dateHint}</Text>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
@@ -238,12 +256,23 @@ export function PoolBidCommitSheet({
         disabled={submitting}
         style={[styles.submit, submitting && styles.submitOff]}
         accessibilityRole="button"
-        accessibilityLabel="Commit vehicles and send pool bid"
+        accessibilityLabel={copy.submitA11y}
       >
         <Text style={styles.submitText}>
-          {submitting ? "Sending…" : `Commit ${count} and send bid`}
+          {submitting ? "Sending…" : copy.submitLabel(count)}
         </Text>
       </Pressable>
+      {copy.dismissLabel ? (
+        <Pressable
+          onPress={onClose}
+          disabled={submitting}
+          style={styles.dismiss}
+          accessibilityRole="button"
+          accessibilityLabel={copy.dismissLabel}
+        >
+          <Text style={styles.dismissText}>{copy.dismissLabel}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 
@@ -474,6 +503,17 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   submitOff: { opacity: 0.5 },
+  dismiss: {
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 4,
+  },
+  dismissText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.textMuted,
+  },
   submitText: {
     fontSize: 15,
     fontWeight: "800",

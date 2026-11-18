@@ -8,8 +8,8 @@ import {
 } from "@/constants/hoverSelection";
 import Theme from "@/constants/Theme";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useEffect, type ReactNode } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Animated, {
     Easing,
     interpolate,
@@ -27,7 +27,95 @@ import type {
 import { styles } from "./FinanceScreen.styles";
 import { FinanceTabRow } from "./FinanceTabRow";
 import type { EntityListFilter } from "./TreasurySummaryCard";
+import {
+  FinanceFilterDockContext,
+  type FinanceFilterDockParts,
+} from "./financeFilterDock";
 import { TreasurySummaryCard } from "./TreasurySummaryCard";
+
+const ENTITY_STATUS_OPTIONS = ["all", "has_due", "no_due"] as const;
+
+function entityStatusLabel(
+  id: (typeof ENTITY_STATUS_OPTIONS)[number],
+  labels?: Partial<Record<EntityListFilter, string>>,
+): string {
+  return labels?.[id] ?? (id === "all" ? "All" : id === "has_due" ? "Pending" : "Collected");
+}
+
+/** All / Has expense / No expense, collapsed to one pill until opened. */
+function EntityStatusFilter({
+  open,
+  onOpenChange,
+  value,
+  labels,
+  onChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  value: EntityListFilter;
+  labels?: Partial<Record<EntityListFilter, string>>;
+  onChange: (value: EntityListFilter) => void;
+}) {
+  const current = entityStatusLabel(value, labels);
+  const triggerLabel = value === "all" ? "STATUS" : `STATUS · ${current}`;
+  const triggerActive = open || value !== "all";
+  return (
+    <>
+      <Pressable
+        style={[styles.financeDockedPill, triggerActive && styles.financeDockedPillActive]}
+        onPress={() => onOpenChange(!open)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open, selected: triggerActive }}
+        accessibilityLabel={`Status filter ${triggerLabel}`}
+        hitSlop={8}
+      >
+        <Text
+          style={[styles.financeDockedPillText, triggerActive && styles.financeDockedPillTextActive]}
+          numberOfLines={1}
+        >
+          {triggerLabel}
+        </Text>
+        <FontAwesome
+          name="chevron-down"
+          size={9}
+          color={triggerActive ? Theme.primary : Theme.textRouteCard}
+          style={{
+            marginLeft: 3,
+            transform: [{ rotate: open ? "180deg" : "0deg" }],
+          }}
+        />
+      </Pressable>
+      {open
+        ? ENTITY_STATUS_OPTIONS.map((id) => {
+            const selected = value === id;
+            return (
+              <Pressable
+                key={id}
+                style={[styles.financeDockedPill, selected && styles.financeDockedPillActive]}
+                onPress={() => {
+                  onChange(id);
+                  onOpenChange(false);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                hitSlop={8}
+              >
+                <Text
+                  style={[
+                    styles.financeDockedPillText,
+                    selected && styles.financeDockedPillTextActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {entityStatusLabel(id, labels)}
+                </Text>
+              </Pressable>
+            );
+          })
+        : null}
+    </>
+  );
+}
 
 export type LedgerViewMode = "table" | "transaction";
 
@@ -273,9 +361,15 @@ export function FinanceSummarySection({
     transform: [{ scale: interpolate(heroStatPulse.value, [0, 1], [1, 1.06]) }],
   }));
 
+  const [dockedFilters, setDockedFilters] = useState<FinanceFilterDockParts | null>(null);
+  const [entityMenuOpen, setEntityMenuOpen] = useState(false);
+  const publishDockedFilters = useCallback((parts: FinanceFilterDockParts | null) => {
+    setDockedFilters(parts);
+  }, []);
+
   if (!desktopParity) {
     return (
-      <>
+      <FinanceFilterDockContext.Provider value={publishDockedFilters}>
         <View style={[styles.darkBlock, { paddingTop: 0 }]}>
           <View style={styles.darkBlockContent}>
             <TreasurySummaryCard
@@ -303,6 +397,7 @@ export function FinanceSummarySection({
               searchQuery={searchQuery}
               onSearchChange={onSearchChange}
               searchPlaceholder={searchPlaceholder}
+              hideSearch
               onReportPress={onReportPress}
               entityFilter={entityFilter}
               onEntityFilterChange={onEntityFilterChange}
@@ -331,19 +426,63 @@ export function FinanceSummarySection({
             />
           </View>
         </View>
-        {datePreset != null && (
-          <View style={styles.financeDatePresetOutsideWrap}>
-            <DatePresetPillBar
-              variant="onLight"
-              period={datePreset.period}
-              onPeriodChange={datePreset.onPeriodChange}
-              onCustomRangePress={datePreset.onCustomRangePress}
-              customFrom={datePreset.customFrom}
-              customTo={datePreset.customTo}
-            />
-          </View>
-        )}
-      </>
+        <View style={styles.financeDatePresetOutsideWrap}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.financeFilterAlignRow}
+          >
+            <View style={styles.financeDockedSearch}>
+              <FontAwesome name="search" size={12} color={Theme.textRouteCard} />
+              <TextInput
+                style={styles.financeDockedSearchInput}
+                value={searchQuery}
+                onChangeText={onSearchChange}
+                placeholder={searchPlaceholder ?? "Find by name..."}
+                placeholderTextColor={Theme.textRouteCard}
+                returnKeyType="search"
+                autoCorrect={false}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              {searchQuery !== "" ? (
+                <Pressable
+                  onPress={() => onSearchChange("")}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear search"
+                >
+                  <FontAwesome name="times-circle" size={12} color={Theme.textRouteCard} />
+                </Pressable>
+              ) : null}
+            </View>
+            {onEntityFilterChange != null ? (
+              <EntityStatusFilter
+                open={entityMenuOpen}
+                onOpenChange={setEntityMenuOpen}
+                value={entityFilter ?? "all"}
+                labels={entityFilterLabels}
+                onChange={onEntityFilterChange}
+              />
+            ) : null}
+            {dockedFilters?.filters}
+            {datePreset != null ? (
+              <DatePresetPillBar
+                variant="dropdown"
+                period={datePreset.period}
+                onPeriodChange={datePreset.onPeriodChange}
+                onCustomRangePress={datePreset.onCustomRangePress}
+                customFrom={datePreset.customFrom}
+                customTo={datePreset.customTo}
+              />
+            ) : null}
+            {dockedFilters?.actions != null ? (
+              <View style={styles.financeDockedActions}>{dockedFilters.actions}</View>
+            ) : null}
+          </ScrollView>
+        </View>
+      </FinanceFilterDockContext.Provider>
     );
   }
 
@@ -548,6 +687,7 @@ export function FinanceSummarySection({
             searchQuery={searchQuery}
             onSearchChange={onSearchChange}
             searchPlaceholder={searchPlaceholder}
+            hideSearch
             onReportPress={onReportPress}
             entityFilter={entityFilter}
             onEntityFilterChange={onEntityFilterChange}

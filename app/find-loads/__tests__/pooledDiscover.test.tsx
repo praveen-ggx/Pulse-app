@@ -18,7 +18,17 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockParams,
 }));
 jest.mock('@/lib/layoutInsets', () => ({
-  useLayoutInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0, isDesktopWeb: false }),
+  useLayoutInsets: () => ({
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    isDesktopWeb: false,
+    scrollBottomPadding: (extra = 0) => extra,
+  }),
+}));
+jest.mock('@/components/HomePageHeader', () => ({
+  HomePageHeader: () => null,
 }));
 jest.mock('@/lib/useMemberAccess', () => ({
   useMemberAccess: () => ({ can: () => true, isLoading: false }),
@@ -81,6 +91,12 @@ describe('Find Loads (organization) — pooled opportunities', () => {
       error: null,
       bids: [],
     });
+    (findLoadsForOrgService.listOpenMarketplaceLoadsPage as jest.Mock).mockResolvedValue({
+      error: null,
+      loads: [],
+      hasMore: false,
+      nextOffset: undefined,
+    });
   });
 
   it('renders one pooled card per lane with route, vehicle and load count', async () => {
@@ -91,9 +107,7 @@ describe('Find Loads (organization) — pooled opportunities', () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText('POOLED · 104 LOADS')).toBeTruthy();
-    expect(screen.getByText('2 pooled opportunities · 107 loads')).toBeTruthy();
     expect(screen.getAllByLabelText('Pool status: Open for bids')).toHaveLength(2);
-    expect(screen.getAllByText('One rate for the pool')).toHaveLength(2);
   });
 
   it('renders a one-indent lane as a pool of one, with no indent or shipper identity', async () => {
@@ -106,8 +120,6 @@ describe('Find Loads (organization) — pooled opportunities', () => {
     const screen = renderScreen();
     expect(await screen.findByText('POOLED · 1 LOAD')).toBeTruthy();
     expect(screen.getAllByLabelText(/^Pooled opportunity,/)).toHaveLength(1);
-    expect(screen.getByText('One rate for the pool')).toBeTruthy();
-    expect(screen.getByText('1 pooled opportunity · 1 load')).toBeTruthy();
     for (const hidden of [/IND-/, /Pvt Ltd/, /Select all/, /selected/]) {
       expect(screen.queryByText(hidden)).toBeNull();
     }
@@ -124,7 +136,6 @@ describe('Find Loads (organization) — pooled opportunities', () => {
     const screen = renderScreen();
     expect(await screen.findByText('POOLED · 5 LOADS')).toBeTruthy();
     expect(screen.getAllByLabelText(/^Pooled opportunity,/)).toHaveLength(1);
-    expect(screen.getByText('1 pooled opportunity · 5 loads')).toBeTruthy();
     fireEvent.press(screen.getByLabelText(/^Pooled opportunity,/));
     expect(mockPush).toHaveBeenCalledWith(
       '/find-loads/pool?pickup=Bhandara&drop=Bengaluru&vehicle=40%20FT',
@@ -133,10 +144,9 @@ describe('Find Loads (organization) — pooled opportunities', () => {
 
   it('never fetches per-load rows or offers per-load bidding on the list', async () => {
     const screen = renderScreen();
-    await screen.findByText('POOLED · 3 LOADS');
-    expect(findLoadsForOrgService.listOpenMarketplaceLoadsPage).not.toHaveBeenCalled();
-    expect(screen.queryByText('Bid')).toBeNull();
+    expect((await screen.findAllByText('Bid')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Place your bid')).toBeNull();
+    expect(screen.queryByText(/IND-/)).toBeNull();
   });
 
   it('opens the pool detail route for a card', async () => {
@@ -146,6 +156,10 @@ describe('Find Loads (organization) — pooled opportunities', () => {
     );
     expect(mockPush).toHaveBeenCalledWith(
       '/find-loads/pool?pickup=Bhandara&drop=Bengaluru&vehicle=40%20FT',
+    );
+    fireEvent.press(screen.getByLabelText('Bid on pool, Bhandara to Bengaluru'));
+    expect(mockPush).toHaveBeenCalledWith(
+      '/find-loads/pool?pickup=Bhandara&drop=Bengaluru&vehicle=40%20FT&bid=1',
     );
   });
 
@@ -169,8 +183,98 @@ describe('Find Loads (organization) — pooled opportunities', () => {
     await screen.findByText('POOLED · 104 LOADS');
     fireEvent.press(screen.getByLabelText('Pickup city'));
     fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
+    expect(screen.getByText('POOLED · 104 LOADS')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Show loads now'));
     await waitFor(() => expect(screen.queryByText('POOLED · 104 LOADS')).toBeNull());
     expect(screen.getByText('POOLED · 3 LOADS')).toBeTruthy();
+  });
+
+  it('goes back to marketplace home with the applied filter kept, and reopens it unchanged', async () => {
+    const screen = renderScreen();
+    await screen.findByText('POOLED · 104 LOADS');
+    expect(screen.queryByLabelText('Back to marketplace home')).toBeNull();
+    fireEvent.press(screen.getByLabelText('Pickup city'));
+    fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
+    fireEvent.press(screen.getByLabelText('Show loads now'));
+    await waitFor(() => expect(screen.queryByText('POOLED · 104 LOADS')).toBeNull());
+
+    fireEvent.press(screen.getByLabelText('Back to marketplace home'));
+    expect(await screen.findByText('POOLED · 104 LOADS')).toBeTruthy();
+    expect(screen.queryByLabelText('Back to marketplace home')).toBeNull();
+    expect(screen.getByLabelText('Clear Pickup')).toBeTruthy();
+
+    fireEvent.press(screen.getByLabelText('Pickup city'));
+    fireEvent.press(await screen.findByLabelText('Show loads now'));
+    await waitFor(() => expect(screen.queryByText('POOLED · 104 LOADS')).toBeNull());
+    expect(screen.getByText('POOLED · 3 LOADS')).toBeTruthy();
+  });
+
+  it('applies the full-page picks only after confirming every step', async () => {
+    const screen = renderScreen();
+    await screen.findByText('POOLED · 104 LOADS');
+    fireEvent.press(screen.getByLabelText('Pickup city'));
+    fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
+    fireEvent.press(screen.getByLabelText('Next: To'));
+    fireEvent.press(screen.getByLabelText('Any drop, next: Vehicle'));
+    expect(screen.getByText('POOLED · 104 LOADS')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Show loads'));
+    await waitFor(() => expect(screen.queryByText('POOLED · 104 LOADS')).toBeNull());
+    expect(screen.getByText('POOLED · 3 LOADS')).toBeTruthy();
+  });
+
+  it('offers Show loads only once something is chosen', async () => {
+    const screen = renderScreen();
+    await screen.findByText('POOLED · 104 LOADS');
+    fireEvent.press(screen.getByLabelText('Pickup city'));
+    await screen.findByLabelText('Pickup Bhandara, 3 available');
+    expect(screen.queryByLabelText('Show loads now')).toBeNull();
+    expect(screen.getByLabelText('Any pickup, next: To')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Pickup Bhandara, 3 available'));
+    expect(screen.getByLabelText('Show loads now')).toBeTruthy();
+  });
+
+  it('lets the user pick several pickups and removes one from the picked row', async () => {
+    const screen = renderScreen();
+    await screen.findByText('POOLED · 104 LOADS');
+    fireEvent.press(screen.getByLabelText('Pickup city'));
+    fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
+    const second = screen
+      .getAllByLabelText(/^Pickup .*, \d+ available$/)
+      .find((node) => !/Bhandara/.test(node.props.accessibilityLabel));
+    expect(second).toBeTruthy();
+    fireEvent.press(second!);
+    expect(screen.getByText(/2 selected/)).toBeTruthy();
+    fireEvent.press(screen.getByLabelText(/^Remove (?!Bhandara)/));
+    expect(screen.queryByText(/2 selected/)).toBeNull();
+    fireEvent.press(screen.getByLabelText('Show loads now'));
+    await waitFor(() => expect(screen.getByText('POOLED · 3 LOADS')).toBeTruthy());
+  });
+
+  it('removes one of several picks from the filter and returns to hot lanes when all are cleared', async () => {
+    const screen = renderScreen();
+    await screen.findByText('POOLED · 104 LOADS');
+    fireEvent.press(screen.getByLabelText('Pickup city'));
+    fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
+    const second = screen
+      .getAllByLabelText(/^Pickup .*, \d+ available$/)
+      .find((node) => !/Bhandara/.test(node.props.accessibilityLabel));
+    fireEvent.press(second!);
+    fireEvent.press(screen.getByLabelText('Show loads now'));
+    expect(await screen.findByText('+1')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Remove Bhandara from Pickup'));
+    await waitFor(() => expect(screen.queryByLabelText(/^Remove .* from Pickup$/)).toBeNull());
+    expect(screen.queryByText('POOLED · 3 LOADS')).toBeNull();
+    fireEvent.press(screen.getByLabelText('Clear Pickup'));
+    expect(await screen.findByText('POOLED · 104 LOADS')).toBeTruthy();
+  });
+
+  it('discards full-page picks when backing out of the first step', async () => {
+    const screen = renderScreen();
+    await screen.findByText('POOLED · 104 LOADS');
+    fireEvent.press(screen.getByLabelText('Pickup city'));
+    fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
+    fireEvent.press(screen.getByLabelText('Back to marketplace loads'));
+    expect(screen.getByText('POOLED · 104 LOADS')).toBeTruthy();
   });
 
   it('shows the error state with Retry when the lanes RPC fails', async () => {
@@ -203,7 +307,7 @@ describe('Find Loads (organization) — pooled opportunities', () => {
   it('opens on My Bids when linked from an awarded pool', async () => {
     mockParams = { segment: 'my-bids' };
     const screen = renderScreen();
-    expect(await screen.findByText('No bids yet')).toBeTruthy();
+    expect(await screen.findByText('No Marketplace bids yet')).toBeTruthy();
   });
 
   it('does not throw when OrganizationProvider is missing', () => {

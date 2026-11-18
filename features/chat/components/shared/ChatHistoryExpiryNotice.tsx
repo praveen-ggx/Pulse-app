@@ -9,10 +9,13 @@ import { StyleSheet, Text, View } from "react-native";
 const TRIP_NOTICE =
   "Chat history expires 30 days from the date of delivery.";
 
+/** DMs keep every message; only files shared in chat are time-limited. */
+export const DM_RETENTION_NOTICE = "Messages are kept · Files are kept for 30 days";
+
 type Props = {
   variant?: "mobile" | "desktop";
   slackLayout?: boolean;
-  /** When true, hide the notice (persistent DM threads — WhatsApp-style). */
+  /** Persistent DM threads keep messages; show the DM file notice instead. */
   persistent?: boolean;
 };
 
@@ -21,20 +24,20 @@ export function ChatHistoryExpiryNotice({
   slackLayout = false,
   persistent = false,
 }: Props) {
-  if (persistent) return null;
+  const notice = persistent ? DM_RETENTION_NOTICE : TRIP_NOTICE;
 
   if (slackLayout) {
     const styles = variant === "desktop" ? deskSt : mobileSt;
     return (
       <View style={styles.threadExpiryNotice}>
-        <Text style={styles.threadExpiryNoticeText}>{TRIP_NOTICE}</Text>
+        <Text style={styles.threadExpiryNoticeText}>{notice}</Text>
       </View>
     );
   }
 
   return (
     <View style={legacyStyles.wrap}>
-      <Text style={legacyStyles.text}>{TRIP_NOTICE}</Text>
+      <Text style={legacyStyles.text}>{notice}</Text>
     </View>
   );
 }

@@ -201,7 +201,7 @@ describe("P0 submission guard", () => {
     expect(poolSubmissionBlockReason(["a", "b"], members)).toBeNull();
   });
 
-  it("submits the same rate per member sequentially and reports failures per load", async () => {
+  it("submits the same rate per member in a short burst and reports failures per load", async () => {
     const calls: string[] = [];
     let inFlight = 0;
     let maxInFlight = 0;
@@ -220,7 +220,8 @@ describe("P0 submission guard", () => {
       },
     });
     expect(calls).toEqual(["a", "b", "c"]);
-    expect(maxInFlight).toBe(1);
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(maxInFlight).toBeLessThanOrEqual(4);
     expect(result).toEqual({
       blocked: null,
       attempted: 3,
@@ -559,6 +560,22 @@ describe("poolFieldOptions — picker counts from canonical pools", () => {
       { label: "32 ft", count: 3 },
     ]);
     expect(poolFieldOptions(PICKER_LANES, { pickup: "Bang" }, "drop")).toEqual([]);
+  });
+
+  it("narrows any field by whichever other fields are set, in any order", () => {
+    expect(poolFieldOptions(PICKER_LANES, { vehicleType: "20 ft" }, "pickup")).toEqual([
+      { label: "Bangalore", count: 4 },
+    ]);
+    expect(poolFieldOptions(PICKER_LANES, { drop: "Pune" }, "pickup")).toEqual([
+      { label: "Chennai", count: 2 },
+      { label: "Chennai warehouse, CHennai, Tamil nadu", count: 1 },
+    ]);
+    expect(poolFieldOptions(PICKER_LANES, { drop: "Hosur" }, "vehicle")).toEqual([
+      { label: "32 FT", count: 1 },
+    ]);
+    expect(poolFieldOptions(PICKER_LANES, { vehicleType: "20 FT" }, "drop")).toEqual([
+      { label: "Chennai", count: 4 },
+    ]);
   });
 
   it("vehicle option counts equal the pool counts Marketplace resolves", () => {

@@ -410,3 +410,119 @@ export async function findPostIdsForIndents(
   }
   return { error: null, postIdByIndentId: map };
 }
+
+/** A trip created from an awarded indent. Allocation is this trip link. */
+export type MarketplaceConvertedTrip = {
+  id: string;
+  indentId: string;
+  organizationId: string | null;
+  supplierRate: number | null;
+  clientPrice: number | null;
+  status: string | null;
+  cancelReason: string | null;
+};
+
+export type MarketplaceAwardIndent = {
+  id: string;
+  status: string | null;
+  cancelReason: string | null;
+};
+
+export type MarketplaceTripReceipt = {
+  tripId: string;
+  amountIn: number;
+  amountOut: number;
+  contactType: string | null;
+};
+
+/**
+ * Trips this user can see for the given indents, plus the ledger rows on those
+ * trips. A won bid is a marketplace transaction only after the indent is
+ * allocated — a non-deleted trip exists for it.
+ */
+export async function listMarketplaceConvertedTrips(
+  indentIds: readonly string[],
+): Promise<{
+  error: Error | null;
+  trips: MarketplaceConvertedTrip[];
+  receipts: MarketplaceTripReceipt[];
+  indents: MarketplaceAwardIndent[];
+}> {
+  const uniqueIds = [...new Set(indentIds.map((id) => id.trim()).filter(Boolean))];
+  if (uniqueIds.length === 0) return { error: null, trips: [], receipts: [], indents: [] };
+  const wanted = new Set(uniqueIds);
+  const trips: MarketplaceConvertedTrip[] = [];
+  const indents: MarketplaceAwardIndent[] = [];
+  const seenTrip = new Set<string>();
+  for (let i = 0; i < uniqueIds.length; i += 40) {
+    const chunk = uniqueIds.slice(i, i + 40);
+    const [tripResult, indentResult] = await Promise.all([
+      supabase()
+        .from('trips')
+        .select('id, indent_id, source_indent_id, organization_id, supplier_rate, client_price, status, cancel_reason')
+        .is('deleted_at', null)
+        .or(`indent_id.in.(${chunk.join(',')}),source_indent_id.in.(${chunk.join(',')})`),
+      supabase()
+        .from('indents')
+        .select('id, status, cancel_reason')
+        .in('id', chunk),
+    ]);
+    if (tripResult.error) return { error: new Error(tripResult.error.message), trips: [], receipts: [], indents: [] };
+    for (const row of (tripResult.data ?? []) as {
+      id: string;
+      indent_id: string | null;
+      source_indent_id: string | null;
+      organization_id: string | null;
+      supplier_rate: number | null;
+      client_price: number | null;
+      status: string | null;
+      cancel_reason: string | null;
+    }[]) {
+      const indentId = [row.indent_id, row.source_indent_id].find((id) => id && wanted.has(id));
+      if (!indentId || seenTrip.has(row.id)) continue;
+      seenTrip.add(row.id);
+      trips.push({
+        id: row.id,
+        indentId,
+        organizationId: row.organization_id,
+        supplierRate: row.supplier_rate,
+        clientPrice: row.client_price,
+        status: row.status,
+        cancelReason: row.cancel_reason,
+      });
+    }
+    if (indentResult.error) return { error: new Error(indentResult.error.message), trips: [], receipts: [], indents: [] };
+    for (const row of (indentResult.data ?? []) as {
+      id: string;
+      status: string | null;
+      cancel_reason: string | null;
+    }[]) {
+      indents.push({ id: row.id, status: row.status, cancelReason: row.cancel_reason });
+    }
+  }
+  const receipts: MarketplaceTripReceipt[] = [];
+  const tripIds = trips.map((trip) => trip.id);
+  for (let i = 0; i < tripIds.length; i += 40) {
+    const chunk = tripIds.slice(i, i + 40);
+    const { data, error } = await supabase()
+      .from('transactions')
+      .select('trip_id, amount_in, amount_out, contact_type')
+      .in('trip_id', chunk);
+    if (error) return { error: new Error(error.message), trips: [], receipts: [], indents: [] };
+    for (const row of (data ?? []) as {
+      trip_id: string | null;
+      amount_in: number | null;
+      amount_out: number | null;
+      contact_type: string | null;
+    }[]) {
+      if (!row.trip_id) continue;
+      receipts.push({
+        tripId: row.trip_id,
+        amountIn: Number(row.amount_in) || 0,
+        amountOut: Number(row.amount_out) || 0,
+        contactType: row.contact_type,
+      });
+    }
+  }
+  return { error: null, trips, receipts, indents };
+}

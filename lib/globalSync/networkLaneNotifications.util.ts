@@ -1,4 +1,5 @@
 import type { NetworkNotificationRow } from "@/features/network/services/networkNotifications.service";
+import { laneBidInviteChannel } from "@/lib/alertRegistry/networkNotificationParty.util";
 
 /** One inbox card for a pool quote, request, or award on a lane. */
 export type NetworkLaneGroup = {
@@ -38,6 +39,8 @@ function poolGroupKey(row: NetworkNotificationRow): string | null {
   if (!route) return null;
   const actor = row.actor_org_id ?? row.id;
   if (row.event_type === "awarded") return `awarded|${actor}|${route}`;
+  const invite = laneBidInviteChannel(row);
+  if (invite) return `lane_bid_invite|${invite}|${actor}|${route}|${amountKey(row)}`;
   return `${row.event_type}|${actor}|${route}|${amountKey(row)}`;
 }
 

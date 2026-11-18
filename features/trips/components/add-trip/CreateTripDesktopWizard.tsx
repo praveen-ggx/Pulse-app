@@ -757,6 +757,11 @@ export function CreateTripDesktopWizard({
           compact={isMobileLayout}
           value={state.circulationTarget}
           onChange={setters.setCirculationTarget}
+          lane={{
+            pickup: state.pickupArea,
+            drop: state.dropLocation,
+            vehicleType: state.vehicleType,
+          }}
         />
       );
       break;

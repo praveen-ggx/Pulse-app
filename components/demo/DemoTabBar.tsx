@@ -3,6 +3,7 @@
  */
 import type { RegistryFilterTab } from "@/components/AlertRegistryPanel";
 import { DemoTabBarMobileFooter } from "@/components/demo/DemoTabBarMobileFooter";
+import { WebMarketplaceShortcut } from "@/components/demo/WebMarketplaceShortcut";
 import { WebNavMirrorToggle } from "@/components/demo/WebNavMirrorToggle";
 import { WEB_TOP_NAV_ICON } from "@/components/demo/webTopNavIcon.tokens";
 import { NotificationBellIcon } from "@/components/NotificationBellIcon";
@@ -27,6 +28,7 @@ import type { InboundProtocolInviteItem } from "@/lib/globalSync/inboundProtocol
 import { preloadChatRoute } from "@/lib/preloadChatWarmup";
 import { preloadFinanceWarmup } from "@/lib/preloadFinanceWarmup";
 import { preloadPulseLoadsRoute, preloadTabScreen } from "@/lib/preloadRoutes";
+import { prefetchTripsList } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
 import { useQueryClient } from "@tanstack/react-query";
 // Chat unread badges read from a tiny external signal — importing
@@ -204,6 +206,9 @@ export function DemoTabBar({
       }
       if (tab === "finance" || tab === "trips" || tab === "network") {
         preloadTabScreen(tab);
+        if (tab === "trips" && orgId) {
+          void prefetchTripsList(queryClient, orgId);
+        }
         if (tab === "finance" && orgId) {
           preloadFinanceWarmup(queryClient, orgId);
         }
@@ -652,8 +657,8 @@ export function DemoTabBar({
       },
       {
         id: "loadCenter",
-        title: "LOAD",
-        subtitle: "CENTER",
+        title: "MARKETPLACE",
+        subtitle: "LOAD FROM PLATFORM",
         Icon: Truck,
         active: isLoadCenter,
       },
@@ -673,7 +678,7 @@ export function DemoTabBar({
       },
     ];
     // Hide primary-domain tabs the member's functional role can't reach.
-    const navItems = allNavItems.filter((item) => {
+    const permittedNavItems = allNavItems.filter((item) => {
       if (item.id === "finance") return visibility.finance !== false;
       if (item.id === "trips") return visibility.trips !== false;
       if (item.id === "network") return visibility.network !== false;
@@ -682,6 +687,9 @@ export function DemoTabBar({
       if (item.id === "invoice") return visibility.invoice !== false;
       return true;
     });
+    // Marketplace lives beside Chat, so the group thumb must not cover it.
+    const navItems = permittedNavItems.filter((item) => item.id !== "loadCenter");
+    const showMarketplace = permittedNavItems.some((item) => item.id === "loadCenter");
 
     return (
       <Fragment>
@@ -706,10 +714,7 @@ export function DemoTabBar({
 
           <WebNavMirrorToggle
             items={navItems}
-            activeIndex={Math.max(
-              0,
-              navItems.findIndex((item) => item.active),
-            )}
+            activeIndex={navItems.findIndex((item) => item.active)}
             onSelect={(index) => {
               const item = navItems[index];
               if (item) onTabChange(item.id);
@@ -726,6 +731,13 @@ export function DemoTabBar({
               (showNotifications || showInvitations) && styles.webUtilityWrapAboveDrawer,
             ]}
           >
+            {showMarketplace ? (
+              <WebMarketplaceShortcut
+                active={isLoadCenter}
+                onPressIn={() => onWarmTab("loadCenter")}
+                onPress={() => onTabChange("loadCenter")}
+              />
+            ) : null}
             {canOpenChat ? (
               <AnimatedPress
                 style={styles.webHeaderIconHit}
@@ -893,7 +905,6 @@ export function DemoTabBar({
       onOpenChatWarm={openMessagesFromPressIn}
       onCollapseNetworkDock={collapseNetworkDock}
       onWarmTab={onWarmTab}
-      onProfilePress={onProfilePress}
     />
   );
 }

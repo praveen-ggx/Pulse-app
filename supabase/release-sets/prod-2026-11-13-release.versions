@@ -1,0 +1,16 @@
+# Prod release 2026-11-13, Option 3 (Vasanth 2026-11-13): rollback state kept.
+# Live = Vasanth #103 afc74f58. Vasanth #100/#106/#107 reverted on this branch; #105 (DB-only) kept as a file but its
+# migration 20271111143000 is NOT in this set (Vasanth: test on preprod first).
+# 20261112061609: Compliance vehicle vault by plate (V1 #107). On preprod.
+# 20261112144350 + 20261112150640: shared indent ID (V1 #113). On preprod.
+# 20271111164000: Hub metric counter, trigger created disabled (V1 #106). On preprod; zzz_hub_project enabled there
+#   outside migrations - under investigation, Vasanth GO needed before prod.
+# Apply only via: npm run db:push-set -- prod-2026-11-13-release   (dry-run first)
+# sha256 07518c2f53a49d8079e562c0fd40c76e3e452f48de432e08a8416fe00e62f63e  20261112061609_compliance_vehicle_vault_by_plate.sql
+20261112061609
+# sha256 cb34350a3a2c96dd4163cfa9935b8d18410756c354259938b9b7239188098390  20261112144350_indent_reference_for_awarded_supplier.sql
+20261112144350
+# sha256 ff4afbee9283f6a3467d0b508d8be6b88a49d023836ee8b6ae781bbfad017049  20261112150640_indent_references_for_viewer_batch.sql
+20261112150640
+# sha256 27360ceffec728664e0bf0cfadf5a996fce846cc0d4b8fc11abd8e3f03552896  20271111164000_hub_metric_counter.sql
+20271111164000

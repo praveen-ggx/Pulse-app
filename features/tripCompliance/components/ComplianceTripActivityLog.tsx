@@ -66,8 +66,8 @@ async function fetchComplianceActivityBundle(
     supabase()
       .from("transactions")
       .select(
-        // Only real transactions columns: trip_number / vehicle_number / driver_name
-        // don't exist (42703 → 400, ledger tab empty). toLedgerRow reads them from description meta.
+        // Only real `transactions` columns: trip_number / vehicle_number / driver_name
+        // are not on this table (42703 → 400, ledger tab empty).
         "id, organization_id, trip_id, party_name, description, amount_in, amount_out, transaction_date, created_at, contact_id, contact_type, ledger_entity_type, ledger_flow_type, ledger_category, payment_reference, created_by",
       )
       .eq("trip_id", tripId)

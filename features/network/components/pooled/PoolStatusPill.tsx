@@ -16,18 +16,26 @@ const TONE: Record<PoolCommercialState, { bg: string; fg: string }> = {
 export function PoolStatusPill({
   state,
   label,
+  surface = "default",
+  size = "default",
 }: {
   state: PoolCommercialState;
   label?: string;
+  /** Mint chip used on the Marketplace Loads board. */
+  surface?: "default" | "mint";
+  size?: "default" | "compact";
 }) {
-  const tone = TONE[state];
+  const tone =
+    surface === "mint" && state === "open"
+      ? { bg: Theme.positiveMuted, fg: Theme.positive }
+      : TONE[state];
   const text = label ?? POOL_STATE_COPY[state].label;
   return (
     <View
-      style={[styles.pill, { backgroundColor: tone.bg }]}
+      style={[styles.pill, size === "compact" && styles.pillCompact, { backgroundColor: tone.bg }]}
       accessibilityLabel={`Pool status: ${text}`}
     >
-      <Text style={[styles.text, { color: tone.fg }]} numberOfLines={1}>
+      <Text style={[styles.text, size === "compact" && styles.textCompact, { color: tone.fg }]} numberOfLines={1}>
         {text.toUpperCase()}
       </Text>
     </View>
@@ -42,6 +50,12 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     marginTop: 2,
   },
+  pillCompact: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    marginTop: 0,
+  },
   text: {
     fontSize: 11,
     fontWeight: "600",
@@ -50,5 +64,11 @@ const styles = StyleSheet.create({
       web: { whiteSpace: "pre-wrap" } as object,
       default: {},
     }),
+  },
+  textCompact: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
 });

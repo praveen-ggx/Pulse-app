@@ -5499,7 +5499,7 @@ export default function TripsScreen() {
                   key: column.key,
                   label: column.label,
                   align:
-                    column.key === "clientCost" || column.key === "supplierCost"
+                    column.key === "customerPrice" || column.key === "supplierPrice"
                       ? ("right" as const)
                       : ("left" as const),
                 })),

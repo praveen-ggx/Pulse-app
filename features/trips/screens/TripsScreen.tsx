@@ -41,6 +41,7 @@ import {
 import { downloadTripOpsReportExcel } from "@/features/trips/utils/tripOpsReportExport.util";
 import {
   buildTripIndentReport,
+  loadSalesReportWindow,
   loadTripIndentReportCatalog,
 } from "@/features/trips/services/tripIndentReport.service";
 import { shouldShowAggregateTripKindPill } from "@/features/drivers/utils/driverUtils.util";
@@ -2908,6 +2909,8 @@ export default function TripsScreen() {
     setTripReportDownloading(true);
     try {
       const audience = resolveTripIndentReportAudience(memberDomains);
+
+      if (audience === "tripops") {
       const catalog = await loadTripIndentReportCatalog(
         orgId,
         hubTrips,
@@ -2928,7 +2931,6 @@ export default function TripsScreen() {
       }
       const scopedTrips = sourcingScope.filterTrips(catalog.trips);
 
-      if (audience === "tripops") {
         const tripIds = scopedTrips.map((t) => t.id);
         const indentCreatedAtByIndentId: Record<string, string> = {};
         for (const indent of catalog.indents) {
@@ -2989,12 +2991,21 @@ export default function TripsScreen() {
         return;
       }
 
-      const scopedIndents = sourcingScope.filterIndents(catalog.indents);
-      const driverPhoneByTripId = await loadDriverPhonesByTripId(scopedTrips);
+      const salesWindow = await loadSalesReportWindow(orgId, exportFrom, exportTo);
+      if (salesWindow.error) {
+        showAppAlert(
+          "Export failed",
+          salesWindow.error.message || "Could not load indents for the selected date range.",
+        );
+        return;
+      }
+      const salesTrips = sourcingScope.filterTrips(salesWindow.trips);
+      const salesIndents = sourcingScope.filterIndents(salesWindow.indents);
+      const driverPhoneByTripId = await loadDriverPhonesByTripId(salesTrips);
       const { error, rows, warnings } = await buildTripIndentReport({
         orgId,
-        trips: scopedTrips,
-        indents: scopedIndents,
+        trips: salesTrips,
+        indents: salesIndents,
         partyMetaByTripId: tripHubPartyMetaByTripId,
         driverPhoneByTripId,
         stageLabelForTrip: getStageLabelForTrip,
@@ -3003,7 +3014,7 @@ export default function TripsScreen() {
         showAppAlert("Export failed", error.message || "Could not build the trip report.");
         return;
       }
-      const notes: string[] = [...catalog.notes, ...warnings];
+      const notes: string[] = [...salesWindow.notes, ...warnings];
       await downloadTripIndentReportExcel(rows, {
         companyName: currentOrganization?.name ?? undefined,
         includeCosts: memberDomains.finance,

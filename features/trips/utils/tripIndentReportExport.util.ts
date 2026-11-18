@@ -30,11 +30,12 @@ const THIN_BORDER = {
 
 const BASE_FONT = { name: FONT_NAME, sz: FONT_SIZE, color: { rgb: "1F2937" } };
 
-/** Columns written as Excel numbers with consistent money format. */
-const NUMERIC_COLUMN_KEYS = new Set<TripIndentReportColumnKey>([
-  "clientCost",
-  "supplierCost",
+/** Columns written as Excel numbers. Prices keep the money format. */
+const MONEY_COLUMN_KEYS = new Set<TripIndentReportColumnKey>([
+  "customerPrice",
+  "supplierPrice",
 ]);
+const INTEGER_COLUMN_KEYS = new Set<TripIndentReportColumnKey>(["serial"]);
 
 const MONEY_NUM_FMT = "#,##0.00";
 
@@ -64,7 +65,7 @@ function findHeaderRowIndex(sheet: XLSX.WorkSheet): number {
   const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
   for (let r = range.s.r; r <= range.e.r; r += 1) {
     const cell = sheet[`A${r + 1}`] as XLSX.CellObject | undefined;
-    if (cell && String(cell.v ?? "") === "Customer Name") return r;
+    if (cell && String(cell.v ?? "") === "S.No") return r;
   }
   return -1;
 }
@@ -100,7 +101,10 @@ export function applyTripIndentReportSheetFormatting(
       }
 
       const colKey = c < colCount ? columns[c]?.key : undefined;
-      const isNumericCol = Boolean(colKey && NUMERIC_COLUMN_KEYS.has(colKey));
+      const isMoneyCol = Boolean(colKey && MONEY_COLUMN_KEYS.has(colKey));
+      const isNumericCol = Boolean(
+        colKey && (isMoneyCol || INTEGER_COLUMN_KEYS.has(colKey)),
+      );
 
       if (isData && isNumericCol && cell.v !== "" && cell.v != null) {
         const num = typeof cell.v === "number" ? cell.v : Number(cell.v);
@@ -136,13 +140,13 @@ export function applyTripIndentReportSheetFormatting(
                 : {}),
             }
           : {}),
-        ...(isData && isNumericCol && cell.t === "n"
+        ...(isData && isMoneyCol && cell.t === "n"
           ? { numFmt: MONEY_NUM_FMT }
           : {}),
       };
 
       const display =
-        cell.t === "n" && typeof cell.v === "number"
+        cell.t === "n" && typeof cell.v === "number" && isMoneyCol
           ? cell.v.toLocaleString("en-IN", {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
@@ -170,7 +174,7 @@ export function applyTripIndentReportSheetFormatting(
 export type TripIndentReportDownloadOptions = {
   companyName?: string;
   fileName?: string;
-  /** Include Client Cost / Supplier Cost (finance members only). */
+  /** Kept for callers. The MIR sheet always includes both prices. */
   includeCosts?: boolean;
   /** Notes shown in the sheet banner (truncation, enrichment gaps). */
   notes?: string[];
@@ -184,8 +188,7 @@ export function buildTripIndentReportWorkbook(
     typeof companyNameOrOptions === "string"
       ? { companyName: companyNameOrOptions }
       : companyNameOrOptions ?? {};
-  /** Opt-in only — never include costs unless the caller explicitly sets true. */
-  const includeCosts = options.includeCosts === true;
+  const includeCosts = options.includeCosts !== false;
   const columns = tripIndentReportColumnsForAccess(includeCosts);
   const header = columns.map((c) => c.label);
   const body = rows.map((row) =>

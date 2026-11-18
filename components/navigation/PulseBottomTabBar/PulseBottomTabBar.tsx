@@ -5,7 +5,7 @@
  * Each slot follows the same member access as the desktop top nav.
  */
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   Easing,
@@ -62,8 +62,8 @@ type DockTab = {
 };
 
 const HIGHLIGHT_INSET = 3;
-/** Short glide. Starts on press so the page and the thumb move together. */
-const FLOW = { duration: 70, easing: Easing.out(Easing.cubic) } as const;
+/** Glide starts on finger-down. The route opens on the next frame so this is not blocked by the screen. */
+const FLOW = { duration: 240, easing: Easing.bezier(0.22, 1, 0.36, 1) } as const;
 
 /** Even top-to-bottom tone on the Marketplace pill. No outline, no highlight bar. */
 function MarketFill() {
@@ -124,11 +124,13 @@ function DockIcon({
   );
 }
 
-/** Side pill mirror. Same glass as the sliding thumb. */
-function SideTrack({ active, children }: { active: boolean; children: ReactNode }) {
+/** Side pill mirror. The glass fades in with the same curve as the sliding thumb. */
+function SideTrack({ fillStyle, children }: { fillStyle: StyleProp<ViewStyle>; children: ReactNode }) {
   return (
     <View style={styles.sideTrack}>
-      {active ? <View style={[styles.sideFill, pe('none')]}><MirrorFill /></View> : null}
+      <Animated.View style={[styles.sideFill, pe('none'), fillStyle]}>
+        <MirrorFill />
+      </Animated.View>
       {children}
     </View>
   );
@@ -189,25 +191,31 @@ function PulseBottomTabBarInner({
   slotWidthRef.current = slotWidth;
   const highlightX = useSharedValue(0);
   const highlightOpacity = useSharedValue(routeKey === 'chat' || routeKey === 'loadCenter' ? 0 : 1);
+  const chatFill = useSharedValue(routeKey === 'chat' ? 1 : 0);
   const gestureOpened = useRef(false);
   const laidOut = useRef(false);
+  const placedKey = useRef(routeKey);
+  const placedWidth = useRef(0);
 
   const placeHighlight = useCallback(
     (key: string, flow: boolean) => {
       const width = slotWidthRef.current;
       if (width <= 0) return;
+      placedKey.current = key;
       const index =
         key === 'chat' || key === 'loadCenter'
           ? -1
           : tabsRef.current.findIndex((tab) => tab.id === key);
       const shown = index >= 0 ? 1 : 0;
+      const chatOn = key === 'chat' ? 1 : 0;
       highlightOpacity.value = flow ? withTiming(shown, FLOW) : shown;
+      chatFill.value = flow ? withTiming(chatOn, FLOW) : chatOn;
       if (index >= 0) {
         const target = index * width + HIGHLIGHT_INSET;
         highlightX.value = flow ? withTiming(target, FLOW) : target;
       }
     },
-    [highlightOpacity, highlightX],
+    [chatFill, highlightOpacity, highlightX],
   );
 
   useEffect(() => {
@@ -216,7 +224,10 @@ function PulseBottomTabBarInner({
 
   useEffect(() => {
     if (pressedKey != null) return;
-    placeHighlight(routeKey, laidOut.current);
+    const widthChanged = placedWidth.current !== slotWidth;
+    if (!widthChanged && laidOut.current && placedKey.current === routeKey) return;
+    placeHighlight(routeKey, laidOut.current && !widthChanged && placedKey.current !== routeKey);
+    placedWidth.current = slotWidth;
     laidOut.current = true;
   }, [placeHighlight, pressedKey, routeKey, slotWidth]);
 
@@ -226,13 +237,17 @@ function PulseBottomTabBarInner({
       gestureOpened.current = true;
       setPressedKey(key);
       placeHighlight(key, true);
-      open();
       requestAnimationFrame(() => {
         gestureOpened.current = false;
+        open();
       });
     },
     [placeHighlight],
   );
+
+  const chatFillStyle = useAnimatedStyle(() => ({
+    opacity: chatFill.value,
+  }));
 
   const highlightStyle = useAnimatedStyle(() => ({
     opacity: highlightOpacity.value,
@@ -377,7 +392,7 @@ function PulseBottomTabBarInner({
         ) : null}
         {showChat ? (
           <DockPill style={styles.sidePill}>
-            <SideTrack active={chatActive}>
+            <SideTrack fillStyle={chatFillStyle}>
               <PulseBottomTabSlot
                 label="Chat"
                 active={chatActive}

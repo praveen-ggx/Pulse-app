@@ -5,7 +5,7 @@
  * (see tripComplianceBulkPayment.service.ts) — this screen only handles
  * file I/O and the review UI, no direct ledger writes.
  */
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 // expo-file-system SDK 54 moved readAsStringAsync to the legacy entry (matches
@@ -23,16 +23,28 @@ import { useLayoutInsets } from "@/lib/layoutInsets";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useComplianceProductEnabled } from "@/features/tripCompliance/hooks/useComplianceProductEnabled";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { recordBulkPaymentPost } from "@/features/bulkOperations/services/bulkHistory.service";
+import {
+  paymentPostLogEntry,
+  readPendingPaymentLogs,
+  writePendingPaymentLogs,
+  type PendingPaymentLog,
+} from "@/features/bulkOperations/utils/bulkPaymentLog.util";
 import { syncFinanceComplianceCaches } from "@/lib/queries/syncFinanceComplianceCaches";
+import { formatComplianceTxnDate } from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import { BulkOperationWorkspace, BulkPaymentAuditLog, BulkPaymentSteps } from "@/features/bulkOperations/components/BulkOperationWorkspace";
 import { mappingIssues, suggestMapping, unmappedHeaders } from "@/features/bulkOperations/utils/bulkOperation.engine.util";
+import { spreadsheetToCsv } from "@/features/bulkOperations/utils/bulkSpreadsheet.util";
 import type { ColumnMapping } from "@/features/bulkOperations/utils/bulkOperation.model";
 import {
+  blockedTripCanBeReleased,
   compliancePostRowsFromSheet,
   explainBulkPaymentReadError,
   POST_PAYMENT_FIELDS,
   processComplianceBulkPayments,
   readCompliancePostSheet,
+  releaseBlockedTripsForPost,
   validateComplianceBulkPayments,
   type ComplianceBulkRowValidation,
 } from "@/features/tripCompliance/services/tripComplianceBulkPayment.service";
@@ -40,14 +52,32 @@ import type { ComplianceLedgerCategory } from "@/features/tripCompliance/service
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 const POST_SAMPLE_ROWS = [
-  ["Trip ID", "Amount", "Mode", "Date", "UTR", "Remarks"],
-  ["TRP-1001", "9000", "UPI", "2026-09-08", "HDFC123456", "Loading advance"],
+  ["Trip ID", "LR number", "Amount", "Mode", "Date", "UTR", "Remarks"],
+  ["TRP-1001", "LR-1001", "9000", "UPI", "2026-09-08", "HDFC123456", "Loading advance"],
 ];
 const POST_SAMPLE_CSV = POST_SAMPLE_ROWS.map((row) => row.join(",")).join("\n");
+
+function explainReleaseFailure(message: string | undefined): string {
+  const text = (message ?? "").trim();
+  const lower = text.toLowerCase();
+  if (lower.includes("not authorized to approve compliance")) {
+    return "This trip is missing a document. Approving that exception needs compliance verify access, which this login does not have. A person who can verify trips has to approve it before this payment can post.";
+  }
+  if (lower.includes("resubmit")) {
+    return "This trip is on hold. Ground Ops has to resubmit it before the payment can be approved.";
+  }
+  if (lower.includes("not authorized to record hard-copy pod")) {
+    return "This balance needs the hard-copy POD marked received. This login cannot record that receipt. A person who can manage PODs has to approve it before this payment can post.";
+  }
+  if (lower.includes("advance percent")) {
+    return "Enter an advance percent from 0 to 100. This supplier does not have one saved.";
+  }
+  return text || "None of the blocked trips could be approved.";
+}
 const POST_STEP_COPY = [
   "Choose Advance or Balance.",
-  "Upload or paste the sheet, then match each column.",
-  "Open the preview. We check the trip, amount, and mode.",
+  "Upload a CSV or Excel file, then match Trip ID or LR number.",
+  "Open the preview. Amount and mode can come from the approved advance.",
   "Confirm. Only eligible rows are posted.",
 ];
 
@@ -97,12 +127,13 @@ function asPostCsv(text: string): string {
     .join("\n");
 }
 
-async function readUriAsText(uri: string): Promise<string> {
+async function readUriAsText(uri: string, name: string): Promise<string> {
   if (Platform.OS === "web") {
-    const res = await fetch(uri);
-    return res.text();
+    const bytes = new Uint8Array(await (await fetch(uri)).arrayBuffer());
+    return spreadsheetToCsv(name, bytes, "array");
   }
-  return FileSystem.readAsStringAsync(uri, { encoding: "utf8" });
+  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  return spreadsheetToCsv(name, base64, "base64");
 }
 
 type Step = "upload" | "validating" | "preview" | "confirm" | "processing" | "done";
@@ -118,6 +149,8 @@ export default function ComplianceBulkPaymentScreen() {
   const { enabled: complianceEnabled, isLoading: productsLoading } = useComplianceProductEnabled();
   const orgCtx = useOptionalOrganization();
   const orgId = orgCtx?.currentOrganization?.id ?? "";
+  const { user } = useAuth();
+  const actorName = user?.displayName || user?.email || "You";
 
   const [category, setCategory] = useState<ComplianceLedgerCategory>("compliance_advance");
   const [intent, setIntent] = useState<Intent>("update");
@@ -127,6 +160,7 @@ export default function ComplianceBulkPaymentScreen() {
   const [invalid, setInvalid] = useState<ComplianceBulkRowValidation[]>([]);
   const [blocked, setBlocked] = useState<ComplianceBulkRowValidation[]>([]);
   const [alreadyPaid, setAlreadyPaid] = useState<ComplianceBulkRowValidation[]>([]);
+  const [repeatRowIndexes, setRepeatRowIndexes] = useState<number[]>([]);
   const [eligibleTotal, setEligibleTotal] = useState(0);
   const [tripsById, setTripsById] = useState<Map<string, TripRow>>(new Map());
   const [results, setResults] = useState<{ rowIndex: number; error: Error | null }[]>([]);
@@ -141,6 +175,30 @@ export default function ComplianceBulkPaymentScreen() {
   const [postCheckError, setPostCheckError] = useState<string | null>(null);
   const [removePostFile, setRemovePostFile] = useState(false);
   const [logVersion, setLogVersion] = useState(0);
+  const [pendingLogs, setPendingLogs] = useState<PendingPaymentLog[]>([]);
+  useEffect(() => {
+    setPendingLogs(readPendingPaymentLogs(orgId, category));
+  }, [orgId, category]);
+  const rememberLog = useCallback((entry: PendingPaymentLog) => {
+    const stamped: PendingPaymentLog = {
+      ...entry,
+      batch: {
+        ...entry.batch,
+        confirmed_by: user?.uid ?? entry.batch.confirmed_by,
+        uploaded_by: user?.uid ?? entry.batch.uploaded_by,
+        summary: { ...entry.batch.summary, actorName },
+      },
+    };
+    setPendingLogs((current) => {
+      const next = [stamped, ...current.filter((item) => item.batch.id !== stamped.batch.id)].slice(0, 30);
+      writePendingPaymentLogs(orgId, category, next);
+      return next;
+    });
+    setLogVersion((version) => version + 1);
+  }, [actorName, category, orgId, user?.uid]);
+  const [releaseComment, setReleaseComment] = useState("");
+  const [releaseError, setReleaseError] = useState<string | null>(null);
+  const [releaseBusy, setReleaseBusy] = useState(false);
   const [updateProgress, setUpdateProgress] = useState({ activeStep: 1, nextLine: "Next: select the CSV. Nothing is checked until you open the preview." });
   const onUpdateProgress = useCallback((progress: { activeStep: number; nextLine: string }) => {
     setUpdateProgress((current) =>
@@ -167,6 +225,7 @@ export default function ComplianceBulkPaymentScreen() {
     setInvalid([]);
     setBlocked([]);
     setAlreadyPaid([]);
+    setRepeatRowIndexes([]);
     setEligibleTotal(0);
     setResults([]);
     setLoadError(null);
@@ -179,16 +238,22 @@ export default function ComplianceBulkPaymentScreen() {
     setPostValidated(false);
     setPostCheckError(null);
     setRemovePostFile(false);
+    setReleaseComment("");
+    setReleaseError(null);
+    setReleaseBusy(false);
   }, []);
 
   const postRows = useMemo(
     () => compliancePostRowsFromSheet(postHeaders, postMatrix, postMapping, postRowIndexes),
     [postHeaders, postMatrix, postMapping, postRowIndexes],
   );
-  const postIssues = useMemo(
-    () => mappingIssues({ id: "post", version: "1", title: "Post", operation: "import", matchField: "tripId", fields: POST_PAYMENT_FIELDS }, postMapping),
-    [postMapping],
-  );
+  const postIssues = useMemo(() => {
+    const found = mappingIssues({ id: "post", version: "1", title: "Post", operation: "import", matchField: "tripId", fields: POST_PAYMENT_FIELDS }, postMapping);
+    if (postHeaders.length > 0 && !postMapping.tripId && !postMapping.lrNumber) {
+      found.push({ field: "reference", message: "Map a column to Trip ID or LR number." });
+    }
+    return found;
+  }, [postMapping, postHeaders.length]);
   const postIgnored = useMemo(() => unmappedHeaders(postHeaders, postMapping), [postHeaders, postMapping]);
   const pastePreview = useMemo(() => readCompliancePostSheet(asPostCsv(pasteText)), [pasteText]);
 
@@ -212,6 +277,7 @@ export default function ComplianceBulkPaymentScreen() {
     setInvalid([]);
     setBlocked([]);
     setAlreadyPaid([]);
+    setRepeatRowIndexes([]);
     setLoadError(null);
     setPostValidated(false);
     setPostCheckError(null);
@@ -222,13 +288,19 @@ export default function ComplianceBulkPaymentScreen() {
   const handlePick = useCallback(async () => {
     setLoadError(null);
     const res = await DocumentPicker.getDocumentAsync({
-      type: ["text/csv", "text/comma-separated-values", "*/*"],
+      type: [
+        "text/csv",
+        "text/comma-separated-values",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "*/*",
+      ],
       copyToCacheDirectory: true,
     });
     if (res.canceled || !res.assets[0]) return;
     const asset = res.assets[0];
     try {
-      const text = await readUriAsText(asset.uri);
+      const text = await readUriAsText(asset.uri, asset.name ?? "payments.csv");
       loadPostText(asset.name ?? "payments.csv", text);
     } catch (e) {
       setLoadError(explainBulkPaymentReadError((e as Error).message));
@@ -242,6 +314,7 @@ export default function ComplianceBulkPaymentScreen() {
     setInvalid([]);
     setBlocked([]);
     setAlreadyPaid([]);
+    setRepeatRowIndexes([]);
     setEligibleTotal(0);
     setPostValidated(false);
     setPostCheckError(null);
@@ -259,6 +332,7 @@ export default function ComplianceBulkPaymentScreen() {
       setInvalid(result.invalid);
       setBlocked(result.blocked);
       setAlreadyPaid(result.alreadyPaid);
+      setRepeatRowIndexes([]);
       setEligibleTotal(result.eligibleTotal);
       setTripsById(result.tripsById);
       setPostValidated(true);
@@ -271,18 +345,95 @@ export default function ComplianceBulkPaymentScreen() {
     }
   }, [orgId, category, postRows, postIssues.length]);
 
-  const handleProcess = useCallback(async (rows: ComplianceBulkRowValidation[]) => {
+  const releasable = useMemo(
+    () => blocked.filter((row) => blockedTripCanBeReleased(row.gateReason)),
+    [blocked],
+  );
+  const suggestedReleaseComment = useMemo(() => {
+    const lines = releasable.map((row) => {
+      const ref = row.row.lrNumber ? `LR ${row.row.lrNumber}` : row.row.tripId;
+      const pending = (row.alerts ?? []).map((alert) => `${alert.title}: ${alert.detail}`);
+      return pending.length > 0 ? `${ref}. ${pending.join(" ")}` : `${ref}. ${row.gateReason ?? "Approved from bulk payment."}`;
+    });
+    return lines.join(" ");
+  }, [releasable]);
+  const held = useMemo(
+    () => blocked.filter((row) => !blockedTripCanBeReleased(row.gateReason)),
+    [blocked],
+  );
+  const approvalTotal = useMemo(
+    () => releasable.reduce((sum, row) => sum + (row.row.amount ?? 0), 0),
+    [releasable],
+  );
+  const repeatPosts = useMemo(
+    () => alreadyPaid
+      .filter((row) => repeatRowIndexes.includes(row.row.rowIndex))
+      .map((row) => ({
+        ...row,
+        row: {
+          ...row.row,
+          amount: row.existingPayment && row.existingPayment.amount > 0 ? row.existingPayment.amount : row.row.amount,
+          advancePercent: undefined,
+        },
+      })),
+    [alreadyPaid, repeatRowIndexes],
+  );
+  const repeatTotal = useMemo(
+    () => repeatPosts.reduce((sum, row) => sum + (row.row.amount ?? 0), 0),
+    [repeatPosts],
+  );
+  const postRowsToConfirm = useMemo(() => [...valid, ...repeatPosts], [valid, repeatPosts]);
+  const postTotal = eligibleTotal + repeatTotal;
+
+  const handleProcess = useCallback(async (
+    rows: ComplianceBulkRowValidation[],
+    trips: Map<string, TripRow> = tripsById,
+  ) => {
     setStep("processing");
     const outcomes = await processComplianceBulkPayments({
       organizationId: orgId,
       category,
       rows,
-      tripsById,
+      tripsById: trips,
     });
     setResults(outcomes);
+    const loggedRows = rows.map((item) => {
+      const outcome = outcomes.find((result) => result.rowIndex === item.row.rowIndex);
+      const trip = trips.get(item.row.tripId);
+      return {
+        rowIndex: item.row.rowIndex,
+        matchKey: item.row.lrNumber ? `LR ${item.row.lrNumber}` : (trip?.trip_number || item.row.tripId),
+        recordId: trip?.id ?? null,
+        amount: item.row.amount,
+        mode: item.row.paymentModeId,
+        date: item.row.date ?? "",
+        utr: item.row.utr ?? "",
+        error: outcome?.error?.message ?? null,
+      };
+    });
+    const entry = paymentPostLogEntry({
+      fileName: fileName ?? "Payment file",
+      category,
+      rows: loggedRows,
+    });
+    if (orgId && loggedRows.length > 0) {
+      const recorded = await recordBulkPaymentPost({
+        organizationId: orgId,
+        category,
+        fileName: fileName ?? "Payment file",
+        rows: loggedRows,
+      });
+      if (recorded.batchId) entry.batch.id = recorded.batchId;
+      if (recorded.status) entry.batch.status = recorded.status;
+      rememberLog(entry);
+    }
     const succeededTripIds = outcomes
       .filter((o) => !o.error)
-      .map((o) => rows.find((r) => r.row.rowIndex === o.rowIndex)?.row.tripId)
+      .map((o) => {
+        const row = rows.find((item) => item.row.rowIndex === o.rowIndex);
+        if (!row) return null;
+        return trips.get(row.row.tripId)?.id ?? null;
+      })
       .filter((id): id is string => Boolean(id));
     if (orgId && succeededTripIds.length > 0) {
       syncFinanceComplianceCaches({
@@ -290,7 +441,6 @@ export default function ComplianceBulkPaymentScreen() {
         organizationId: orgId,
         tripId: succeededTripIds[0],
       });
-      // Pipeline + ledger for remaining trips — org-scoped invalidation already covers lists.
       for (const tripId of succeededTripIds.slice(1)) {
         syncFinanceComplianceCaches({
           queryClient,
@@ -301,7 +451,62 @@ export default function ComplianceBulkPaymentScreen() {
       }
     }
     setStep("done");
-  }, [orgId, category, tripsById, queryClient]);
+  }, [orgId, category, tripsById, queryClient, fileName, rememberLog]);
+
+  const approveBlockedAndPost = useCallback(async () => {
+    const comment = releaseComment.trim() || suggestedReleaseComment;
+    if (!comment) {
+      setReleaseError("Add a short reason. It is saved on each trip you approve.");
+      return;
+    }
+    setReleaseBusy(true);
+    setReleaseError(null);
+    setPostCheckError(null);
+    const outcome = await releaseBlockedTripsForPost({
+      category,
+      comment,
+      advancePercent: null,
+      trips: releasable.map((row) => {
+        const trip = tripsById.get(row.row.tripId);
+        return {
+          tripId: trip?.id ?? "",
+          supplierId: trip?.supplier_id ?? null,
+          complianceVerified: Boolean(trip?.compliance_verified_at),
+          financeVerified: Boolean(trip?.finance_verified_at),
+          reason: row.gateReason ?? "",
+          advancePercent: row.row.advancePercent ?? null,
+        };
+      }),
+    });
+    if (outcome.released.length === 0) {
+      setReleaseError(explainReleaseFailure(outcome.failed[0]?.message));
+      setReleaseBusy(false);
+      return;
+    }
+    try {
+      const result = await validateComplianceBulkPayments({ organizationId: orgId, category, rows: postRows });
+      setValid(result.valid);
+      setInvalid(result.invalid);
+      setBlocked(result.blocked);
+      setAlreadyPaid(result.alreadyPaid);
+      setRepeatRowIndexes([]);
+      setEligibleTotal(result.eligibleTotal);
+      setTripsById(result.tripsById);
+      setPostValidated(true);
+      if (result.valid.length === 0) {
+        const still = outcome.failed[0]?.message ?? result.blocked[0]?.gateReason ?? "Approved, but nothing became eligible to post.";
+        setPostCheckError(still);
+        setReleaseBusy(false);
+        setStep("preview");
+        return;
+      }
+      setReleaseBusy(false);
+      await handleProcess(result.valid, result.tripsById);
+    } catch (e) {
+      setReleaseError(explainBulkPaymentReadError((e as Error).message));
+      setReleaseBusy(false);
+    }
+  }, [releaseComment, suggestedReleaseComment, category, releasable, tripsById, orgId, postRows, handleProcess]);
 
   const succeeded = useMemo(() => results.filter((r) => !r.error).length, [results]);
   const failed = useMemo(() => results.filter((r) => r.error).length, [results]);
@@ -327,13 +532,15 @@ export default function ComplianceBulkPaymentScreen() {
   const intentLabel = intent === "update" ? "Update fields" : "Post payments";
   const postActive = step === "confirm" || step === "processing" || step === "done" ? 4 : step === "preview" || step === "validating" ? 3 : fileName ? 2 : 1;
   const postNext = !fileName
-    ? "Next: download the sample or select a CSV."
+    ? "Next: download the sample or select a CSV or Excel file."
     : step === "upload" || step === "validating"
       ? "Next: open the preview. Each row is checked before anything is posted."
       : step === "preview"
         ? valid.length > 0
           ? `Next: confirm ${valid.length} eligible ${valid.length === 1 ? "payment" : "payments"}.`
-          : "Nothing will be posted. Fix the rows in the preview, or close it."
+          : releasable.length > 0
+            ? "Next: approve the held rows. The payment posts after that."
+            : "Nothing will be posted. Fix the rows in the preview, or close it."
         : "Next: confirm. Only eligible rows are posted.";
 
   return (
@@ -356,6 +563,8 @@ export default function ComplianceBulkPaymentScreen() {
         <Text style={styles.backText}>Back</Text>
       </TouchableOpacity>
 
+      <View style={[styles.workRow, !wide && styles.workStack]}>
+      <View style={styles.workMain}>
       <View style={styles.hero}>
         <View style={styles.heroCopy}>
           <Text style={styles.eyebrow}>Compliance finance</Text>
@@ -420,9 +629,6 @@ export default function ComplianceBulkPaymentScreen() {
           </View>
         </View>
       </View>
-
-      <View style={[styles.workRow, !wide && styles.workStack]}>
-      <View style={styles.workMain}>
       {intent === "update" ? (
         <BulkOperationWorkspace
           organizationId={orgId}
@@ -431,7 +637,7 @@ export default function ComplianceBulkPaymentScreen() {
             ...(canViewFinance ? ["trip_compliance.finance.view"] : []),
             ...(canManageFinance ? ["trip_compliance.finance.manage"] : []),
           ]}
-          onBatchSaved={() => setLogVersion((version) => version + 1)}
+          onBatchSaved={rememberLog}
           onProgress={onUpdateProgress}
         />
       ) : null}
@@ -452,11 +658,11 @@ export default function ComplianceBulkPaymentScreen() {
             </TouchableOpacity>
           </View>
           <Text style={styles.sampleHint}>
-            Match each column after you upload or paste. Mode is UPI, BANK, CASH, CHEQUE, FUEL_CARD, FASTAG, or CREDIT. Lines that start with # are notes.
+            Match Trip ID or LR number after you upload or paste. Leave Amount blank to use the approved advance. Leave Mode blank when the row has a UTR — that posts as a bank transfer. Lines that start with # are notes.
           </Text>
           <View style={styles.fileDrop}>
             <TouchableOpacity style={styles.fileDropMain} onPress={handlePick} accessibilityRole="button">
-              <Text style={styles.fileDropTitle}>{fileName || "Select CSV"}</Text>
+              <Text style={styles.fileDropTitle}>{fileName || "Select CSV or Excel"}</Text>
               <Text style={styles.sampleHint}>
                 {postRows.length > 0
                   ? `${postRows.length} payment ${postRows.length === 1 ? "row" : "rows"}`
@@ -505,11 +711,14 @@ export default function ComplianceBulkPaymentScreen() {
               <Text style={styles.sampleHint}>One mark per column. Tap a mark to give that column to the field.</Text>
               <View style={styles.mapHead}>
                 <View style={styles.mapLabelCol} />
-                {postHeaders.map((header) => (
-                  <View key={header} style={styles.mapHeadCell}>
-                    <Text style={styles.mapHeadText} numberOfLines={2}>{header}</Text>
-                  </View>
-                ))}
+                {postHeaders.map((header) => {
+                  const used = POST_PAYMENT_FIELDS.some((field) => postMapping[field.key] === header);
+                  return (
+                    <View key={header} style={styles.mapHeadCell}>
+                      <Text style={[styles.mapHeadText, used && styles.mapHeadTextOn]} numberOfLines={1}>{header}</Text>
+                    </View>
+                  );
+                })}
               </View>
               {POST_PAYMENT_FIELDS.map((field) => (
                 <View key={field.key} style={styles.mapRow}>
@@ -599,7 +808,7 @@ export default function ComplianceBulkPaymentScreen() {
               <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetBody}>
       {step === "preview" || step === "validating" ? (
         <View style={styles.previewWrap}>
-          <Text style={styles.sampleHint}>Check the Trip ID against this workspace, then the amount, mode, date and UTR.</Text>
+          <Text style={styles.sampleHint}>Match each row by Trip ID or LR number. The amount in the file is posted as entered. If it differs from the current advance, only the percent is updated. A blank mode with a UTR posts as a bank transfer.</Text>
           <ScrollView horizontal>
             <View>
               <View style={styles.tableRow}>
@@ -626,26 +835,129 @@ export default function ComplianceBulkPaymentScreen() {
           {postValidated ? (
             <>
           <Text style={styles.subheader}>
-            Eligible {valid.length} · Blocked {blocked.length} · Already paid {alreadyPaid.length} · Invalid{" "}
-            {invalid.length}
+            Ready {valid.length} · Needs approval {releasable.length} · Held {held.length} · Already paid {alreadyPaid.length} · Invalid {invalid.length}
           </Text>
-          <Text style={styles.subtitle}>Total payable (eligible): ₹{eligibleTotal.toLocaleString("en-IN")}</Text>
-          {blocked.map((r) => (
-            <Text key={`b-${r.row.rowIndex}`} style={styles.message}>
-              Blocked row {r.row.rowIndex} ({r.row.tripId}): {r.gateReason}
-            </Text>
+          <Text style={styles.subtitle}>
+            Ready now ₹{eligibleTotal.toLocaleString("en-IN")}
+            {releasable.length > 0 ? ` · After approval ₹${approvalTotal.toLocaleString("en-IN")}` : ""}
+          </Text>
+          {valid.filter((r) => r.notice).map((r) => (
+            <Text key={`n-${r.row.rowIndex}`} style={r.noticeTone === "alert" ? styles.warning : styles.sampleHint}>{r.notice}</Text>
           ))}
-          {alreadyPaid.map((r) => (
-            <Text key={`a-${r.row.rowIndex}`} style={styles.message}>
-              Already paid row {r.row.rowIndex} ({r.row.tripId}): {r.gateReason}
-            </Text>
+          {releasable.length > 0 && canManageFinance ? (
+            <View style={styles.holdCard}>
+              <Text style={styles.holdEyebrow}>Needs approval</Text>
+              <Text style={styles.holdTitle}>
+                {releasable.every((row) => (row.alerts ?? []).every((alert) => alert.title === "POD pending"))
+                  ? "Hard-copy POD is not marked received"
+                  : "These trips still need approval"}
+              </Text>
+              <Text style={styles.sampleHint}>
+                {releasable.every((row) => (row.alerts ?? []).every((alert) => alert.title === "POD pending"))
+                  ? "Approval records the hard-copy receipt on the trip, then posts this balance."
+                  : "Approval records what is still open, including a missing hard-copy POD, then posts the file amount."}
+              </Text>
+              {releasable.map((row) => (
+                <View key={`hold-${row.row.rowIndex}`} style={styles.holdTrip}>
+                  <Text style={styles.holdTripRef}>
+                    {row.row.lrNumber ? `LR ${row.row.lrNumber}` : row.row.tripId}
+                  </Text>
+                  {(row.alerts ?? []).map((alert) => (
+                    <View key={`${row.row.rowIndex}-${alert.kind}`} style={styles.holdAlert}>
+                      <Text style={styles.holdAlertTitle}>{alert.title}</Text>
+                      <Text style={styles.holdAlertDetail}>{alert.detail}</Text>
+                    </View>
+                  ))}
+                  {row.notice ? (
+                    <Text style={row.noticeTone === "alert" ? styles.warning : styles.sampleHint}>{row.notice}</Text>
+                  ) : null}
+                </View>
+              ))}
+              <Text style={styles.holdAlertTitle}>Saved on the trip</Text>
+              <TextInput
+                value={releaseComment || suggestedReleaseComment}
+                onChangeText={setReleaseComment}
+                placeholder="Why this payment can proceed"
+                placeholderTextColor={Theme.textMuted}
+                editable={!releaseBusy}
+                multiline
+                style={styles.pasteInput}
+              />
+              {releaseError ? <Text style={styles.errorRow}>{releaseError}</Text> : null}
+              <TouchableOpacity
+                style={[styles.primaryBtn, releaseBusy && styles.primaryBtnDisabled]}
+                disabled={releaseBusy}
+                onPress={() => void approveBlockedAndPost()}
+              >
+                <Text style={styles.primaryBtnText}>
+                  {releaseBusy
+                    ? "Approving…"
+                    : `Approve and post ₹${approvalTotal.toLocaleString("en-IN")}`}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+          {held.map((r) => (
+            <View key={`h-${r.row.rowIndex}`}>
+              <Text style={styles.message}>
+                Held row {r.row.rowIndex} ({r.row.lrNumber ? `LR ${r.row.lrNumber}` : r.row.tripId}): {r.gateReason}
+              </Text>
+              {(r.alerts ?? []).map((alert) => (
+                <Text key={`${r.row.rowIndex}-${alert.kind}`} style={styles.warning}>{alert.title}. {alert.detail}</Text>
+              ))}
+            </View>
           ))}
+          {alreadyPaid.length > 0 ? (
+            <View style={styles.holdCard}>
+              <Text style={styles.holdEyebrow}>Already posted</Text>
+              <Text style={styles.holdTitle}>A transaction is already on this trip</Text>
+              <Text style={styles.sampleHint}>
+                The first payment stays. Another transaction is posted only if you confirm it here.
+              </Text>
+              {alreadyPaid.map((row) => {
+                const payment = row.existingPayment;
+                const date = formatComplianceTxnDate(payment?.date) || "an earlier date";
+                const amount = payment?.amount ?? 0;
+                const ref = row.row.lrNumber ? `LR ${row.row.lrNumber}` : row.row.tripId;
+                const chosen = repeatRowIndexes.includes(row.row.rowIndex);
+                const fileDiffers = row.row.amount != null && amount > 0 && Math.round((row.row.amount ?? 0) * 100) !== Math.round(amount * 100);
+                const label = category === "compliance_advance" ? "advance" : "balance";
+                return (
+                  <View key={`paid-${row.row.rowIndex}`} style={styles.holdTrip}>
+                    <Text style={styles.holdTripRef}>{ref}</Text>
+                    <Text style={styles.holdAlertDetail}>
+                      {payment && payment.count > 1
+                        ? `${payment.count} ${label} payments are already posted. The latest is ₹${amount.toLocaleString("en-IN")} on ${date}.`
+                        : `An ${label} of ₹${amount.toLocaleString("en-IN")} was posted on ${date}.`}
+                    </Text>
+                    {fileDiffers ? (
+                      <Text style={styles.warning}>
+                        The file amount is ₹{(row.row.amount ?? 0).toLocaleString("en-IN")}. The approved amount cannot change after a payment exists, so another transaction would be ₹{amount.toLocaleString("en-IN")}.
+                      </Text>
+                    ) : null}
+                    <TouchableOpacity
+                      style={chosen ? styles.secondaryBtn : styles.primaryBtn}
+                      onPress={() => setRepeatRowIndexes((current) =>
+                        current.includes(row.row.rowIndex)
+                          ? current.filter((index) => index !== row.row.rowIndex)
+                          : [...current, row.row.rowIndex],
+                      )}
+                    >
+                      <Text style={chosen ? styles.secondaryBtnText : styles.primaryBtnText}>
+                        {chosen ? "Keep only the existing payment" : "Post another transaction"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
           {invalid.length > 0 ? (
             <View style={styles.errorBlock}>
               <Text style={styles.errorBlockTitle}>Invalid rows (not processed)</Text>
               {invalid.map((r) => (
                 <Text key={r.row.rowIndex} style={styles.errorRow}>
-                  Row {r.row.rowIndex} ({r.row.tripId || "—"}): {r.errors.join("; ")}
+                  Row {r.row.rowIndex} · {r.row.lrNumber ? `LR ${r.row.lrNumber}` : r.row.tripId || "no reference"}: {r.errors.join(" ")}
                 </Text>
               ))}
             </View>
@@ -653,13 +965,13 @@ export default function ComplianceBulkPaymentScreen() {
             </>
           ) : null}
           {postCheckError ? <Text style={styles.errorRow}>{postCheckError}</Text> : null}
-          {step === "validating" ? null : postValidated && valid.length > 0 ? (
+          {step === "validating" ? null : postValidated && postRowsToConfirm.length > 0 ? (
             <TouchableOpacity style={styles.primaryBtn} onPress={() => setStep("confirm")}>
               <Text style={styles.primaryBtnText}>
-                Review confirmation for {valid.length} trips (₹{eligibleTotal.toLocaleString("en-IN")})
+                Review confirmation for {postRowsToConfirm.length} {postRowsToConfirm.length === 1 ? "trip" : "trips"} (₹{postTotal.toLocaleString("en-IN")})
               </Text>
             </TouchableOpacity>
-          ) : postValidated ? (
+          ) : postValidated && (releasable.length > 0 || alreadyPaid.length > 0) ? null : postValidated ? (
             <Text style={styles.message}>No eligible rows to post.</Text>
           ) : (
             <TouchableOpacity style={styles.primaryBtn} onPress={() => void validatePostRows()}>
@@ -675,23 +987,35 @@ export default function ComplianceBulkPaymentScreen() {
       {step === "confirm" ? (
         <View style={styles.previewWrap}>
           <Text style={styles.subheader}>
-            Confirm payment of ₹{eligibleTotal.toLocaleString("en-IN")} for {valid.length} trips
+            Confirm payment of ₹{postTotal.toLocaleString("en-IN")} for {postRowsToConfirm.length} {postRowsToConfirm.length === 1 ? "trip" : "trips"}
           </Text>
           <Text style={styles.subtitle}>
-            Eligible {valid.length} will post. Blocked {blocked.length} and already paid {alreadyPaid.length} will be
-            skipped. Invalid {invalid.length} will not run.
+            {valid.length} new {valid.length === 1 ? "payment" : "payments"} will post.
+            {repeatPosts.length > 0 ? ` ${repeatPosts.length} additional ${repeatPosts.length === 1 ? "payment is" : "payments are"} on a trip that already has a transaction.` : ""}
+            {alreadyPaid.length - repeatPosts.length > 0 ? ` ${alreadyPaid.length - repeatPosts.length} existing ${alreadyPaid.length - repeatPosts.length === 1 ? "payment stays" : "payments stay"} as ${alreadyPaid.length - repeatPosts.length === 1 ? "it is" : "they are"}.` : ""}
           </Text>
-          <Text style={styles.warning}>
-            Retry is not guaranteed safe. Duplicate posts are only guarded by a client read of existing transactions —
-            not a database unique constraint.
-          </Text>
+          {repeatPosts.map((row) => {
+            const date = formatComplianceTxnDate(row.existingPayment?.date) || "an earlier date";
+            const amount = row.existingPayment?.amount ?? row.row.amount ?? 0;
+            const ref = row.row.lrNumber ? `LR ${row.row.lrNumber}` : row.row.tripId;
+            return (
+              <Text key={`repeat-${row.row.rowIndex}`} style={styles.warning}>
+                {ref}: another ₹{amount.toLocaleString("en-IN")} will be posted. A transaction of that amount is already dated {date}.
+              </Text>
+            );
+          })}
+          {repeatPosts.length === 0 ? (
+            <Text style={styles.sampleHint}>
+              Confirming posts the amount shown. A trip that already has a payment is left as it is.
+            </Text>
+          ) : null}
           <TouchableOpacity
             style={styles.primaryBtn}
-            onPress={() => void handleProcess(valid)}
-            disabled={valid.length === 0}
+            onPress={() => void handleProcess(postRowsToConfirm)}
+            disabled={postRowsToConfirm.length === 0}
           >
             <Text style={styles.primaryBtnText}>
-              Confirm payment of ₹{eligibleTotal.toLocaleString("en-IN")} for {valid.length} trips
+              Confirm payment of ₹{postTotal.toLocaleString("en-IN")} for {postRowsToConfirm.length} {postRowsToConfirm.length === 1 ? "trip" : "trips"}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setStep("preview")} style={styles.secondaryBtn}>
@@ -702,39 +1026,26 @@ export default function ComplianceBulkPaymentScreen() {
 
       {step === "done" ? (
         <View style={styles.previewWrap}>
-          <Text style={styles.subheader}>Payment batch completed</Text>
+          <Text style={styles.subheader}>{failed > 0 && succeeded === 0 ? "Payment not posted" : "Payment posted"}</Text>
           <Text style={styles.subtitle}>
-            Successful {succeeded} · Failed {failed} · Skipped {blocked.length + alreadyPaid.length} · Invalid{" "}
-            {invalid.length}
+            Posted {succeeded}. Not posted {failed}. Left as they were {alreadyPaid.length - repeatPosts.length + blocked.length}. {fileName ?? "This file"} is in the update log.
           </Text>
           {results
             .filter((r) => r.error)
             .map((r) => (
               <Text key={r.rowIndex} style={styles.errorRow}>
-                Failed row {r.rowIndex}: {r.error?.message}
+                Row {r.rowIndex}: {r.error?.message}
               </Text>
             ))}
           {failed > 0 ? (
-            <>
-              <Text style={styles.warning}>
-                {failed} failed {failed === 1 ? "row is" : "rows are"} listed above. Retry is disabled because payment
-                idempotency is not guaranteed. Duplicate posts are only guarded by a client read of existing
-                transactions — not a database unique constraint.
-              </Text>
-              <TouchableOpacity
-                style={[styles.primaryBtn, styles.primaryBtnDisabled]}
-                disabled
-                accessibilityRole="button"
-                accessibilityState={{ disabled: true }}
-                accessibilityLabel="Retry unavailable — payment idempotency is not guaranteed"
-              >
-                <Text style={styles.primaryBtnText}>Retry unavailable — payment idempotency is not guaranteed.</Text>
-              </TouchableOpacity>
-            </>
-          ) : null}
-          <TouchableOpacity onPress={reset} style={styles.primaryBtn}>
-            <Text style={styles.primaryBtnText}>Upload another file</Text>
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.primaryBtn} onPress={() => setStep("preview")}>
+              <Text style={styles.primaryBtnText}>Back to the file</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={reset} style={styles.primaryBtn}>
+              <Text style={styles.primaryBtnText}>Upload another file</Text>
+            </TouchableOpacity>
+          )}
         </View>
       ) : null}
               </ScrollView>
@@ -843,9 +1154,16 @@ export default function ComplianceBulkPaymentScreen() {
           copies={intent === "update" ? undefined : POST_STEP_COPY}
         />
         <View style={styles.logRail}>
-          <Text style={styles.subheader}>Update log</Text>
-          <Text style={styles.sideHint}>{categoryLabel} files confirmed in this workspace.</Text>
-          <BulkPaymentAuditLog organizationId={orgId} category={category} refreshKey={logVersion} canCorrect={canManageFinance} />
+          <Text style={styles.subheader}>Bulk upload log</Text>
+          <Text style={styles.sideHint}>{categoryLabel} files confirmed from a bulk update or upload.</Text>
+          <BulkPaymentAuditLog organizationId={orgId} category={category} refreshKey={logVersion} canCorrect={canManageFinance} pending={pendingLogs} variant="bulk" />
+        </View>
+      </View>
+      <View style={[styles.manualColumn, !wide && styles.sideColumnFull]}>
+        <View style={styles.logRail}>
+          <Text style={styles.subheader}>Payment log</Text>
+          <Text style={styles.sideHint}>{categoryLabel} payments recorded one by one.</Text>
+          <BulkPaymentAuditLog organizationId={orgId} category={category} refreshKey={logVersion} canCorrect={false} pending={pendingLogs} variant="manual" />
         </View>
       </View>
       </View>
@@ -861,8 +1179,10 @@ const styles = StyleSheet.create({
   workRow: { flexDirection: "row", alignItems: "flex-start", gap: 20 },
   workStack: { flexDirection: "column" },
   workMain: { flex: 1, minWidth: 0, gap: 16 },
-  sideColumn: { width: 340, gap: 16, flexShrink: 0 },
-  sideColumnFull: { width: "100%" },
+  sideColumn: { width: 280, gap: 16, flexShrink: 0 },
+  logColumn: { width: 320, gap: 16, flexShrink: 0 },
+  manualColumn: { width: 320, gap: 16, flexShrink: 0 },
+  sideColumnFull: { width: "100%", marginLeft: 0 },
   logRail: {
     width: "100%",
     backgroundColor: Theme.cardWhite,
@@ -894,41 +1214,42 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   fileDropTitle: { fontSize: 15, fontWeight: "800", color: Theme.textPrimaryDark, textAlign: "center" },
-  matchPanel: { gap: 8, marginTop: 4 },
+  matchPanel: { gap: 6, marginTop: 4 },
   mapHead: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    paddingBottom: 8,
+    alignItems: "center",
+    paddingBottom: 4,
     borderBottomWidth: 1,
     borderBottomColor: Theme.complianceCardBorder,
   },
-  mapHeadCell: { flex: 1, minWidth: 0, minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: 2 },
-  mapHeadText: { fontSize: 11, fontWeight: "700", color: Theme.textMuted, textAlign: "center" },
+  mapHeadCell: { flex: 1, minWidth: 0, minHeight: 28, alignItems: "center", justifyContent: "center", paddingHorizontal: 2 },
+  mapHeadText: { fontSize: 10, fontWeight: "700", color: Theme.textMuted, textAlign: "center" },
+  mapHeadTextOn: { color: Theme.textPrimaryDark },
   mapRow: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 48,
+    minHeight: 34,
     borderBottomWidth: 1,
     borderBottomColor: Theme.surfaceBorder,
   },
-  mapLabelCol: { width: 132, minWidth: 132 },
-  mapLabel: { fontSize: 13, fontWeight: "700", color: Theme.textPrimaryDark },
+  mapLabelCol: { width: 88, minWidth: 88 },
+  mapLabel: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
   sampleIndex: { fontSize: 11, fontWeight: "700", color: Theme.textMuted },
-  sampleValue: { fontSize: 12, fontWeight: "600", color: Theme.textPrimary, textAlign: "center" },
+  sampleValue: { fontSize: 11, fontWeight: "600", color: Theme.textPrimary, textAlign: "center" },
   mapMark: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: Theme.complianceSelectedWash,
     alignItems: "center",
     justifyContent: "center",
   },
   mapMarkOn: { backgroundColor: Theme.buttonDark, borderColor: Theme.buttonDark },
-  mapMarkTaken: { backgroundColor: Theme.complianceIconWash },
-  mapMarkText: { fontSize: 14, fontWeight: "700", color: Theme.buttonDarkText },
-  mapMarkDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Theme.textMuted },
+  mapMarkTaken: { backgroundColor: Theme.complianceIconWash, borderColor: Theme.complianceCardBorder },
+  mapMarkText: { fontSize: 11, fontWeight: "800", color: Theme.buttonDarkText, lineHeight: 12 },
+  mapMarkDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: Theme.textMuted },
   pasteInput: {
     minHeight: 120,
     borderWidth: 1,
@@ -1097,7 +1418,7 @@ const styles = StyleSheet.create({
   section: { gap: 8 },
   title: { fontSize: 26, fontWeight: "800", color: Theme.textPrimaryDark, lineHeight: 32 },
   subtitle: { fontSize: 13, color: Theme.textMuted, lineHeight: 18 },
-  subheader: { fontSize: 12, fontWeight: "700", color: Theme.textPrimary, letterSpacing: 0.2 },
+  subheader: { fontSize: 12, fontWeight: "600", color: Theme.textPrimary, letterSpacing: 0.2 },
   segment: {
     flexDirection: "row",
     gap: 4,
@@ -1118,7 +1439,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
   },
-  segmentText: { fontSize: 13, fontWeight: "700", color: Theme.textMuted, textAlign: "center" },
+  segmentText: { fontSize: 12, fontWeight: "600", color: Theme.textMuted, textAlign: "center" },
   segmentTextOn: { color: Theme.textPrimaryDark },
   primaryBtn: {
     minHeight: Layout.minTouchTargetSize,
@@ -1142,4 +1463,32 @@ const styles = StyleSheet.create({
   errorBlockTitle: { fontSize: 13, fontWeight: "700", color: Theme.teslaRed },
   errorRow: { fontSize: 12, color: Theme.complianceStageDocsFg, lineHeight: 18 },
   warning: { fontSize: 12, color: Theme.complianceStagePendingFg, lineHeight: 18 },
+  holdCard: {
+    gap: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.complianceSelectedWash,
+    padding: 14,
+  },
+  holdEyebrow: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: Theme.complianceStagePendingFg,
+  },
+  holdTitle: { fontSize: 16, fontWeight: "800", color: Theme.textPrimaryDark, lineHeight: 22 },
+  holdTrip: {
+    gap: 6,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    padding: 12,
+  },
+  holdTripRef: { fontSize: 14, fontWeight: "800", color: Theme.textPrimaryDark },
+  holdAlert: { gap: 2 },
+  holdAlertTitle: { fontSize: 12, fontWeight: "700", color: Theme.complianceStageDocsFg },
+  holdAlertDetail: { fontSize: 12, color: Theme.textMuted, lineHeight: 17 },
 });

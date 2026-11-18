@@ -1,4 +1,4 @@
-import { memo, useEffect } from 'react';
+import { memo, useLayoutEffect } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -43,7 +43,7 @@ export const PulseBottomTabSlot = memo(function PulseBottomTabSlot({
   const pressSV = useSharedValue(TAB_PRESS_SCALE_REST);
   const activeSV = useSharedValue(active ? 1 : 0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     activeSV.value = active ? 1 : 0;
   }, [active, activeSV]);
 

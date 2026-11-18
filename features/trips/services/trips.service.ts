@@ -665,7 +665,7 @@ export async function getComplianceOpsPipelinePage(
   hasMore: boolean;
   total: number | null;
 }> {
-  const empty = { trips: [] as TripRow[], hasMore: false, total: null, missing: false };
+  const empty = { error: null, trips: [] as TripRow[], hasMore: false, total: null, missing: false };
   if (compliancePipelineRpcMissing) return { ...empty, missing: true };
   const limit = Math.min(250, Math.max(1, opts?.limit ?? 250));
   const { data, error } = await supabase().rpc("list_compliance_ops_pipeline_keyset", {

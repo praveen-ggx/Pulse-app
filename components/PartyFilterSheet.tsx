@@ -190,6 +190,7 @@ export function PartyFilterSheet<K extends string>({
                     style={[styles.choice, selected && styles.choiceOn]}
                     onPress={() => onSelect(choice.id)}
                     accessibilityRole="button"
+                    accessibilityLabel={choice.meta ? `${choice.name}, ${choice.meta}` : choice.name}
                     accessibilityState={{ selected }}
                   >
                     {choice.avatar ?? <FallbackMark name={choice.name} />}

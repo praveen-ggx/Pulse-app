@@ -73,7 +73,10 @@ import {
   type ManualInvoiceLineDraft,
 } from "@/features/invoicing/utils/manualInvoice.util";
 import { invoiceHsnIssueBlock } from "@/features/invoicing/utils/invoiceLineHsn.util";
-import { financeCreateInvoiceLabel } from "@/features/invoicing/utils/financeInvoicePreview.util";
+import {
+  financeCreateInvoiceLabel,
+  manualInvoiceDateFromSaved,
+} from "@/features/invoicing/utils/financeInvoicePreview.util";
 import {
   buildSavedInvoicePreviewModel,
   manualLinesFromSavedItems,
@@ -515,6 +518,7 @@ export function InvoicingExecuteScreen({
   const manualIssueKey = useRef(
     `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   );
+  const hydratedManualDraftId = useRef<string | null>(null);
 
   useEffect(() => {
     const compose = Array.isArray(createParams.compose)
@@ -523,6 +527,24 @@ export function InvoicingExecuteScreen({
     if (compose === "manual") setComposeMode("manual");
     if (pathname.endsWith("/manual")) setComposeMode("manual");
   }, [createParams.compose, pathname]);
+
+  useEffect(() => {
+    if (composeMode !== "manual") return;
+    const paramDraft = parseCreateClientParam(createParams.draft);
+    if (!paramDraft || hydratedManualDraftId.current === paramDraft) return;
+    const saved = draftInvoices.find((row) => row.id === paramDraft);
+    if (!saved || invoiceSourceLabel(saved.invoice_source) !== "Manual") return;
+    if (manualDraftId && manualDraftId !== paramDraft) return;
+    const savedDate = manualInvoiceDateFromSaved(saved.invoice_date);
+    if (savedDate) setManualInvoiceDate(savedDate);
+    const parsed = parseSavedInvoiceLines(saved.line_items);
+    if (parsed.length > 0) {
+      setManualLines(manualLinesFromSavedItems(parsed));
+      setManualBuiltLines(parsed);
+    }
+    setManualDraftId(saved.id);
+    hydratedManualDraftId.current = paramDraft;
+  }, [composeMode, createParams.draft, draftInvoices, manualDraftId]);
 
   useEffect(() => {
     if (invoiceSurface !== "issued") return;
@@ -1089,6 +1111,7 @@ export function InvoicingExecuteScreen({
           taxSnapshot: manualDraftModel.tax.snapshot,
           draftId: manualDraftId,
           invoiceNumber: options?.invoiceNumber,
+          invoiceDate: manualInvoiceDate,
         };
         if (mode === "draft") {
           const res = await saveManualInvoiceDraft(shared);
@@ -1127,6 +1150,7 @@ export function InvoicingExecuteScreen({
       manualClientName,
       manualDraftId,
       manualDraftModel,
+      manualInvoiceDate,
       manualPo,
       manualTerms,
       orgId,
@@ -1911,6 +1935,9 @@ export function InvoicingExecuteScreen({
         const parsed = parseSavedInvoiceLines(draft.line_items);
         setComposeMode("manual");
         setManualDraftId(draft.id);
+        const savedDate = manualInvoiceDateFromSaved(draft.invoice_date);
+        if (savedDate) setManualInvoiceDate(savedDate);
+        hydratedManualDraftId.current = draft.id;
         if (parsed.length > 0) {
           setManualLines(manualLinesFromSavedItems(parsed));
           setManualBuiltLines(parsed);

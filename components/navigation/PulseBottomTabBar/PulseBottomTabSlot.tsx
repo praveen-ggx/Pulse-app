@@ -7,15 +7,10 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 
 import Theme from '@/constants/Theme';
-import { TAB_PRESS_SCALE_ACTIVE, TAB_PRESS_SCALE_REST, TAB_PRESS_TIMING_MS } from '@/lib/mobileTabNav/constants';
+import { TAB_PRESS_SCALE_ACTIVE, TAB_PRESS_SCALE_REST } from '@/lib/mobileTabNav/constants';
 import { PULSE_BOTTOM_TAB_DOCK } from './dockMetrics';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -29,6 +24,8 @@ export type PulseBottomTabSlotProps = {
   compact?: boolean;
   icon: React.ReactNode;
   style?: StyleProp<ViewStyle>;
+  /** Marketplace dock pill — cream label and gold badge on the brown button. */
+  tone?: "dock" | "market";
 };
 
 /** One tab inside a dock pill. The active highlight is drawn by the bar. */
@@ -41,15 +38,13 @@ export const PulseBottomTabSlot = memo(function PulseBottomTabSlot({
   compact,
   icon,
   style,
+  tone = "dock",
 }: PulseBottomTabSlotProps) {
   const pressSV = useSharedValue(TAB_PRESS_SCALE_REST);
   const activeSV = useSharedValue(active ? 1 : 0);
 
   useEffect(() => {
-    activeSV.value = withTiming(active ? 1 : 0, {
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-    });
+    activeSV.value = active ? 1 : 0;
   }, [active, activeSV]);
 
   const contentStyle = useAnimatedStyle(() => ({
@@ -65,11 +60,11 @@ export const PulseBottomTabSlot = memo(function PulseBottomTabSlot({
     <AnimatedPressable
       style={[styles.slot, style]}
       onPressIn={() => {
-        pressSV.value = withTiming(TAB_PRESS_SCALE_ACTIVE, { duration: TAB_PRESS_TIMING_MS });
+        pressSV.value = TAB_PRESS_SCALE_ACTIVE;
         onPressIn?.();
       }}
       onPressOut={() => {
-        pressSV.value = withTiming(TAB_PRESS_SCALE_REST, { duration: TAB_PRESS_TIMING_MS });
+        pressSV.value = TAB_PRESS_SCALE_REST;
       }}
       onPress={onPress}
       accessibilityRole="tab"
@@ -80,15 +75,21 @@ export const PulseBottomTabSlot = memo(function PulseBottomTabSlot({
         <View style={styles.iconWrap}>
           {icon}
           {showBadge ? (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
+            <View style={[styles.badge, tone === "market" && styles.badgeMarket]}>
+              <Text style={[styles.badgeText, tone === "market" && styles.badgeTextMarket]}>
                 {(badgeCount ?? 0) > 9 ? '9+' : badgeCount}
               </Text>
             </View>
           ) : null}
         </View>
         <Text
-          style={[styles.label, compact && styles.labelCompact, active && styles.labelActive]}
+          style={[
+            styles.label,
+            compact && styles.labelCompact,
+            active && styles.labelActive,
+            tone === "market" && styles.labelMarket,
+            tone === "market" && active && styles.labelMarketActive,
+          ]}
           numberOfLines={1}
           adjustsFontSizeToFit
           minimumFontScale={0.85}
@@ -130,7 +131,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
     backgroundColor: Theme.accentGold,
     borderWidth: 1.5,
-    borderColor: Theme.dockFill,
+    borderColor: Theme.dockPillFill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -146,9 +147,10 @@ const styles = StyleSheet.create({
     height: PULSE_BOTTOM_TAB_DOCK.labelLineHeight,
     fontSize: PULSE_BOTTOM_TAB_DOCK.labelFontSize,
     lineHeight: PULSE_BOTTOM_TAB_DOCK.labelLineHeight,
-    fontWeight: '500',
+    fontWeight: '600',
     color: Theme.dockIconMuted,
-    letterSpacing: 0.1,
+    letterSpacing: 0,
+    includeFontPadding: false,
     textAlign: 'center',
     width: '100%',
   },
@@ -159,6 +161,24 @@ const styles = StyleSheet.create({
   },
   labelActive: {
     color: Theme.dockIconActive,
+    fontWeight: '700',
+  },
+  badgeMarket: {
+    top: -1,
+    right: -6,
+    backgroundColor: Theme.accentGold,
+    borderColor: Theme.accentBrownDeep,
+  },
+  badgeTextMarket: {
+    color: Theme.accentBrownDeep,
+  },
+  labelMarket: {
+    color: Theme.accentBrownWash,
+    fontWeight: '600',
+    letterSpacing: 0,
+  },
+  labelMarketActive: {
+    color: Theme.accentBrownWash,
     fontWeight: '700',
   },
 });

@@ -1,15 +1,16 @@
 /**
- * Mobile bottom navigation — solid dark floating dock. Main tabs share one
- * pill with a sliding highlight; Marketplace and Chat each sit in their own pill.
+ * Mobile bottom navigation — Verify-pill colour: light blue fill, brown
+ * border, brown icons. Layout unchanged. Main tabs share one pill; Marketplace
+ * and Chat each sit in their own pill on the same tray.
  * Each slot follows the same member access as the desktop top nav.
  */
-import { memo, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import {
@@ -60,9 +61,44 @@ type DockTab = {
   fillWhenActive?: boolean;
 };
 
-const HIGHLIGHT_SPRING = { damping: 20, stiffness: 220, mass: 0.7 } as const;
-const HIGHLIGHT_FADE = { duration: 220, easing: Easing.out(Easing.cubic) } as const;
 const HIGHLIGHT_INSET = 3;
+/** Short glide. Starts on press so the page and the thumb move together. */
+const FLOW = { duration: 70, easing: Easing.out(Easing.cubic) } as const;
+
+/** Even top-to-bottom tone on the Marketplace pill. No outline, no highlight bar. */
+function MarketFill() {
+  return (
+    <View style={styles.mirror} pointerEvents="none">
+      <LinearGradient
+        colors={[Theme.accentBrownLight, Theme.accentBrown, Theme.accentBrownDeep]}
+        locations={[0, 0.45, 1]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+    </View>
+  );
+}
+
+/** Apple-style mirror thumb: glass falloff and a hairline specular. */
+function MirrorFill() {
+  return (
+    <View style={styles.mirror} pointerEvents="none">
+      <LinearGradient
+        colors={[
+          Theme.pulseTabClusterThumbGlassTop,
+          Theme.pulseTabClusterThumbSolid,
+          Theme.pulseTabClusterThumbGlassBottom,
+        ]}
+        locations={[0, 0.42, 1]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.mirrorSpecular} />
+    </View>
+  );
+}
 
 function DockIcon({
   Icon,
@@ -75,41 +111,32 @@ function DockIcon({
   active: boolean;
   size: number;
   fill?: boolean;
-  /** Resting colour for a feature pill (Marketplace); active is always white. */
+  /** Resting colour for a feature pill (Marketplace). Active is dock ink. */
   tint?: string;
 }) {
   return (
     <Icon
       size={size}
-      color={active ? Theme.dockIconActive : (tint ?? Theme.dockIconMuted)}
+      color={tint ?? (active ? Theme.dockIconActive : Theme.dockIconMuted)}
       fill={fill && active ? Theme.dockIconActive : 'transparent'}
-      strokeWidth={active ? 2.2 : 1.8}
+      strokeWidth={active ? 2.05 : 1.75}
     />
   );
 }
 
-/** Side pill selection fades in so it matches the sliding highlight. */
+/** Side pill mirror. Same glass as the sliding thumb. */
 function SideTrack({ active, children }: { active: boolean; children: ReactNode }) {
-  const fill = useSharedValue(active ? 1 : 0);
-  useEffect(() => {
-    fill.value = withTiming(active ? 1 : 0, HIGHLIGHT_FADE);
-  }, [active, fill]);
-  const fillStyle = useAnimatedStyle(() => ({ opacity: fill.value }));
   return (
     <View style={styles.sideTrack}>
-      <Animated.View style={[styles.sideFill, fillStyle, pe('none')]} />
+      {active ? <View style={[styles.sideFill, pe('none')]}><MirrorFill /></View> : null}
       {children}
     </View>
   );
 }
 
-/** Shadow on the outer view so the solid pill can float without a tray behind it. */
+/** One pill on the shared tray. No per-pill shadow — that made the row look uneven. */
 function DockPill({ children, style }: { children: ReactNode; style?: object }) {
-  return (
-    <View style={[styles.pillShadow, style]}>
-      <View style={styles.pill}>{children}</View>
-    </View>
-  );
+  return <View style={[styles.pill, style]}>{children}</View>;
 }
 
 function PulseBottomTabBarInner({
@@ -147,24 +174,65 @@ function PulseBottomTabBarInner({
     },
   ].filter(Boolean) as DockTab[];
   const showMarketplace = visibility?.loadCenter ?? true;
-  const marketplaceActive = !isChatRoute && activeTab === 'loadCenter';
 
-  const activeIndex = isChatRoute ? -1 : tabs.findIndex((tab) => tab.id === activeTab);
+  const routeKey = isChatRoute ? 'chat' : activeTab;
+  const [pressedKey, setPressedKey] = useState<string | null>(null);
+  const selectedKey = pressedKey ?? routeKey;
+  const marketplaceActive = selectedKey === 'loadCenter';
+  const chatActive = selectedKey === 'chat';
 
   const [trackWidth, setTrackWidth] = useState(0);
   const slotWidth = tabs.length > 0 ? trackWidth / tabs.length : 0;
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const slotWidthRef = useRef(slotWidth);
+  slotWidthRef.current = slotWidth;
   const highlightX = useSharedValue(0);
-  const highlightOpacity = useSharedValue(activeIndex >= 0 ? 1 : 0);
-  const [placed, setPlaced] = useState(false);
+  const highlightOpacity = useSharedValue(routeKey === 'chat' || routeKey === 'loadCenter' ? 0 : 1);
+  const gestureOpened = useRef(false);
+  const laidOut = useRef(false);
+
+  const placeHighlight = useCallback(
+    (key: string, flow: boolean) => {
+      const width = slotWidthRef.current;
+      if (width <= 0) return;
+      const index =
+        key === 'chat' || key === 'loadCenter'
+          ? -1
+          : tabsRef.current.findIndex((tab) => tab.id === key);
+      const shown = index >= 0 ? 1 : 0;
+      highlightOpacity.value = flow ? withTiming(shown, FLOW) : shown;
+      if (index >= 0) {
+        const target = index * width + HIGHLIGHT_INSET;
+        highlightX.value = flow ? withTiming(target, FLOW) : target;
+      }
+    },
+    [highlightOpacity, highlightX],
+  );
 
   useEffect(() => {
-    if (slotWidth <= 0) return;
-    const target = Math.max(activeIndex, 0) * slotWidth + HIGHLIGHT_INSET;
-    // First measure snaps into place; later tab changes ease across.
-    highlightX.value = placed ? withSpring(target, HIGHLIGHT_SPRING) : target;
-    highlightOpacity.value = withTiming(activeIndex >= 0 ? 1 : 0, HIGHLIGHT_FADE);
-    if (!placed) setPlaced(true);
-  }, [activeIndex, slotWidth, placed, highlightX, highlightOpacity]);
+    setPressedKey((current) => (current == null || current === routeKey ? null : current));
+  }, [routeKey]);
+
+  useEffect(() => {
+    if (pressedKey != null) return;
+    placeHighlight(routeKey, laidOut.current);
+    laidOut.current = true;
+  }, [placeHighlight, pressedKey, routeKey, slotWidth]);
+
+  const openFromPress = useCallback(
+    (key: string, open: () => void) => {
+      if (gestureOpened.current) return;
+      gestureOpened.current = true;
+      setPressedKey(key);
+      placeHighlight(key, true);
+      open();
+      requestAnimationFrame(() => {
+        gestureOpened.current = false;
+      });
+    },
+    [placeHighlight],
+  );
 
   const highlightStyle = useAnimatedStyle(() => ({
     opacity: highlightOpacity.value,
@@ -195,7 +263,35 @@ function PulseBottomTabBarInner({
     [onWarmTab],
   );
 
+  const warmAfterSelect = useCallback(
+    (tab: DemoTabId) => {
+      requestAnimationFrame(() => {
+        warmTab(tab);
+      });
+    },
+    [warmTab],
+  );
+
   const rowHeight = pulseTabBarBodyHeight(isCompactMobile);
+
+  const mainPress = (tab: DockTab) => ({
+    onPressIn: () => {
+      openFromPress(tab.id, () => {
+        switchTab(tab.id);
+        warmAfterSelect(tab.id);
+      });
+    },
+    onPress: () => {
+      if (gestureOpened.current) {
+        gestureOpened.current = false;
+        return;
+      }
+      openFromPress(tab.id, () => {
+        switchTab(tab.id);
+        warmAfterSelect(tab.id);
+      });
+    },
+  });
 
   return (
     <View style={[styles.footerWrap, { paddingBottom: footerPadBottom }, pe('box-none')]}>
@@ -211,10 +307,13 @@ function PulseBottomTabBarInner({
                     highlightStyle,
                     pe('none'),
                   ]}
-                />
+                >
+                  <MirrorFill />
+                </Animated.View>
               ) : null}
               {tabs.map((tab) => {
-                const active = !isChatRoute && activeTab === tab.id;
+                const active = selectedKey === tab.id;
+                const press = mainPress(tab);
                 return (
                   <PulseBottomTabSlot
                     key={tab.id}
@@ -222,8 +321,8 @@ function PulseBottomTabBarInner({
                     active={active}
                     badgeCount={tab.badgeCount}
                     compact={isCompactMobile}
-                    onPress={() => switchTab(tab.id)}
-                    onPressIn={tab.id === 'compliance' ? undefined : () => warmTab(tab.id)}
+                    onPressIn={press.onPressIn}
+                    onPress={press.onPress}
                     icon={
                       <DockIcon
                         Icon={tab.Icon}
@@ -240,40 +339,69 @@ function PulseBottomTabBarInner({
         ) : null}
         {showMarketplace ? (
           <DockPill style={styles.featurePill}>
-            <SideTrack active={marketplaceActive}>
+            <MarketFill />
+            <View style={styles.sideTrack}>
               <PulseBottomTabSlot
                 label="Marketplace"
+                tone="market"
                 active={marketplaceActive}
                 badgeCount={activeLoadCount}
                 compact={isCompactMobile}
-                onPressIn={() => warmTab('loadCenter')}
-                onPress={() => switchTab('loadCenter')}
+                onPressIn={() => {
+                  openFromPress('loadCenter', () => {
+                    switchTab('loadCenter');
+                    warmAfterSelect('loadCenter');
+                  });
+                }}
+                onPress={() => {
+                  if (gestureOpened.current) {
+                    gestureOpened.current = false;
+                    return;
+                  }
+                  openFromPress('loadCenter', () => {
+                    switchTab('loadCenter');
+                    warmAfterSelect('loadCenter');
+                  });
+                }}
                 icon={
                   <DockIcon
                     Icon={Store}
                     active={marketplaceActive}
                     size={iconSize}
-                    tint={Theme.dockAccent}
+                    tint={marketplaceActive ? Theme.accentGold : Theme.accentBrownWash}
                   />
                 }
               />
-            </SideTrack>
+            </View>
           </DockPill>
         ) : null}
         {showChat ? (
           <DockPill style={styles.sidePill}>
-            <SideTrack active={isChatRoute}>
+            <SideTrack active={chatActive}>
               <PulseBottomTabSlot
                 label="Chat"
-                active={isChatRoute}
+                active={chatActive}
                 badgeCount={messageUnreadCount}
                 compact={isCompactMobile}
-                onPressIn={onOpenChatWarm}
-                onPress={() => {
-                  onCollapseNetworkDock();
-                  onOpenChat();
+                onPressIn={() => {
+                  openFromPress('chat', () => {
+                    onCollapseNetworkDock();
+                    onOpenChat();
+                    requestAnimationFrame(() => onOpenChatWarm?.());
+                  });
                 }}
-                icon={<DockIcon Icon={MessageSquare} active={isChatRoute} size={iconSize} />}
+                onPress={() => {
+                  if (gestureOpened.current) {
+                    gestureOpened.current = false;
+                    return;
+                  }
+                  openFromPress('chat', () => {
+                    onCollapseNetworkDock();
+                    onOpenChat();
+                    requestAnimationFrame(() => onOpenChatWarm?.());
+                  });
+                }}
+                icon={<DockIcon Icon={MessageSquare} active={chatActive} size={iconSize} />}
               />
             </SideTrack>
           </DockPill>
@@ -326,20 +454,12 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     gap: D.dockSideGap,
   },
-  pillShadow: {
-    borderRadius: 999,
-    shadowColor: Theme.dockShadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.24,
-    shadowRadius: 18,
-    elevation: 10,
-  },
   pill: {
-    flex: 1,
     flexDirection: 'row',
+    alignItems: 'stretch',
     borderRadius: 999,
     overflow: 'hidden',
-    backgroundColor: Theme.dockFill,
+    backgroundColor: Theme.dockPillFill,
     padding: D.dockPillInset,
   },
   mainPill: {
@@ -349,6 +469,8 @@ const styles = StyleSheet.create({
   featurePill: {
     width: 96,
     flexShrink: 0,
+    overflow: 'visible',
+    backgroundColor: Theme.accentBrown,
   },
   track: {
     flex: 1,
@@ -357,11 +479,11 @@ const styles = StyleSheet.create({
   },
   highlight: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
+    top: 1,
+    bottom: 1,
     left: 0,
     borderRadius: 999,
-    backgroundColor: Theme.dockActiveFill,
+    overflow: 'hidden',
   },
   sidePill: {
     width: 62,
@@ -374,8 +496,25 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   sideFill: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    bottom: 2,
+    left: 2,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  mirror: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 999,
-    backgroundColor: Theme.dockActiveFill,
+    overflow: 'hidden',
+  },
+  mirrorSpecular: {
+    position: 'absolute',
+    top: 0,
+    left: 14,
+    right: 14,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Theme.pulseTabClusterThumbSpecular,
   },
 });

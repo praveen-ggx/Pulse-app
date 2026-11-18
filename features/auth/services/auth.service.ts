@@ -16,7 +16,7 @@ import {
   normalizeIndianPhoneForMetadata,
   validatePhone,
 } from "@/lib/phoneValidation";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseBaseUrl, supabase } from "@/lib/supabase";
 import { isServiceUnavailableError } from "@/lib/supabaseHttp.util";
 import {
     VALIDATION,
@@ -153,6 +153,8 @@ export interface SignInResult {
    * pending join request the existing org's owner/admin approves.
    */
   domainOrgMatch?: { organizationId: string; organizationName: string };
+  /** Present when the password grant succeeded. Callers must not wait for a later auth event. */
+  session?: { user: AuthUser; profile: AuthProfile } | null;
 }
 
 export interface OrgForEmailDomainMatch {
@@ -454,16 +456,35 @@ function isNetworkError(e: unknown): boolean {
   return false;
 }
 
-/** Safe user-facing copy; never forward raw DB/server messages from GoTrue. */
-function mapSignInErrorMessage(raw: string): string {
+function isLoopbackSupabase(): boolean {
+  const raw = getSupabaseBaseUrl();
+  if (!raw) return false;
+  try {
+    const host = new URL(raw).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
+function isInvalidLoginMessage(raw: string): boolean {
   const m = (raw ?? "").toLowerCase();
-  if (
+  return (
     m.includes("invalid login") ||
     m.includes("invalid email or password") ||
     m.includes("invalid credentials") ||
     m.includes("wrong password") ||
     m.includes("email not found")
-  ) {
+  );
+}
+
+/** Safe user-facing copy; never forward raw DB/server messages from GoTrue. */
+function mapSignInErrorMessage(raw: string): string {
+  const m = (raw ?? "").toLowerCase();
+  if (isInvalidLoginMessage(m)) {
+    if (isLoopbackSupabase()) {
+      return "This dev app is using the local database, which does not have this account. The password was not checked against the live Pulse project.";
+    }
     return "Incorrect email or password.";
   }
   if (m.includes("email not confirmed") || m.includes("not confirmed")) {
@@ -536,7 +557,7 @@ export async function signInWithPassword(
     }
     if (!data.user) return { error: new Error("No user returned") };
     void trySyncMyDriverRowsUserId();
-    return { error: null };
+    return { error: null, session: mapSupabaseUserToAuth(data.session?.user ?? data.user) };
   } catch (e) {
     if (isNetworkError(e)) {
       return {
@@ -1359,24 +1380,51 @@ export async function signOut(): Promise<void> {
   }
 }
 
-/** Detect auth errors that mean the session is invalid (e.g. refresh token not found, user deleted). */
-export function isSessionExpiredError(e: unknown): boolean {
-  const msg =
-    typeof (e as { message?: string })?.message === "string"
-      ? (e as { message: string }).message
+function authErrorText(e: unknown): { message: string; code: string } {
+  const record = e as { message?: unknown; code?: unknown } | null;
+  const message =
+    typeof record?.message === "string"
+      ? record.message
       : e instanceof Error
         ? e.message
         : "";
-  const name = e instanceof Error ? e.name || "" : "";
-  const msgLower = (msg || "").toLowerCase();
-  const nameLower = (name || "").toLowerCase();
+  const code = typeof record?.code === "string" ? record.code.toLowerCase() : "";
+  return { message, code };
+}
+
+/**
+ * True only when the server has rejected this session.
+ * A failed password grant is also an AuthApiError. Treating every AuthApiError
+ * as expiry made the root error boundary call a global sign-out and revoke the
+ * session that had just been created.
+ */
+export function isSessionExpiredError(e: unknown): boolean {
+  const { message, code } = authErrorText(e);
+  const msgLower = message.toLowerCase();
+  if (code === "invalid_credentials" || isInvalidLoginMessage(msgLower)) return false;
+  if (
+    code === "refresh_token_not_found" ||
+    code === "session_not_found" ||
+    code === "session_expired" ||
+    code === "bad_jwt" ||
+    code === "user_not_found"
+  ) {
+    return true;
+  }
   return (
-    nameLower === "authapierror" ||
-    /invalid refresh token|refresh token not found|refresh token|session.*expired/i.test(
+    /invalid refresh token|refresh token not found|refresh token|session.*expired|session not found/i.test(
       msgLower,
-    ) ||
-    /user from sub claim.*does not exist|jwt.*does not exist/i.test(msgLower)
+    ) || /user from sub claim.*does not exist|jwt.*does not exist/i.test(msgLower)
   );
+}
+
+/** Drop the session in this browser only. Does not revoke other devices. */
+export async function abandonLocalSession(): Promise<void> {
+  try {
+    await supabase().auth.signOut({ scope: "local" });
+  } catch {
+    // Best effort. The caller still routes to sign-in.
+  }
 }
 
 function isInvalidSessionError(e: unknown): boolean {

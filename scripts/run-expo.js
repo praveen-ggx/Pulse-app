@@ -10,6 +10,7 @@ const path = require('path');
 const projectRoot = path.join(__dirname, '..');
 
 require('./expo-env');
+require('./supabaseProject.cjs').loadSupabaseProject(projectRoot);
 
 require('dotenv').config({
   path: path.join(projectRoot, '.env'),

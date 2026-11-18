@@ -1,12 +1,12 @@
 /**
- * Desktop header shortcut — Marketplace sits beside Chat, outside the nav group.
- * The gold rule draws in when the page is open; the pill presses down slightly.
+ * Desktop header shortcut. Marketplace and Invoice sit beside Chat, outside the nav group.
+ * Both pills share one compact size. The open page is the ink pill with a gold icon.
  */
 import { WEB_TOP_NAV_ICON } from "@/components/demo/webTopNavIcon.tokens";
 import Theme from "@/constants/Theme";
-import { Truck } from "lucide-react-native";
+import { FileText, Truck, type LucideIcon } from "lucide-react-native";
 import { useEffect } from "react";
-import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet } from "react-native";
 import Animated, {
   Easing,
   interpolateColor,
@@ -23,7 +23,12 @@ type Props = {
   onPressIn?: () => void;
 };
 
-export function WebMarketplaceShortcut({ active, onPress, onPressIn }: Props) {
+type ShortcutProps = Props & {
+  label: string;
+  Icon: LucideIcon;
+};
+
+function WebHeaderShortcut({ active, onPress, onPressIn, label, Icon }: ShortcutProps) {
   const progress = useSharedValue(active ? 1 : 0);
   const pressed = useSharedValue(0);
 
@@ -35,34 +40,33 @@ export function WebMarketplaceShortcut({ active, onPress, onPressIn }: Props) {
     backgroundColor: interpolateColor(
       progress.value,
       [0, 1],
-      [Theme.surface, Theme.buttonDark],
+      [Theme.cardWhite, Theme.buttonDark],
     ),
     borderColor: interpolateColor(
       progress.value,
       [0, 1],
-      ["rgba(226,232,240,0.9)", "rgba(15,23,42,0.65)"],
+      [Theme.borderMedium, Theme.buttonDark],
     ),
-    transform: [{ scale: 1 - pressed.value * 0.02 }],
+    transform: [{ scale: 1 - pressed.value * 0.015 }],
   }));
 
   const titleStyle = useAnimatedStyle(() => ({
     color: interpolateColor(
       progress.value,
       [0, 1],
-      [WEB_TOP_NAV_ICON.muted, Theme.buttonDarkText],
+      [WEB_TOP_NAV_ICON.active, Theme.buttonDarkText],
     ),
   }));
 
-  const iconShift = useAnimatedStyle(() => ({
-    transform: [{ translateX: (1 - progress.value) * -3 }],
+  const wellStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      progress.value,
+      [0, 1],
+      [Theme.brandBlueSoft, Theme.accentGold],
+    ),
   }));
 
-  const ruleStyle = useAnimatedStyle(() => ({
-    width: progress.value * 76,
-    opacity: progress.value,
-  }));
-
-  const iconColor = active ? WEB_TOP_NAV_ICON.onDark : WEB_TOP_NAV_ICON.muted;
+  const iconColor = active ? Theme.brandBlueInk : WEB_TOP_NAV_ICON.muted;
 
   return (
     <Pressable
@@ -75,27 +79,28 @@ export function WebMarketplaceShortcut({ active, onPress, onPressIn }: Props) {
         pressed.value = withTiming(0, { duration: 140 });
       }}
       accessibilityRole="button"
-      accessibilityLabel="Marketplace"
+      accessibilityLabel={label}
       accessibilityState={{ selected: active }}
       style={styles.hit}
     >
       <Animated.View style={[styles.pill, pillStyle]}>
-        <Animated.View style={iconShift}>
-          <Truck
-            size={WEB_TOP_NAV_ICON.size}
-            color={iconColor}
-            strokeWidth={WEB_TOP_NAV_ICON.stroke}
-          />
+        <Animated.View style={[styles.iconWell, wellStyle]}>
+          <Icon size={13} color={iconColor} strokeWidth={2.15} />
         </Animated.View>
-        <View style={styles.copy}>
-          <Animated.Text style={[styles.title, titleStyle]} numberOfLines={1}>
-            Marketplace
-          </Animated.Text>
-          <Animated.View style={[styles.rule, ruleStyle]} />
-        </View>
+        <Animated.Text style={[styles.title, titleStyle]} numberOfLines={1}>
+          {label}
+        </Animated.Text>
       </Animated.View>
     </Pressable>
   );
+}
+
+export function WebMarketplaceShortcut(props: Props) {
+  return <WebHeaderShortcut {...props} label="Marketplace" Icon={Truck} />;
+}
+
+export function WebInvoiceShortcut(props: Props) {
+  return <WebHeaderShortcut {...props} label="Invoice" Icon={FileText} />;
 }
 
 const styles = StyleSheet.create({
@@ -104,32 +109,27 @@ const styles = StyleSheet.create({
     ...Platform.select({ web: { cursor: "pointer" as const } }),
   },
   pill: {
-    height: 40,
+    height: 32,
     borderRadius: 999,
     borderWidth: 1,
-    paddingLeft: 12,
-    paddingRight: 14,
+    paddingLeft: 4,
+    paddingRight: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
-  copy: {
+  iconWell: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
     justifyContent: "center",
-    height: 18,
   },
   title: {
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.2,
+    fontSize: 12.5,
+    fontWeight: "600",
+    letterSpacing: -0.1,
     lineHeight: 16,
     ...(Platform.OS === "web" ? { whiteSpace: "nowrap" as const } : null),
-  },
-  rule: {
-    position: "absolute",
-    left: 0,
-    bottom: 0,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: Theme.accentGold,
   },
 });

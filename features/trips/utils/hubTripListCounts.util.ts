@@ -40,6 +40,22 @@ export function filterHubTripsForHistoryList<T extends Pick<TripRow, "status">>(
   return trips.filter((trip) => hubTripBucket(trip.status) === "history");
 }
 
+/**
+ * Rows the hub list may show for the current tab.
+ * The Unassigned server page includes cancelled trips. The Active filter drops
+ * those, so a full 250-row page was labelled 249. Keep cancelled rows on that tile.
+ */
+export function rowsForHubStatusList<T extends Pick<TripRow, "status">>(
+  trips: readonly T[],
+  opts: { history: boolean; tileBucket: string },
+): T[] {
+  if (opts.history) return filterHubTripsForHistoryList(trips);
+  if (opts.tileBucket === "unassigned") {
+    return trips.filter((trip) => hubTripBucket(trip.status) !== "history");
+  }
+  return filterHubTripsForActiveList(trips);
+}
+
 export function hubHistoryTripCount(
   trips: readonly Pick<TripRow, "status">[],
 ): number {
@@ -116,16 +132,19 @@ export function hubActiveAllTripCount(
  * - capped: dated mode hit 2000, so older matching trips are missing.
  * - loading / error: only the newest-400 list is on screen.
  */
-export type HubTripCompleteness = "exact" | "capped" | "loading" | "error";
+export type HubTripCompleteness = "exact" | "capped" | "paged" | "loading" | "error";
 
 export function resolveHubTripDataset<T>(opts: {
   rangeRows: readonly T[];
   rangeFetched: boolean;
   rangeError: boolean;
   newestRows: readonly T[];
+  /** The server has more rows than this page window. Totals stay on the count RPC. */
+  rangePartial?: boolean;
 }): { trips: readonly T[]; completeness: HubTripCompleteness } {
   if (opts.rangeError) return { trips: opts.newestRows, completeness: "error" };
   if (!opts.rangeFetched) return { trips: opts.newestRows, completeness: "loading" };
+  if (opts.rangePartial) return { trips: opts.rangeRows, completeness: "paged" };
   return {
     trips: opts.rangeRows,
     completeness: isDatedGetTripsForOrgCapped(opts.rangeRows.length) ? "capped" : "exact",
@@ -140,6 +159,8 @@ export function hubTripCompletenessNote(
       return null;
     case "capped":
       return `Partial: newest ${GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP} matching trips loaded`;
+    case "paged":
+      return null;
     case "loading":
       return `Partial: loading all trips (newest ${GET_TRIPS_FOR_ORG_DEFAULT_CAP} shown)`;
     case "error":

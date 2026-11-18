@@ -51,6 +51,11 @@ module.exports = {
         '<rootDir>/tools/',
         '<rootDir>/_reference/',
         '<rootDir>/.worktrees/',
+        '<rootDir>/pr109-accept/',
+      ],
+      modulePathIgnorePatterns: [
+        '<rootDir>/.worktrees/',
+        '<rootDir>/pr109-accept/',
       ],
       setupFiles: ['./__mocks__/expo.ts'],
       moduleNameMapper: {

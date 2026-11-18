@@ -48,11 +48,12 @@ import { buildComplianceTableWorkbook } from "@/features/tripCompliance/utils/co
 import {
   buildVerifiedExportCsvRow,
   buildVerifiedExportWorkbook,
+  type VerifiedExportCsvRow,
   type VerifiedExportEnrichment,
 } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
 import { selectCompliancePipelineTrips } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
-import { getTripsForOrg } from "@/features/trips/services/trips.service";
+import { loadComplianceTripCatalog } from "@/features/tripCompliance/services/complianceTripCatalog.service";
 import { getVehicleById, getVehicleForTripViewer } from "@/features/vehicles/services/vehicles.service";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
@@ -80,10 +81,13 @@ function triggerWebDownload(blob: Blob, fileName: string): void {
   const anchor = document.createElement("a");
   anchor.href = objectUrl;
   anchor.download = fileName;
+  anchor.rel = "noopener";
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
-  URL.revokeObjectURL(objectUrl);
+  // Revoke after the browser has started the download. Revoking in the same
+  // turn drops the file in Safari.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
 }
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -127,7 +131,7 @@ function exportFileStamp(now: Date = new Date()): string {
 }
 
 async function fetchVerifiedStageSummaries(orgId: string): Promise<ComplianceTripSummary[]> {
-  const { error, trips } = await getTripsForOrg(orgId, { includeComplianceBacklog: true });
+  const { error, trips } = await loadComplianceTripCatalog(orgId);
   if (error) throw error;
   const summaries = await buildComplianceTripSummaries(selectCompliancePipelineTrips(trips), orgId);
   return summaries.filter(isComplianceVerifiedQueue);
@@ -137,7 +141,7 @@ async function fetchAdvanceVerificationSummaries(
   orgId: string,
   filter: AdvanceVerificationExportFilter,
 ): Promise<ComplianceTripSummary[]> {
-  const { error, trips } = await getTripsForOrg(orgId, { includeComplianceBacklog: true });
+  const { error, trips } = await loadComplianceTripCatalog(orgId);
   if (error) throw error;
   const summaries = await buildComplianceTripSummaries(selectCompliancePipelineTrips(trips), orgId);
   return advanceVerificationExportSummaries(summaries, filter);
@@ -290,9 +294,15 @@ export async function buildVerifiedExportEnrichment(
     byTrip.set(trip.id, enrichment);
     }),
   ]);
-  const { phoneByDriverId } = await phonesPromise;
+  const { error: phoneError, phoneByDriverId } = await phonesPromise;
+  if (phoneError) {
+    throw new Error(
+      `Couldn't load driver phone numbers (${phoneError.message}). The report was not created.`,
+    );
+  }
 
-  // Bulk read is RLS-scoped; fill gaps from the Driver Profile source (Contact Registry → Phone).
+  // Bulk read is RLS-scoped. Fill only the phones it did not return, a few at a time.
+  // A failed bulk read never reaches here, so it cannot fan out into one request per driver.
   const missingDriverOrg = new Map<string, string>();
   for (const summary of summaries) {
     const driverId = summary.trip.driver_id?.trim() || "";
@@ -304,7 +314,12 @@ export async function buildVerifiedExportEnrichment(
     Array.from(missingDriverOrg),
     EXPORT_FETCH_CONCURRENCY,
     async ([driverId, driverOrgId]) => {
-      const { driver } = await getDriverDetailBundle(driverOrgId, driverId);
+      const { error, driver } = await getDriverDetailBundle(driverOrgId, driverId);
+      if (error) {
+        throw new Error(
+          `Couldn't load a driver phone number (${error.message}). The report was not created.`,
+        );
+      }
       const phone = (driver?.phone ?? "").trim();
       if (phone) phoneByDriverId.set(driverId, phone);
     },
@@ -322,15 +337,33 @@ export async function buildVerifiedExportEnrichment(
   return byTrip;
 }
 
-/** Download Verified-stage Excel report (.xlsx). Returns trip row count exported. */
-export async function exportVerifiedStageComplianceReport(
+/**
+ * Download the Advance Verification Excel report. Pass the trips already on
+ * screen so Confirm exports the same set the dialog counted. A fresh catalog
+ * read is only the fallback when the caller has no rows yet.
+ */
+export async function prepareVerifiedStageComplianceReport(
   orgId: string,
   filter?: AdvanceVerificationExportFilter,
-): Promise<number> {
-  const summaries = filter
-    ? await fetchAdvanceVerificationSummaries(orgId, filter)
-    : await fetchVerifiedStageSummaries(orgId);
-  if (summaries.length === 0) return 0;
+  loaded?: ComplianceTripSummary[] | null,
+): Promise<VerifiedExportCsvRow[]> {
+  const prepared = await prepareVerifiedStageComplianceBundle(orgId, filter, loaded);
+  return prepared.rows;
+}
+
+async function prepareVerifiedStageComplianceBundle(
+  orgId: string,
+  filter?: AdvanceVerificationExportFilter,
+  loaded?: ComplianceTripSummary[] | null,
+): Promise<{ rows: VerifiedExportCsvRow[]; advancePercents: number[] }> {
+  const summaries = loaded
+    ? filter
+      ? advanceVerificationExportSummaries(loaded, filter)
+      : loaded.filter(isComplianceVerifiedQueue)
+    : filter
+      ? await fetchAdvanceVerificationSummaries(orgId, filter)
+      : await fetchVerifiedStageSummaries(orgId);
+  if (summaries.length === 0) return { rows: [], advancePercents: [] };
 
   const enrichmentByTrip = await withQueueRetry(() =>
     buildVerifiedExportEnrichment(orgId, summaries),
@@ -340,8 +373,20 @@ export async function exportVerifiedStageComplianceReport(
   );
   const advancePercents = summaries.map((summary) => {
     const pct = enrichmentByTrip.get(summary.trip.id)?.advancePercent;
-    return pct != null && Number.isFinite(Number(pct)) ? Number(pct) : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
+    return pct != null && Number.isFinite(Number(pct))
+      ? Number(pct)
+      : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
   });
+  return { rows, advancePercents };
+}
+
+export async function exportVerifiedStageComplianceReport(
+  orgId: string,
+  filter?: AdvanceVerificationExportFilter,
+  loaded?: ComplianceTripSummary[] | null,
+): Promise<number> {
+  const { rows, advancePercents } = await prepareVerifiedStageComplianceBundle(orgId, filter, loaded);
+  if (rows.length === 0) return 0;
   await exportComplianceWorkbook(
     buildVerifiedExportWorkbook(rows, advancePercents),
     `compliance-verified-report_${exportFileStamp()}.xlsx`,

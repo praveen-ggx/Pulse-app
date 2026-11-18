@@ -26,6 +26,8 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
 EOF
 
 echo "Created .env.local -> local Supabase ($URL)"
+printf 'local\n' > .pulse-supabase-target
+echo "Set .pulse-supabase-target -> local"
 echo "Restart your dev server: npm run web"
 echo ""
 echo "Device / Android emulator? Edit .env.local's URL instead:"

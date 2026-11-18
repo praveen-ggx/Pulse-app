@@ -44,6 +44,8 @@ export const READ_ONLY_FEATURE_RPCS = new Map<string, RequestLane>([
   ['calculate_marketplace_platform_fee', 'background'],
   ['list_marketplace_search_lanes', 'background'],
   ['list_my_org_market_bids', 'background'],
+  ['list_my_org_market_bids_page', 'background'],
+  ['count_my_org_market_bids', 'background'],
   ['get_reach_campaign_delivery', 'background'],
   ['get_reach_campaign_metrics', 'background'],
   ['get_reach_org_summary', 'background'],

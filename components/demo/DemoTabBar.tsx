@@ -3,7 +3,7 @@
  */
 import type { RegistryFilterTab } from "@/components/AlertRegistryPanel";
 import { DemoTabBarMobileFooter } from "@/components/demo/DemoTabBarMobileFooter";
-import { WebMarketplaceShortcut } from "@/components/demo/WebMarketplaceShortcut";
+import { WebInvoiceShortcut, WebMarketplaceShortcut } from "@/components/demo/WebMarketplaceShortcut";
 import { WebNavMirrorToggle } from "@/components/demo/WebNavMirrorToggle";
 import { WEB_TOP_NAV_ICON } from "@/components/demo/webTopNavIcon.tokens";
 import { NotificationBellIcon } from "@/components/NotificationBellIcon";
@@ -27,7 +27,14 @@ import { useOrganization } from "@/contexts/OrganizationContext";
 import type { InboundProtocolInviteItem } from "@/lib/globalSync/inboundProtocol.types";
 import { preloadChatRoute } from "@/lib/preloadChatWarmup";
 import { preloadFinanceWarmup } from "@/lib/preloadFinanceWarmup";
-import { preloadPulseLoadsRoute, preloadTabScreen } from "@/lib/preloadRoutes";
+import {
+    preloadComplianceData,
+    preloadInvoiceData,
+    preloadMarketplaceData,
+    preloadPulseLoadsRoute,
+    preloadTabScreen,
+} from "@/lib/preloadRoutes";
+import { preloadStoryStrip } from "@/features/network/utils/preloadStoryWarmup.util";
 import { prefetchTripsList } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
 import { useQueryClient } from "@tanstack/react-query";
@@ -199,9 +206,15 @@ export function DemoTabBar({
     (tab: DemoTabId) => {
       if (tab === "loadCenter") {
         preloadPulseLoadsRoute();
+        if (orgId) preloadMarketplaceData(queryClient, orgId);
         return;
       }
-      if (tab === "compliance" || tab === "invoice") {
+      if (tab === "compliance") {
+        if (orgId) preloadComplianceData(queryClient, orgId);
+        return;
+      }
+      if (tab === "invoice") {
+        if (orgId) preloadInvoiceData(queryClient, orgId);
         return;
       }
       if (tab === "finance" || tab === "trips" || tab === "network") {
@@ -214,6 +227,9 @@ export function DemoTabBar({
         }
         if ((tab === "trips" || tab === "network") && orgId) {
           preloadChatRoute(orgId, { bootstrap: false });
+        }
+        if (tab === "network" && orgId) {
+          preloadStoryStrip(queryClient, orgId);
         }
       }
     },
@@ -687,9 +703,12 @@ export function DemoTabBar({
       if (item.id === "invoice") return visibility.invoice !== false;
       return true;
     });
-    // Marketplace lives beside Chat, so the group thumb must not cover it.
-    const navItems = permittedNavItems.filter((item) => item.id !== "loadCenter");
+    // Marketplace and Invoice live beside Chat, so the group thumb must not cover them.
+    const navItems = permittedNavItems.filter(
+      (item) => item.id !== "loadCenter" && item.id !== "invoice",
+    );
     const showMarketplace = permittedNavItems.some((item) => item.id === "loadCenter");
+    const showInvoice = permittedNavItems.some((item) => item.id === "invoice");
 
     return (
       <Fragment>
@@ -731,12 +750,23 @@ export function DemoTabBar({
               (showNotifications || showInvitations) && styles.webUtilityWrapAboveDrawer,
             ]}
           >
-            {showMarketplace ? (
-              <WebMarketplaceShortcut
-                active={isLoadCenter}
-                onPressIn={() => onWarmTab("loadCenter")}
-                onPress={() => onTabChange("loadCenter")}
-              />
+            {showInvoice || showMarketplace ? (
+              <View style={styles.webShortcutPair}>
+                {showInvoice ? (
+                  <WebInvoiceShortcut
+                    active={isInvoice}
+                    onPressIn={() => onWarmTab("invoice")}
+                    onPress={() => onTabChange("invoice")}
+                  />
+                ) : null}
+                {showMarketplace ? (
+                  <WebMarketplaceShortcut
+                    active={isLoadCenter}
+                    onPressIn={() => onWarmTab("loadCenter")}
+                    onPress={() => onTabChange("loadCenter")}
+                  />
+                ) : null}
+              </View>
             ) : null}
             {canOpenChat ? (
               <AnimatedPress
@@ -1371,6 +1401,11 @@ const styles = StyleSheet.create({
   },
   webNavSubActive: {
     color: Theme.teslaRed,
+  },
+  webShortcutPair: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   webUtilityWrap: {
     flexDirection: "row",

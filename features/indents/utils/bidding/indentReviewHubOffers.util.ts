@@ -1,6 +1,7 @@
 import type { DirectQuoteRow } from "@/features/indents/services/direct-quotes.service";
 import type { DriverDirectBidRow } from "@/features/network/services/bids.service";
 import type { MarketBidForIndentRow } from "@/features/network/services/marketBids.service";
+import { isMarketBidExpired } from "@/features/network/utils/marketBidExpiry.util";
 
 export function driverDirectBidToHubQuote(
   bid: DriverDirectBidRow,
@@ -31,7 +32,14 @@ export function driverDirectBidToHubQuote(
   };
 }
 
-export function marketBidToHubQuote(bid: MarketBidForIndentRow): DirectQuoteRow {
+/**
+ * A pending bid past its own expires_at is shown as `expired` so it is never
+ * selectable; the stored row stays pending and the award RPC still decides.
+ */
+export function marketBidToHubQuote(
+  bid: MarketBidForIndentRow,
+  nowMs: number = Date.now(),
+): DirectQuoteRow {
   const name =
     bid.bidder_organization_name?.trim() ||
     bid.bidder_display_name.trim() ||
@@ -43,11 +51,12 @@ export function marketBidToHubQuote(bid: MarketBidForIndentRow): DirectQuoteRow 
     bidder_organization_name: name,
     amount: bid.amount,
     notes: bid.note,
-    status: bid.status,
+    status: isMarketBidExpired(bid, nowMs) ? "expired" : bid.status,
     created_at: bid.created_at,
     updated_at: bid.updated_at,
     offer_source: "market_bid",
     bidder_user_id: bid.bidder_user_id,
+    expires_at: bid.expires_at ?? null,
   };
 }
 
@@ -56,7 +65,9 @@ export function mergeIndentReviewHubOffers(args: {
   directQuotes: DirectQuoteRow[];
   driverBids?: DriverDirectBidRow[];
   marketBids?: MarketBidForIndentRow[];
+  nowMs?: number;
 }): DirectQuoteRow[] {
+  const nowMs = args.nowMs ?? Date.now();
   const fromQuotes = args.directQuotes.map((q) => ({
     ...q,
     offer_source: q.offer_source ?? ("direct_quote" as const),
@@ -64,7 +75,7 @@ export function mergeIndentReviewHubOffers(args: {
   const fromDrivers = (args.driverBids ?? []).map((b) =>
     driverDirectBidToHubQuote(b, args.indentId),
   );
-  const fromMarket = (args.marketBids ?? []).map(marketBidToHubQuote);
+  const fromMarket = (args.marketBids ?? []).map((b) => marketBidToHubQuote(b, nowMs));
   return [...fromQuotes, ...fromDrivers, ...fromMarket];
 }
 

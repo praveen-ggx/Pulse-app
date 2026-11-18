@@ -66,6 +66,13 @@ jest.mock("@/lib/supabase", () => ({
       if (table === "trip_documents") return mockMakeThenable(mockDocsResult);
       throw new Error(`unexpected table ${table}`);
     },
+    // Batch document read: first keyset page is the trip_documents fixture, the next page is empty.
+    rpc: (name: string, args?: Record<string, unknown>) =>
+      Promise.resolve(
+        name === "list_trip_documents_for_trips" && !args?.p_after_id
+          ? mockDocsResult
+          : { data: [], error: null },
+      ),
   }),
 }));
 

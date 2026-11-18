@@ -101,42 +101,17 @@ function Badge({ count }: { count: number }) {
   );
 }
 
-export function HomePageHeader({
-  title,
-  subtitle,
-  showBack = false,
-  onBack,
-  onProfilePress,
-  onInvitationsPress,
-  onNotificationsPress,
-  invitationBadgeCount = 0,
-  skipSafeAreaTop = false,
-  autoHide = false,
-  style,
-}: HomePageHeaderProps) {
+/** Profile avatar from the top nav. Opens the workspace profile. */
+export function TopNavProfileButton({
+  onPress,
+  size = HEADER_AVATAR_SIZE,
+}: {
+  onPress?: () => void;
+  /** Circle diameter. Hub titles use a smaller size than the main header. */
+  size?: number;
+}) {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { profile, user } = useAuth();
-  const { currentOrganization } = useOrganization();
-  const { canSeeNotifications, canSeeInvites } = useRegistryNotificationAccess();
-  const notificationUnread = useAccessibleNotificationCount(currentOrganization?.id ?? null);
-  const scrollProgress = useDemoTabBarVisibilityProgressOptional();
-  const [measuredHeight, setMeasuredHeight] = useState(0);
-  const hideStyle = useAnimatedStyle(() => {
-    if (!autoHide || !scrollProgress || measuredHeight <= 0) return {};
-    const p = scrollProgress.value;
-    return {
-      height: interpolate(p, [0, 1], [0, measuredHeight], Extrapolation.CLAMP),
-      opacity: interpolate(p, [0, 0.6, 1], [0, 0.85, 1], Extrapolation.CLAMP),
-      transform: [
-        { translateY: interpolate(p, [0, 1], [-10, 0], Extrapolation.CLAMP) },
-      ],
-    };
-  });
-  const onMeasure = (event: LayoutChangeEvent) => {
-    const h = Math.round(event.nativeEvent.layout.height);
-    if (h > 0 && h !== measuredHeight) setMeasuredHeight(h);
-  };
   const [profileAvatarUri, setProfileAvatarUri] = useState<string | null>(null);
 
   useEffect(() => {
@@ -176,13 +151,6 @@ export function HomePageHeader({
     "User"
   ).trim();
 
-  const welcomeName = useMemo(() => {
-    const first = profileDisplayName.split(/\s+/).filter(Boolean)[0];
-    const raw = first || profileDisplayName;
-    if (!raw) return "there";
-    return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
-  }, [profileDisplayName]);
-
   const initials = useMemo(
     () =>
       profileDisplayName
@@ -193,6 +161,121 @@ export function HomePageHeader({
         .join("") || "US",
     [profileDisplayName],
   );
+
+  const handleProfile = () => {
+    if (onPress) {
+      onPress();
+      return;
+    }
+    router.push(ROUTES.WORKSPACE as Parameters<typeof router.push>[0]);
+  };
+
+  return (
+    <Pressable
+      onPress={handleProfile}
+      style={({ pressed }) => [
+        styles.avatarBtn,
+        { width: size, height: size, borderRadius: size / 2 },
+        pressed && styles.pressed,
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel="Open profile"
+      hitSlop={6}
+    >
+      {profileAvatarUri ? (
+        <Image source={{ uri: profileAvatarUri }} style={styles.avatarImage} />
+      ) : (
+        <View style={styles.avatarFallback}>
+          <Text style={[styles.avatarInitials, { fontSize: Math.round(size * 0.32) }]}>{initials}</Text>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+/** Notification bell from the top nav, including the unread count. */
+export function TopNavNotificationButton({ onPress }: { onPress?: () => void }) {
+  const router = useRouter();
+  const { currentOrganization } = useOrganization();
+  const { canSeeNotifications } = useRegistryNotificationAccess();
+  const notificationUnread = useAccessibleNotificationCount(currentOrganization?.id ?? null);
+  if (!canSeeNotifications) return null;
+  const notifBadge = notificationUnread;
+  const handleNotifications = () => {
+    if (onPress) {
+      onPress();
+      return;
+    }
+    router.push("/notifications");
+  };
+  return (
+    <Pressable
+      onPress={handleNotifications}
+      style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
+      accessibilityRole="button"
+      accessibilityLabel={
+        notifBadge > 0 ? `Notifications, ${notifBadge} new` : "Notifications"
+      }
+      hitSlop={6}
+    >
+      <NotificationBellIcon
+        size={HEADER_ACTION_ICON_SIZE}
+        color={notifBadge > 0 ? WEB_TOP_NAV_ICON.active : WEB_TOP_NAV_ICON.muted}
+        strokeWidth={WEB_TOP_NAV_ICON.stroke}
+      />
+      <Badge count={notifBadge} />
+    </Pressable>
+  );
+}
+
+export function HomePageHeader({
+  title,
+  subtitle,
+  showBack = false,
+  onBack,
+  onProfilePress,
+  onInvitationsPress,
+  onNotificationsPress,
+  invitationBadgeCount = 0,
+  skipSafeAreaTop = false,
+  autoHide = false,
+  style,
+}: HomePageHeaderProps) {
+  const insets = useSafeAreaInsets();
+  const { profile, user } = useAuth();
+  const { currentOrganization } = useOrganization();
+  const { canSeeInvites } = useRegistryNotificationAccess();
+  const scrollProgress = useDemoTabBarVisibilityProgressOptional();
+  const [measuredHeight, setMeasuredHeight] = useState(0);
+  const hideStyle = useAnimatedStyle(() => {
+    if (!autoHide || !scrollProgress || measuredHeight <= 0) return {};
+    const p = scrollProgress.value;
+    return {
+      height: interpolate(p, [0, 1], [0, measuredHeight], Extrapolation.CLAMP),
+      opacity: interpolate(p, [0, 0.6, 1], [0, 0.85, 1], Extrapolation.CLAMP),
+      transform: [
+        { translateY: interpolate(p, [0, 1], [-10, 0], Extrapolation.CLAMP) },
+      ],
+    };
+  });
+  const onMeasure = (event: LayoutChangeEvent) => {
+    const h = Math.round(event.nativeEvent.layout.height);
+    if (h > 0 && h !== measuredHeight) setMeasuredHeight(h);
+  };
+
+  const profileDisplayName = (
+    profile?.full_name ??
+    profile?.displayName ??
+    user?.email?.split("@")[0] ??
+    "User"
+  ).trim();
+
+  const welcomeName = useMemo(() => {
+    const first = profileDisplayName.split(/\s+/).filter(Boolean)[0];
+    const raw = first || profileDisplayName;
+    if (!raw) return "there";
+    return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+  }, [profileDisplayName]);
 
   const headerTitle = (
     title?.trim() ||
@@ -205,26 +288,9 @@ export function HomePageHeader({
     subtitle !== undefined ? subtitle.trim() : `Welcome ${welcomeName}`;
   const topPad = skipSafeAreaTop ? 4 : insets.top + 4;
   const inviteBadge = canSeeInvites ? invitationBadgeCount : 0;
-  const notifBadge = canSeeNotifications ? notificationUnread : 0;
-
-  const handleProfile = () => {
-    if (onProfilePress) {
-      onProfilePress();
-      return;
-    }
-    router.push(ROUTES.WORKSPACE as Parameters<typeof router.push>[0]);
-  };
 
   const handleInvitations = () => {
     if (onInvitationsPress) onInvitationsPress();
-  };
-
-  const handleNotifications = () => {
-    if (onNotificationsPress) {
-      onNotificationsPress();
-      return;
-    }
-    router.push("/notifications");
   };
 
   return (
@@ -242,21 +308,7 @@ export function HomePageHeader({
             <ChevronLeft size={20} color={Theme.textPrimaryDark} strokeWidth={2.4} />
           </Pressable>
         ) : (
-          <Pressable
-            onPress={handleProfile}
-            style={({ pressed }) => [styles.avatarBtn, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Open profile"
-            hitSlop={6}
-          >
-            {profileAvatarUri ? (
-              <Image source={{ uri: profileAvatarUri }} style={styles.avatarImage} />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={styles.avatarInitials}>{initials}</Text>
-              </View>
-            )}
-          </Pressable>
+          <TopNavProfileButton onPress={onProfilePress} />
         )}
 
         <View style={styles.titleBlock}>
@@ -289,24 +341,7 @@ export function HomePageHeader({
               <Badge count={inviteBadge} />
             </Pressable>
           ) : null}
-          {canSeeNotifications ? (
-            <Pressable
-              onPress={handleNotifications}
-              style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
-              accessibilityRole="button"
-              accessibilityLabel={
-                notifBadge > 0 ? `Notifications, ${notifBadge} new` : "Notifications"
-              }
-              hitSlop={6}
-            >
-              <NotificationBellIcon
-                size={HEADER_ACTION_ICON_SIZE}
-                color={notifBadge > 0 ? WEB_TOP_NAV_ICON.active : WEB_TOP_NAV_ICON.muted}
-                strokeWidth={WEB_TOP_NAV_ICON.stroke}
-              />
-              <Badge count={notifBadge} />
-            </Pressable>
-          ) : null}
+          <TopNavNotificationButton onPress={onNotificationsPress} />
         </View>
       </View>
     </View>

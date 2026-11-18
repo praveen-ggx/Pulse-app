@@ -39,8 +39,10 @@ import { getTripOperationalDisplay } from "@/features/operations/display";
 import type { LedgerRow } from '../services/finance.service';
 import {
   applyLedgerReportView,
+  columnValueCounts,
   EMPTY_LEDGER_REPORT_VIEW,
   ledgerReportViewIsActive,
+  pickReportStatusFacet,
   uniqueColumnValues,
   type LedgerReportViewState,
   type ReportRow,
@@ -212,7 +214,7 @@ function parseReportTitle(title: string): { primary: string; secondary?: string 
   };
 }
 
-function getCustomColumnWidth(key: string): number {
+function getCustomColumnWidth(key: string, label?: string): number {
   switch (key) {
     case 'entity': return 176;
     case 'rowType': return 64;
@@ -262,7 +264,10 @@ function getCustomColumnWidth(key: string): number {
       return 84;
     case 'refs': return 148;
     case 'date': return 92;
-    default: return 96;
+    default: {
+      const text = (label && label.length > key.length ? label : key).trim();
+      return Math.min(240, Math.max(120, text.length * 8 + 28));
+    }
   }
 }
 
@@ -326,6 +331,10 @@ export interface LedgerReportModalProps {
     }>;
     rows: Array<Record<string, string | number | null | undefined>>;
   };
+  /** Rows are still loading. The preview stays open and downloads wait. */
+  preparing?: boolean;
+  /** Excel file name. Defaults to a ledger-report stamp. */
+  downloadFileName?: string;
 }
 
 export function LedgerReportModal({
@@ -336,6 +345,8 @@ export function LedgerReportModal({
   hideCashSummary = false,
   periodLabel,
   customReport,
+  preparing = false,
+  downloadFileName,
 }: LedgerReportModalProps) {
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
@@ -374,20 +385,25 @@ export function LedgerReportModal({
     () => customColumns.map((c) => c.key),
     [customColumns],
   );
+  const statusFacet = useMemo(
+    () => pickReportStatusFacet(customColumns, customSourceRows),
+    [customColumns, customSourceRows],
+  );
   const viewRows = useMemo(() => {
     if (!isCustomReport) return [] as ReportRow[];
-    return applyLedgerReportView(customSourceRows, viewState, customColumnKeys);
-  }, [isCustomReport, customSourceRows, viewState, customColumnKeys]);
+    return applyLedgerReportView(
+      customSourceRows,
+      viewState,
+      customColumnKeys,
+      statusFacet?.key ?? 'status',
+    );
+  }, [isCustomReport, customSourceRows, viewState, customColumnKeys, statusFacet?.key]);
   const typeOptions = useMemo(
-    () => uniqueColumnValues(customSourceRows, 'rowType'),
+    () => columnValueCounts(customSourceRows, 'rowType'),
     [customSourceRows],
   );
-  const statusOptions = useMemo(
-    () => uniqueColumnValues(customSourceRows, 'status'),
-    [customSourceRows],
-  );
-  const hasTypeColumn = customColumnKeys.includes('rowType');
-  const hasStatusColumn = customColumnKeys.includes('status');
+  const hasTypeColumn = customColumnKeys.includes('rowType') && typeOptions.length > 1;
+  const hasStatusColumn = (statusFacet?.options.length ?? 0) > 1;
   const hasDateColumn = customColumnKeys.includes('date');
   const filtersActive = ledgerReportViewIsActive(viewState);
   const dateRangeLabel =
@@ -459,7 +475,7 @@ export function LedgerReportModal({
   const customTableMinWidth = useMemo(() => {
     if (!customReport) return 0;
     const columnSum = customReport.columns.reduce(
-      (sum, col) => sum + getCustomColumnWidth(col.key),
+      (sum, col) => sum + getCustomColumnWidth(col.key, col.label),
       0,
     );
     const gaps = Math.max(0, customReport.columns.length - 1) * COLUMN_GAP;
@@ -582,6 +598,7 @@ export function LedgerReportModal({
     : [];
 
   const handlePrint = async () => {
+    if (preparing || downloadInProgress) return;
     try {
       if (Platform.OS === 'web') {
         const ok = await printHtmlOnWeb(activeHtml, { title: displayTitle });
@@ -603,6 +620,7 @@ export function LedgerReportModal({
   };
 
   const handleWhatsApp = () => {
+    if (preparing) return;
     const url = `whatsapp://send?text=${encodeURIComponent(activePlainText)}`;
     Linking.canOpenURL(url).then((supported) => {
       if (supported) Linking.openURL(url);
@@ -611,13 +629,13 @@ export function LedgerReportModal({
   };
 
   const handleShare = () => {
-    if (downloadInProgress) return;
+    if (preparing || downloadInProgress) return;
     setFormatPickerMode('share');
     setFormatPickerVisible(true);
   };
 
   const handlePdfAction = async (mode: 'download' | 'share') => {
-    if (downloadInProgress) return;
+    if (preparing || downloadInProgress) return;
     setDownloadInProgress(true);
     try {
       if (Platform.OS === 'web') {
@@ -671,7 +689,7 @@ export function LedgerReportModal({
   };
 
   const handleExcelAction = async (mode: 'download' | 'share') => {
-    if (downloadInProgress) return;
+    if (preparing || downloadInProgress) return;
     setDownloadInProgress(true);
     const excelSubtitle = periodLabel
       ? `${displayTitle} · ${periodLabel}`
@@ -701,7 +719,10 @@ export function LedgerReportModal({
           [arrayBuffer],
           { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
         );
-        triggerWebDownload(blob, `ledger-report-${Date.now()}.xlsx`);
+        triggerWebDownload(
+          blob,
+          downloadFileName?.trim() || `ledger-report-${Date.now()}.xlsx`,
+        );
         if (mode === 'share') {
           Alert.alert('Share Excel', 'Excel has been downloaded. Attach it in your email app.');
         }
@@ -728,7 +749,7 @@ export function LedgerReportModal({
           })()
         : buildLedgerWorkbook(sortedTransactions, totalIn, totalOut, periodLabel);
       const base64 = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' });
-      const uri = `${cacheDirectory}ledger-report-${Date.now()}.xlsx`;
+      const uri = `${cacheDirectory}${downloadFileName?.trim() || `ledger-report-${Date.now()}.xlsx`}`;
       await FileSystem.writeAsStringAsync(uri, base64, { encoding: 'base64' });
       const sharingAvailable = await Sharing.isAvailableAsync();
       if (sharingAvailable) {
@@ -763,6 +784,7 @@ export function LedgerReportModal({
   };
 
   const handleDownload = () => {
+    if (preparing) return;
     if (downloadInProgress) return;
     setFormatPickerMode('download');
     setFormatPickerVisible(true);
@@ -890,41 +912,45 @@ export function LedgerReportModal({
                         style={[styles.filterChip, viewState.typeValues.length === 0 && styles.filterChipOn]}
                         onPress={() => setViewState((prev) => ({ ...prev, typeValues: [] }))}
                       >
-                        <Text style={styles.filterChipText}>All</Text>
+                        <Text style={styles.filterChipText}>All {customSourceRows.length}</Text>
                       </TouchableOpacity>
-                      {typeOptions.map((value) => {
-                        const on = viewState.typeValues.includes(value);
+                      {typeOptions.map((option) => {
+                        const on = viewState.typeValues.includes(option.value);
                         return (
                           <TouchableOpacity
-                            key={`type-${value}`}
+                            key={`type-${option.value}`}
                             style={[styles.filterChip, on && styles.filterChipOn]}
-                            onPress={() => toggleChip('typeValues', value)}
+                            onPress={() => toggleChip('typeValues', option.value)}
                           >
-                            <Text style={[styles.filterChipText, on && styles.filterChipTextOn]}>{value}</Text>
+                            <Text style={[styles.filterChipText, on && styles.filterChipTextOn]}>
+                              {option.value} {option.count}
+                            </Text>
                           </TouchableOpacity>
                         );
                       })}
                     </View>
                   ) : null}
                   {hasTypeColumn && hasStatusColumn ? <View style={styles.filterGroupRule} /> : null}
-                  {hasStatusColumn && statusOptions.length > 0 ? (
+                  {hasStatusColumn && statusFacet ? (
                     <View style={styles.filterGroup}>
-                      <Text style={styles.filterChipRowLabel}>Status</Text>
+                      <Text style={styles.filterChipRowLabel}>{statusFacet.label}</Text>
                       <TouchableOpacity
                         style={[styles.filterChip, viewState.statusValues.length === 0 && styles.filterChipOn]}
                         onPress={() => setViewState((prev) => ({ ...prev, statusValues: [] }))}
                       >
-                        <Text style={styles.filterChipText}>All</Text>
+                        <Text style={styles.filterChipText}>All {customSourceRows.length}</Text>
                       </TouchableOpacity>
-                      {statusOptions.map((value) => {
-                        const on = viewState.statusValues.includes(value);
+                      {statusFacet.options.map((option) => {
+                        const on = viewState.statusValues.includes(option.value);
                         return (
                           <TouchableOpacity
-                            key={`status-${value}`}
+                            key={`status-${option.value}`}
                             style={[styles.filterChip, on && styles.filterChipOn]}
-                            onPress={() => toggleChip('statusValues', value)}
+                            onPress={() => toggleChip('statusValues', option.value)}
                           >
-                            <Text style={[styles.filterChipText, on && styles.filterChipTextOn]}>{value}</Text>
+                            <Text style={[styles.filterChipText, on && styles.filterChipTextOn]}>
+                              {option.value} {option.count}
+                            </Text>
                           </TouchableOpacity>
                         );
                       })}
@@ -936,7 +962,13 @@ export function LedgerReportModal({
           ) : null}
 
           <View style={styles.previewCanvas}>
-          {!isCustomReport ? (
+          {preparing ? (
+            <View style={styles.preparingPane}>
+              <LoadingIndicator size="small" color={PULSE_METRONIC.text} />
+              <Text style={styles.preparingText}>Preparing the report…</Text>
+            </View>
+          ) : null}
+          {!preparing && !isCustomReport ? (
             <View style={[styles.tableHeader, styles.ledgerTableHeader]}>
               <Text style={[styles.th, styles.thEntity]}>Party / ref</Text>
               <Text style={[styles.th, styles.thDate]}>Date</Text>
@@ -945,7 +977,7 @@ export function LedgerReportModal({
             </View>
           ) : null}
 
-          {isCustomReport ? (
+          {!preparing && isCustomReport ? (
             <View style={styles.customTableShell}>
               <ScrollView
                 horizontal
@@ -964,7 +996,7 @@ export function LedgerReportModal({
                           style={[
                             styles.thFixed,
                             {
-                              width: getCustomColumnWidth(col.key),
+                              width: getCustomColumnWidth(col.key, col.label),
                               flexDirection: 'row',
                               alignItems: 'center',
                               justifyContent:
@@ -1056,7 +1088,7 @@ export function LedgerReportModal({
                               money ? styles.cellMoney : undefined,
                               col.align === 'right' ? styles.cellNum : undefined,
                               {
-                                width: getCustomColumnWidth(col.key),
+                                width: getCustomColumnWidth(col.key, col.label),
                                 textAlign:
                                   (col.align === 'right'
                                     ? 'right'
@@ -1070,7 +1102,7 @@ export function LedgerReportModal({
                               return (
                                 <View
                                   key={`${idx}-${col.key}`}
-                                  style={{ width: getCustomColumnWidth(col.key) }}
+                                  style={{ width: getCustomColumnWidth(col.key, col.label) }}
                                 >
                                   <Text
                                     style={cellStyle}
@@ -1149,22 +1181,37 @@ export function LedgerReportModal({
           </View>
 
           <View style={[styles.actionBar, { paddingBottom: Math.max(8, insets.bottom) }]}>
-            <TouchableOpacity style={styles.actionBtn} onPress={handlePrint} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={[styles.actionBtn, preparing && styles.actionBtnDisabled]}
+              onPress={handlePrint}
+              disabled={preparing}
+              activeOpacity={0.85}
+            >
               <FontAwesome name="print" size={13} color={PULSE_METRONIC.text} />
               <Text style={styles.actionBtnText}>Print</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionBtn} onPress={handleWhatsApp} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={[styles.actionBtn, preparing && styles.actionBtnDisabled]}
+              onPress={handleWhatsApp}
+              disabled={preparing}
+              activeOpacity={0.85}
+            >
               <FontAwesome name="whatsapp" size={14} color={PULSE_METRONIC.text} />
               <Text style={styles.actionBtnText}>WhatsApp</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionBtn} onPress={handleShare} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={[styles.actionBtn, preparing && styles.actionBtnDisabled]}
+              onPress={handleShare}
+              disabled={preparing}
+              activeOpacity={0.85}
+            >
               <FontAwesome name="share-alt" size={13} color={PULSE_METRONIC.text} />
               <Text style={styles.actionBtnText}>Share</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.actionBtn, downloadInProgress && styles.actionBtnDisabled]}
+              style={[styles.actionBtn, (downloadInProgress || preparing) && styles.actionBtnDisabled]}
               onPress={handleDownload}
-              disabled={downloadInProgress}
+              disabled={downloadInProgress || preparing}
               activeOpacity={0.85}
             >
               {downloadInProgress ? (
@@ -1418,8 +1465,21 @@ const styles = StyleSheet.create({
     backgroundColor: PULSE_METRONIC.border,
     borderRadius: 16,
   },
+  preparingPane: {
+    minHeight: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  preparingText: {
+    fontSize: 13,
+    color: PULSE_METRONIC.text,
+  },
   actionBar: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
     paddingHorizontal: TABLE_HPAD,
     paddingTop: 8,
     gap: 6,
@@ -1430,7 +1490,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   actionBtn: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 132,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

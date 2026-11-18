@@ -30,6 +30,7 @@ const STATUS_TONE: Record<
   rejected: { bg: Theme.surface, fg: Theme.textSecondary, label: "NOT SELECTED" },
   withdrawn: { bg: Theme.surface, fg: Theme.textMuted, label: "WITHDRAWN" },
   superseded: { bg: Theme.surface, fg: Theme.textMuted, label: "SUPERSEDED" },
+  expired: { bg: Theme.surface, fg: Theme.textMuted, label: "BID EXPIRED" },
 };
 
 export function MarketplaceBidPoolCard({

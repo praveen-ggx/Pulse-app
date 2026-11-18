@@ -108,6 +108,30 @@ function chunkIds(ids: string[], size: number): string[][] {
   return chunks;
 }
 
+export async function fetchLiveAdvanceApproval(tripId: string): Promise<{
+  approvedAmount: number;
+  formulaVersion: number | null;
+  advancePercent: number | null;
+} | null> {
+  const id = tripId.trim();
+  if (!id) return null;
+  const { data, error } = await supabase()
+    .from("payment_requests")
+    .select("approved_amount, terms_snapshot, status")
+    .eq("trip_id", id)
+    .eq("payment_type", "advance")
+    .neq("status", "cancelled")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data || data.approved_amount == null) return null;
+  const snapshot = data.terms_snapshot as { formula_version?: number; advance_percent?: number } | null;
+  return {
+    approvedAmount: Number(data.approved_amount),
+    formulaVersion: snapshot?.formula_version == null ? null : Number(snapshot.formula_version),
+    advancePercent: snapshot?.advance_percent == null ? null : Number(snapshot.advance_percent),
+  };
+}
+
 export async function fetchAdvanceRequestsForTrips(tripIds: string[]): Promise<Record<string, TripPaymentRequest>> {
   const chunks = chunkIds(tripIds, REST_IN_CHUNK);
   if (chunks.length === 0) return {};

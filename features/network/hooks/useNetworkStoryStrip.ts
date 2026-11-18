@@ -3,10 +3,12 @@ import {
   useConnectionRequestsReceivedQuery,
   useConnectionRequestsSentQuery,
 } from "@/lib/queries/useNetworkQueries";
+import { useNetworkFeedQuery } from "@/lib/queries/usePostsQuery";
 import { useStoryStripPostsQuery } from "@/features/network/hooks/useStoryStripPostsQuery";
 import {
   collectApprovedNetworkOrgIds,
   collectStoryStripAudienceOrgIds,
+  mergeStoryStripSources,
   selectStoryStripPosts,
 } from "@/features/network/utils/storyStrip.util";
 import { groupStoriesByLane } from "@/features/network/utils/storyLaneGroup.util";
@@ -55,9 +57,16 @@ export function useNetworkStoryStrip(
   const connectionsReady =
     !receivedQ.isPending && !sentQ.isPending && !clientsQ.isPending;
   const connectedIds = useMemo(() => [...connectedOrgIds], [connectedOrgIds]);
-  const stripQ = useStoryStripPostsQuery(enabled ? orgId! : null, connectedIds);
+  const feedQ = useNetworkFeedQuery(enabled ? orgId! : null);
+  const stripQ = useStoryStripPostsQuery(
+    enabled && connectionsReady ? orgId! : null,
+    connectedIds,
+  );
 
-  const rawPosts = stripQ.data ?? [];
+  const rawPosts = useMemo(
+    () => mergeStoryStripSources(feedQ.data ?? [], stripQ.data ?? []),
+    [feedQ.data, stripQ.data],
+  );
   const posts = useMemo(
     () =>
       selectStoryStripPosts(rawPosts, orgId, connectedOrgIds, {
@@ -79,7 +88,7 @@ export function useNetworkStoryStrip(
   return {
     posts,
     indentCountByPostId,
-    isLoading: stripQ.isLoading && posts.length === 0,
+    isLoading: feedQ.isLoading && posts.length === 0,
     connectedOrgIds,
     connectionsReady,
   };

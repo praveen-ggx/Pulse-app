@@ -14,9 +14,9 @@ import {
 } from "react-native";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 
-import { LoadCardRouteRow } from "@/components/LoadCardRouteRow";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import { MarketplaceRouteGrid } from "@/features/network/components/MarketplaceLoadCardChrome";
 import { IndentFreightClientEntity } from "@/features/indents/components/IndentFreightClientEntity";
 import { IndentHubInsightTicketTail } from "@/features/indents/components/IndentHubInsightTicketTail";
 import type { IndentFreightCardClientProps } from "@/features/indents/components/IndentFreightCard";
@@ -365,15 +365,12 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
 
   return (
     <View style={[styles.stack, stacked && styles.stackStacked]}>
-      {/* ── Card 1: Route & status ── */}
       <GlassCard compact={compact} stacked={stacked}>
-        <View style={styles.orb} pointerEvents="none" />
-
-        <View style={styles.tagsRow}>
+        <View style={styles.cardHead}>
+          <Text style={styles.cardEyebrow} numberOfLines={1}>
+            {(loadId || typeLabel).toUpperCase()}
+          </Text>
           <View style={styles.pillRow}>
-            <View style={styles.typePill}>
-              <Text style={styles.typePillText}>{typeLabel}</Text>
-            </View>
             <View style={styles.statePill}>
               <Text style={styles.statePillText}>{statusDisplay}</Text>
             </View>
@@ -387,9 +384,6 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
                 <Text style={styles.commercePillText}>COMMERCE</Text>
               </View>
             ) : null}
-          </View>
-          <View style={styles.tagsRight}>
-            <Text style={styles.dateLine}>{dateLabel}</Text>
             {isOwner && canCancelLoad ? (
               <TouchableOpacity
                 onPress={onCancelLoad}
@@ -407,11 +401,11 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
         </View>
 
         <View style={[styles.routePanel, compact && styles.routePanelCompact]}>
-          <LoadCardRouteRow
-            origin={origin}
-            destination={destination}
-            compact
-            style={styles.route}
+          <MarketplaceRouteGrid
+            pickup={origin}
+            drop={destination}
+            dropLabel="Destination"
+            hero
           />
           {!compact && extraStopRows.length > 0 ? (
             <RouteStopsTimeline
@@ -442,12 +436,9 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
             </>
           )}
         </View>
-      </GlassCard>
 
-      {/* ── Card 2: Shipment + commercials ── */}
-      <GlassCard compact={compact} stacked={stacked}>
         <View style={styles.specsHeader}>
-          <Text style={styles.specsTitle}>Shipment profile</Text>
+          <Text style={styles.specsTitle}>Shipment</Text>
           {isOwner && canEditLoad ? (
             <TouchableOpacity
               onPress={onEditAll}
@@ -474,7 +465,8 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
         <View style={styles.specGrid}>
           <SpecTile label="Vehicle" value={vehicleType} />
           <SpecTile label="Weight" value={weightKg} />
-          <SpecTile label="Cargo Load" value={material} />
+          <SpecTile label="Cargo" value={material} />
+          <SpecTile label="Pickup" value={dateLabel} />
         </View>
 
         {hideCommercials ? (
@@ -692,13 +684,28 @@ const styles = StyleSheet.create({
     position: "relative",
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
-    borderRadius: 14,
+    borderColor: Theme.borderLight,
+    borderRadius: 16,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
+    gap: 12,
     overflow: "hidden",
     width: "100%",
     alignSelf: "stretch",
+  },
+  cardHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  cardEyebrow: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    fontWeight: "500",
+    letterSpacing: 0.4,
+    color: Theme.textMuted,
   },
   glassCardCompact: {
     paddingHorizontal: 10,
@@ -807,11 +814,11 @@ const styles = StyleSheet.create({
   },
   routePanel: {
     backgroundColor: Theme.surface,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    borderWidth: 1,
     borderColor: Theme.borderLight,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     zIndex: 1,
   },
   routePanelCompact: {
@@ -823,7 +830,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
   },
   specsTitle: {
     ...indentReviewHubText.fieldLabel,
@@ -869,18 +875,20 @@ const styles = StyleSheet.create({
   },
   specGrid: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 8,
+    flexWrap: "wrap",
+    gap: 8,
     alignItems: "stretch",
   },
   specTile: {
-    flex: 1,
-    minWidth: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "22%",
+    minWidth: 120,
     minHeight: 58,
-    backgroundColor: Theme.analyticsCanvas,
-    borderRadius: 10,
+    backgroundColor: Theme.surface,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
+    borderColor: Theme.borderLight,
     paddingHorizontal: 12,
     paddingVertical: 10,
     justifyContent: "flex-start",
@@ -914,7 +922,7 @@ const styles = StyleSheet.create({
   supplierTargetCard: {
     flex: 1.2,
     minWidth: 0,
-    backgroundColor: Theme.brandBlueSoft,
+    backgroundColor: Theme.surface,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Theme.surfaceBorder,

@@ -2,6 +2,7 @@ import {
   buildActiveHubRailCounts,
   filterHubTripsForActiveList,
   filterHubTripsForHistoryList,
+  rowsForHubStatusList,
   hubActiveAllTripCount,
   hubActiveRailMetric,
   hubCountText,
@@ -66,6 +67,12 @@ describe("canonical hub trip classification", () => {
     ];
     expect(hubTabTripCounts(rows)).toEqual({ active: 3, history: 3, cancelled: 1 });
     expect(filterHubTripsForActiveList(rows).map((r) => r.id)).toEqual(["a", "b", "g"]);
+    expect(
+      rowsForHubStatusList(rows, { history: false, tileBucket: "unassigned" }).map((r) => r.id),
+    ).toEqual(["a", "b", "f", "g"]);
+    expect(
+      rowsForHubStatusList(rows, { history: false, tileBucket: "active" }).map((r) => r.id),
+    ).toEqual(["a", "b", "g"]);
     expect(filterHubTripsForHistoryList(rows).map((r) => r.id)).toEqual(["c", "d", "e"]);
   });
 
@@ -233,6 +240,24 @@ describe("dataset beyond the 400-row default list", () => {
     expect(hubActiveAllTripCount(rail)).toBe(101);
     // Before the fix the badges came from the newest 400 only.
     expect(hubTabTripCounts(newest400)).toEqual({ active: 88, history: 312, cancelled: 0 });
+  });
+
+  it("a partial keyset page stays on the loaded rows and is not called complete", () => {
+    const newest400 = buildOrg().slice(0, 400);
+    const page = newest400.slice(0, 250);
+    const ds = resolveHubTripDataset({
+      rangeRows: page,
+      rangeFetched: true,
+      rangeError: false,
+      newestRows: newest400,
+      rangePartial: true,
+    });
+    expect(ds.completeness).toBe("paged");
+    expect(ds.trips).toHaveLength(250);
+    expect(hubTripCompletenessNote(ds.completeness)).toBeNull();
+    expect(hubShowingCountLabel({ shown: 250, total: 51104, partial: true })).toBe(
+      "Showing 250 of 51104+",
+    );
   });
 
   it("while loading or after an error the 400-row fallback is labelled partial", () => {

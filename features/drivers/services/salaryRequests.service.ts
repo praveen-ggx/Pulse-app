@@ -3,6 +3,7 @@
  * Driver requests salary from the org (fleet); org can Approve & Pay or Reject.
  * DB: public.driver_salary_requests (RLS: driver INSERT/SELECT own; org members manage by org).
  */
+import { chunkIdsForRead, readAllPages } from "@/lib/pagination";
 import { supabase } from '@/lib/supabase';
 
 export type SalaryRequestType = 'monthly' | 'advance' | 'trip_based' | 'reward';
@@ -78,14 +79,44 @@ export async function getSalaryRequestsByDriverIds(
   driverIds: string[]
 ): Promise<{ error: Error | null; requests: SalaryRequestRow[] }> {
   if (driverIds.length === 0) return { error: null, requests: [] };
-  const { data, error } = await supabase()
-    .from('driver_salary_requests')
-    .select('*')
-    .in('driver_id', driverIds)
-    .order('created_at', { ascending: false })
-    .limit(100);
-  if (error) return { error: new Error(error.message), requests: [] };
-  return { error: null, requests: (data ?? []) as SalaryRequestRow[] };
+  const merged: SalaryRequestRow[] = [];
+  const seen = new Set<string>();
+  for (const chunk of chunkIdsForRead(driverIds)) {
+    const page = await readAllPages<{
+      id: string;
+      organization_id: string;
+      driver_id: string;
+      request_type: string;
+      amount: number;
+      currency: string;
+      status: string;
+      note: string | null;
+      trip_ids: string[] | null;
+      cash_entry_id: string | null;
+      salary_month: string | null;
+      created_at: string | null;
+      updated_at: string | null;
+      created_by: string | null;
+    }, { message: string }>(async (afterId, limit) => {
+      let query = supabase().from("driver_salary_requests").select("*").in("driver_id", chunk);
+      if (afterId) query = query.gt("id", afterId);
+      const result = await query.order("id", { ascending: true }).limit(limit);
+      return { data: result.data, error: result.error };
+    });
+    if (page.error) return { error: new Error(page.error.message), requests: [] };
+    for (const row of page.data ?? []) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      merged.push({
+        ...row,
+        trip_ids: row.trip_ids ?? [],
+        created_at: row.created_at ?? "",
+        updated_at: row.updated_at ?? "",
+      });
+    }
+  }
+  merged.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return { error: null, requests: merged };
 }
 
 /** Single salary request for the driver app detail view (RLS: own requests only). */

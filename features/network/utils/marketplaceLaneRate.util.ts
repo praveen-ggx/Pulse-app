@@ -1,30 +1,60 @@
 import type { PoolBidCommitCopy } from "@/features/network/components/bidding/PoolBidCommitSheet";
 
-/** Opt-in step after a pooled Marketplace bid: keep the rate on the whole lane. */
+/** How long a Marketplace lane rate stays visible to new loads. The database sets this. */
+export const MARKETPLACE_LANE_RATE_HOURS = 48;
+
+export function marketplaceLaneRateValidUntilIso(from = new Date()): string {
+  return new Date(from.getTime() + MARKETPLACE_LANE_RATE_HOURS * 60 * 60 * 1000).toISOString();
+}
+
+/** Retry copy. The rate is bid visibility for 48 hours, not a vehicle reservation. */
 export const MARKETPLACE_LANE_RATE_COPY: PoolBidCommitCopy = {
-  title: "Apply to new loads on this lane",
-  scope: "for every open and new load on this lane",
-  countHint: (count, max) =>
-    `Your rate is placed automatically on loads shared on this lane until ${count} ${count === 1 ? "is" : "are"} awarded to you. Loads you already bid on, declined, or were rejected on are left alone. You can commit up to ${max}.`,
-  dateHint: "After this date new loads stop receiving your rate. Bids already placed stay until you withdraw them.",
-  submitLabel: (count) => `Apply to lane · ${count} vehicle${count === 1 ? "" : "s"}`,
-  submitA11y: "Apply this rate to open and new loads on this lane",
-  dismissLabel: "Not now",
+  title: "Lane rate for 48 hours",
+  scope: "on eligible loads on this lane",
+  hidesAllocation: true,
+  countHint: () =>
+    "Each eligible load gets its own bid. The shipper accepts that bid. This does not reserve a vehicle or award the load.",
+  dateHint:
+    "New loads on this lane receive your rate for 48 hours from when it was saved. Sending the same rate again does not extend that window. Accepted bids stay as they are.",
+  submitLabel: () => "Save lane rate for 48 hours",
+  submitA11y: "Save this lane rate for 48 hours",
+  dismissLabel: "Close",
 };
 
 export function laneRateConfirmation(input: {
   amountLabel: string;
   attached: number;
-  vehicleLimit: number;
-  validUntilDate: string;
+  reused?: boolean;
+  rateChanged?: boolean;
+  renewed?: boolean;
+  /** The current pool screen still passes these. They do not reserve a vehicle or set the clock. */
+  vehicleLimit?: number;
+  validUntilDate?: unknown;
 }): { title: string; message: string } {
-  const vehicles = `${input.vehicleLimit} vehicle${input.vehicleLimit === 1 ? "" : "s"}`;
-  const now =
+  const placed =
     input.attached > 0
-      ? `Placed on ${input.attached} more open load${input.attached === 1 ? "" : "s"} now. `
+      ? `Placed on ${input.attached} more open load${input.attached === 1 ? "" : "s"}. `
       : "";
+  if (input.renewed) {
+    return {
+      title: "Lane rate renewed",
+      message: `${placed}Your rate of ${input.amountLabel} is visible on this lane for a new 48 hours. Each shipper accepts its own bid. No vehicle is reserved.`,
+    };
+  }
+  if (input.rateChanged) {
+    return {
+      title: "Lane rate updated",
+      message: `${placed}Pending bids on this lane now use ${input.amountLabel}. Accepted bids are unchanged. The 48-hour window was not extended.`,
+    };
+  }
+  if (input.reused) {
+    return {
+      title: "Lane rate already on",
+      message: `${placed}This rate stays on the lane. The 48-hour window was not extended. Each shipper still accepts its own bid.`,
+    };
+  }
   return {
     title: "Lane rate on",
-    message: `${now}New loads on this lane get ${input.amountLabel} automatically until ${input.validUntilDate} or ${vehicles} awarded.`,
+    message: `${placed}New loads on this lane get ${input.amountLabel} for 48 hours. Each load has its own bid, and the shipper accepts it. No vehicle is reserved and nothing is awarded automatically.`,
   };
 }

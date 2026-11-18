@@ -18,11 +18,10 @@ import {
   previousMonthKey,
 } from "@/features/network/services/networkGoalsStorage.service";
 import type { SalesSlice } from "@/features/network/utils/connectionSalesAnalytics.util";
-import { getTripsForOrg, type TripRow } from "@/features/trips/services/trips.service";
+import { type TripRow } from "@/features/trips/services/trips.service";
+import { useCompleteTripsQuery } from "@/lib/queries/useTripsQuery";
 import { formatLaneRouteLabel } from "@/lib/placeCityState.util";
-import { queryKeys } from "@/lib/queryKeys";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -126,15 +125,7 @@ export function ClientProfileMarginAnalysisSection({
   );
   const [filters, setFilters] = useState<MarginFilters>(EMPTY_FILTERS);
 
-  const tripsQ = useQuery({
-    queryKey: queryKeys.trips.finite(organizationId),
-    queryFn: async () => {
-      const { trips, error } = await getTripsForOrg(organizationId);
-      if (error) throw error;
-      return trips;
-    },
-    staleTime: 60_000,
-  });
+  const tripsQ = useCompleteTripsQuery(organizationId);
 
   const clientTrips = useMemo(
     () =>

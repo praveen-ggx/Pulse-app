@@ -2,6 +2,7 @@ import Theme from "@/constants/Theme";
 import { formatINR } from "@/lib/format";
 import type { MyOrgMarketBidRow } from "@/features/network/services/findLoadsForOrg.service";
 import { marketplaceFeeGateSatisfied } from "@/features/network/services/marketBids.service";
+import { countActiveMarketplaceBids } from "@/features/network/utils/bidLoadCount.util";
 import { marketplaceWalletFigures } from "@/features/network/utils/marketplaceWallet.util";
 import type { MarketplaceArBook } from "@/features/network/utils/marketplaceWallet.util";
 import { useEffect, useMemo, useState } from "react";
@@ -52,6 +53,7 @@ export function MarketplaceHomeBoard({
   onShowAllLanes: () => void;
 }) {
   const figures = marketplaceWalletFigures(bids);
+  const active = countActiveMarketplaceBids(bids);
   const name = orgName.trim() || "Your organization";
 
   return (
@@ -83,9 +85,9 @@ export function MarketplaceHomeBoard({
           accessibilityRole="button"
           accessibilityLabel="Open marketplace transactions"
         >
-          <Text style={styles.tileKicker}>Rates sent</Text>
-          <Text style={styles.tileValue}>{figures.ratesSent}</Text>
-          <Text style={styles.tileHint}>{figures.awarded} awarded</Text>
+          <Text style={styles.tileKicker}>Active bids</Text>
+          <Text style={styles.tileValue}>{active.bids}</Text>
+          <Text style={styles.tileHint}>{active.loads} load{active.loads === 1 ? "" : "s"}</Text>
         </Pressable>
       </View>
 
@@ -123,22 +125,34 @@ const EMPTY_BIDS: readonly MyOrgMarketBidRow[] = [];
 export function MarketplaceWalletBoard({
   orgName,
   bids,
+  bidTotals = null,
   statementBids,
   statementReady = true,
   arBook,
   onOpenBids,
   onFindLoads,
+  pane = "full",
 }: {
   orgName: string;
   bids: readonly MyOrgMarketBidRow[];
+  /** Organization totals. The loaded rows are a page, not the total. */
+  bidTotals?: { awarded: number; ratesSent: number } | null;
   /** Awarded bids that already have an allocated trip. */
   statementBids?: readonly MyOrgMarketBidRow[];
   statementReady?: boolean;
   arBook?: MarketplaceArBook;
   onOpenBids: () => void;
   onFindLoads: () => void;
+  /** Mobile tabs show one subject. Desktop keeps the full board. */
+  pane?: "full" | "wallet" | "transactions";
 }) {
-  const figures = marketplaceWalletFigures(bids);
+  const loaded = marketplaceWalletFigures(bids);
+  const figures = {
+    ...loaded,
+    awarded: bidTotals?.awarded ?? loaded.awarded,
+    ratesSent: bidTotals?.ratesSent ?? loaded.ratesSent,
+  };
+  const active = countActiveMarketplaceBids(bids);
   const [openFaq, setOpenFaq] = useState<string | null>(null);
   const [statusTag, setStatusTag] = useState<WalletStatusTag>("all");
   const [monthTag, setMonthTag] = useState("all");
@@ -181,9 +195,13 @@ export function MarketplaceWalletBoard({
       <View style={styles.sectionRow}>
         <View style={styles.ledgerTitle}>
           <Text style={styles.section}>Transactions</Text>
-          <Text style={styles.sectionMeta}>
-            {visible.length} of {filtered.length} showing
-          </Text>
+          {statement.length > 0 ? (
+            <Text style={styles.sectionMeta}>
+              {visible.length} of {filtered.length} showing
+            </Text>
+          ) : (
+            <Text style={styles.sectionMeta}>Awarded loads, after a trip is created</Text>
+          )}
         </View>
         <Pressable onPress={onOpenBids} accessibilityRole="button" accessibilityLabel="See all bids">
           <Text style={styles.link}>Open bids</Text>
@@ -221,6 +239,7 @@ export function MarketplaceWalletBoard({
         <Text style={styles.sectionMeta}>Checking allocated trips…</Text>
       ) : statement.length === 0 ? (
         <View style={styles.emptyCard}>
+          <Text style={styles.emptyKicker}>Nothing here yet</Text>
           <Text style={styles.emptyTitle}>You don’t have any transactions</Text>
           <Text style={styles.emptyBody}>
             Awarded loads show here after they are allocated to a trip.
@@ -302,12 +321,15 @@ export function MarketplaceWalletBoard({
     <View style={styles.ledger}>
       <View style={styles.ledgerTitle}>
         <Text style={styles.section}>Accounts receivable</Text>
-        <Text style={styles.sectionMeta}>Pulse Exchange receivable</Text>
+        <Text style={styles.sectionMeta}>
+          {book.trips === 0 ? "Starts when an awarded load becomes a trip" : "Pulse Exchange receivable"}
+        </Text>
       </View>
       {!statementReady ? (
         <Text style={styles.sectionMeta}>Checking allocated trips…</Text>
       ) : book.trips === 0 ? (
         <View style={styles.emptyCard}>
+          <Text style={styles.emptyKicker}>Nothing here yet</Text>
           <Text style={styles.emptyTitle}>No marketplace receivable yet</Text>
           <Text style={styles.emptyBody}>
             AR starts when an awarded load is allocated to a trip.
@@ -355,50 +377,68 @@ export function MarketplaceWalletBoard({
 
   const aside = (
     <View style={[styles.aside, isDesktop && styles.asideDesktop]}>
-      <Text style={styles.section}>How a fee moves</Text>
-      {isDesktop ? (
-        <View style={styles.steps}>
-          {STEPS.map((step, index) => (
-            <View key={step.title} style={styles.step}>
-              <Text style={styles.stepIndex}>{index + 1}</Text>
+      <View style={styles.sideCard}>
+        <Text style={styles.section}>How a fee moves</Text>
+        {STEPS.map((step, index) => (
+          <View key={step.title} style={[styles.stepRow, index > 0 && styles.ledgerRowRule]}>
+            <View style={styles.stepBadge}>
+              <Text style={styles.stepBadgeText}>{index + 1}</Text>
+            </View>
+            <View style={styles.ledgerCopy}>
               <Text style={styles.stepTitle}>{step.title}</Text>
               <Text style={styles.stepBody}>{step.body}</Text>
             </View>
-          ))}
-        </View>
-      ) : (
-        <View style={styles.stepList}>
-          {STEPS.map((step, index) => (
-            <View key={step.title} style={[styles.stepRow, index > 0 && styles.ledgerRowRule]}>
-              <View style={styles.stepBadge}>
-                <Text style={styles.stepBadgeText}>{index + 1}</Text>
-              </View>
-              <View style={styles.ledgerCopy}>
-                <Text style={styles.stepTitle}>{step.title}</Text>
-                <Text style={styles.stepBody}>{step.body}</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
-      <Text style={styles.section}>Questions</Text>
-      {FAQ.map((item) => {
-        const open = openFaq === item.q;
-        return (
-          <Pressable
-            key={item.q}
-            onPress={() => setOpenFaq(open ? null : item.q)}
-            style={styles.faq}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: open }}
-          >
-            <Text style={styles.faqQ}>{item.q}</Text>
-            {open ? <Text style={styles.faqA}>{item.a}</Text> : null}
-          </Pressable>
-        );
-      })}
+          </View>
+        ))}
+      </View>
+      <View style={styles.sideCard}>
+        <Text style={styles.section}>Questions</Text>
+        {FAQ.map((item, index) => {
+          const open = openFaq === item.q;
+          return (
+            <Pressable
+              key={item.q}
+              onPress={() => setOpenFaq(open ? null : item.q)}
+              style={[styles.faqRow, index > 0 && styles.ledgerRowRule]}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: open }}
+            >
+              <Text style={styles.faqQ}>{item.q}</Text>
+              {open ? <Text style={styles.faqA}>{item.a}</Text> : null}
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
+
+  if (pane === "transactions") {
+    return <View style={styles.wrap}>{ledger}</View>;
+  }
+
+  if (pane === "wallet") {
+    return (
+      <View style={styles.wrap}>
+        <View style={[styles.walletCard, isDesktop && styles.walletCardDesktop]}>
+          <View style={styles.walletIdentity}>
+            <Text style={styles.walletKicker}>Marketplace wallet</Text>
+            <Text style={[styles.walletName, !isDesktop && styles.walletNameMobile]} numberOfLines={2}>
+              {name}
+            </Text>
+            <Text style={styles.walletMeta}>
+              {active.bids} active bid{active.bids === 1 ? "" : "s"} · {active.loads} load{active.loads === 1 ? "" : "s"}
+            </Text>
+          </View>
+          <View style={[styles.balanceBlock, styles.balanceBlockMobile]}>
+            <Text style={styles.balanceLabel}>Balance</Text>
+            <Text style={styles.balanceValue}>{balance}</Text>
+            <Text style={styles.balanceHint}>{balanceHint}</Text>
+          </View>
+        </View>
+        {arPanel}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.wrap}>
@@ -644,19 +684,12 @@ const styles = StyleSheet.create({
   wayTitle: { fontSize: 15, fontWeight: "800", color: Theme.textPrimaryDark },
   wayBody: { fontSize: 12, lineHeight: 16, color: Theme.text },
   section: { fontSize: 20, fontWeight: "800", color: Theme.textPrimaryDark },
-  sectionRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
+  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   sectionMeta: { fontSize: 13, color: Theme.textSecondary },
   link: { fontSize: 14, fontWeight: "700", color: Theme.buttonPrimaryText },
-  faq: {
-    backgroundColor: Theme.cardWhite,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-    padding: 14,
-    gap: 6,
-  },
+  faqRow: { paddingVertical: 12, gap: 6, minHeight: 44, justifyContent: "center" },
   faqQ: { fontSize: 15, fontWeight: "700", color: Theme.textPrimaryDark },
-  faqA: { fontSize: 13, lineHeight: 18, color: Theme.text },
+  faqA: { fontSize: 13, lineHeight: 18, color: Theme.textSecondary },
   tx: {
     backgroundColor: Theme.cardWhite,
     borderRadius: 14,
@@ -671,16 +704,23 @@ const styles = StyleSheet.create({
   txMeta: { fontSize: 12, fontWeight: "600", color: Theme.text },
   txAmount: { fontSize: 15, fontWeight: "800", color: Theme.textPrimaryDark, flexShrink: 0 },
   emptyCard: {
-    backgroundColor: Theme.cardWhite,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-    padding: 22,
-    alignItems: "center",
-    gap: 8,
+    marginTop: 8,
+    backgroundColor: Theme.surface,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    alignItems: "flex-start",
+    gap: 6,
   },
-  emptyTitle: { fontSize: 16, fontWeight: "800", color: Theme.textPrimaryDark, textAlign: "center" },
-  emptyBody: { fontSize: 13, color: Theme.textSecondary, textAlign: "center" },
+  emptyKicker: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  emptyTitle: { fontSize: 16, fontWeight: "800", color: Theme.textPrimaryDark },
+  emptyBody: { fontSize: 13, lineHeight: 18, color: Theme.textSecondary, maxWidth: 420 },
   findBtn: {
     marginTop: 6,
     backgroundColor: Theme.primaryText,
@@ -735,7 +775,17 @@ const styles = StyleSheet.create({
   walletColumns: { flexDirection: "row", alignItems: "flex-start", gap: 16 },
   walletMain: { flex: 1, minWidth: 0 },
   aside: { gap: 12 },
-  asideDesktop: { width: 400 },
+  asideDesktop: { width: 360 },
+  sideCard: {
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 6,
+    gap: 4,
+  },
   detailTabs: { flexDirection: "row", gap: 8 },
   detailTab: {
     minHeight: 34,
@@ -763,7 +813,7 @@ const styles = StyleSheet.create({
     borderColor: Theme.borderLight,
     paddingHorizontal: 14,
   },
-  stepRow: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 12 },
+  stepRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, minHeight: 64 },
   stepBadge: {
     width: 28,
     height: 28,

@@ -26,6 +26,7 @@ import {
 import { INVOICE_TRIP_NOT_COMPLETED } from "@/features/invoicing/utils/financeWorkflowState.util";
 import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
+import { readAllPages } from "@/lib/pagination";
 import { getSupabaseBaseUrl, supabase } from "@/lib/supabase";
 import { refuseProductionInvoiceWrite } from "@/features/invoicing/utils/invoiceProductionWriteGuard.util";
 import { recordTripWorkflowEvent } from "@/features/trips/services/tripWorkflow.service";
@@ -128,7 +129,7 @@ export interface PodReconciliationSummary {
 }
 
 const LIVE_TRIP_SELECT =
-  "id, organization_id, trip_operational_code, trip_code, display_trip_id, trip_number, booking_ref, supplier_id, driver_id, driver_display_name, client_id, client_name, client_price, status, pickup_date, pickup_area, drop_location, notes, created_at, pod_received_at, vehicle_id, vehicle_display_number, load_type";
+  "id, organization_id, trip_operational_code, trip_code, display_trip_id, trip_number, booking_ref, supplier_id, driver_id, driver_display_name, client_id, client_name, client_price, status, pickup_date, pickup_area, drop_location, notes, created_at, pod_received_at, vehicle_id, vehicle_display_number, load_type" as const;
 
 const POD_IN_CHUNK = 40;
 const UUID_RE =
@@ -574,12 +575,12 @@ export async function fetchInvoicingTrips(
 ): Promise<{ error: Error | null; trips: InvoicingTripView[] }> {
   try {
     const [ownerRes, supRes] = await Promise.all([
-      supabase()
-        .from("trips")
-        .select(LIVE_TRIP_SELECT)
-        .eq("organization_id", orgId)
-        .order("created_at", { ascending: false })
-        .limit(3000),
+      readAllPages(async (afterId, limit) => {
+        let q = supabase().from("trips").select(LIVE_TRIP_SELECT).eq("organization_id", orgId);
+        if (afterId) q = q.gt("id", afterId);
+        const page = await q.order("id", { ascending: true }).limit(limit);
+        return { data: page.data, error: page.error };
+      }),
       getTripsWhereOrgIsSupplier(orgId),
     ]);
 

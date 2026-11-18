@@ -20,7 +20,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
 import { ComplianceAdvanceProcessedTable } from "@/features/tripCompliance/components/ComplianceAdvanceProcessedTable";
 import { ComplianceDocumentWorkspace } from "@/features/tripCompliance/components/ComplianceDocumentWorkspace";
-import { ComplianceExportConfirmModal } from "@/features/tripCompliance/components/ComplianceExportConfirmModal";
+import { TripsLedgerExportModalGate } from "@/features/trips/components/TripsLedgerExportModalGate";
 import {
   CompliancePaymentConfirmModal,
   compliancePaymentNotes,
@@ -31,6 +31,7 @@ import {
 } from "@/features/tripCompliance/components/ComplianceMobileChrome";
 import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/ComplianceSegmentedFilter";
 import { isComplianceMobileViewport } from "@/features/tripCompliance/utils/complianceMobileLayout.util";
+import { setRootDockHidden } from "@/contexts/DemoTabBarScrollContext";
 import { HubMobileUnderlineTab, HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
 import { DebitControlTripsTable } from "@/features/tripCompliance/components/DebitControlTripsTable";
@@ -53,12 +54,10 @@ import {
 import { tripAppearsInAwaitingPod } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import { fetchComplianceAdvanceFinanceBreakdown } from "@/features/tripCompliance/services/complianceAdvanceFinanceBreakdown.service";
 import {
-    downloadAdvancePaymentReport,
-    downloadAdvanceProcessedReport,
     downloadComplianceTableExport,
-    exportVerifiedStageComplianceReport,
     prepareAdvancePaymentReport,
     prepareAdvanceProcessedReport,
+    prepareVerifiedStageComplianceReport,
 } from "@/features/tripCompliance/services/complianceExportReport.service";
 import {
   declineTripCompliance,
@@ -79,12 +78,11 @@ import {
     type AwaitingPodSoftSlice,
     type AwaitingPodSubview,
 } from "@/features/tripCompliance/utils/awaitingPodSubview.util";
+import { complianceRoleHomeStage } from "@/features/tripCompliance/utils/complianceRoleHome.util";
 import { firstTabWithCards } from "@/features/tripCompliance/utils/firstTabWithCards.util";
 import {
-    countAdvancePaymentExport,
-    countAdvanceProcessedExport,
-    type AdvancePaymentExportRow,
-    type AdvanceProcessedExportRow,
+    ADVANCE_PAYMENT_EXPORT_HEADERS,
+    ADVANCE_PROCESSED_EXPORT_HEADERS,
 } from "@/features/tripCompliance/utils/complianceAdvanceProcessedExport.util";
 import { sortAdvanceProcessedSummaries } from "@/features/tripCompliance/utils/complianceAdvanceProcessedSort.util";
 import {
@@ -92,11 +90,7 @@ import {
     matchesComplianceTripSearch,
     supplierComplianceSearchLabels,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
-import {
-    advanceVerificationExportSummaries,
-    countAdvanceVerificationExport,
-    type AdvanceVerificationExportFilter,
-} from "@/features/tripCompliance/utils/complianceExportReport.util";
+import { VERIFIED_EXPORT_CSV_HEADERS } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
 import { formatMarkComplianceVerifiedError } from "@/features/tripCompliance/utils/complianceMarkVerifiedError.util";
 import {
     isPendingDocsDeliveredTrip,
@@ -351,6 +345,16 @@ function TableQueueScroll({
 const DECLINE_KEY_REUSE_MS = 2 * 60 * 1000;
 const ADVANCE_PROCESSED_TONE = COMPLIANCE_STAGE_TONE.advance_payment_processed;
 
+const EXPORT_MONEY_HEADER = /amount|price|advance|tds|margin|charge|cost/i;
+
+function complianceSheetColumns(headers: readonly string[]) {
+  return headers.map((header) => ({
+    key: header,
+    label: header,
+    align: EXPORT_MONEY_HEADER.test(header) ? ("right" as const) : ("left" as const),
+  }));
+}
+
 export default function ComplianceScreen() {
   const layout = useLayoutInsets();
   const { width, height: windowHeight } = useWindowDimensions();
@@ -434,13 +438,22 @@ export default function ComplianceScreen() {
 
   const {
     summaries: queueSummaries,
+    pipelinePartial,
     isLoading,
     isError,
     error,
-    isFetching: complianceRefreshing,
     dataUpdatedAt: complianceUpdatedAt,
     refetch,
   } = useComplianceTripsQuery();
+  const [complianceRefreshBusy, setComplianceRefreshBusy] = useState(false);
+  const refreshCompliance = useCallback(async () => {
+    setComplianceRefreshBusy(true);
+    try {
+      await refetch();
+    } finally {
+      setComplianceRefreshBusy(false);
+    }
+  }, [refetch]);
   // Ground Ops / TripOps fix holds but can't verify: their held trips show in
   // Document Upload → Compliance Hold, wherever the file count would place them.
   const fixesHoldsOnly = canResubmit && !canVerifyDocuments && !canMarkVerified;
@@ -494,13 +507,50 @@ export default function ComplianceScreen() {
     if (stage !== "balance_pending") setSettlementSlice("all");
     if (stage !== "pending_for_docs") setPendingTransitSlice("in_transit");
   }, [stage]);
+  const userPickedStageRef = useRef(false);
   useEffect(() => {
     if (!canViewCompliance || visibleStages.size === 0) return;
-    if (visibleStages.has(stage)) return;
-    setStage(visibleStages.has("pending_for_docs") ? "pending_for_docs" : [...visibleStages][0]);
-  }, [canViewCompliance, setStage, stage, visibleStages]);
+    if (!visibleStages.has(stage)) {
+      setStage(visibleStages.has("pending_for_docs") ? "pending_for_docs" : [...visibleStages][0]);
+      return;
+    }
+    if (userPickedStageRef.current || stage !== "all") return;
+    const home = complianceRoleHomeStage({
+      debitControlOnly,
+      canVerifyDocuments,
+      canMarkVerified,
+      canViewDocuments,
+      canResubmit,
+      canTabAdvanceVerification,
+      canTabAdvancePayment,
+      canTabSettlementVerification,
+      canTabFinalSettlement,
+      canManagePod,
+      visible: visibleStages,
+    });
+    if (home && home !== "all") setStage(home);
+  }, [
+    canManagePod,
+    canMarkVerified,
+    canResubmit,
+    canTabAdvancePayment,
+    canTabAdvanceVerification,
+    canTabFinalSettlement,
+    canTabSettlementVerification,
+    canVerifyDocuments,
+    canViewCompliance,
+    canViewDocuments,
+    debitControlOnly,
+    setStage,
+    stage,
+    visibleStages,
+  ]);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
   const [mobileReviewing, setMobileReviewing] = useState(false);
+  useEffect(() => {
+    setRootDockHidden(isMobile && mobileReviewing);
+    return () => setRootDockHidden(false);
+  }, [isMobile, mobileReviewing]);
   useEffect(() => {
     if (!isMobile) {
       setMobileReviewing(false);
@@ -545,6 +595,7 @@ export default function ComplianceScreen() {
     };
   }, [stage, filtered]);
   const selectStage = useCallback((next: Parameters<typeof setStage>[0]) => {
+    userPickedStageRef.current = true;
     setStage(next);
     setMobileReviewing(false);
     if (next !== "hard_copy_pod_received") {
@@ -685,40 +736,51 @@ export default function ComplianceScreen() {
   /** Finance approval: Compliance Verified → Finance Verified, and its undo. */
   const [financeVerifySubmitting, setFinanceVerifySubmitting] = useState(false);
   const financeVerifyTrip = useCallback(
-    async (tripId: string) => {
+    async (tripId: string, advancePercent?: number) => {
       if (!canManageFinance) {
         alertMessage("Couldn't approve advance", "You don't have permission to approve the advance for this trip.");
         return;
       }
+      const trip = (summaries ?? []).find((summary) => summary.trip.id === tripId)?.trip;
+      const orgId = trip?.organization_id ?? currentOrganization?.id ?? null;
+      const suppliedPercent = Number(advancePercent);
+      let percent = Number.isFinite(suppliedPercent) ? suppliedPercent : Number.NaN;
+      if (!Number.isFinite(percent)) {
+        if (!trip || !orgId) {
+          alertMessage("Couldn't approve advance", "The advance percent could not be loaded. Refresh and try again.");
+          return;
+        }
+        try {
+          const breakdown = await fetchComplianceAdvanceFinanceBreakdown({
+            orgId,
+            tripId,
+            supplierId: trip.supplier_id,
+            supplierRate: trip.supplier_rate,
+            supplierRateBasis: (trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
+            loadTons: trip.load_tons ?? null,
+          });
+          percent = breakdown?.advancePercent ?? 90;
+        } catch {
+          alertMessage("Couldn't approve advance", "The advance percent could not be loaded. Refresh and try again.");
+          return;
+        }
+      }
+      if (!Number.isFinite(percent)) {
+        alertMessage("Couldn't approve advance", "The advance percent could not be loaded. Refresh and try again.");
+        return;
+      }
       const confirmed = await confirmAction(
         "Approve advance?",
-        "The trip moves to Advance Payment, where the advance can be posted. You can undo this until the advance is posted.",
+        `The server will calculate the advance at ${percent}% of base freight, after documentation charges and TDS. You can undo this until the advance is posted.`,
         "Approve",
       );
       if (!confirmed) return;
       setFinanceVerifySubmitting(true);
       try {
-        // Snapshot the advance payable (same math as the payment card) on the
-        // payment request issued by this approval. Unknown terms → no snapshot.
-        const trip = (summaries ?? []).find((summary) => summary.trip.id === tripId)?.trip;
-        const orgId = trip?.organization_id ?? currentOrganization?.id ?? null;
-        const approvedAmount =
-          trip && orgId
-            ? await fetchComplianceAdvanceFinanceBreakdown({
-                orgId,
-                tripId,
-                supplierId: trip.supplier_id,
-                supplierRate: trip.supplier_rate,
-                supplierRateBasis: (trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
-                loadTons: trip.load_tons ?? null,
-              })
-                .then((breakdown) => breakdown?.computedAdvancePayable ?? null)
-                .catch(() => null)
-            : null;
         const { error } = await markTripFinanceVerified({
           tripId,
           idempotencyKey: `${tripId}:fv:${Date.now()}`,
-          approvedAmount,
+          advancePercent: percent,
         });
         await syncChange({ type: "tripFlags", tripId }).catch(() => undefined);
         if (error) {
@@ -843,7 +905,6 @@ export default function ComplianceScreen() {
     suggestedAmount?: number | null;
   } | null>(null);
   const [paying, setPaying] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
   const [logHardCopyPodRequest, setLogHardCopyPodRequest] = useState(0);
   const [bulkPodOpen, setBulkPodOpen] = useState(false);
   /** Debit control table: trip whose Log hard copy POD modal is open. */
@@ -853,8 +914,6 @@ export default function ComplianceScreen() {
     prefetchComplianceTripActivity(summary, currentOrganization?.id);
     setActivityLogSummary(summary);
   }, [currentOrganization?.id]);
-  const [exporting, setExporting] = useState(false);
-  const [exportFilter, setExportFilter] = useState<AdvanceVerificationExportFilter>("all");
   const routeFocus = useLocalSearchParams<{ trip?: string; tab?: string }>();
 
   const complianceHoldCount = useMemo(
@@ -1142,6 +1201,8 @@ export default function ComplianceScreen() {
   useEffect(() => {
     if (summaries == null || search.trim()) return;
     if (!visibleStages.has(stage) && visibleStages.size > 0) return;
+    // All is never the landing page. The role-home effect leaves it; a click on All can still use it.
+    if (stage === "all" && !userPickedStageRef.current) return;
     const currentCount = stageLandingCounts[stage] ?? 0;
     if (currentCount > 0) return;
     const order = STAGE_LANDING_ORDER.filter((item) => visibleStages.has(item));
@@ -1153,9 +1214,6 @@ export default function ComplianceScreen() {
 
   /** Export Report covers the Verified stage only, so it is offered only on that chip. */
   const isVerifiedStage = stage === "compliance_verified";
-  useEffect(() => {
-    if (!isVerifiedStage && !exporting) setExportOpen(false);
-  }, [isVerifiedStage, exporting]);
   /** Hardcopy POD PREVIEW control — late POD/settlement chips only. */
   const showHardcopyPodButton =
     stage === "hard_copy_pod_received" ||
@@ -1489,6 +1547,7 @@ export default function ComplianceScreen() {
   }, [isAdvanceProcessedStage, searched, tableDateSort, viewMode]);
   const visible = ordered;
   const filteredTotal = ordered.length;
+  const queueStillFilling = pipelinePartial && filteredTotal === 0 && !search.trim();
   const tableResetKey = useMemo(
     () =>
       [
@@ -1621,153 +1680,97 @@ export default function ComplianceScreen() {
     [setStage, stage, syncChange],
   );
 
-  /** Advance Processed Export Report: rows are prepared on open so the card shows real counts. */
-  const [apExport, setApExport] = useState<{
-    open: boolean;
-    preparing: boolean;
-    exporting: boolean;
-    rows: AdvanceProcessedExportRow[];
-  }>({ open: false, preparing: false, exporting: false, rows: [] });
-  const apExportRequest = useRef(0);
-  useEffect(() => {
-    if (!isAdvanceProcessedStage) {
-      apExportRequest.current += 1;
-      setApExport((cur) => (cur.open && !cur.exporting ? { ...cur, open: false } : cur));
-    }
-  }, [isAdvanceProcessedStage]);
-  const apExportCounts = useMemo(() => countAdvanceProcessedExport(apExport.rows), [apExport.rows]);
-
-  /** Advance Payment Export Report: Pending + Paid in one sheet, whichever sub-tab is open. */
-  const [payExport, setPayExport] = useState<{
-    open: boolean;
-    preparing: boolean;
-    exporting: boolean;
-    rows: AdvancePaymentExportRow[];
-  }>({ open: false, preparing: false, exporting: false, rows: [] });
-  const payExportRequest = useRef(0);
   const isAdvancePaymentStage = stage === "finance_verified";
   const isAwaitingPodStage = stage === "hard_copy_pod_received";
   const showLogBulkPod = isAwaitingPodStage && canManagePod;
-  useEffect(() => {
-    if (!isAdvancePaymentStage) {
-      payExportRequest.current += 1;
-      setPayExport((cur) => (cur.open && !cur.exporting ? { ...cur, open: false } : cur));
-    }
-  }, [isAdvancePaymentStage]);
-  const payExportCounts = useMemo(() => countAdvancePaymentExport(payExport.rows), [payExport.rows]);
+
+  const [reportPreview, setReportPreview] = useState<{
+    title: string;
+    fileName: string;
+    preparing: boolean;
+    columns: ReturnType<typeof complianceSheetColumns>;
+    rows: Array<Record<string, string | number | null | undefined>>;
+  } | null>(null);
+  const reportPreviewRequest = useRef(0);
+
+  const failReportPreview = useCallback((request: number, error: unknown) => {
+    if (request !== reportPreviewRequest.current) return;
+    setReportPreview(null);
+    alertMessage(
+      "Couldn't prepare report",
+      error instanceof Error && error.name === "SupabaseQueueRejectedError"
+        ? "Too many requests are in progress. Wait a moment and try Export Report again."
+        : error instanceof Error
+          ? error.message
+          : "Please try again.",
+    );
+  }, []);
 
   const openAdvancePaymentExport = useCallback(() => {
     const orgId = currentOrganization?.id;
     if (!orgId) return;
-    const request = ++payExportRequest.current;
-    setPayExport({ open: true, preparing: true, exporting: false, rows: [] });
-    // `filtered` is the Pending queue on this stage; Paid comes from its own pool.
+    const request = ++reportPreviewRequest.current;
+    setReportPreview({
+      title: "Advance Payment",
+      fileName: "compliance-advance-payment-report.xlsx",
+      preparing: true,
+      columns: complianceSheetColumns(ADVANCE_PAYMENT_EXPORT_HEADERS),
+      rows: [],
+    });
     prepareAdvancePaymentReport(orgId, filtered, advancePaidPool)
       .then((rows) => {
-        if (request !== payExportRequest.current) return;
-        setPayExport((cur) => ({ ...cur, preparing: false, rows }));
+        if (request !== reportPreviewRequest.current) return;
+        setReportPreview((cur) => (cur ? { ...cur, preparing: false, rows } : cur));
       })
-      .catch((error: unknown) => {
-        if (request !== payExportRequest.current) return;
-        setPayExport((cur) => ({ ...cur, open: false, preparing: false }));
-        alertMessage(
-          "Couldn't prepare report",
-          error instanceof Error && error.name === "SupabaseQueueRejectedError"
-            ? "Too many requests are in progress. Wait a moment and try Export Report again."
-            : error instanceof Error
-              ? error.message
-              : "Please try again.",
-        );
-      });
-  }, [advancePaidPool, currentOrganization?.id, filtered]);
-
-  const closeAdvancePaymentExport = useCallback(() => {
-    payExportRequest.current += 1;
-    setPayExport((cur) => (cur.exporting ? cur : { ...cur, open: false, preparing: false }));
-  }, []);
-
-  const confirmAdvancePaymentExport = useCallback(async () => {
-    if (payExport.exporting || payExport.preparing || payExport.rows.length === 0) return;
-    setPayExport((cur) => ({ ...cur, exporting: true }));
-    try {
-      await downloadAdvancePaymentReport(payExport.rows);
-      setPayExport((cur) => ({ ...cur, open: false, exporting: false }));
-    } catch (error) {
-      setPayExport((cur) => ({ ...cur, exporting: false }));
-      alertMessage("Couldn't export report", error instanceof Error ? error.message : "Please try again.");
-    }
-  }, [payExport.exporting, payExport.preparing, payExport.rows]);
+      .catch((error: unknown) => failReportPreview(request, error));
+  }, [advancePaidPool, currentOrganization?.id, failReportPreview, filtered]);
 
   const openAdvanceProcessedExport = useCallback(() => {
     const orgId = currentOrganization?.id;
     if (!orgId) return;
-    const request = ++apExportRequest.current;
-    setApExport({ open: true, preparing: true, exporting: false, rows: [] });
-    // Stage-scoped (`filtered`), not cross-stage `searched` — then newest posted first.
-    // Awaiting POD also lists unpaid trips, so keep only Advance Processed ones.
+    const request = ++reportPreviewRequest.current;
+    setReportPreview({
+      title: "Advance Processed",
+      fileName: "compliance-advance-processed-report.xlsx",
+      preparing: true,
+      columns: complianceSheetColumns(ADVANCE_PROCESSED_EXPORT_HEADERS),
+      rows: [],
+    });
     prepareAdvanceProcessedReport(
       orgId,
       sortAdvanceProcessedSummaries(filtered.filter((summary) => summary.stage === "advance_payment_processed")),
     )
       .then((rows) => {
-        if (request !== apExportRequest.current) return;
-        setApExport((cur) => ({ ...cur, preparing: false, rows }));
+        if (request !== reportPreviewRequest.current) return;
+        setReportPreview((cur) => (cur ? { ...cur, preparing: false, rows } : cur));
       })
-      .catch((error: unknown) => {
-        if (request !== apExportRequest.current) return;
-        setApExport((cur) => ({ ...cur, open: false, preparing: false }));
-        alertMessage(
-          "Couldn't prepare report",
-          error instanceof Error && error.name === "SupabaseQueueRejectedError"
-            ? "Too many requests are in progress. Wait a moment and try Export Report again."
-            : error instanceof Error
-              ? error.message
-              : "Please try again.",
-        );
-      });
-  }, [currentOrganization?.id, filtered]);
+      .catch((error: unknown) => failReportPreview(request, error));
+  }, [currentOrganization?.id, failReportPreview, filtered]);
 
-  const closeAdvanceProcessedExport = useCallback(() => {
-    apExportRequest.current += 1;
-    setApExport((cur) => (cur.exporting ? cur : { ...cur, open: false, preparing: false }));
-  }, []);
+  const openVerifiedExport = useCallback(() => {
+    const orgId = currentOrganization?.id;
+    if (!orgId) return;
+    const request = ++reportPreviewRequest.current;
+    setReportPreview({
+      title: "Advance Verification",
+      fileName: "compliance-verified-report.xlsx",
+      preparing: true,
+      columns: complianceSheetColumns(VERIFIED_EXPORT_CSV_HEADERS),
+      rows: [],
+    });
+    prepareVerifiedStageComplianceReport(orgId, "all", summaries)
+      .then((rows) => {
+        if (request !== reportPreviewRequest.current) return;
+        setReportPreview((cur) => (cur ? { ...cur, preparing: false, rows } : cur));
+      })
+      .catch((error: unknown) => failReportPreview(request, error));
+  }, [currentOrganization?.id, failReportPreview, summaries]);
 
-  const confirmAdvanceProcessedExport = useCallback(async () => {
-    if (apExport.exporting || apExport.preparing || apExport.rows.length === 0) return;
-    setApExport((cur) => ({ ...cur, exporting: true }));
-    try {
-      await downloadAdvanceProcessedReport(apExport.rows);
-      setApExport((cur) => ({ ...cur, open: false, exporting: false }));
-    } catch (error) {
-      setApExport((cur) => ({ ...cur, exporting: false }));
-      alertMessage("Couldn't export report", error instanceof Error ? error.message : "Please try again.");
-    }
-  }, [apExport.exporting, apExport.preparing, apExport.rows]);
-
-  const verifiedExportTripCounts = useMemo(
-    () => countAdvanceVerificationExport(summaries),
-    [summaries],
-  );
-  const verifiedExportIncluded = useMemo(
-    () => advanceVerificationExportSummaries(summaries, exportFilter).length,
-    [exportFilter, summaries],
-  );
-
-  const confirmExportReport = useCallback(async () => {
-    if (!currentOrganization?.id || exporting) return;
-    setExporting(true);
-    try {
-      const exported = await exportVerifiedStageComplianceReport(currentOrganization.id, exportFilter);
-      setExportOpen(false);
-      if (exported === 0) {
-        alertMessage("Nothing to export", "No trips match this filter yet.");
-      }
-    } catch (error) {
-      alertMessage("Couldn't export report", error instanceof Error ? error.message : "Please try again.");
-    } finally {
-      setExporting(false);
-    }
-  }, [currentOrganization?.id, exportFilter, exporting]);
+  const closeReportPreview = useCallback(() => {
+    if (reportPreview?.preparing) return;
+    reportPreviewRequest.current += 1;
+    setReportPreview(null);
+  }, [reportPreview?.preparing]);
 
   useEffect(() => {
     if (!exportToast) return;
@@ -1950,7 +1953,7 @@ export default function ComplianceScreen() {
     Boolean(canViewFinance) &&
     (isVerifiedStage || isAdvancePaymentStage || (isAdvanceProcessedStage && !isAdvancePaymentStage));
   const onMobileExport = () => {
-    if (isVerifiedStage) setExportOpen(true);
+    if (isVerifiedStage) openVerifiedExport();
     else if (isAdvancePaymentStage) openAdvancePaymentExport();
     else if (isAdvanceProcessedStage) openAdvanceProcessedExport();
   };
@@ -1981,8 +1984,8 @@ export default function ComplianceScreen() {
         <ComplianceRefreshButton
           compact
           updatedAt={complianceUpdatedAt}
-          refreshing={complianceRefreshing}
-          onRefresh={() => void refetch()}
+          refreshing={complianceRefreshBusy}
+          onRefresh={() => void refreshCompliance()}
         />
       }
     />
@@ -2060,11 +2063,11 @@ export default function ComplianceScreen() {
       {isMobile && !mobileReviewing && (isLoading || isError) && summaries.length === 0
         ? mobileQueueChrome
         : null}
-      {isLoading && summaries.length === 0 ? (
+      {(isLoading && summaries.length === 0) || queueStillFilling ? (
         <View style={styles.emptyFill}>
           <Text style={styles.message}>Loading required trip, document, and payment data…</Text>
         </View>
-      ) : isError ? (
+      ) : isError && summaries.length === 0 ? (
         <View style={styles.emptyFill}>
           <Text style={styles.message}>
             {isSupabaseQueueRejectedError(error)
@@ -2381,8 +2384,8 @@ export default function ComplianceScreen() {
         <View style={styles.footerCenter}>
           <ComplianceRefreshButton
             updatedAt={complianceUpdatedAt}
-            refreshing={complianceRefreshing}
-            onRefresh={() => void refetch()}
+            refreshing={complianceRefreshBusy}
+            onRefresh={() => void refreshCompliance()}
           />
         </View>
         <View style={[styles.footerSide, styles.footerSideEnd]}>
@@ -2403,7 +2406,7 @@ export default function ComplianceScreen() {
           {canViewFinance && isVerifiedStage ? (
             <TouchableOpacity
               style={[styles.reportBtn, compactActions && styles.actionBtnCompact]}
-              onPress={() => setExportOpen(true)}
+              onPress={openVerifiedExport}
               hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
               accessibilityRole="button"
               accessibilityLabel="Export Report"
@@ -2480,89 +2483,18 @@ export default function ComplianceScreen() {
         </View>
       ) : null}
 
-      <ComplianceExportConfirmModal
-        visible={exportOpen && isVerifiedStage}
-        eyebrow="Advance Verification"
-        verifiedCount={0}
-        rejectedCount={0}
-        stats={[
-          {
-            key: "verified",
-            label: "Verified",
-            value: verifiedExportTripCounts.verified,
-            tone: COMPLIANCE_STAGE_TONE.compliance_verified,
-          },
-          {
-            key: "balance_pending",
-            label: "Balance pending",
-            value: verifiedExportTripCounts.balance_pending,
-            tone: COMPLIANCE_STAGE_TONE.balance_pending,
-          },
-        ]}
-        includedCount={verifiedExportIncluded}
-        filterOptions={[
-          { key: "all", label: "All" },
-          { key: "verified", label: "Verified" },
-          { key: "balance_pending", label: "Balance pending" },
-        ]}
-        filterValue={exportFilter}
-        onFilterChange={(key) => setExportFilter(key as AdvanceVerificationExportFilter)}
-        emptyHint="No trips match this filter yet."
-        exporting={exporting}
-        onCancel={() => {
-          if (!exporting) setExportOpen(false);
-        }}
-        onConfirm={() => {
-          void confirmExportReport();
-        }}
-      />
-
-      <ComplianceExportConfirmModal
-        visible={apExport.open && isAdvanceProcessedStage}
-        eyebrow="Advance Processed stage only"
-        verifiedCount={0}
-        rejectedCount={0}
-        includedCount={apExportCounts.total}
-        stats={[
-          {
-            key: "total",
-            label: "Trips",
-            value: apExportCounts.total,
-            tone: ADVANCE_PROCESSED_TONE,
-          },
-        ]}
-        preparing={apExport.preparing}
-        exporting={apExport.exporting}
-        emptyHint="Nothing in Advance Processed stage to export yet."
-        confirmLabel="Export"
-        onCancel={closeAdvanceProcessedExport}
-        onConfirm={() => {
-          void confirmAdvanceProcessedExport();
-        }}
-      />
-
-      <ComplianceExportConfirmModal
-        visible={payExport.open && isAdvancePaymentStage}
-        eyebrow="Advance Payment · Pending and Paid"
-        verifiedCount={0}
-        rejectedCount={0}
-        includedCount={payExportCounts.total}
-        stats={[
-          {
-            key: "pending",
-            label: "Pending",
-            value: payExportCounts.pending,
-            tone: COMPLIANCE_STAGE_TONE.finance_verified,
-          },
-          { key: "paid", label: "Paid", value: payExportCounts.paid, tone: ADVANCE_PROCESSED_TONE },
-        ]}
-        preparing={payExport.preparing}
-        exporting={payExport.exporting}
-        emptyHint="No advances pending or paid to export yet."
-        confirmLabel="Export"
-        onCancel={closeAdvancePaymentExport}
-        onConfirm={() => {
-          void confirmAdvancePaymentExport();
+      <TripsLedgerExportModalGate
+        active={reportPreview != null}
+        visible={reportPreview != null}
+        onClose={closeReportPreview}
+        transactions={[]}
+        title={reportPreview?.title ?? "Export Report"}
+        hideCashSummary
+        preparing={reportPreview?.preparing ?? false}
+        downloadFileName={reportPreview?.fileName}
+        customReport={{
+          columns: reportPreview?.columns ?? [],
+          rows: reportPreview?.rows ?? [],
         }}
       />
 

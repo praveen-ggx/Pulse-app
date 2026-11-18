@@ -152,7 +152,7 @@ export function bidderLanePreview(input: {
 }
 
 /** Same pickup and drop are one pool. Bids do not carry the lane vehicle. */
-export function groupBidsByLane<T extends { pickup_area: string | null; drop_location: string | null }>(
+export function groupBidsByLane<T extends { pickup_area?: string | null; drop_location?: string | null }>(
   bids: readonly T[],
 ): { key: string; bids: T[] }[] {
   const order: string[] = [];

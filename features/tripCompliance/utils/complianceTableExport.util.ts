@@ -106,6 +106,16 @@ function truckNumber(summary: ComplianceTripSummary): string {
   return formatIndianVehicleNumber(raw).trim() || raw;
 }
 
+/**
+ * Vendor shown on screen comes from the trip-facts lookup (trip.supplier_name is
+ * often empty on the list payload). Use the same source so the sheet matches the UI.
+ */
+function vendorName(summary: ComplianceTripSummary, supplierNameByTripId: Record<string, string>): string {
+  const resolved = supplierNameByTripId[summary.trip.id]?.trim();
+  if (resolved && resolved !== "—") return resolved;
+  return summary.trip.supplier_name?.trim() || "";
+}
+
 function money(amount: number | null | undefined): string | number {
   return amount == null || !Number.isFinite(amount) ? "" : amount;
 }
@@ -113,6 +123,7 @@ function money(amount: number | null | undefined): string | number {
 export function buildComplianceTableSheetRows(
   rows: ComplianceTripSummary[],
   compliancePendingLayout: boolean,
+  supplierNameByTripId: Record<string, string> = {},
 ): Record<string, string | number>[] {
   return rows.map((summary) => {
     const tripRows = deriveComplianceDocumentRows(summary.documents).filter((row) => row.required);
@@ -128,7 +139,7 @@ export function buildComplianceTableSheetRows(
     const base: Record<string, string | number> = {
       "Trip ID": getTripDisplayNumber(summary.trip),
       Customer: summary.trip.client_name?.trim() || "",
-      "Vendor Name": summary.trip.supplier_name?.trim() || "",
+      "Vendor Name": vendorName(summary, supplierNameByTripId),
       Date: formatComplianceExportDay(complianceEventAt(summary.trip)),
       From: summary.trip.pickup_area?.trim() || "",
       To: summary.trip.drop_location?.trim() || summary.trip.drop_area?.trim() || "",
@@ -159,8 +170,9 @@ export function buildComplianceTableSheetRows(
 export function buildComplianceTableWorkbook(
   rows: ComplianceTripSummary[],
   compliancePendingLayout: boolean,
+  supplierNameByTripId: Record<string, string> = {},
 ): XLSX.WorkBook {
-  const sheetRows = buildComplianceTableSheetRows(rows, compliancePendingLayout);
+  const sheetRows = buildComplianceTableSheetRows(rows, compliancePendingLayout, supplierNameByTripId);
   const sheet = XLSX.utils.json_to_sheet(sheetRows.length > 0 ? sheetRows : [{ "Trip ID": "" }]);
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, "Compliance");

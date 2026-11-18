@@ -216,6 +216,7 @@ import {
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripHubPartyMeta } from "@/features/trips/utils/tripHubPartyMeta";
 import { buildTripHubPartyMetaByTripId } from "@/features/trips/utils/tripHubPartyMeta";
+import { fetchSupplierNamesByIds } from "@/features/trips/services/tripReportSupplierNames.service";
 import { tripMatchesHubSearch } from "@/features/trips/utils/tripHubSearch.util";
 import { tripNonSupplierOutflowTotal } from "@/features/trips/utils/tripManifestFreightCost";
 import { showAppAlert } from "@/lib/appAlert";
@@ -3092,7 +3093,7 @@ export default function TripsScreen() {
    * Trip Report Excel — same date bounds as the hub pills (All time →
    * HUB_ALL_TIME_BOUNDS) and Asset/Aggregate scope.
    * - Sales → Sales indent report (Indent ID + costs when finance).
-   * - TripOps-only → All Trips ops sheet (20 columns + stage times).
+   * - TripOps-only → All Trips ops sheet (19 columns + stage times).
    */
   const handleDownloadTripReport = useCallback(async (exportFrom: string, exportTo: string) => {
     if (!orgId || tripReportInFlight.current || isGroundOpsMember || isSourcingMember) return;
@@ -3124,6 +3125,32 @@ export default function TripsScreen() {
         return;
       }
       const scopedTrips = sourcingScope.filterTrips(catalog.trips);
+
+      // The export can include trips not loaded on screen. Resolve supplier
+      // names for all of them (not just the on-screen list) so SUPPLIER isn't blank.
+      const knownSupplierIds = new Set(
+        suppliers.map((s) => String(s.id ?? "").trim().toLowerCase()),
+      );
+      const missingSupplierIds = scopedTrips
+        .map((t) => String(t.supplier_id ?? "").trim().toLowerCase())
+        .filter((id) => id && !knownSupplierIds.has(id) && !supplierNameFallbackById[id]);
+      const exportSupplierNames: Record<string, string> = {
+        ...supplierNameById,
+        ...(await fetchSupplierNamesByIds(missingSupplierIds)),
+      };
+      const exportPartyMetaByTripId = buildTripHubPartyMetaByTripId(
+        scopedTrips,
+        clients,
+        suppliersForHubParty,
+        drivers,
+        transactions,
+        exportSupplierNames,
+        {
+          viewerOrgId: orgId,
+          subcontracts: hubTripSubcontracts,
+          driverImageById,
+        },
+      );
 
       if (audience === "tripops") {
         const tripIds = scopedTrips.map((t) => t.id);
@@ -3168,7 +3195,7 @@ export default function TripsScreen() {
           },
           driverPhoneByTripId,
           driverPhoneByDriverId: driverPhoneById,
-          partyMetaByTripId: tripHubPartyMetaByTripId,
+          partyMetaByTripId: exportPartyMetaByTripId,
           clientNameForTrip: tripCardClientName,
           stageLabelForTrip: getStageLabelForTrip,
           softCopyUploaderByTripId,
@@ -3192,7 +3219,7 @@ export default function TripsScreen() {
         orgId,
         trips: scopedTrips,
         indents: scopedIndents,
-        partyMetaByTripId: tripHubPartyMetaByTripId,
+        partyMetaByTripId: exportPartyMetaByTripId,
         driverPhoneByTripId,
         stageLabelForTrip: getStageLabelForTrip,
       });
@@ -3225,7 +3252,15 @@ export default function TripsScreen() {
     hubTrips,
     allIndents,
     sourcingScope,
-    tripHubPartyMetaByTripId,
+    suppliers,
+    supplierNameFallbackById,
+    suppliersForHubParty,
+    supplierNameById,
+    clients,
+    drivers,
+    transactions,
+    hubTripSubcontracts,
+    driverImageById,
     getStageLabelForTrip,
     currentOrganization?.name,
     memberDomains,

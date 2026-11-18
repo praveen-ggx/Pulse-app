@@ -4759,18 +4759,34 @@ export function ComplianceDocumentWorkspace({
   const selectedDocumentNumber = activeRow?.doc?.document_number ?? null;
   const ewayFields =
     activeRow?.type === "eway_bill" ? parseEwayFieldValues(selectedDocumentNumber) : null;
+  // LR / E-way: always surface every vault number (copies + entries). The
+  // selected document_number path only shows the active file's first number.
+  const lrHeaderNumbers =
+    activeRow?.type === "lr" && vaultHeaderNumbers.length > 0
+      ? vaultHeaderNumbers.length === 1
+        ? [formatLrVaultNumberLabel(vaultHeaderNumbers[0]) ?? vaultHeaderNumbers[0]]
+        : [`LR No. ${vaultHeaderNumbers.join(" · ")}`]
+      : null;
+  const ewayHeaderNumbers =
+    activeRow?.type === "eway_bill" && vaultHeaderNumbers.length > 0
+      ? vaultHeaderNumbers
+      : null;
   const previewHeaderFacts = formatDocumentHeaderFacts({
     documentNumber:
       activeRow?.type === "eway_bill"
         ? ewayFields?.ewayNo || selectedDocumentNumber
         : selectedDocumentNumber,
-    numbers: selectedDocumentNumber
-      ? undefined
-      : vaultHeaderNumbers.length > 0
-        ? vaultHeaderNumbers
-        : typedPrimary
-          ? [typedPrimary]
-          : [],
+    numbers: lrHeaderNumbers
+      ? lrHeaderNumbers
+      : ewayHeaderNumbers
+        ? ewayHeaderNumbers
+        : selectedDocumentNumber
+          ? undefined
+          : vaultHeaderNumbers.length > 0
+            ? vaultHeaderNumbers
+            : typedPrimary
+              ? [typedPrimary]
+              : [],
     category: activeRow?.type,
     expiryDate:
       activeRow?.type === "lr"
@@ -6886,7 +6902,7 @@ export function ComplianceDocumentWorkspace({
                         {commerceLayout || !previewingDocument ? null : (
                           <>
                             {previewHeaderFacts ? (
-                              <Text style={styles.previewNavMeta} numberOfLines={1}>
+                              <Text style={styles.previewNavMeta} numberOfLines={2}>
                                 {previewHeaderFacts}
                               </Text>
                             ) : null}
@@ -7736,7 +7752,7 @@ export function ComplianceDocumentWorkspace({
                                 .filter(Boolean)
                                 .join(" · ");
                               return idLine ? (
-                                <Text style={styles.shopPreviewId} numberOfLines={1}>
+                                <Text style={styles.shopPreviewId} numberOfLines={2}>
                                   {idLine}
                                 </Text>
                               ) : null;

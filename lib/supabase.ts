@@ -74,6 +74,48 @@ function isAuthTokenRequest(input: RequestInfo | URL): boolean {
   return url.includes('/auth/v1/token');
 }
 
+/**
+ * A dead refresh token otherwise stays in storage and every caller posts
+ * /token again. Password failures use the same URL with a different error
+ * code and must not wipe a session. signOut waits until the refresh lock
+ * is free so this does not recurse into the request that just failed.
+ */
+let deadRefreshClearStarted = false;
+function clearStoredSessionAfterDeadRefresh(res: Response): void {
+  if (deadRefreshClearStarted) return;
+  void (async () => {
+    let dead = false;
+    try {
+      const body = await res.clone().json();
+      const code = String(body?.error_code ?? body?.code ?? '');
+      const msg = String(
+        body?.msg ?? body?.error_description ?? body?.message ?? body?.error ?? '',
+      );
+      dead =
+        code === 'refresh_token_not_found' ||
+        /refresh token not found/i.test(msg);
+    } catch {
+      return;
+    }
+    if (!dead || deadRefreshClearStarted) return;
+    deadRefreshClearStarted = true;
+    setTimeout(() => {
+      try {
+        void supabase().auth.signOut({ scope: 'local' });
+      } catch {
+        // Client not ready. The stored token is removed below.
+      }
+    }, 0);
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const authKeys = keys.filter((key) => /^sb-.*-auth-token/.test(key));
+      if (authKeys.length > 0) await AsyncStorage.multiRemove(authKeys);
+    } catch {
+      // The deferred local sign-out still drops the in-memory session.
+    }
+  })();
+}
+
 // --- JWT-expiry recovery at the network frontier -----------------------------
 // Data (PostgREST / RPC) calls that race ahead of the auto-refresh/SIGNED_OUT
 // cycle fire with an already-expired JWT and get rejected — wasting a round-trip
@@ -269,6 +311,9 @@ async function fetchWithTimeoutAndRetryRaw(
             }
           } else if (admission === 'probe') {
             finishSupabaseCircuitProbe(true);
+          }
+          if (isAuthToken && res.status === 400) {
+            void clearStoredSessionAfterDeadRefresh(res);
           }
           if (
             isRetryableHttpResponse(res) &&
@@ -482,8 +527,37 @@ const envSupabaseAnonKey = pickNonEmpty(
 const extraSupabaseUrl = pickNonEmpty(extra?.supabaseUrl);
 const extraSupabaseAnonKey = pickNonEmpty(extra?.supabaseAnonKey);
 
-const supabaseUrl = pickNonEmpty(envSupabaseUrl, extraSupabaseUrl);
-const supabaseAnonKey = pickNonEmpty(envSupabaseAnonKey, extraSupabaseAnonKey);
+const envHost = (() => {
+  try {
+    return envSupabaseUrl ? new URL(envSupabaseUrl).host : '';
+  } catch {
+    return '';
+  }
+})();
+const extraHost = (() => {
+  try {
+    return extraSupabaseUrl ? new URL(extraSupabaseUrl).host : '';
+  } catch {
+    return '';
+  }
+})();
+let supabaseUrl = pickNonEmpty(envSupabaseUrl, extraSupabaseUrl);
+let supabaseAnonKey = pickNonEmpty(envSupabaseAnonKey, extraSupabaseAnonKey);
+if (envHost && extraHost && envHost !== extraHost) {
+  if (!envSupabaseUrl || !envSupabaseAnonKey) {
+    throw new Error(
+      `Supabase environment mismatch: EXPO_PUBLIC_SUPABASE_URL is ${envHost} but Expo extra is ${extraHost}. Restart Expo so the selected target is the only URL.`,
+    );
+  }
+  // Expo extra is a cached copy of app.config. The inlined EXPO_PUBLIC_* pair is the
+  // target selected at startup. Use that pair together so a stale local manifest
+  // cannot override production or be mixed with the production anon key.
+  console.error(
+    `[pulse] Expo extra still points at ${extraHost}. The selected Supabase project is ${envHost}.`,
+  );
+  supabaseUrl = envSupabaseUrl;
+  supabaseAnonKey = envSupabaseAnonKey;
+}
 
 /** Use before any Supabase call to show a config screen instead of throwing or failing network. */
 export function hasSupabaseConfig(): boolean {

@@ -16,7 +16,7 @@ import {
 } from '@/features/network/components/bidding/BidConfirmModal';
 import { splitLocationParts } from '@/features/network/utils/storyDisplay';
 import { calculateMarketplacePlatformFee } from '@/features/network/services/marketBids.service';
-import { formatINR } from '@/lib/format';
+import { formatTargetBand, targetBand, targetBandIsRange } from '@/components/mobile-input/bidVsTarget';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export type MarketLoadBidSheetProps = {
@@ -31,6 +31,8 @@ export type MarketLoadBidSheetProps = {
   vehicleType?: string | null;
   loadType?: string | null;
   targetRateInr?: number | null;
+  /** High shipper target when loads in the pool do not share one rate. */
+  targetRateMaxInr?: number | null;
   indentDisplayId?: string | null;
   validationError?: string;
   onClearValidationError?: () => void;
@@ -64,6 +66,7 @@ export function MarketLoadBidSheet({
   vehicleType,
   loadType,
   targetRateInr,
+  targetRateMaxInr,
   indentDisplayId,
   validationError,
   onClearValidationError,
@@ -103,31 +106,30 @@ export function MarketLoadBidSheet({
       ? `${originCity} → ${destinationCity}`
       : originCity || destinationCity || undefined;
 
-  const target =
-    targetRateInr != null && Number.isFinite(targetRateInr) && targetRateInr > 0
-      ? targetRateInr
-      : null;
+  const band = targetBand(targetRateInr, targetRateMaxInr);
+  const wide = band != null && targetBandIsRange(band);
 
   const initialValue = useMemo(() => {
-    if (!visible) return '';
-    if (target != null) return toRawString(Math.round(target));
-    return '';
-  }, [visible, target]);
+    if (!visible || band == null || wide) return '';
+    return toRawString(Math.round(band.min));
+  }, [visible, band, wide]);
 
   const partyPreview = useMemo((): NumericEntryPartyPreview | undefined => {
     const detailParts = [
       vehicle,
       material,
-      target != null ? `Target ${formatINR(target)}` : undefined,
+      band != null ? `Target ${formatTargetBand(band)}` : undefined,
     ].filter(Boolean) as string[];
+    const pooled = owner.toLowerCase().startsWith('pooled opportunity');
     return {
       name: owner,
       subtitle: [route, vehicle].filter(Boolean).join(' · ') || undefined,
       heroLine: route,
       detailLine: detailParts.length > 0 ? detailParts.join(' · ') : undefined,
       entityType: 'client',
+      mark: pooled ? 'pulse' : undefined,
     };
-  }, [owner, route, vehicle, material, target]);
+  }, [owner, route, vehicle, material, band]);
 
   const requestConfirm = useCallback(
     (raw: string) => {
@@ -227,7 +229,8 @@ export function MarketLoadBidSheet({
       validationError={
         confirmSubmitting ? 'Submitting…' : validationError
       }
-      targetRate={target}
+      targetRate={band?.min ?? null}
+      targetRateMax={band?.max ?? null}
       overlay={
         confirmOpen ? (
           <BidConfirmModal
@@ -241,7 +244,8 @@ export function MarketLoadBidSheet({
             destination={destinationCity}
             vehicle={vehicle}
             material={material}
-            targetRate={target}
+            targetRate={band?.min ?? null}
+            targetRateMax={band?.max ?? null}
             submitting={confirmSubmitting}
             marketplaceFee={feePreview}
             copy={confirmCopy}

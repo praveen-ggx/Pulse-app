@@ -36,24 +36,17 @@ function parseEnvFile(filePath) {
 const envVars = parseEnvFile(envPath);
 const localVars = fs.existsSync(envLocalPath) ? parseEnvFile(envLocalPath) : {};
 
-// Source of truth order:
-// 1) .env.local (developer override)
-// 2) .env (project default)
-// 3) process.env — CI only (Netlify injects these; no .env files are present there)
-// Avoid process.env winning in local dev where stale shell vars could override the wrong project.
+const { loadSupabaseProject } = require('./scripts/supabaseProject.cjs');
+let supabaseProject;
+try {
+  supabaseProject = loadSupabaseProject(projectRoot, process.env);
+} catch (error) {
+  console.error('[pulse][config]', error instanceof Error ? error.message : error);
+  throw error;
+}
+const supabaseUrl = supabaseProject.url;
+const supabaseAnonKey = supabaseProject.anonKey;
 const isCI = process.env.CI === 'true';
-let supabaseUrl =
-  localVars.EXPO_PUBLIC_SUPABASE_URL ||
-  envVars.EXPO_PUBLIC_SUPABASE_URL ||
-  envVars.VITE_SUPABASE_URL ||
-  (isCI ? process.env.EXPO_PUBLIC_SUPABASE_URL : '') ||
-  '';
-let supabaseAnonKey =
-  localVars.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
-  envVars.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
-  envVars.VITE_SUPABASE_ANON_KEY ||
-  (isCI ? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY : '') ||
-  '';
 
 let geminiApiKey =
   localVars.EXPO_PUBLIC_GEMINI_API_KEY ||
@@ -70,8 +63,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
 } else {
   try {
     const host = new URL(supabaseUrl).hostname;
-    console.log('[pulse][config] envPath:', envPath);
-    console.log('[pulse][config] envLocalPath:', envLocalPath);
+    console.log('[pulse][config] Supabase target:', supabaseProject.target);
+    console.log('[pulse][config] Supabase project:', supabaseProject.projectRef);
     console.log('[pulse][config] resolved Supabase host:', host);
   } catch (_) {
     // no-op
@@ -236,6 +229,8 @@ module.exports = {
     extra: {
       supabaseUrl,
       supabaseAnonKey,
+      supabaseTarget: supabaseProject.target,
+      supabaseProjectRef: supabaseProject.projectRef,
       geminiApiKey,
       // Build identity for the client-cache buster. Any new deploy changes this,
       // which discards every persisted TanStack cache + delta cursor on next load.

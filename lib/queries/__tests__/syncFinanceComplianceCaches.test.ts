@@ -65,11 +65,15 @@ describe("syncFinanceComplianceCaches", () => {
     qc.setQueryData(queryKeys.transactions.finite(orgId), []);
     qc.setQueryData(queryKeys.tripCompliance.pipeline(orgId), []);
     qc.setQueryData(queryKeys.trips.detail(tripId), { id: tripId });
+    qc.setQueryData(queryKeys.trips.finite(orgId), [{ id: tripId }]);
+    qc.setQueryData(queryKeys.trips.complete(orgId), [{ id: tripId }]);
     syncFinanceComplianceCaches({ queryClient: qc, organizationId: orgId, tripId });
     await flushInvalidations();
     expect(isInvalidated(qc, queryKeys.transactions.finite(orgId))).toBe(true);
     expect(isInvalidated(qc, queryKeys.tripCompliance.pipeline(orgId))).toBe(true);
     expect(isInvalidated(qc, queryKeys.trips.detail(tripId))).toBe(true);
+    expect(isInvalidated(qc, queryKeys.trips.finite(orgId))).toBe(true);
+    expect(isInvalidated(qc, queryKeys.trips.complete(orgId))).toBe(true);
   });
 
   it("can skip one side when the caller already refreshed it", async () => {

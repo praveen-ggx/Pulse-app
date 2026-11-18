@@ -4,6 +4,7 @@
  */
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
+import { HubMobileUnderlineTab } from "@/components/hub/HubMobileUnderlineTab";
 import { PersistentTabPanel } from "@/components/PersistentTabPanel";
 import { EntityAvatar as PartyAvatar } from '@/components/EntityAvatar';
 import { ThemedAlertModal } from "@/components/ThemedAlertModal";
@@ -6678,79 +6679,31 @@ export default function TripDetailScreen({
         {!isDesktop ? (
           <>
             <View style={styles.mobileOrderChipRow}>
-              <TouchableOpacity
-                style={[
-                  styles.mobileOrderChip,
-                  activeTab === "trip" && styles.mobileOrderChipActive,
-                ]}
+              <HubMobileUnderlineTab
+                label="Journey"
+                isActive={activeTab === "trip"}
                 onPress={() => setActiveTab("trip")}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.mobileOrderChipText,
-                    activeTab === "trip" && styles.mobileOrderChipTextActive,
-                  ]}
-                >
-                  Journey
-                </Text>
-              </TouchableOpacity>
+              />
               {canTripFinanceTab ? (
-                <TouchableOpacity
-                  style={[
-                    styles.mobileOrderChip,
-                    activeTab === "finance" && styles.mobileOrderChipActive,
-                  ]}
+                <HubMobileUnderlineTab
+                  label="Finance"
+                  isActive={activeTab === "finance"}
                   onPress={() => setActiveTab("finance")}
-                  activeOpacity={0.85}
-                >
-                  <Text
-                    style={[
-                      styles.mobileOrderChipText,
-                      activeTab === "finance" && styles.mobileOrderChipTextActive,
-                    ]}
-                  >
-                    Finance
-                  </Text>
-                </TouchableOpacity>
+                />
               ) : null}
               {showExpenseHub && canTripExpensesTab ? (
-                <TouchableOpacity
-                  style={[
-                    styles.mobileOrderChip,
-                    activeTab === "expenses" && styles.mobileOrderChipActive,
-                  ]}
+                <HubMobileUnderlineTab
+                  label={expenseHubLabel}
+                  isActive={activeTab === "expenses"}
                   onPress={() => setActiveTab("expenses")}
-                  activeOpacity={0.85}
-                >
-                  <Text
-                    style={[
-                      styles.mobileOrderChipText,
-                      activeTab === "expenses" && styles.mobileOrderChipTextActive,
-                    ]}
-                  >
-                    {expenseHubLabel}
-                  </Text>
-                </TouchableOpacity>
+                />
               ) : null}
               {canTripDocsTab ? (
-                <TouchableOpacity
-                  style={[
-                    styles.mobileOrderChip,
-                    activeTab === "docs" && styles.mobileOrderChipActive,
-                  ]}
+                <HubMobileUnderlineTab
+                  label="Vault"
+                  isActive={activeTab === "docs"}
                   onPress={() => setActiveTab("docs")}
-                  activeOpacity={0.85}
-                >
-                  <Text
-                    style={[
-                      styles.mobileOrderChipText,
-                      activeTab === "docs" && styles.mobileOrderChipTextActive,
-                    ]}
-                  >
-                    Vault
-                  </Text>
-                </TouchableOpacity>
+                />
               ) : null}
             </View>
 

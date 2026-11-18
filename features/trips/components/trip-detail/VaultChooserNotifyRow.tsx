@@ -160,6 +160,7 @@ function ChooserQuoteDoc({
   headerFacts = null,
   hero = false,
   mini = false,
+  decorative = false,
 }: {
   preview: VaultChooserPreview;
   onPress: () => void;
@@ -170,6 +171,11 @@ function ChooserQuoteDoc({
   hero?: boolean;
   /** Compact strip thumb. */
   mini?: boolean;
+  /**
+   * Parent already is the button (shop thumb strip). Rendering another
+   * Pressable here produces `<button>` inside `<button>` on web.
+   */
+  decorative?: boolean;
 }) {
   const readyUri = preview.previewUri?.trim() || "";
   const [uri, setUri] = useState<string | null>(readyUri || null);
@@ -228,16 +234,73 @@ function ChooserQuoteDoc({
   });
   const title = preview.fileName?.trim() || "Document";
 
-  return (
-    <View
-      style={[
-        tiled && !hero && !mini && styles.quoteCell,
-        styles.quoteDoc,
-        hero && styles.quoteDocHero,
-        mini && styles.quoteDocMini,
-        WEB_POINTER,
+  const frameStyle = [
+    tiled && !hero && !mini && styles.quoteCell,
+    styles.quoteDoc,
+    hero && styles.quoteDocHero,
+    mini && styles.quoteDocMini,
+    WEB_POINTER,
+  ];
+  const thumb = uri ? (
+    <VaultDocThumb
+      uri={uri}
+      isPdf={pdf}
+      fileName={preview.fileName}
+      sizing={hero ? "fit" : "cover"}
+      style={styles.quoteImage}
+    />
+  ) : (
+    <View style={styles.quoteLoading}>
+      <ActivityIndicator size="small" color={Theme.actionBtnInk} />
+    </View>
+  );
+  const eye = uri && !mini ? (
+    <Pressable
+      onPress={(event) => {
+        event?.stopPropagation?.();
+        if (onOpenFull) {
+          onOpenFull();
+          return;
+        }
+        setFullOpen(true);
+      }}
+      style={({ pressed }) => [
+        styles.quoteEye,
+        hero && styles.quoteEyeHero,
+        pressed && styles.quoteEyePressed,
       ]}
+      accessibilityRole="button"
+      accessibilityLabel={`View full ${title}`}
     >
+      <Feather name="eye" size={hero ? 16 : 12} color={hero ? SHOP.ink : Theme.actionBtnInk} />
+    </Pressable>
+  ) : null;
+  const modal = (
+    <VaultFullDocumentModal
+      visible={fullOpen}
+      uri={uri}
+      isPdf={pdf}
+      title={title}
+      documentKey={preview.storagePath ?? preview.previewUri ?? title}
+      documentVersion={preview.fileName}
+      headerFacts={headerFacts}
+      onClose={() => setFullOpen(false)}
+    />
+  );
+
+  // Mini thumbs sit inside the strip's own button. Another Pressable here is
+  // `<button>` inside `<button>` on web.
+  if (decorative || mini) {
+    return (
+      <View style={frameStyle} pointerEvents="none">
+        <View style={styles.quoteHit}>{thumb}</View>
+        {modal}
+      </View>
+    );
+  }
+
+  return (
+    <View style={frameStyle}>
       <Pressable
         onPress={(event) => {
           event?.stopPropagation?.();
@@ -247,51 +310,10 @@ function ChooserQuoteDoc({
         accessibilityRole="button"
         accessibilityLabel={`Preview ${title}`}
       >
-        {uri ? (
-          <VaultDocThumb
-            uri={uri}
-            isPdf={pdf}
-            fileName={preview.fileName}
-            sizing={hero ? "fit" : "cover"}
-            style={styles.quoteImage}
-          />
-        ) : (
-          <View style={styles.quoteLoading}>
-            <ActivityIndicator size="small" color={Theme.actionBtnInk} />
-          </View>
-        )}
+        {thumb}
       </Pressable>
-      {uri && !mini ? (
-        <Pressable
-          onPress={(event) => {
-            event?.stopPropagation?.();
-            if (onOpenFull) {
-              onOpenFull();
-              return;
-            }
-            setFullOpen(true);
-          }}
-          style={({ pressed }) => [
-            styles.quoteEye,
-            hero && styles.quoteEyeHero,
-            pressed && styles.quoteEyePressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={`View full ${title}`}
-        >
-          <Feather name="eye" size={hero ? 16 : 12} color={hero ? SHOP.ink : Theme.actionBtnInk} />
-        </Pressable>
-      ) : null}
-      <VaultFullDocumentModal
-        visible={fullOpen}
-        uri={uri}
-        isPdf={pdf}
-        title={title}
-        documentKey={preview.storagePath ?? preview.previewUri ?? title}
-        documentVersion={preview.fileName}
-        headerFacts={headerFacts}
-        onClose={() => setFullOpen(false)}
-      />
+      {eye}
+      {modal}
     </View>
   );
 }
@@ -417,12 +439,12 @@ export function VaultChooserNotifyRow({
               accessibilityState={{ selected }}
               accessibilityLabel={`Preview ${caption || item.fileName || label}`}
             >
-              <ChooserQuoteDoc mini preview={item} onPress={() => previewFile(index)} />
+              <ChooserQuoteDoc mini decorative preview={item} onPress={() => previewFile(index)} />
               {caption ? (
                 <View style={styles.shopThumbCaption}>
                   <Text
                     style={[styles.shopThumbCaptionText, WEB_COPY]}
-                    numberOfLines={2}
+                    numberOfLines={1}
                   >
                     {caption}
                   </Text>
@@ -454,7 +476,7 @@ export function VaultChooserNotifyRow({
                 <View style={styles.shopThumbCaption}>
                   <Text
                     style={[styles.shopThumbCaptionText, WEB_COPY]}
-                    numberOfLines={2}
+                    numberOfLines={1}
                   >
                     {item.label}
                   </Text>
@@ -599,7 +621,7 @@ export function VaultChooserNotifyRow({
                 accessibilityRole="button"
                 accessibilityLabel={`View ${label}`}
               >
-                <Feather name="eye" size={11} color={SHOP.ink} />
+                <Feather name="eye" size={14} color={SHOP.ink} />
                 <Text style={styles.shopActionText}>View</Text>
               </Pressable>
             ) : null}
@@ -610,7 +632,7 @@ export function VaultChooserNotifyRow({
                 accessibilityRole="button"
                 accessibilityLabel={`Replace ${label}`}
               >
-                <Feather name="refresh-cw" size={11} color={SHOP.ink} />
+                <Feather name="refresh-cw" size={14} color={SHOP.ink} />
                 <Text style={styles.shopActionText}>Replace</Text>
               </Pressable>
             ) : canUpload ? (
@@ -620,7 +642,7 @@ export function VaultChooserNotifyRow({
                 accessibilityRole="button"
                 accessibilityLabel={`Add ${label}`}
               >
-                <Feather name="plus" size={11} color={SHOP.ink} />
+                <Feather name="plus" size={14} color={SHOP.ink} />
                 <Text style={styles.shopActionText}>Add</Text>
               </Pressable>
             ) : null}
@@ -631,7 +653,7 @@ export function VaultChooserNotifyRow({
                 accessibilityRole="button"
                 accessibilityLabel={`Edit ${label}`}
               >
-                <Pencil size={10} color={SHOP.ink} strokeWidth={2} />
+                <Pencil size={14} color={SHOP.ink} strokeWidth={2} />
                 <Text style={styles.shopActionText}>Edit</Text>
               </Pressable>
             ) : null}
@@ -667,12 +689,7 @@ export function VaultChooserNotifyRow({
   }
 
   return (
-    <Pressable
-      accessibilityLabel={a11yLabel}
-      onPress={showDoc ? () => previewFile(0) : undefined}
-      disabled={!showDoc}
-      style={styles.card}
-    >
+    <View accessibilityLabel={a11yLabel} style={styles.card}>
       <View style={styles.header}>
         <View style={styles.iconWash} accessibilityElementsHidden>
           <FileText size={12} color={Theme.actionBtnInk} strokeWidth={2} />
@@ -832,7 +849,7 @@ export function VaultChooserNotifyRow({
           <Text style={styles.emptyQuoteText}>No file in this slot yet</Text>
         </Pressable>
       )}
-    </Pressable>
+    </View>
   );
 }
 
@@ -1121,11 +1138,11 @@ const styles = StyleSheet.create({
   statusTextOn: { color: Theme.complianceStageSuccessFg },
   statusTextOff: { color: Theme.complianceStagePendingFg },
   cardShop: {
-    paddingTop: 8,
-    paddingBottom: 8,
-    paddingHorizontal: 8,
-    gap: 6,
-    borderRadius: 10,
+    paddingTop: 12,
+    paddingBottom: 12,
+    paddingHorizontal: 12,
+    gap: 10,
+    borderRadius: 16,
     borderColor: SHOP.hairline,
     backgroundColor: Theme.cardWhite,
   },
@@ -1208,29 +1225,34 @@ const styles = StyleSheet.create({
   },
   shopMetaBlock: {
     width: "100%",
-    alignItems: "center",
-    gap: 1,
-    paddingHorizontal: 4,
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 8,
+    paddingHorizontal: 2,
   },
   shopBrand: {
-    fontSize: 11,
-    lineHeight: 14,
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: "700",
     color: SHOP.ink,
-    letterSpacing: -0.15,
-    textAlign: "center",
+    letterSpacing: -0.2,
+    textAlign: "left",
   },
   shopMetaLine: {
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: "500",
+    flexShrink: 0,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
     color: SHOP.muted,
-    textAlign: "center",
+    textAlign: "right",
   },
   shopStatusCard: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
     borderWidth: 0,
   },
   shopStatusCardOn: {
@@ -1250,16 +1272,16 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   shopStatusKicker: {
-    fontSize: 8,
-    lineHeight: 10,
-    fontWeight: "600",
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "700",
     color: SHOP.muted,
     textTransform: "uppercase",
-    letterSpacing: 0.3,
+    letterSpacing: 0.4,
   },
   shopStatusDate: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: "700",
     color: SHOP.success,
     letterSpacing: -0.1,
@@ -1272,31 +1294,31 @@ const styles = StyleSheet.create({
   shopStatusLog: {
     flexGrow: 0,
     flexShrink: 1,
-    maxWidth: "48%",
-    minWidth: 96,
+    maxWidth: "46%",
+    minWidth: 0,
     alignItems: "flex-end",
     justifyContent: "center",
   },
   shopActionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
   },
   shopActionBtn: {
     flex: 1,
-    minHeight: 24,
-    borderRadius: 8,
+    minHeight: 40,
+    borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "#D4D5D9",
     backgroundColor: Theme.cardWhite,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 6,
   },
   shopActionText: {
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: "600",
     color: SHOP.ink,
   },
@@ -1315,10 +1337,10 @@ const styles = StyleSheet.create({
   },
   shopThumbStrip: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: "flex-start",
+    justifyContent: "flex-start",
     gap: 8,
-    paddingHorizontal: 2,
+    paddingHorizontal: 0,
   },
   shopThumbFilmScroll: {
     flexGrow: 0,
@@ -1344,12 +1366,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   shopThumbRailItem: {
-    width: 52,
-    height: 70,
+    width: 64,
+    height: 80,
   },
   shopThumb: {
-    width: 56,
-    height: 72,
+    width: 68,
+    height: 84,
     borderRadius: 10,
     overflow: "hidden",
     borderWidth: 1,
@@ -1374,12 +1396,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    minHeight: 16,
+    paddingHorizontal: 3,
     paddingVertical: 2,
+    justifyContent: "center",
     backgroundColor: Theme.cardWhite,
   },
   shopThumbCaptionText: {
-    fontSize: 7,
-    lineHeight: 9,
+    fontSize: 8,
+    lineHeight: 11,
     fontWeight: "700",
     color: SHOP.ink,
     textAlign: "center",

@@ -70,6 +70,40 @@ describe("runSingleflight", () => {
     expect(singleflightInflightCountForTests()).toBe(0);
   });
 
+  it("does not let a failed flight satisfy the retry", async () => {
+    let started = 0;
+    const work = async () => {
+      started += 1;
+      if (started === 1) throw new Error("down");
+      return "recovered";
+    };
+    await expect(runSingleflight("retry", work)).rejects.toThrow("down");
+    await expect(runSingleflight("retry", work)).resolves.toBe("recovered");
+    expect(started).toBe(2);
+    expect(singleflightInflightCountForTests()).toBe(0);
+  });
+
+  it("shares an in-flight result and still runs a later refresh", async () => {
+    let release: (value: string) => void = () => undefined;
+    const first = runSingleflight(
+      "org-a",
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const joined = runSingleflight("org-a", () => Promise.resolve("newer"));
+    const otherOrg = runSingleflight("org-b", () => Promise.resolve("other"));
+    await Promise.resolve();
+    release("current");
+    await expect(first).resolves.toBe("current");
+    await expect(joined).resolves.toBe("current");
+    await expect(otherOrg).resolves.toBe("other");
+    await expect(runSingleflight("org-a", () => Promise.resolve("refreshed"))).resolves.toBe(
+      "refreshed",
+    );
+  });
+
   it("releases the slot in finally after rejection", async () => {
     await expect(
       runSingleflight("tx-cleanup", async () => {

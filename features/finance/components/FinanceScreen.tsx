@@ -74,6 +74,7 @@ import { useDriverProfileImagesQuery } from "@/lib/queries/useDriverProfileImage
 import { useRealtimeTransactionsInvalidation } from "@/lib/queries/useRealtimeInvalidation";
 import { useInvalidateTransactions } from "@/lib/queries/useTransactionsQuery";
 import { queryKeys } from "@/lib/queryKeys";
+import { invalidateGarageFinanceTripCaches } from "@/lib/queries/tripCatalogFreshness";
 import { ROUTES } from "@/lib/routes";
 import { prefetchClientPageBootstrap } from "@/features/clients/hooks/useClientPageBootstrapQuery";
 import { setInitialClientForDetail } from "@/features/clients/initialClientForDetail";
@@ -200,8 +201,8 @@ export function FinanceScreen() {
     refreshKey: entitiesRefreshKey,
     includeGaragePeriodOptions: financeSubTab === "garage",
   });
-  // tripRows from useTripsQuery already includes cross-org supplier trips (get_trips_for_org returns both).
-  // Do NOT concat tripsWhereOrgIsSupplier again — that's a derived subset of tripRows, not additional data.
+  // tripRows is the complete-history catalog (owner and supplier-carried).
+  // The newest-400 finite list is a separate cache and is not added here.
   const allTripsForLedger = useMemo(
     () => entities.tripRows,
     [entities.tripRows],
@@ -2084,9 +2085,7 @@ export function FinanceScreen() {
             queryClient.invalidateQueries({
               queryKey: queryKeys.vehicles.all(orgId),
             });
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.trips.finite(orgId),
-            });
+            invalidateGarageFinanceTripCaches(queryClient, orgId);
           }
         }}
         garageTripIdForPnL={garageTripIdForPnL}

@@ -42,6 +42,8 @@ export type PoolBidCommitCopy = {
   submitA11y: string;
   /** Secondary action that closes without committing. */
   dismissLabel?: string;
+  /** Marketplace lane rates are visibility only, so the vehicle and date controls stay hidden. */
+  hidesAllocation?: boolean;
 };
 
 const NETWORK_POOL_COPY: PoolBidCommitCopy = {
@@ -155,6 +157,7 @@ export function PoolBidCommitSheet({
           {formatINR(amount)} {copy.scope}
         </Text>
 
+        {copy.hidesAllocation ? null : (
         <View style={styles.fleet}>
           <View style={styles.fleetIcon}>
             <Truck size={16} color={Theme.primary} strokeWidth={2.3} />
@@ -168,7 +171,10 @@ export function PoolBidCommitSheet({
             </Text>
           </View>
         </View>
+        )}
 
+        {copy.hidesAllocation ? null : (
+          <>
         <Text style={styles.fieldLabel}>How many stay committed</Text>
         <View style={styles.stepper}>
           <TouchableOpacity
@@ -212,7 +218,6 @@ export function PoolBidCommitSheet({
             <Plus size={16} color={Theme.primary} strokeWidth={2.4} />
           </TouchableOpacity>
         </View>
-        <Text style={styles.hint}>{copy.countHint(count, maxCommit)}</Text>
 
         <Text style={styles.fieldLabel}>Accept awards until</Text>
         <Pressable
@@ -243,6 +248,9 @@ export function PoolBidCommitSheet({
             />
           </View>
         ) : null}
+          </>
+        )}
+        <Text style={styles.hint}>{copy.countHint(count, maxCommit)}</Text>
         <Text style={styles.hint}>{copy.dateHint}</Text>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}

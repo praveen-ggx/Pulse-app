@@ -1635,7 +1635,6 @@ export function ChatScreen() {
   const {
     posts: networkStoryPosts,
     indentCountByPostId: networkStoryIndentCounts,
-    isLoading: storiesLoading,
   } = useNetworkStoryStrip(shouldLoadStoryFeed ? currentOrgId : null);
   const chatNetworkPartnerOrgIds = useMemo(() => {
     const ids = new Set<string>();
@@ -3063,12 +3062,6 @@ export function ChatScreen() {
                 indentCountByPostId={networkStoryIndentCounts}
                 embedded
               />
-              {storiesLoading && networkStoryPosts.length === 0 ? (
-                <View style={s.chatStoryLoadingRow}>
-                  <LoadingIndicator size="small" color={CHAT_ACCENT} />
-                  <Text style={s.chatStoryLoadingText}>Syncing stories…</Text>
-                </View>
-              ) : null}
             </View>
           ) : undefined
         }
@@ -3985,12 +3978,6 @@ export function ChatScreen() {
                     indentCountByPostId={networkStoryIndentCounts}
                     embedded
                   />
-                  {storiesLoading && networkStoryPosts.length === 0 ? (
-                    <View style={s.chatStoryLoadingRow}>
-                      <LoadingIndicator size="small" color={CHAT_ACCENT} />
-                      <Text style={s.chatStoryLoadingText}>Syncing stories…</Text>
-                    </View>
-                  ) : null}
                 </View>
               ) : null}
               <View style={deskSt.sidebarCategoryWrap}>
@@ -4321,28 +4308,15 @@ export function ChatScreen() {
                 <X size={20} color="#94a3b8" />
               </TouchableOpacity>
             </View>
-            {storiesLoading && networkStoryPosts.length === 0 ? (
-              <View style={s.chatStoriesModalLoading}>
-                <LoadingIndicator color={CHAT_ACCENT} />
-                <Text style={s.chatStoriesModalLoadingText}>Syncing stories…</Text>
-              </View>
-            ) : networkStoryPosts.length === 0 ? (
-              <View style={s.chatStoriesModalLoading}>
-                <Text style={s.chatStoriesModalLoadingText}>
-                  No active stories from your network yet.
-                </Text>
-              </View>
-            ) : (
-              <StoryReel
-                posts={networkStoryPosts}
-                orgId={currentOrgId || undefined}
-                orgName={currentOrganization?.name ?? undefined}
-                onCreatePost={() => router.push("/(modals)/create-post")}
-                networkPartnerOrgIds={chatNetworkPartnerOrgIds}
-                indentCountByPostId={networkStoryIndentCounts}
-                fetchLiveOwnLoads={false}
-              />
-            )}
+            <StoryReel
+              posts={networkStoryPosts}
+              orgId={currentOrgId || undefined}
+              orgName={currentOrganization?.name ?? undefined}
+              onCreatePost={() => router.push("/(modals)/create-post")}
+              networkPartnerOrgIds={chatNetworkPartnerOrgIds}
+              indentCountByPostId={networkStoryIndentCounts}
+              fetchLiveOwnLoads={false}
+            />
           </View>
         </View>
       </Modal>

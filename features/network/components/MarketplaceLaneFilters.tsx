@@ -21,6 +21,7 @@ import {
   type LaneSelection,
   type PoolFieldOption,
 } from "@/features/network/utils/pooledOpportunity.util";
+import { mountFilterPreview } from "@/features/network/components/filterTokenPreviewPortal";
 import { routeEndpointLines } from "@/features/network/utils/storyDisplay";
 import {
   ArrowRight,
@@ -34,7 +35,7 @@ import {
   Truck,
   X,
 } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Modal,
   Platform,
@@ -48,6 +49,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Field = "pickup" | "drop" | "vehicle";
+
+function hostContains(node: unknown, target: EventTarget | null): boolean {
+  if (!node || !target || typeof node !== "object") return false;
+  const host = node as { contains?: (value: Node) => boolean; _node?: { contains?: (value: Node) => boolean } };
+  const element = typeof host.contains === "function" ? host : host._node;
+  return typeof element?.contains === "function" && element.contains(target as Node);
+}
 
 const FIELD_META: Record<
   Field,
@@ -180,6 +188,11 @@ export function MarketplaceLaneFilters({
   const multi = multiple && Boolean(onSelectionChange);
   /** Choices are held on the page and applied together on confirm. */
   const guided = stacked || multi;
+  /**
+   * The board already has From, To and Vehicle. Its sheet edits the opened
+   * field only. The phone wizard still walks the three steps.
+   */
+  const fieldSheet = board && !stacked;
   const insets = useSafeAreaInsets();
   const applied = useMemo(
     () => (multi ? normalizeLaneSelection(selection) : laneSelectionFromSearch(value)),
@@ -565,7 +578,7 @@ export function MarketplaceLaneFilters({
                 accessibilityLabel={`${copy?.search ?? "Search"} in list`}
               />
             </View>
-            {multi && openField && currentValues.length > 0 ? (
+            {multi && openField && currentValues.length > 0 && !fieldSheet ? (
               <View style={styles.pickedRow}>
                 <ScrollView
                   horizontal
@@ -670,6 +683,18 @@ export function MarketplaceLaneFilters({
                   </Text>
                 </View>
                 <View style={styles.pageFootActions}>
+                  {fieldSheet ? (
+                    <Pressable
+                      onPress={applyAndClose}
+                      style={({ pressed }) => [styles.footPrimary, pressed && styles.pressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Show loads now"
+                    >
+                      <Text style={styles.footPrimaryText}>Show loads</Text>
+                      <Check size={15} color={Theme.buttonPrimaryText} strokeWidth={2.6} />
+                    </Pressable>
+                  ) : (
+                    <>
                   {lastStep || !anyChosen ? null : (
                     <Pressable
                       onPress={applyAndClose}
@@ -699,6 +724,8 @@ export function MarketplaceLaneFilters({
                       <ArrowRight size={15} color={Theme.buttonPrimaryText} strokeWidth={2.6} />
                     )}
                   </Pressable>
+                    </>
+                  )}
                 </View>
               </View>
             ) : null}
@@ -798,8 +825,82 @@ function FilterChip({
   const showTokens = board && picked.length > 1 && Boolean(onRemove);
   const tokenRoom = stacked && field !== "vehicle" ? 1 : 2;
   const visibleTokens = picked.slice(0, tokenRoom);
-  const hiddenTokens = picked.length - visibleTokens.length;
+  const hiddenList = picked.slice(visibleTokens.length);
+  const hiddenTokens = hiddenList.length;
+  const [hoveringMore, setHoveringMore] = useState(false);
+  const [pinnedMore, setPinnedMore] = useState(false);
+  const revealMore = hiddenTokens > 0 && (hoveringMore || pinnedMore);
+  const moreAnchorRef = React.useRef<View>(null);
+  const previewRef = React.useRef<View>(null);
+  const hideTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [moreFrame, setMoreFrame] = useState<{ top: number; left: number } | null>(null);
+  const placeMorePreview = () => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const node = moreAnchorRef.current as unknown as {
+      getBoundingClientRect?: () => { bottom: number; left: number; width: number; height: number };
+      _node?: { getBoundingClientRect?: () => { bottom: number; left: number; width: number; height: number } };
+    } | null;
+    const host = typeof node?.getBoundingClientRect === "function" ? node : node?._node;
+    const rect = host?.getBoundingClientRect?.();
+    if (!rect || (rect.width === 0 && rect.height === 0)) return;
+    const width = 280;
+    const margin = 12;
+    const left = Math.max(
+      window.scrollX + margin,
+      Math.min(rect.left + window.scrollX, window.scrollX + window.innerWidth - width - margin),
+    );
+    setMoreFrame({ top: rect.bottom + window.scrollY - 2, left });
+  };
+  const cancelHide = () => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = null;
+  };
+  const closePreview = () => {
+    cancelHide();
+    setHoveringMore(false);
+    setPinnedMore(false);
+  };
+  const scheduleHide = () => {
+    cancelHide();
+    hideTimer.current = setTimeout(closePreview, 140);
+  };
+  useEffect(() => () => cancelHide(), []);
+  useEffect(() => {
+    if (!revealMore || Platform.OS !== "web") return;
+    placeMorePreview();
+    const overPreview = (target: EventTarget | null) =>
+      hostContains(moreAnchorRef.current, target) || hostContains(previewRef.current, target);
+    const onScroll = () => placeMorePreview();
+    const onPointerMove = (event: PointerEvent) => {
+      if (overPreview(event.target)) {
+        cancelHide();
+        return;
+      }
+      if (hideTimer.current) return;
+      hideTimer.current = setTimeout(closePreview, 140);
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (overPreview(event.target)) return;
+      closePreview();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePreview();
+    };
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [revealMore]);
   const boardCopy = board ? boardFieldCopy(field, value, suggestion, locked, more) : null;
+  const moreNoun = field === "vehicle" ? "vehicles" : field === "drop" ? "drops" : "pickups";
   return (
     <View
       style={[
@@ -817,106 +918,183 @@ function FilterChip({
         board && stacked && styles.chipBoardStack,
         board && stacked && (field === "vehicle" ? styles.chipBoardStackWide : styles.chipBoardStackHalf),
         board && stacked && field === "pickup" && styles.chipBoardSplit,
+        board && !stacked && field === "pickup" && styles.chipBoardLead,
+        board && !stacked && field === "vehicle" && styles.chipBoardTail,
+        revealMore && styles.chipRevealed,
       ]}
     >
-      <Pressable
-        onPress={onOpen}
-        disabled={locked}
+      <View
         style={[
           styles.chipMain,
           compact && styles.chipMainCompact,
           board && styles.chipMainBoard,
           board && stacked && styles.chipMainBoardStacked,
+          showTokens && styles.chipMainTokens,
         ]}
-        accessibilityRole="button"
-        accessibilityLabel={meta.a11y}
-        accessibilityState={{ disabled: locked, expanded: open }}
       >
-        {board ? null : (
-        <View
-          style={[
-            styles.chipIcon,
-            compact && styles.chipIconCompact,
-            { backgroundColor: filled || open ? meta.iconOn : meta.iconBg },
-          ]}
+        <Pressable
+          onPress={onOpen}
+          disabled={locked}
+          style={[styles.chipOpen, showTokens && styles.chipOpenTokens]}
+          accessibilityRole="button"
+          accessibilityLabel={meta.a11y}
+          accessibilityState={{ disabled: locked, expanded: open }}
         >
-          <FieldIcon field={field} size={compact ? 13 : 15} />
-        </View>
-        )}
-        <View style={styles.chipCopy}>
-          {board ? (
-            <Text style={[styles.boardFieldLabel, stacked && styles.boardFieldLabelStacked]}>
-              {meta.boardName}
-              {showTokens ? ` · ${picked.length}` : ""}
-            </Text>
-          ) : (
-          <View style={styles.chipLabelRow}>
-            <Text style={[styles.chipStep, compact && styles.chipStepCompact]}>{meta.step}</Text>
-            <Text style={[styles.chipLabel, compact && styles.chipLabelCompact]}>
-              {meta.label}
-            </Text>
+          {board ? null : (
+          <View
+            style={[
+              styles.chipIcon,
+              compact && styles.chipIconCompact,
+              { backgroundColor: filled || open ? meta.iconOn : meta.iconBg },
+            ]}
+          >
+            <FieldIcon field={field} size={compact ? 13 : 15} />
           </View>
           )}
-          {showTokens ? (
-            <View style={styles.tokenRow}>
-              {visibleTokens.map((label) => (
-                <Pressable
-                  key={label}
-                  onPress={() => onRemove?.(label)}
-                  style={({ pressed }) => [styles.token, pressed && styles.pressed]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove ${label} from ${meta.label}`}
-                  hitSlop={4}
-                >
-                  <Text style={styles.tokenText} numberOfLines={1}>
-                    {routeEndpointLines(label)[0] || label}
-                  </Text>
-                  <X size={10} color={Theme.textSecondary} strokeWidth={2.6} />
-                </Pressable>
-              ))}
-              {hiddenTokens > 0 ? (
-                <View style={styles.tokenMore}>
-                  <Text style={styles.tokenMoreText}>+{hiddenTokens}</Text>
-                </View>
-              ) : null}
+          <View style={styles.chipCopy}>
+            {board ? (
+              <Text style={[styles.boardFieldLabel, stacked && styles.boardFieldLabelStacked]}>
+                {meta.boardName}
+                {showTokens ? ` · ${picked.length}` : ""}
+              </Text>
+            ) : (
+            <View style={styles.chipLabelRow}>
+              <Text style={[styles.chipStep, compact && styles.chipStepCompact]}>{meta.step}</Text>
+              <Text style={[styles.chipLabel, compact && styles.chipLabelCompact]}>
+                {meta.label}
+              </Text>
             </View>
-          ) : (
-          <Text
-            style={[
-              styles.chipValue,
-              compact && styles.chipValueCompact,
-              board && styles.boardFieldValue,
-              board && stacked && styles.boardFieldValueStacked,
-              !value && !boardCopy?.suggested && styles.chipPlaceholder,
-              board && !value && !boardCopy?.suggested && styles.boardFieldPlaceholder,
-              board && stacked && !value && !boardCopy?.suggested && styles.boardFieldPlaceholderStacked,
-            ]}
-            numberOfLines={1}
-          >
-            {boardCopy
-              ? boardCopy.headline
-              : locked
-                ? field === "drop"
-                  ? "Choose pickup first"
-                  : "Choose drop first"
-                : value
-                  ? more.length > 0
-                    ? `${value} +${more.length}`
-                    : value
-                  : meta.placeholder}
-          </Text>
-          )}
-          {!showTokens && boardCopy?.caption ? (
+            )}
+            {showTokens ? null : (
             <Text
-              style={[styles.boardFieldCaption, stacked && styles.boardFieldCaptionStacked]}
+              style={[
+                styles.chipValue,
+                compact && styles.chipValueCompact,
+                board && styles.boardFieldValue,
+                board && stacked && styles.boardFieldValueStacked,
+                !value && !boardCopy?.suggested && styles.chipPlaceholder,
+                board && !value && !boardCopy?.suggested && styles.boardFieldPlaceholder,
+                board && stacked && !value && !boardCopy?.suggested && styles.boardFieldPlaceholderStacked,
+              ]}
               numberOfLines={1}
             >
-              {boardCopy.caption}
+              {boardCopy
+                ? boardCopy.headline
+                : locked
+                  ? field === "drop"
+                    ? "Choose pickup first"
+                    : "Choose drop first"
+                  : value
+                    ? more.length > 0
+                      ? `${value} +${more.length}`
+                      : value
+                    : meta.placeholder}
             </Text>
-          ) : null}
-        </View>
-        {value && board ? null : <ChevronDown size={14} color={Theme.textMuted} strokeWidth={2.2} />}
-      </Pressable>
+            )}
+            {!showTokens && boardCopy?.caption ? (
+              <Text
+                style={[styles.boardFieldCaption, stacked && styles.boardFieldCaptionStacked]}
+                numberOfLines={1}
+              >
+                {boardCopy.caption}
+              </Text>
+            ) : null}
+          </View>
+          {value && board ? null : <ChevronDown size={14} color={Theme.textMuted} strokeWidth={2.2} />}
+        </Pressable>
+        {showTokens ? (
+          <View style={styles.tokenRow}>
+            {visibleTokens.map((label) => (
+              <Pressable
+                key={label}
+                onPress={() => onRemove?.(label)}
+                style={({ pressed }) => [styles.token, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${label} from ${meta.label}`}
+                hitSlop={4}
+              >
+                <Text style={styles.tokenText} numberOfLines={1}>
+                  {routeEndpointLines(label)[0] || label}
+                </Text>
+                <X size={10} color={Theme.textSecondary} strokeWidth={2.6} />
+              </Pressable>
+            ))}
+            {hiddenTokens > 0 ? (
+              <View
+                ref={moreAnchorRef}
+                style={styles.tokenMoreAnchor}
+                {...(Platform.OS === "web" ? { onPointerLeave: scheduleHide } : null)}
+              >
+                <Pressable
+                  onPress={() => {
+                    placeMorePreview();
+                    setPinnedMore((open) => !open);
+                  }}
+                  style={[styles.tokenMore, revealMore && styles.tokenMoreOn]}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: revealMore }}
+                  accessibilityLabel={
+                    revealMore
+                      ? `Hide ${hiddenTokens} more ${moreNoun}`
+                      : `Show ${hiddenTokens} more ${moreNoun}`
+                  }
+                  hitSlop={6}
+                  {...(Platform.OS === "web"
+                    ? {
+                        onPointerEnter: () => {
+                          cancelHide();
+                          placeMorePreview();
+                          setHoveringMore(true);
+                        },
+                      }
+                    : null)}
+                >
+                  <Text style={[styles.tokenMoreText, revealMore && styles.tokenMoreTextOn]}>
+                    +{hiddenTokens}
+                  </Text>
+                </Pressable>
+                {revealMore && (Platform.OS !== "web" || moreFrame)
+                  ? mountFilterPreview(
+                      <View
+                        ref={previewRef}
+                        style={[
+                          styles.tokenRevealFly,
+                          moreFrame ? { top: moreFrame.top, left: moreFrame.left } : null,
+                        ]}
+                        {...(Platform.OS === "web"
+                          ? { onPointerEnter: cancelHide, onPointerLeave: scheduleHide }
+                          : null)}
+                      >
+                        <View style={styles.tokenReveal} accessibilityRole="summary">
+                          <Text style={styles.tokenRevealKicker}>
+                            {hiddenTokens} more {moreNoun}
+                          </Text>
+                          <View style={styles.tokenRevealList}>
+                            {hiddenList.map((label) => (
+                              <Pressable
+                                key={label}
+                                onPress={() => onRemove?.(label)}
+                                style={({ pressed }) => [styles.token, styles.tokenRevealChip, pressed && styles.pressed]}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Remove ${label} from ${meta.label}`}
+                                hitSlop={4}
+                              >
+                                <Text style={styles.tokenText} numberOfLines={1}>
+                                  {routeEndpointLines(label)[0] || label}
+                                </Text>
+                                <X size={10} color={Theme.textSecondary} strokeWidth={2.6} />
+                              </Pressable>
+                            ))}
+                          </View>
+                        </View>
+                      </View>,
+                    )
+                  : null}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
       {value ? (
         <Pressable
           onPress={onClear}
@@ -1037,6 +1215,17 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     borderColor: "transparent",
   },
+  chipBoardLead: {
+    borderTopLeftRadius: 13,
+    borderBottomLeftRadius: 13,
+  },
+  chipBoardTail: {
+    borderTopRightRadius: 13,
+    borderBottomRightRadius: 13,
+  },
+  chipRevealed: {
+    zIndex: 30,
+  },
   boardFieldLabel: {
     fontSize: 11,
     fontWeight: "700",
@@ -1134,6 +1323,23 @@ const styles = StyleSheet.create({
   suggestChipTextGrouped: { fontSize: 13, fontWeight: "600" },
   suggestChipTextOn: { color: Theme.buttonPrimaryText },
   chipMainBoard: { minHeight: 68, paddingHorizontal: 14 },
+  chipMainTokens: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    justifyContent: "center",
+    gap: 0,
+  },
+  chipOpen: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  chipOpenTokens: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   chipMain: {
     flex: 1,
     minWidth: 0,
@@ -1202,6 +1408,10 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surfaceGray,
   },
   tokenRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3, minWidth: 0 },
+  tokenMoreAnchor: {
+    position: "relative",
+    zIndex: 4,
+  },
   token: {
     flexDirection: "row",
     alignItems: "center",
@@ -1222,8 +1432,60 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: Theme.borderLight,
+    backgroundColor: Theme.cardWhite,
+    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as const) : null),
+  },
+  tokenMoreOn: {
+    borderColor: Theme.primary,
+    backgroundColor: Theme.cardWhite,
   },
   tokenMoreText: { fontSize: 11, fontWeight: "800", color: Theme.textSecondary },
+  tokenMoreTextOn: { color: Theme.primary },
+  tokenRevealFly: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    width: 280,
+    paddingTop: 8,
+    zIndex: 10000,
+  },
+  tokenReveal: {
+    paddingTop: 10,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+    borderRadius: 14,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    gap: 8,
+    ...Platform.select({
+      web: { boxShadow: "0 16px 40px rgba(15, 23, 42, 0.16)" } as object,
+      default: {
+        shadowColor: Theme.shadow,
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.16,
+        shadowRadius: 18,
+        elevation: 12,
+      },
+    }),
+  },
+  tokenRevealKicker: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  tokenRevealList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  tokenRevealChip: {
+    flexShrink: 0,
+    maxWidth: 250,
+  },
   chipClear: {
     width: 28,
     height: 28,

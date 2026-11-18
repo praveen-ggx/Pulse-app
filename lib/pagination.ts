@@ -25,7 +25,10 @@ export function toRange(offset: number, limit: number): { from: number; to: numb
 
 /** Rows requested per page by `readAllPages`. Correctness does not depend on it. */
 export const READ_ALL_PAGE_SIZE = 500;
-/** Ids per `.in(...)` filter — keeps the request URL small (≈800 uuids → HTTP 400). */
+/**
+ * Ids per `.in(...)` filter. A single filter of ~630 uuids is a ~25KB URL and
+ * the API gateway answers HTTP 400 before PostgREST runs.
+ */
 export const READ_ALL_ID_CHUNK = 100;
 
 /**
@@ -72,4 +75,67 @@ export function chunkIdsForRead(ids: readonly string[], size: number = READ_ALL_
   const chunks: string[][] = [];
   for (let i = 0; i < unique.length; i += size) chunks.push(unique.slice(i, i + size));
   return chunks;
+}
+
+/**
+ * Runs `mapper` over `items` with at most `concurrency` calls in flight; results
+ * keep input order. Use for chunked `.in(...)` reads: serial awaits cost one
+ * network round trip per chunk, unbounded Promise.all floods the fetch queue.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const out = new Array<R>(items.length);
+  let next = 0;
+
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      out[index] = await mapper(items[index] as T, index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+  return out;
+}
+
+function isQueueFullError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { name?: string }).name === "SupabaseQueueRejectedError"
+  );
+}
+
+/**
+ * One `.in(...)` read per id chunk, rows concatenated. Use for any id list that
+ * can grow with the org (an unchunked list of ~630 uuids is HTTP 400 "Bad Request").
+ * Chunks run one after another so a large list cannot fill the client fetch queue.
+ * Any chunk error returns that error and no rows, never a partial set.
+ */
+export async function readByIdChunks<T, E>(
+  ids: readonly string[],
+  readChunk: (chunk: string[]) => PromiseLike<{ data: T[] | null; error: E | null }>,
+  size: number = READ_ALL_ID_CHUNK,
+): Promise<{ data: T[]; error: E | null }> {
+  const rows: T[] = [];
+  for (const chunk of chunkIdsForRead(ids, size)) {
+    let result: { data: T[] | null; error: E | null };
+    try {
+      result = await readChunk(chunk);
+    } catch (error) {
+      if (!isQueueFullError(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      result = await readChunk(chunk);
+    }
+    const { data, error } = result;
+    if (error) return { data: [], error };
+    if (data) rows.push(...data);
+  }
+  return { data: rows, error: null };
 }

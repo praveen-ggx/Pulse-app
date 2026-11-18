@@ -126,23 +126,39 @@ function formatFinanceVerifyError(error: { message?: string; code?: string }, un
 
 /**
  * Finance approval between Compliance Verified and the advance. Goes through
- * `mark_trip_finance_verified` (migration 20261010122824), which enforces
- * `trip_compliance.finance.manage`, requires compliance_verified_at, and
- * refuses once an advance is posted. Safe under retry.
+ * the 4-argument `mark_trip_finance_verified` (migration 20271118094500), which
+ * enforces `trip_compliance.finance.manage`, requires compliance_verified_at,
+ * calculates the payable from the explicit percent, and refuses once an
+ * advance is posted. A repeat call returns the stored approval.
  */
+export type ComplianceAdvanceApproval = {
+  approvedAmount: number | null;
+  formulaVersion: number | null;
+  idempotentReplay: boolean;
+};
+
 export async function markTripFinanceVerified(params: {
   tripId: string;
   idempotencyKey?: string;
-  /** Advance payable shown at approval; snapshotted on the issued payment request. */
-  approvedAmount?: number | null;
-}): Promise<{ error: Error | null }> {
-  const approved = params.approvedAmount;
-  const { error } = await supabase().rpc("mark_trip_finance_verified", {
+  /** Explicit advance percent, 0–100. The server calculates the rupee payable. */
+  advancePercent: number;
+}): Promise<{ error: Error | null; approval: ComplianceAdvanceApproval | null }> {
+  const { data, error } = await supabase().rpc("mark_trip_finance_verified", {
     p_trip_id: params.tripId,
     p_idempotency_key: params.idempotencyKey ?? null,
-    p_approved_amount: approved != null && Number.isFinite(approved) && approved >= 0 ? approved : null,
+    p_advance_percent: params.advancePercent,
+    p_formula_version: 1,
   });
-  return { error: error ? new Error(formatFinanceVerifyError(error, false)) : null };
+  if (error) return { error: new Error(formatFinanceVerifyError(error, false)), approval: null };
+  const row = (data ?? null) as { approved_amount?: number | null; formula_version?: number | null; idempotent_replay?: boolean } | null;
+  return {
+    error: null,
+    approval: {
+      approvedAmount: row?.approved_amount == null ? null : Number(row.approved_amount),
+      formulaVersion: row?.formula_version == null ? null : Number(row.formula_version),
+      idempotentReplay: row?.idempotent_replay === true,
+    },
+  };
 }
 
 /** Undo Finance Verify while no advance is posted (`unmark_trip_finance_verified`). */

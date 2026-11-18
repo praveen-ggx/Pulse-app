@@ -24,6 +24,7 @@ import {
   lanesFromMarketplaceLoads,
   loadMatchesMarketplaceSearch,
   normalizeMarketplaceSearch,
+  positiveLaneTarget,
   type MarketplaceLoadSearch,
   type MarketplaceSearchLane,
 } from '@/features/network/utils/marketplaceSearch.util';
@@ -135,25 +136,44 @@ async function listOpenMarketplaceLoadsUnfiltered(
   return { error: null, loads: (data ?? []) as OrgOpenMarketplaceLoad[] };
 }
 
-/** Distinct live Marketplace lanes for From / To / Vehicle dropdowns. */
-export async function listMarketplaceSearchLanes(
-  orgId: string,
-): Promise<{ error: Error | null; lanes: MarketplaceSearchLane[] }> {
-  const dedicated = await supabase().rpc('list_marketplace_search_lanes', {
-    p_org_id: orgId,
-  });
-  if (!dedicated.error) {
-    const lanes = ((dedicated.data ?? []) as MarketplaceSearchLane[]).filter(
+function publishMarketplaceLanes(rows: readonly MarketplaceSearchLane[]): MarketplaceSearchLane[] {
+  return rows
+    .filter(
       (row) =>
         Boolean(row.pickup_area?.trim()) &&
         Boolean(row.drop_location?.trim()) &&
         Boolean(row.vehicle_type?.trim()),
-    );
+    )
+    .map((row) => {
+      if (!("target_rate_min" in row) && !("target_rate_max" in row)) return row;
+      return {
+        ...row,
+        target_rate_min: positiveLaneTarget(row.target_rate_min),
+        target_rate_max: positiveLaneTarget(row.target_rate_max),
+      };
+    });
+}
+
+/**
+ * Distinct live Marketplace lanes for From / To / Vehicle dropdowns.
+ * The price bootstrap is one grouped read (pickup, drop, vehicle, count,
+ * target min/max). It runs beside the lane list so a database that does not
+ * have the function yet still returns lanes.
+ */
+export async function listMarketplaceSearchLanes(
+  orgId: string,
+): Promise<{ error: Error | null; lanes: MarketplaceSearchLane[] }> {
+  const [boot, dedicated] = await Promise.all([
+    supabase().rpc('list_marketplace_lane_bootstrap', { p_org_id: orgId }),
+    supabase().rpc('list_marketplace_search_lanes', { p_org_id: orgId }),
+  ]);
+  if (!boot.error) {
+    return { error: null, lanes: publishMarketplaceLanes((boot.data ?? []) as MarketplaceSearchLane[]) };
+  }
+  if (!dedicated.error) {
+    const lanes = publishMarketplaceLanes((dedicated.data ?? []) as MarketplaceSearchLane[]);
     if (lanes.length > 0) return { error: null, lanes };
-  } else if (
-    dedicated.error &&
-    !isUnsupportedMarketplaceSearchRpc(dedicated.error.message)
-  ) {
+  } else if (!isUnsupportedMarketplaceSearchRpc(dedicated.error.message)) {
     return { error: new Error(dedicated.error.message), lanes: [] };
   }
 
@@ -172,7 +192,7 @@ export async function listMarketplaceSearchLanes(
  * Phase 3), not at bid time. Membership, self-bid, and indent-eligibility
  * checks are all enforced server-side by submit_market_bid() itself.
  */
-export type MyOrgMarketBidStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'superseded';
+export type MyOrgMarketBidStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'superseded' | 'expired';
 
 /** A8.6.2 — independent of MyOrgMarketBidStatus; see network/services/marketBids.service.ts for full doc. */
 export type FeePaymentStatus = 'not_required' | 'required' | 'pending' | 'paid' | 'failed' | 'expired' | 'refunded';
@@ -217,22 +237,129 @@ export function marketBidsFromQueryData(data: unknown): MyOrgMarketBidRow[] {
   return [];
 }
 
+/** One page. The walk continues until a short page, so this is not a ceiling. */
+const MY_ORG_MARKET_BIDS_PAGE = 100;
+
+/**
+ * `list_my_org_market_bids_page` is in an unapplied migration. PostgREST
+ * answers a missing function with 404, which the browser logs even when we
+ * catch it. Stay on the deployed list until that migration is applied, then
+ * turn this on (tests do that directly).
+ */
+let marketBidsPageRpc = false;
+
+export function useMarketBidsPageRpc(enabled: boolean): void {
+  marketBidsPageRpc = enabled;
+}
+
+function missingMarketBidsPageRpc(error: { code?: string; message?: string }): boolean {
+  return (
+    error.code === "PGRST202" ||
+    /could not find the function|schema cache|does not exist/i.test(error.message ?? "")
+  );
+}
+
 /**
  * A4.4 Phase 4 — this organization's own Marketplace bids, across every
  * member (not just whoever personally submitted a given bid) — backs the
- * "My Bids" segment in Find Loads. See list_my_org_market_bids.sql for why
- * this needs a SECURITY DEFINER RPC rather than a plain market_bids select.
+ * "My Bids" segment in Find Loads. Pages until the organization is exhausted.
+ * A plain market_bids select cannot see a colleague's bid, so this stays on
+ * the security-definer page RPC.
  */
 export async function listMyOrgMarketBids(
   orgId: string,
-  limit = 50,
 ): Promise<{ error: Error | null; bids: MyOrgMarketBidRow[] }> {
-  const { data, error } = await supabase().rpc('list_my_org_market_bids', {
+  if (!marketBidsPageRpc) {
+    const legacy = await supabase().rpc("list_my_org_market_bids", {
+      p_org_id: orgId,
+      p_limit: MY_ORG_MARKET_BIDS_PAGE,
+    });
+    if (legacy.error) return { error: new Error(legacy.error.message), bids: [] };
+    return { error: null, bids: marketBidsFromQueryData(legacy.data) };
+  }
+
+  const bids: MyOrgMarketBidRow[] = [];
+  const seen = new Set<string>();
+  let beforeCreatedAt: string | null = null;
+  let beforeId: string | null = null;
+
+  for (;;) {
+    const { data, error } = await supabase().rpc("list_my_org_market_bids_page", {
+      p_org_id: orgId,
+      p_limit: MY_ORG_MARKET_BIDS_PAGE,
+      p_before_created_at: beforeCreatedAt,
+      p_before_id: beforeId,
+    });
+    if (error) {
+      if (bids.length === 0 && missingMarketBidsPageRpc(error)) {
+        const legacy = await supabase().rpc("list_my_org_market_bids", {
+          p_org_id: orgId,
+          p_limit: MY_ORG_MARKET_BIDS_PAGE,
+        });
+        if (legacy.error) return { error: new Error(legacy.error.message), bids: [] };
+        return { error: null, bids: marketBidsFromQueryData(legacy.data) };
+      }
+      return { error: new Error(error.message), bids: [] };
+    }
+
+    const page = marketBidsFromQueryData(data);
+    for (const bid of page) {
+      if (seen.has(bid.id)) continue;
+      seen.add(bid.id);
+      bids.push(bid);
+    }
+    if (page.length < MY_ORG_MARKET_BIDS_PAGE) return { error: null, bids };
+
+    const last = page[page.length - 1];
+    if (
+      !last?.id ||
+      !last.created_at ||
+      (last.created_at === beforeCreatedAt && last.id === beforeId)
+    ) {
+      return { error: new Error("My Bids paging did not advance."), bids: [] };
+    }
+    beforeCreatedAt = last.created_at;
+    beforeId = last.id;
+  }
+}
+
+export type MyOrgMarketBidCounts = {
+  total: number;
+  pending: number;
+  accepted: number;
+  rejected: number;
+  withdrawn: number;
+  superseded: number;
+};
+
+/** Organization totals. Null when the count function is not deployed yet. */
+export async function countMyOrgMarketBids(
+  orgId: string,
+): Promise<{ error: Error | null; counts: MyOrgMarketBidCounts | null }> {
+  if (!marketBidsPageRpc) return { error: null, counts: null };
+  const { data, error } = await supabase().rpc("count_my_org_market_bids", {
     p_org_id: orgId,
-    p_limit: limit,
   });
-  if (error) return { error: new Error(error.message), bids: [] };
-  return { error: null, bids: marketBidsFromQueryData(data) };
+  if (error) {
+    if (missingMarketBidsPageRpc(error)) return { error: null, counts: null };
+    return { error: new Error(error.message), counts: null };
+  }
+  const raw = (data ?? {}) as Partial<Record<keyof MyOrgMarketBidCounts, unknown>>;
+  const n = (value: unknown) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  return {
+    error: null,
+    counts: {
+      total: n(raw.total),
+      pending: n(raw.pending),
+      accepted: n(raw.accepted),
+      rejected: n(raw.rejected),
+      withdrawn: n(raw.withdrawn),
+      superseded: n(raw.superseded),
+    },
+  };
 }
 
 export async function submitOrgMarketBid(

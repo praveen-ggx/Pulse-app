@@ -17,6 +17,12 @@ import {
   guessCompliancePreviewMime,
   signCompliancePreviewUrl,
 } from "@/features/tripCompliance/services/complianceDocumentView.service";
+import { fetchLiveAdvanceApproval } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
+import {
+  mergeSupplierFreight,
+  readTripSupplierFreight,
+  type TripSupplierFreight,
+} from "@/features/tripCompliance/services/complianceAdvanceFinanceBreakdown.service";
 import {
   fetchOrganizationPayoutAccounts,
   type OrganizationPayoutAccount,
@@ -25,6 +31,7 @@ import type { ComplianceLedgerCategory } from "@/features/tripCompliance/service
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
   COMPLIANCE_DEFAULT_ADVANCE_PERCENT,
+  canonicalSupplierRateBasis,
   computeCompliancePaymentAmount,
   computeComplianceTdsAmount,
   resolveComplianceDocumentationCharge,
@@ -86,9 +93,11 @@ function formatInr(value: number): string {
 }
 
 function supplierCostTotal(trip: PaymentTripFacts): number | null {
+  const basis = canonicalSupplierRateBasis(trip.supplier_rate_basis);
+  if (!basis) return null;
   const rate = Number(trip.supplier_rate);
   if (!Number.isFinite(rate) || rate <= 0) return null;
-  if (trip.supplier_rate_basis === "per_mt") {
+  if (basis === "per_mt") {
     const tons = Number(trip.load_tons);
     if (Number.isFinite(tons) && tons > 0) return rate * tons;
     return null;
@@ -172,43 +181,23 @@ function LedgerSectionHead({
   );
 }
 
-function FactRow({
+function FactCell({
   label,
   value,
   emphasize,
-  compact,
 }: {
   label: string;
   value: string;
   emphasize?: boolean;
-  compact?: boolean;
 }) {
   return (
-    <View
-      style={[
-        styles.factRow,
-        emphasize && styles.factRowEmphasize,
-        compact && styles.factRowCompact,
-        compact && emphasize && styles.factRowEmphasizeCompact,
-      ]}
-    >
-      <Text
-        style={[
-          styles.factLabel,
-          emphasize && styles.factLabelEmphasize,
-          compact && styles.factLabelCompact,
-        ]}
-      >
+    <View style={[styles.factCell, emphasize && styles.factCellEmphasize]}>
+      <Text style={styles.factCellLabel} numberOfLines={1}>
         {label}
       </Text>
       <Text
-        style={[
-          styles.factValue,
-          emphasize && styles.factValueEmphasize,
-          compact && styles.factValueCompact,
-          compact && emphasize && styles.factValueEmphasizeCompact,
-        ]}
-        numberOfLines={3}
+        style={[styles.factCellValue, emphasize && styles.factCellValueEm]}
+        numberOfLines={2}
       >
         {value}
       </Text>
@@ -441,7 +430,7 @@ export function CompliancePaymentConfirmModal({
    * no payment mode; Finance Verify replaces Confirm payment.
    */
   readOnly?: boolean;
-  onFinanceVerify?: () => void;
+  onFinanceVerify?: (advancePercent: number) => void;
   financeVerifySubmitting?: boolean;
   /** Opens the memo in the workspace viewer (zoom / rotate) instead of a new tab. */
   onPreviewMemo?: () => void;
@@ -450,6 +439,8 @@ export function CompliancePaymentConfirmModal({
 }) {
   const { height, width: windowWidth } = useWindowDimensions();
   const isInline = presentation === "inline";
+  const [serverPayable, setServerPayable] = useState<number | null>(null);
+  const [approvalLookup, setApprovalLookup] = useState<"loading" | "ready" | "error">("loading");
   const [advancePercentText, setAdvancePercentText] = useState(
     String(COMPLIANCE_DEFAULT_ADVANCE_PERCENT),
   );
@@ -468,22 +459,27 @@ export function CompliancePaymentConfirmModal({
     useState<ComplianceDocumentChargeConfig | null>(null);
   const [docChargeLoading, setDocChargeLoading] = useState(false);
   const [inlineWidth, setInlineWidth] = useState(0);
+  const [freightTerms, setFreightTerms] = useState<TripSupplierFreight | null>(null);
   const modalContentWidth = Math.min(windowWidth - 32, MODAL_MAX_WIDTH);
   const twoColumn = isInline
     ? inlineWidth >= INLINE_TWO_COLUMN_MIN_WIDTH
     : modalContentWidth >= MODAL_TWO_COLUMN_MIN_WIDTH;
 
   const trip = summary?.trip as PaymentTripFacts | undefined;
+  const freightTrip = useMemo(
+    () => (trip ? mergeSupplierFreight(trip, freightTerms) : undefined),
+    [trip, freightTerms],
+  );
   const categoryLabel =
     category === "compliance_balance" ? "balance" : "advance";
   const isAdvance = category !== "compliance_balance";
   const baseFreight = useMemo(
-    () => baseFreightAmount(trip, category, summary?.advance?.amount),
-    [trip, category, summary?.advance?.amount],
+    () => baseFreightAmount(freightTrip, category, summary?.advance?.amount),
+    [freightTrip, category, summary?.advance?.amount],
   );
   const baseFreightLabel = baseFreight != null ? formatInr(baseFreight) : "—";
-  const clientPerMt = clientRatePerMt(trip);
-  const supplierPerMt = supplierRatePerMt(trip);
+  const clientPerMt = clientRatePerMt(freightTrip);
+  const supplierPerMt = supplierRatePerMt(freightTrip);
   const docCharge = useMemo(
     () =>
       isAdvance
@@ -508,7 +504,14 @@ export function CompliancePaymentConfirmModal({
     [baseFreight, tdsRatePercent],
   );
   const advancePercent = Number(advancePercentText);
+  const serverLocked = isAdvance && serverPayable != null;
+  // Only the in-flight lookup holds the amount. A failed read (no saved
+  // request yet, or the request was blocked) must still show the calculated
+  // advance. A formula v1 snapshot, when one loads, replaces that number.
+  const approvalBlocked = isAdvance && approvalLookup === "loading";
   const computedAmount = useMemo(() => {
+    if (approvalBlocked) return 0;
+    if (serverLocked && serverPayable != null) return serverPayable;
     if (!isAdvance && suggestedAmount != null && Number.isFinite(suggestedAmount) && suggestedAmount > 0) {
       return Math.round(suggestedAmount * 100) / 100;
     }
@@ -519,7 +522,7 @@ export function CompliancePaymentConfirmModal({
       documentationCharges,
       tdsAmount,
     });
-  }, [isAdvance, suggestedAmount, baseFreight, advancePercent, documentationCharges, tdsAmount]);
+  }, [approvalBlocked, serverLocked, serverPayable, isAdvance, suggestedAmount, baseFreight, advancePercent, documentationCharges, tdsAmount]);
   const tripLabel = trip
     ? getTripDisplayNumber(trip, trip.organization_id ?? null)
     : "—";
@@ -606,6 +609,49 @@ export function CompliancePaymentConfirmModal({
     };
   }, [visible, trip?.supplier_id, trip?.organization_id, trip?.supplier_name]);
 
+  useEffect(() => {
+    const tripId = trip?.id?.trim();
+    if (!visible || !tripId) {
+      setFreightTerms(null);
+      return;
+    }
+    let cancelled = false;
+    void readTripSupplierFreight(tripId)
+      .then((freight) => {
+        if (!cancelled) setFreightTerms(freight);
+      })
+      .catch(() => {
+        if (!cancelled) setFreightTerms(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, trip?.id]);
+
+  useEffect(() => {
+    const tripId = trip?.id?.trim();
+    if (!visible || !isAdvance || !tripId) {
+      setServerPayable(null);
+      setApprovalLookup("ready");
+      return;
+    }
+    let cancelled = false;
+    setApprovalLookup("loading");
+    setServerPayable(null);
+    void fetchLiveAdvanceApproval(tripId).then((approval) => {
+      if (cancelled) return;
+      setServerPayable(approval?.formulaVersion === 1 ? approval.approvedAmount : null);
+      setApprovalLookup("ready");
+    }).catch(() => {
+      if (cancelled) return;
+      setServerPayable(null);
+      setApprovalLookup("error");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, isAdvance, trip?.id]);
+
   /** Load vendor advance % + FY TDS rate from supplier vault (source of truth). */
   useEffect(() => {
     const supplierId = trip?.supplier_id?.trim();
@@ -627,6 +673,12 @@ export function CompliancePaymentConfirmModal({
       const resolved = resolveComplianceTdsRate(tds.rates);
       setTdsRatePercent(resolved?.ratePercent ?? null);
       setTdsRateFy(resolved?.financialYear ?? null);
+      const approval = trip?.id ? await fetchLiveAdvanceApproval(trip.id).catch(() => null) : null;
+      if (cancelled) return;
+      if (approval?.formulaVersion === 1 && approval.advancePercent != null) {
+        setAdvancePercentText(String(approval.advancePercent));
+        return;
+      }
       const adv = profile.profile?.advance_percentage;
       const vendorPct =
         adv != null && Number.isFinite(Number(adv)) ? Number(adv) : null;
@@ -691,6 +743,7 @@ export function CompliancePaymentConfirmModal({
     !txnDateError &&
     !submitting &&
     !docChargeLoading &&
+    !approvalBlocked &&
     !!summary &&
     !!category;
 
@@ -768,20 +821,25 @@ export function CompliancePaymentConfirmModal({
         title="Trip"
         hint="Settlement context for this ledger post"
       />
-      <FactRow compact={isInline} label="Supplier" value={supplierLabel?.trim() || "—"} />
-      <FactRow compact={isInline} label="Customer name" value={trip?.client_name?.trim() || "—"} />
-      <FactRow compact={isInline} label="Truck type" value={truckType?.trim() || "—"} />
-      <FactRow compact={isInline} label="Trip" value={tripLabel} />
-      <FactRow compact={isInline} label="Category" value={categoryLabel} />
-      {clientPerMt != null ? (
-        <FactRow compact={isInline} label="Client rate / MT" value={formatInr(clientPerMt)} />
-      ) : null}
-      {supplierPerMt != null ? (
-        <FactRow compact={isInline} label="Supplier rate / MT" value={formatInr(supplierPerMt)} />
-      ) : null}
-      <FactRow compact={isInline} label="Base freight" value={baseFreightLabel} emphasize />
-      <View style={[styles.factRow, isInline && styles.factRowCompact]}>
-        <Text style={[styles.factLabel, isInline && styles.factLabelCompact]}>Memo</Text>
+      <View style={styles.factGrid}>
+        <FactCell label="Supplier" value={supplierLabel?.trim() || "—"} />
+        <FactCell label="Customer" value={trip?.client_name?.trim() || "—"} />
+        <FactCell label="Truck type" value={truckType?.trim() || "—"} />
+        <FactCell label="Trip" value={tripLabel} />
+        <FactCell
+          label="Category"
+          value={categoryLabel === "advance" ? "Advance" : "Balance"}
+        />
+        {clientPerMt != null ? (
+          <FactCell label="Client rate / MT" value={formatInr(clientPerMt)} />
+        ) : null}
+        {supplierPerMt != null ? (
+          <FactCell label="Supplier rate / MT" value={formatInr(supplierPerMt)} />
+        ) : null}
+        <FactCell label="Base freight" value={baseFreightLabel} emphasize />
+      </View>
+      <View style={styles.memoRow}>
+        <Text style={styles.factCellLabel}>Memo</Text>
         <View style={styles.docAction}>
           <Pressable
             style={[
@@ -822,7 +880,7 @@ export function CompliancePaymentConfirmModal({
 
       <View style={[styles.calcRow, isInline && styles.calcRowInline]}>
         <Text style={[styles.calcLabel, styles.calcLabelGrow, isInline && styles.calcLabelInline]}>Base freight</Text>
-        <Text style={[styles.calcValue, isInline && styles.calcValueInline]}>{baseFreightLabel}</Text>
+        <Text style={[styles.calcValue, styles.calcValueColumn, isInline && styles.calcValueInline]}>{baseFreightLabel}</Text>
       </View>
 
       <View style={[styles.calcRow, isInline && styles.calcRowInline]}>
@@ -833,7 +891,7 @@ export function CompliancePaymentConfirmModal({
             keyboardType="numeric"
             value={advancePercentText}
             onChangeText={(text) => setAdvancePercentText(sanitizePercentInput(text))}
-            editable={!submitting && !readOnly}
+            editable={!submitting && !readOnly && !serverLocked}
             selectTextOnFocus
             accessibilityLabel={percentLabel}
             placeholder="90"
@@ -915,9 +973,15 @@ export function CompliancePaymentConfirmModal({
             {isAdvance ? "Final advance payable" : "Final balance payable"}
           </Text>
           <Text style={styles.amountResultHint} numberOfLines={2}>
-            {tdsHasRate
-              ? "Auto-calculated · TDS from vendor vault"
-              : "Auto-calculated · editable % above"}
+            {approvalLookup === "error"
+              ? "Showing the calculated advance. A saved approval could not be loaded."
+              : approvalLookup === "loading"
+                ? "Loading the approved advance…"
+                : serverLocked
+                  ? "Approved amount from the server"
+                  : tdsHasRate
+                    ? "Auto-calculated · TDS from vendor vault"
+                    : "Auto-calculated · editable % above"}
           </Text>
         </View>
         <View style={styles.amountHeroValue}>
@@ -933,19 +997,23 @@ export function CompliancePaymentConfirmModal({
     </View>
   );
 
+  const besidePay = isInline && inlineWidth >= INLINE_TWO_COLUMN_MIN_WIDTH;
   const sideBySide = twoColumn && !isInline;
   const detailsRow = (
     <View style={[styles.columns, sideBySide && styles.columnsWide, isInline && styles.columnsInline]}>
       <View style={[styles.column, sideBySide && styles.columnWide, isInline && styles.columnInline]}>
         {factsCard}
       </View>
+      {isInline ? null : (
       <View style={[styles.column, sideBySide && styles.columnWide, isInline && styles.columnInline]}>
         {calcCard}
       </View>
+      )}
     </View>
   );
 
-  const modeField = (
+  function renderModeField() {
+    return (
     <View style={[styles.field, styles.ledgerCard, isInline && styles.fieldInline, isInline && styles.fieldFill]}>
       <View style={[styles.paymentBody, isInline && styles.paymentBodyFill]}>
         <View style={isInline ? styles.paymentBand : undefined}>
@@ -1081,6 +1149,20 @@ export function CompliancePaymentConfirmModal({
       </View>
     </View>
   );
+  }
+
+  const calcPayRow = (
+    <View style={[styles.columns, besidePay && styles.columnsWide, !besidePay && styles.columnsInline]}>
+      <View style={[styles.column, besidePay && styles.columnWide, !besidePay && styles.columnInline]}>
+        {calcCard}
+      </View>
+      {readOnly ? null : (
+        <View style={[styles.column, besidePay && styles.columnWide, !besidePay && styles.columnInline]}>
+          {renderModeField()}
+        </View>
+      )}
+    </View>
+  );
 
   const actionsRow = (
     <View style={[styles.actions, (onReject || onCancel || onFlag) && styles.actionsWithSecondary]}>
@@ -1142,7 +1224,7 @@ export function CompliancePaymentConfirmModal({
             hitSlop={isInline ? INLINE_ACTION_HIT_SLOP : undefined}
             accessibilityRole="button"
             accessibilityLabel="Approve advance"
-            onPress={onFinanceVerify}
+            onPress={() => onFinanceVerify?.(advancePercent)}
           >
             {financeVerifySubmitting ? (
               <ActivityIndicator color={Theme.buttonDarkText} />
@@ -1200,7 +1282,7 @@ export function CompliancePaymentConfirmModal({
         )}
         <View style={styles.inlineStack}>
           {detailsRow}
-          {readOnly ? null : modeField}
+          {calcPayRow}
           <View style={[styles.actionsBar, styles.actionsBarInline]}>{actionsRow}</View>
         </View>
       </View>
@@ -1238,7 +1320,7 @@ export function CompliancePaymentConfirmModal({
               {introText}
             </View>
             {detailsRow}
-            {modeField}
+            {renderModeField()}
             <View style={styles.actionsBar}>{actionsRow}</View>
           </ScrollView>
         </View>
@@ -1337,8 +1419,9 @@ const styles = StyleSheet.create({
   },
   ledgerHeadText: { flex: 1, minWidth: 0, gap: 2 },
   ledgerIcon: {
-    width: 34,
-    height: 34,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
@@ -1362,9 +1445,9 @@ const styles = StyleSheet.create({
   },
   modeTileRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "stretch",
     alignSelf: "stretch",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     gap: 8,
   },
   modeTileCell: { flex: 1, minWidth: 0 },
@@ -1470,6 +1553,52 @@ const styles = StyleSheet.create({
     flexGrow: 0,
     paddingBottom: 2,
   },
+  factGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  factCell: {
+    flexGrow: 1,
+    flexBasis: "46%",
+    minWidth: 140,
+    gap: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: Theme.surfaceGray,
+  },
+  factCellEmphasize: {
+    backgroundColor: LedgerSyncPalette.emeraldSoft,
+  },
+  factCellLabel: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: SHOP.muted,
+  },
+  factCellValue: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "600",
+    color: SHOP.ink,
+  },
+  factCellValueEm: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "800",
+    color: Theme.darkGreen,
+  },
+  memoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    minHeight: 36,
+    paddingHorizontal: 2,
+  },
   factRow: {
     minHeight: 28,
     flexDirection: "row",
@@ -1537,7 +1666,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.darkGreen,
   },
-  docAction: { flex: 1, minWidth: 0, alignItems: "flex-end" },
+  docAction: { flexShrink: 0, alignItems: "flex-end" },
   eyeBtn: {
     ...complianceActionButtonStyles.ghost,
     minWidth: 0,
@@ -1554,6 +1683,7 @@ const styles = StyleSheet.create({
   eyeTextInline: { fontSize: 10, lineHeight: 12 },
   calcCard: {
     flexGrow: 1,
+    flexShrink: 1,
     borderRadius: 0,
     borderWidth: 0,
     borderColor: Theme.complianceTripCardBorder,
@@ -1563,7 +1693,7 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   calcCardInline: {
-    flexGrow: 0,
+    flexGrow: 1,
     paddingBottom: 4,
   },
   calcTitle: {
@@ -1594,13 +1724,13 @@ const styles = StyleSheet.create({
     paddingBottom: 1,
   },
   calcRow: {
-    minHeight: 26,
+    minHeight: 36,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    gap: 12,
+    paddingHorizontal: 2,
+    paddingVertical: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: SHOP.hairline,
   },
@@ -1609,13 +1739,13 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   calcRowTds: {
-    minHeight: 32,
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    gap: 12,
+    paddingHorizontal: 2,
+    paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: SHOP.hairline,
   },
@@ -1652,10 +1782,13 @@ const styles = StyleSheet.create({
     lineHeight: 12,
   },
   calcValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
     color: SHOP.ink,
     textAlign: "right",
+  },
+  calcValueColumn: {
+    width: 108,
   },
   calcValueInline: {
     fontSize: 11,
@@ -1669,10 +1802,11 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   tdsValueBlock: {
+    width: 108,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 8,
+    gap: 6,
     flexShrink: 0,
   },
   tdsRateChip: {
@@ -1688,20 +1822,21 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   tdsAmountValue: {
-    minWidth: 68,
+    flexShrink: 1,
     color: SHOP.ink,
   },
   pctField: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    justifyContent: "flex-end",
+    gap: 2,
     height: 28,
-    width: 76,
-    paddingHorizontal: 10,
-    borderRadius: 10,
+    width: 108,
+    paddingHorizontal: 8,
+    borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: SHOP.hairline,
-    backgroundColor: "#F7F7F8",
+    backgroundColor: Theme.surfaceGray,
   },
   pctFieldInline: {
     height: 26,
@@ -1731,12 +1866,13 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   amountResult: {
-    marginTop: 4,
-    marginHorizontal: 0,
-    marginBottom: 0,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 0,
+    marginTop: 8,
+    marginHorizontal: -12,
+    marginBottom: -10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
     backgroundColor: LedgerSyncPalette.emeraldSoft,
     flexDirection: "row",
     alignItems: "center",
@@ -1775,6 +1911,8 @@ const styles = StyleSheet.create({
   },
   field: { gap: 6 },
   fieldInline: {
+    flexGrow: 1,
+    alignSelf: "stretch",
     flexShrink: 0,
     gap: 10,
     padding: 0,
@@ -1796,7 +1934,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     flexBasis: 0,
-    minWidth: 88,
+    minWidth: 0,
     height: 36,
     flexDirection: "row",
     alignItems: "center",

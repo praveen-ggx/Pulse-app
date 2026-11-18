@@ -2593,7 +2593,7 @@ function SettlementPayableSummary({
     balancePaid: 0,
   });
   const extraLedger = Math.max(0, Math.round((ledgerPaid - advancePaid - balancePaid) * 100) / 100);
-  type PayableRow = { label: string; value: string; emphasize?: boolean; deduct?: boolean };
+  type PayableRow = { label: string; value: string; emphasize?: boolean; deduct?: boolean; result?: boolean };
   const rows: PayableRow[] = ([
     { label: "Revised vendor / driver payable", value: formatInr(next.revisedPayable) },
     {
@@ -2624,6 +2624,7 @@ function SettlementPayableSummary({
       label: remainingPayable > 0 || !balancePosted ? "Balance to pay" : "Balance to pay",
       value: formatInr(remainingPayable),
       emphasize: true,
+      result: true,
     },
   ] as (PayableRow | null)[]).filter((row): row is PayableRow => row != null);
   return (
@@ -2632,7 +2633,11 @@ function SettlementPayableSummary({
       {rows.map((row) => (
         <View
           key={row.label}
-          style={[styles.payableRow, row.emphasize && styles.payableRowOn]}
+          style={[
+            styles.payableRow,
+            row.emphasize && styles.payableRowOn,
+            row.result && styles.payableRowResult,
+          ]}
         >
           <Text
             style={[
@@ -4250,11 +4255,12 @@ const styles = StyleSheet.create({
   },
   settleStatus: {
     flexShrink: 0,
-    height: 18,
-    paddingHorizontal: 7,
-    borderRadius: 4,
+    height: 22,
+    paddingHorizontal: 8,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
   },
   settleStatusOn: { backgroundColor: Theme.complianceStageSuccessBg },
   settleStatusReady: { backgroundColor: Theme.complianceStagePendingBg },
@@ -4276,9 +4282,12 @@ const styles = StyleSheet.create({
   provisionTotal: {
     flex: 1,
     minWidth: 0,
+    minHeight: 96,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.compliancePageBg,
     gap: 2,
     justifyContent: "flex-start",
@@ -4290,9 +4299,11 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
   },
   provisionAmount: {
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: "500",
+    marginTop: 6,
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "800",
+    letterSpacing: -0.3,
     color: Theme.textPrimaryDark,
     fontVariant: ["tabular-nums"],
   },
@@ -4388,31 +4399,46 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     marginTop: 10,
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: Theme.compliancePageBg,
-    gap: 2,
+    paddingTop: 12,
+    paddingBottom: 4,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
   },
   payableTitle: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "500",
-    color: Theme.textPrimaryDark,
-    marginBottom: 8,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+    marginBottom: 6,
   },
   payableRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 16,
-    minHeight: 28,
+    gap: 12,
+    minHeight: 32,
     paddingVertical: 4,
   },
   payableRowOn: {
-    marginTop: 6,
+    marginTop: 4,
     paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.complianceTripCardBorder,
+  },
+  payableRowResult: {
+    marginTop: 8,
+    marginHorizontal: -12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 44,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.positiveMuted,
   },
   payableLabel: {
     flex: 1,
@@ -4431,11 +4457,11 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
   },
   payableValue: {
+    width: 120,
     flexShrink: 0,
-    minWidth: 112,
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "400",
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
     textAlign: "right",
     fontVariant: ["tabular-nums"],

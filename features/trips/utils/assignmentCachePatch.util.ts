@@ -6,6 +6,7 @@ import {
   type TripDetailBundle,
 } from "@/lib/queries/useTripDetailBundleQuery";
 import { queryKeys } from "@/lib/queryKeys";
+import { patchTripInEveryCatalog } from "@/lib/queries/tripCatalogFreshness";
 
 export type AssignmentCachePatch = {
   driverId?: string;
@@ -99,6 +100,9 @@ export function patchAssignmentCaches(
       Array.isArray(rows)
         ? rows.map((row) => applyRow(row))
         : rows,
+  );
+  patchTripInEveryCatalog(queryClient, args.organizationId, args.tripId, (row: TripRow) =>
+    row.id === args.tripId ? applyRow(row) : row,
   );
 
   queryClient.setQueryData<TripRow>(queryKeys.trips.detail(args.tripId), (row) =>

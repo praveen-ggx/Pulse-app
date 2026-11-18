@@ -28,6 +28,8 @@ Branched from V1 `83d800a2` on 2026-11-16 (fix isolated from the parked V1.0.51 
 - Simulator: Load Center Bids Won shows BIDS WON with the accepted amount.
 - Jest: loadCenter.marketBidAward, loadCenter.model, release-set pin test.
 
+- Synced with V1 `cc1451ac` (prod sync #128) by a merge commit (no rebase, no force-push). `20271118213000` is still the newest migration version.
+
 ## Not tested
 - Vendor card does not update live; it updates on refetch. Realtime on market_bids is not built.
 - Backfill not run on preprod or prod.

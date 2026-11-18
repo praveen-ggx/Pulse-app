@@ -1,3 +1,10 @@
 # Versions that must never be introduced by a linked db push.
 # Presence in supabase/migrations does not mean approved.
 20271005130000
+# Trip-documents storage party access (2026-11-17). Historical; never applied on
+# production or preproduction. No longer safe to apply: it CREATE OR REPLACEs
+# fn_trip_documents_storage_allowed with an older body, reverting the live
+# definition from 20271110133819 (Ground Ops e-way bill correction). The
+# release set trip-documents-storage-party.versions names only this version and
+# must not run. Storage party access ships as 20271117090000 (PR #124) instead.
+20271012203000

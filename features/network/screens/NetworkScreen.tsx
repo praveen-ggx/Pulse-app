@@ -6,7 +6,6 @@
 import { HomePageHeader } from "@/components/HomePageHeader";
 import { InboundProtocolPanel } from "@/components/InboundProtocolPanel";
 import { SceneLoadingSplash } from "@/components/chromeLoadingScreens";
-import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { FinanceTxnTypography } from "@/constants/FinanceTxnTypography";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
@@ -166,16 +165,7 @@ function NetworkStoryStrip({
   canCreatePost?: boolean;
   networkPartnerOrgIds?: ReadonlySet<string>;
 }) {
-  const { posts: storyPosts, indentCountByPostId, isLoading } =
-    useNetworkStoryStrip(orgId);
-  if (isLoading && storyPosts.length === 0) {
-    return (
-      <View style={styles.storyLoading}>
-        <LoadingIndicator color={Theme.loaderAccent} />
-        <Text style={styles.storyLoadingLabel}>Syncing stories…</Text>
-      </View>
-    );
-  }
+  const { posts: storyPosts, indentCountByPostId } = useNetworkStoryStrip(orgId);
   return (
     <StoryReel
       posts={storyPosts}
@@ -2805,21 +2795,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
     color: Theme.textOnPrimary,
-  },
-  storyLoading: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 20,
-    paddingHorizontal: Layout.screenPaddingHorizontal,
-    backgroundColor: Theme.screenBackground,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.borderLight,
-  },
-  storyLoadingLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Theme.textSecondary,
   },
   ribbonOuter: {
     backgroundColor: Theme.screenBackground,

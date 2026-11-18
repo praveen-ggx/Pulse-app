@@ -1,6 +1,7 @@
 /**
- * Marketplace Loads: Discover lists pooled opportunities (one per live lane)
- * from the lanes RPC alone; lane loads are only fetched on the pool screen.
+ * Marketplace Loads: Discover lists pooled opportunities (one per live lane).
+ * A payload that already includes the target range does not read each load.
+ * A payload without that range bootstraps the price once per lane.
  */
 import React from 'react';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
@@ -106,7 +107,7 @@ describe('Find Loads (organization) — pooled opportunities', () => {
         'Pooled opportunity, Bhandara to Bengaluru, 40 Ft, 3 loads',
       ),
     ).toBeTruthy();
-    expect(screen.getByText('POOLED · 104 LOADS')).toBeTruthy();
+    expect(screen.getByText('104 loads')).toBeTruthy();
     expect(screen.getAllByLabelText('Pool status: Open for bids')).toHaveLength(2);
   });
 
@@ -118,7 +119,7 @@ describe('Find Loads (organization) — pooled opportunities', () => {
       ],
     });
     const screen = renderScreen();
-    expect(await screen.findByText('POOLED · 1 LOAD')).toBeTruthy();
+    expect(await screen.findByText('1 load')).toBeTruthy();
     expect(screen.getAllByLabelText(/^Pooled opportunity,/)).toHaveLength(1);
     for (const hidden of [/IND-/, /Pvt Ltd/, /Select all/, /selected/]) {
       expect(screen.queryByText(hidden)).toBeNull();
@@ -134,7 +135,7 @@ describe('Find Loads (organization) — pooled opportunities', () => {
       ],
     });
     const screen = renderScreen();
-    expect(await screen.findByText('POOLED · 5 LOADS')).toBeTruthy();
+    expect(await screen.findByText('5 loads')).toBeTruthy();
     expect(screen.getAllByLabelText(/^Pooled opportunity,/)).toHaveLength(1);
     fireEvent.press(screen.getByLabelText(/^Pooled opportunity,/));
     expect(mockPush).toHaveBeenCalledWith(
@@ -142,11 +143,37 @@ describe('Find Loads (organization) — pooled opportunities', () => {
     );
   });
 
-  it('never fetches per-load rows or offers per-load bidding on the list', async () => {
+  it('does not read individual loads when the lane payload already includes the target', async () => {
+    (findLoadsForOrgService.listMarketplaceSearchLanes as jest.Mock).mockResolvedValue({
+      error: null,
+      lanes: LANES.map((lane) => ({ ...lane, target_rate_min: 4200, target_rate_max: 4200 })),
+    });
     const screen = renderScreen();
-    expect((await screen.findAllByText('Bid')).length).toBeGreaterThan(0);
+    expect(await screen.findAllByText('₹4,200')).toHaveLength(2);
     expect(screen.queryByText('Place your bid')).toBeNull();
     expect(screen.queryByText(/IND-/)).toBeNull();
+    expect(findLoadsForOrgService.listOpenMarketplaceLoadsPage).not.toHaveBeenCalled();
+  });
+
+  it('bootstraps a missing target from one page and paints it on the card', async () => {
+    (findLoadsForOrgService.listOpenMarketplaceLoadsPage as jest.Mock).mockImplementation(
+      async (_org: string, offset: number, _size: number, search: { pickup: string }) => ({
+        error: null,
+        loads: [
+          {
+            rate_offer: search.pickup === 'Bhandara' ? 4200 : 5100,
+          },
+        ],
+        hasMore: true,
+        nextOffset: offset + 15,
+      }),
+    );
+    const screen = renderScreen();
+    expect(await screen.findByText('₹4,200')).toBeTruthy();
+    expect(await screen.findByText('₹5,100')).toBeTruthy();
+    const calls = (findLoadsForOrgService.listOpenMarketplaceLoadsPage as jest.Mock).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((call) => call[1] === 0)).toBe(true);
   });
 
   it('opens the pool detail route for a card', async () => {
@@ -172,59 +199,58 @@ describe('Find Loads (organization) — pooled opportunities', () => {
       ],
     });
     const screen = renderScreen();
-    await screen.findByText('POOLED · 3 LOADS');
+    await screen.findByText('3 loads');
     expect(screen.getAllByLabelText('Pool status: Open for bids')).toHaveLength(2);
     expect(screen.queryByLabelText('Pool status: Your bid submitted')).toBeNull();
     expect(screen.queryByLabelText('Pool status: Awarded')).toBeNull();
   });
 
-  it('narrows the pool list with the lane filters', async () => {
+  it('lists matching lanes under the filter once a pickup is chosen', async () => {
     const screen = renderScreen();
-    await screen.findByText('POOLED · 104 LOADS');
+    await screen.findByText('104 loads');
     fireEvent.press(screen.getByLabelText('Pickup city'));
     fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
-    expect(screen.getByText('POOLED · 104 LOADS')).toBeTruthy();
     fireEvent.press(screen.getByLabelText('Show loads now'));
-    await waitFor(() => expect(screen.queryByText('POOLED · 104 LOADS')).toBeNull());
-    expect(screen.getByText('POOLED · 3 LOADS')).toBeTruthy();
+    expect(screen.queryByText('104 loads')).toBeNull();
+    expect(screen.getByText('3 loads')).toBeTruthy();
+    expect(screen.getByLabelText('Clear Pickup')).toBeTruthy();
+    expect(screen.queryByLabelText('Back to marketplace home')).toBeNull();
   });
 
-  it('goes back to marketplace home with the applied filter kept, and reopens it unchanged', async () => {
+  it('returns to the hot deals when the filter is cleared', async () => {
     const screen = renderScreen();
-    await screen.findByText('POOLED · 104 LOADS');
+    await screen.findByText('104 loads');
     expect(screen.queryByLabelText('Back to marketplace home')).toBeNull();
     fireEvent.press(screen.getByLabelText('Pickup city'));
     fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
     fireEvent.press(screen.getByLabelText('Show loads now'));
-    await waitFor(() => expect(screen.queryByText('POOLED · 104 LOADS')).toBeNull());
-
-    fireEvent.press(screen.getByLabelText('Back to marketplace home'));
-    expect(await screen.findByText('POOLED · 104 LOADS')).toBeTruthy();
+    expect(screen.queryByText('104 loads')).toBeNull();
     expect(screen.queryByLabelText('Back to marketplace home')).toBeNull();
     expect(screen.getByLabelText('Clear Pickup')).toBeTruthy();
 
-    fireEvent.press(screen.getByLabelText('Pickup city'));
-    fireEvent.press(await screen.findByLabelText('Show loads now'));
-    await waitFor(() => expect(screen.queryByText('POOLED · 104 LOADS')).toBeNull());
-    expect(screen.getByText('POOLED · 3 LOADS')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Clear Pickup'));
+    expect(screen.queryByLabelText('Clear Pickup')).toBeNull();
+    expect(screen.getByText('104 loads')).toBeTruthy();
+    expect(screen.getByText('3 loads')).toBeTruthy();
   });
 
-  it('applies the full-page picks only after confirming every step', async () => {
+  it('shows the chosen lanes under the filter after the wizard confirms', async () => {
     const screen = renderScreen();
-    await screen.findByText('POOLED · 104 LOADS');
+    await screen.findByText('104 loads');
     fireEvent.press(screen.getByLabelText('Pickup city'));
     fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
     fireEvent.press(screen.getByLabelText('Next: To'));
     fireEvent.press(screen.getByLabelText('Any drop, next: Vehicle'));
-    expect(screen.getByText('POOLED · 104 LOADS')).toBeTruthy();
+    expect(screen.getByText('104 loads')).toBeTruthy();
     fireEvent.press(screen.getByLabelText('Show loads'));
-    await waitFor(() => expect(screen.queryByText('POOLED · 104 LOADS')).toBeNull());
-    expect(screen.getByText('POOLED · 3 LOADS')).toBeTruthy();
+    expect(screen.queryByText('104 loads')).toBeNull();
+    expect(screen.getByText('3 loads')).toBeTruthy();
+    expect(screen.getByLabelText('Clear Pickup')).toBeTruthy();
   });
 
   it('offers Show loads only once something is chosen', async () => {
     const screen = renderScreen();
-    await screen.findByText('POOLED · 104 LOADS');
+    await screen.findByText('104 loads');
     fireEvent.press(screen.getByLabelText('Pickup city'));
     await screen.findByLabelText('Pickup Bhandara, 3 available');
     expect(screen.queryByLabelText('Show loads now')).toBeNull();
@@ -235,7 +261,7 @@ describe('Find Loads (organization) — pooled opportunities', () => {
 
   it('lets the user pick several pickups and removes one from the picked row', async () => {
     const screen = renderScreen();
-    await screen.findByText('POOLED · 104 LOADS');
+    await screen.findByText('104 loads');
     fireEvent.press(screen.getByLabelText('Pickup city'));
     fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
     const second = screen
@@ -247,12 +273,14 @@ describe('Find Loads (organization) — pooled opportunities', () => {
     fireEvent.press(screen.getByLabelText(/^Remove (?!Bhandara)/));
     expect(screen.queryByText(/2 selected/)).toBeNull();
     fireEvent.press(screen.getByLabelText('Show loads now'));
-    await waitFor(() => expect(screen.getByText('POOLED · 3 LOADS')).toBeTruthy());
+    expect(screen.queryByText('104 loads')).toBeNull();
+    expect(screen.getByText('3 loads')).toBeTruthy();
+    expect(screen.getByLabelText('Clear Pickup')).toBeTruthy();
   });
 
-  it('removes one of several picks from the filter and returns to hot lanes when all are cleared', async () => {
+  it('drops a lane when its pickup is removed from the result filter', async () => {
     const screen = renderScreen();
-    await screen.findByText('POOLED · 104 LOADS');
+    await screen.findByText('104 loads');
     fireEvent.press(screen.getByLabelText('Pickup city'));
     fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
     const second = screen
@@ -261,20 +289,21 @@ describe('Find Loads (organization) — pooled opportunities', () => {
     fireEvent.press(second!);
     fireEvent.press(screen.getByLabelText('Show loads now'));
     expect(await screen.findByText('+1')).toBeTruthy();
+    expect(screen.getByText('104 loads')).toBeTruthy();
     fireEvent.press(screen.getByLabelText('Remove Bhandara from Pickup'));
-    await waitFor(() => expect(screen.queryByLabelText(/^Remove .* from Pickup$/)).toBeNull());
-    expect(screen.queryByText('POOLED · 3 LOADS')).toBeNull();
+    await waitFor(() => expect(screen.queryByText('3 loads')).toBeNull());
+    expect(screen.getByText('104 loads')).toBeTruthy();
     fireEvent.press(screen.getByLabelText('Clear Pickup'));
-    expect(await screen.findByText('POOLED · 104 LOADS')).toBeTruthy();
+    expect(screen.getByText('104 loads')).toBeTruthy();
   });
 
   it('discards full-page picks when backing out of the first step', async () => {
     const screen = renderScreen();
-    await screen.findByText('POOLED · 104 LOADS');
+    await screen.findByText('104 loads');
     fireEvent.press(screen.getByLabelText('Pickup city'));
     fireEvent.press(await screen.findByLabelText('Pickup Bhandara, 3 available'));
     fireEvent.press(screen.getByLabelText('Back to marketplace loads'));
-    expect(screen.getByText('POOLED · 104 LOADS')).toBeTruthy();
+    expect(screen.getByText('104 loads')).toBeTruthy();
   });
 
   it('shows the error state with Retry when the lanes RPC fails', async () => {

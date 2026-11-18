@@ -11,6 +11,8 @@ describe('root chrome overlay', () => {
     expect(pathnameHasRootTopNav(ROUTES.FIND_LOADS)).toBe(true);
     expect(pathnameHasRootTopNav(ROUTES.COMPLIANCE)).toBe(true);
     expect(pathnameHasRootTopNav(`${ROUTES.COMPLIANCE}/report`)).toBe(true);
+    expect(pathnameHasRootTopNav(`${ROUTES.COMPLIANCE}/bulk-payment`)).toBe(true);
+    expect(pathnameHasRootTopNav(ROUTES.complianceDetail("GOD684GODTRIP000062"))).toBe(false);
     expect(pathnameHasRootTopNav(ROUTES.PULSE_INVOICE)).toBe(true);
     expect(pathnameHasRootTopNav(ROUTES.TABS.NETWORK)).toBe(false);
   });

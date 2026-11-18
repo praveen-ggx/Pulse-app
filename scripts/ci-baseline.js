@@ -13,7 +13,16 @@ const ROOT = path.join(__dirname, '..');
 const BASELINE_FILE = path.join(ROOT, '.github', 'ci-baseline.json');
 
 function run(cmd, args, okCodes) {
-  const r = spawnSync(cmd, args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024, shell: false });
+  const heap = process.env.NODE_OPTIONS && /max-old-space-size/.test(process.env.NODE_OPTIONS)
+    ? process.env.NODE_OPTIONS
+    : '--max-old-space-size=8192';
+  const r = spawnSync(cmd, args, {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 512 * 1024 * 1024,
+    shell: false,
+    env: { ...process.env, NODE_OPTIONS: heap },
+  });
   if (r.error) throw r.error;
   if (!okCodes.includes(r.status)) {
     process.stdout.write(r.stdout || '');
@@ -47,7 +56,7 @@ const metrics = {
   cycles() {
     const r = run(
       'npx',
-      ['madge', '--circular', '--json', '--extensions', 'ts,tsx', '--exclude', 'node_modules|dist|\\.expo|\\.metro-cache|playwright-report', '--ts-config', 'tsconfig.json', '.'],
+      ['madge', '--circular', '--json', '--extensions', 'ts,tsx', '--exclude', 'node_modules|dist|\\.expo|\\.metro-cache|playwright-report|\\.worktrees|pr109-accept', '--ts-config', 'tsconfig.json', '.'],
       [0, 1],
     );
     const cycles = JSON.parse(r.stdout.slice(r.stdout.indexOf('[')));

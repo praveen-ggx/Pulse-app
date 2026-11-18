@@ -3,6 +3,7 @@
  * Uses public.ratings table (create via docs/RATINGS_MIGRATION.sql in pulse-unified-base).
  */
 import { getClientsByOrganization } from '@/features/clients/services/clients.service';
+import { mapWithConcurrency } from '@/lib/pagination';
 import { supabase } from '@/lib/supabase';
 import type { CreateRatingData, RatingRow } from '../types';
 export type { RatingRow };
@@ -266,15 +267,21 @@ export async function getRatingsForClient(clientId: string): Promise<{
 
 /** Keep PostgREST `IN` lists off the statement-timeout cliff (525 on /ratings). */
 const RATINGS_IN_CHUNK = 40;
+const RATINGS_IN_CONCURRENCY = 4;
 
 async function fetchRatingsByRatedIds(
   ratedType: RatingRow['rated_type'],
   ratedIds: string[],
 ): Promise<{ error: Error | null; rows: RatingRow[] }> {
   const unique = [...new Set(ratedIds.filter(Boolean))];
-  const rows: RatingRow[] = [];
+  const chunks: string[][] = [];
   for (let i = 0; i < unique.length; i += RATINGS_IN_CHUNK) {
-    const chunk = unique.slice(i, i + RATINGS_IN_CHUNK);
+    chunks.push(unique.slice(i, i + RATINGS_IN_CHUNK));
+  }
+  // Chunks in parallel (bounded); any failed chunk still fails the whole read.
+  let firstError: Error | null = null;
+  const pages = await mapWithConcurrency(chunks, RATINGS_IN_CONCURRENCY, async (chunk) => {
+    if (firstError) return [];
     const { data, error } = await supabase()
       .from('ratings')
       // Bulk callers only use id (dedupe), rated_id (group), and score (avg/count).
@@ -282,10 +289,14 @@ async function fetchRatingsByRatedIds(
       .eq('rated_type', ratedType)
       .in('rated_id', chunk)
       .order('created_at', { ascending: false });
-    if (error) return { error: new Error(error.message), rows: [] };
-    rows.push(...((data ?? []) as RatingRow[]));
-  }
-  return { error: null, rows };
+    if (error) {
+      firstError = firstError ?? new Error(error.message);
+      return [];
+    }
+    return (data ?? []) as RatingRow[];
+  });
+  if (firstError) return { error: firstError, rows: [] };
+  return { error: null, rows: pages.flat() };
 }
 
 /** Bulk fetch client ratings for many clients (chunked queries). */

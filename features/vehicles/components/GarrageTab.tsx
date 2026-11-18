@@ -48,6 +48,7 @@ import {
 import { VehicleAvatar } from "./VehicleAvatar";
 import { FleetAnalyticsTab } from "./analytics/FleetAnalyticsTab";
 import type { VehicleRow } from "../services/vehicles.service";
+import { chunkIdsForRead, readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 
 export type GarrageViewTab = "vehicle" | "trips" | "revenue" | "profit" | "analytics";
@@ -135,15 +136,21 @@ export function GarrageTab({
     queryKey: ["q", "garage", "vehicle-ledger-expenses", organizationId, period, vehicleIds.join("|")],
     enabled: !!organizationId && vehicleIds.length > 0,
     queryFn: async () => {
-      const response = await supabase()
-        .from("vehicle_ledger_entries")
-        .select("id,vehicle_id,trip_id,source_type,amount,created_at")
-        .eq("organization_id", organizationId!)
-        .in("vehicle_id", vehicleIds)
-        .order("created_at", { ascending: false })
-        .limit(2500);
-      if (response.error) throw new Error(response.error.message);
-      return (response.data ?? []) as VehicleLedgerExpenseRow[];
+      const rows: VehicleLedgerExpenseRow[] = [];
+      for (const chunk of chunkIdsForRead(vehicleIds)) {
+        const response = await readAllPages<VehicleLedgerExpenseRow, { message: string }>((afterId, limit) => {
+          let q = supabase()
+            .from("vehicle_ledger_entries")
+            .select("id,vehicle_id,trip_id,source_type,amount,created_at")
+            .eq("organization_id", organizationId!)
+            .in("vehicle_id", chunk);
+          if (afterId) q = q.gt("id", afterId);
+          return q.order("id", { ascending: true }).limit(limit);
+        });
+        if (response.error) throw new Error(response.error.message);
+        rows.push(...(response.data ?? []));
+      }
+      return rows;
     },
     staleTime: 45000,
   });

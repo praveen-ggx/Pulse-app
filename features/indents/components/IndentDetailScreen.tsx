@@ -658,6 +658,8 @@ export function IndentDetailScreen({
         setAwarding(true);
         setSelectedQuoteId(winner.id);
         const source = winner.offer_source ?? "direct_quote";
+        // award_market_bid already sets indents.status = 'awarded' on the server.
+        let needsClientIndentStatus = true;
         if (source === "driver_direct_bid") {
           const { acceptDriverDirectBid } = await import(
             "@/features/network/services/bids.service"
@@ -683,6 +685,12 @@ export function IndentDetailScreen({
             Alert.alert("Could not award", acceptErr.message);
             return;
           }
+          needsClientIndentStatus = false;
+          if (orgId) {
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.findLoadsForOrg.myBids(orgId),
+            });
+          }
         } else {
           const { error: acceptErr } = await updateDirectQuoteStatus(
             winner.id,
@@ -706,15 +714,17 @@ export function IndentDetailScreen({
         // Status only — bundling supplier_target here fails on broadcast indents
         // (enforce_indent_draft_broadcast_rules blocks commercial edits), which
         // used to leave awards stuck at broadcast after the quote was accepted.
-        const { error: indentErr } = await updateIndent(indentId, {
-          status: "awarded",
-        });
-        if (indentErr) {
-          Alert.alert(
-            "Quote accepted but status update failed",
-            indentErr.message +
-              "\n\nThe quote was accepted. The supplier can assign and deploy from Claimed.",
-          );
+        if (needsClientIndentStatus) {
+          const { error: indentErr } = await updateIndent(indentId, {
+            status: "awarded",
+          });
+          if (indentErr) {
+            Alert.alert(
+              "Quote accepted but status update failed",
+              indentErr.message +
+                "\n\nThe quote was accepted. The supplier can assign and deploy from Claimed.",
+            );
+          }
         }
         const clientRate = Number(indent.client_price ?? 0);
         const margin = clientRate > 0 ? clientRate - awardedAmount : 0;

@@ -12,7 +12,7 @@ import {
   type PoolBidSubmissionResult,
 } from '@/features/network/utils/pooledOpportunity.util';
 
-export type MarketBidStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'superseded';
+export type MarketBidStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'superseded' | 'expired';
 
 /** A8.6.2 — independent of MarketBidStatus; see network/services/marketBids.service.ts for full doc. */
 export type FeePaymentStatus = 'not_required' | 'required' | 'pending' | 'paid' | 'failed' | 'expired' | 'refunded';
@@ -135,6 +135,8 @@ export async function getMyMarketBidForIndent(
     .select(MARKET_BID_COLUMNS)
     .eq('indent_id', indentId)
     .eq('bidder_user_id', uid)
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (error) return { error: new Error(error.message), bid: null };
   return { error: null, bid: (data as MarketBidRow | null) ?? null };
@@ -172,6 +174,8 @@ export function marketBidStatusLabel(status: MarketBidStatus): string {
       return 'Withdrawn';
     case 'superseded':
       return 'Superseded';
+    case 'expired':
+      return 'Bid expired';
     default:
       return status;
   }

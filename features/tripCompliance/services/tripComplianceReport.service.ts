@@ -6,7 +6,8 @@ import {
     ensureComplianceChecklist,
 } from "@/features/tripCompliance/utils/complianceChecklist.util";
 import { selectCompliancePipelineTrips } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
-import { getTripDisplayNumber, getTripsForOrg } from "@/features/trips/services/trips.service";
+import { loadComplianceTripCatalog } from "@/features/tripCompliance/services/complianceTripCatalog.service";
+import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 
 export type ComplianceReportFilters = {
   dateFrom?: string; // trip.pickup_date >= dateFrom
@@ -49,11 +50,11 @@ export type ComplianceReportRow = {
 };
 
 /**
- * Same trip source as `/trips` + Compliance list: `getTripsForOrg`, then
+ * Same trip source as the Compliance list: the keyset catalog, then the
  * Loading→Completed pipeline, then one batched summary build.
  */
 async function fetchAllComplianceSummaries(orgId: string): Promise<ComplianceTripSummary[]> {
-  const { error, trips } = await getTripsForOrg(orgId, { includeComplianceBacklog: true });
+  const { error, trips } = await loadComplianceTripCatalog(orgId);
   if (error) throw error;
   return buildComplianceTripSummaries(selectCompliancePipelineTrips(trips), orgId);
 }

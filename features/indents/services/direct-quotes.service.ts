@@ -96,6 +96,8 @@ export interface DirectQuoteRow {
    * (`superseded`) or `is_driver_available()` is currently false.
    */
   bidderUnavailable?: boolean;
+  /** market_bid only: the bid's own acceptance deadline. */
+  expires_at?: string | null;
 }
 
 /**

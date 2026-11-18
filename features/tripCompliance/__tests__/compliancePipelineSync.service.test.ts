@@ -60,6 +60,17 @@ jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
     from: (table: string) => mockQuery(table),
     rpc: (name: string, args: Record<string, unknown>) => {
+      // The batch document function is a trip_documents read for these counts.
+      if (name === "list_trip_documents_for_trips") {
+        const ids = args.p_trip_ids as string[];
+        const after = (args.p_after_id as string | null) ?? "";
+        mockOps.push({ kind: "from", name: "trip_documents", filters: [`trip_id in ${ids.length}`] });
+        const rows = (mockTables.trip_documents ?? [])
+          .filter((r) => ids.includes(String(r.trip_id)) && String(r.id) > after)
+          .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+          .slice(0, Number(args.p_limit ?? 500));
+        return Promise.resolve({ data: rows, error: null });
+      }
       mockOps.push({ kind: "rpc", name, filters: [], args });
       if (name === "get_compliance_vehicle_vault_for_trips") {
         const rows = (args.p_trip_ids as string[]).flatMap((tripId) => {
@@ -110,6 +121,7 @@ function trip(id: string, over: Partial<TripRow>): TripRow {
     driver_id: null,
     vehicle_display_number: null,
     amount_paid: 0,
+    updated_at: "2026-09-20T00:00:00.000Z",
     ...over,
   } as TripRow;
 }
@@ -388,14 +400,94 @@ describe("mark verified / POD", () => {
 });
 
 describe("focus / incremental pipeline refetch", () => {
-  it("re-reads only trip-scoped inputs; no vehicle, driver, entity or viewer reads", async () => {
-    await loadCompliancePipelineInputs(loaded, TRIPS, { full: false, viewerOrgId: "org-1" });
-    expect(new Set(mockOps.map((op) => op.name))).toEqual(
-      new Set(["transactions", "trip_documents", "trip_workflow_events", "trips"]),
-    );
-    expect(mockOps.filter((op) => op.name === "trip_workflow_events")).toHaveLength(3);
+  it("does not reread workflow events when the catalog is unchanged", async () => {
+    const rows = await loadCompliancePipelineInputs(loaded, TRIPS, { full: false, viewerOrgId: "org-1" });
+    expect(mockOps).toEqual([]);
+    expect(rows[0]).toBe(loaded[0]);
+    expect(rows[1]).toBe(loaded[1]);
+    expect(rows[2]).toBe(loaded[2]);
     expect(count("get_vehicle_for_trip_viewer")).toBe(0);
     expect(count("get_compliance_vehicle_vault_for_trips")).toBe(0);
+  });
+
+  it("a location ping does not reread POD or settlement inputs", async () => {
+    const pinged = [
+      { ...T1, last_location_at: "2026-11-18T08:00:00.000Z", updated_at: "2026-11-18T08:00:00.000Z" } as TripRow,
+      T2,
+      T3,
+    ];
+    await loadCompliancePipelineInputs(loaded, pinged, { full: false, viewerOrgId: "org-1" });
+    expect(mockOps.filter((op) => op.name === "trip_workflow_events")).toHaveLength(0);
+    expect(count("trips")).toBe(0);
+  });
+
+  it("courier dispatch reloads that trip's received-LR event and leaves the others cached", async () => {
+    mockTables.trip_workflow_events = [
+      {
+        trip_id: "t1",
+        event_type: "pod.hard_copy_courier_dispatched",
+        payload: {
+          remarks: JSON.stringify({ v: 1, kind: "lr_receipt", text: "dispatched", received_lrs: ["LR100"] }),
+        },
+      },
+    ];
+    const changed = [
+      { ...T1, pod_hard_copy_courier: "Delhivery", pod_hard_copy_awb_number: "AWB1" } as TripRow,
+      T2,
+      T3,
+    ];
+    const rows = await loadCompliancePipelineInputs(loaded, changed, { full: false, viewerOrgId: "org-1" });
+    const workflow = mockOps.filter((op) => op.name === "trip_workflow_events");
+    expect(workflow.length).toBeGreaterThan(0);
+    expect(workflow.every((op) => op.filters.some((filter) => filter === "trip_id in 1"))).toBe(true);
+    expect(rows.find((row) => row.trip.id === "t1")?.flags?.received_lr_numbers).toEqual(["LR100"]);
+    expect(rows.find((row) => row.trip.id === "t2")).toBe(loaded[1]);
+    expect(rows.find((row) => row.trip.id === "t3")).toBe(loaded[2]);
+  });
+
+  it("a remarks rewrite with the same AWB still reloads that trip's courier event", async () => {
+    mockTables.trip_workflow_events = [
+      {
+        trip_id: "t1",
+        event_type: "pod.hard_copy_courier_dispatched",
+        payload: {
+          remarks: JSON.stringify({ v: 1, kind: "lr_receipt", text: "updated", received_lrs: ["LR200"] }),
+        },
+      },
+    ];
+    const changed = [{ ...T1, updated_at: "2026-11-18T09:00:00.000Z" } as TripRow, T2, T3];
+    const rows = await loadCompliancePipelineInputs(loaded, changed, { full: false, viewerOrgId: "org-1" });
+    expect(mockOps.filter((op) => op.name === "trip_workflow_events").every((op) => op.filters.includes("trip_id in 1"))).toBe(true);
+    expect(rows.find((row) => row.trip.id === "t1")?.flags?.received_lr_numbers).toEqual(["LR200"]);
+    expect(rows[1]).toBe(loaded[1]);
+  });
+
+  it("hard-copy received and settlement columns reload that trip only", async () => {
+    const tripRow = (mockTables.trips ?? []).find((row) => row.id === "t1");
+    if (tripRow) {
+      tripRow.pod_received_at = "2026-11-18T10:00:00.000Z";
+      tripRow.compliance_verified_at = "2026-11-18T10:05:00.000Z";
+      tripRow.compliance_decision = "approved";
+    }
+    const changed = [
+      {
+        ...T1,
+        pod_received_at: "2026-11-18T10:00:00.000Z",
+        compliance_verified_at: "2026-11-18T10:05:00.000Z",
+        compliance_decision: "approved",
+        amount_paid: 500,
+      } as TripRow,
+      T2,
+      T3,
+    ];
+    const rows = await loadCompliancePipelineInputs(loaded, changed, { full: false, viewerOrgId: "org-1" });
+    expect(mockOps.filter((op) => op.name === "trips").every((op) => op.filters.includes("id in 1"))).toBe(true);
+    const flags = rows.find((row) => row.trip.id === "t1")?.flags;
+    expect(flags?.pod_received_at).toBe("2026-11-18T10:00:00.000Z");
+    expect(flags?.compliance_verified_at).toBe("2026-11-18T10:05:00.000Z");
+    expect(flags?.compliance_decision).toBe("approved");
+    expect(rows[1]).toBe(loaded[1]);
+    expect(rows[2]).toBe(loaded[2]);
   });
 });
 

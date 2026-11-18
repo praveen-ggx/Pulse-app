@@ -5873,35 +5873,12 @@ export const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#2874F0",
   },
-  /** Underline tabs — flush with white, shared 14px grid. */
+  /** Same underline tabs as the trips list. No card behind the labels. */
   mobileOrderChipRow: {
     flexDirection: "row",
-    alignItems: "stretch",
-    paddingHorizontal: 14,
-    backgroundColor: "#FFFFFF",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#EEEEEE",
-  },
-  mobileOrderChip: {
-    flex: 1,
-    paddingVertical: 11,
-    alignItems: "center",
-    justifyContent: "center",
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
-    minHeight: 40,
-  },
-  mobileOrderChipActive: {
-    borderBottomColor: "#212121",
-  },
-  mobileOrderChipText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "#9E9E9E",
-  },
-  mobileOrderChipTextActive: {
-    fontWeight: "600",
-    color: "#212121",
+    alignItems: "flex-end",
+    paddingLeft: 4,
+    backgroundColor: "transparent",
   },
   mobileOrderTabPad: {
     paddingHorizontal: 14,

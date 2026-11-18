@@ -30,15 +30,18 @@ export function PoolHandoffPanel({
 
   if (gate.state === "hidden") {
     return (
-      <View style={styles.wrap} testID="pool-identity-gate-hidden">
-        <View style={styles.lockRow}>
-          <Lock size={14} color={Theme.textMuted} strokeWidth={2.4} />
-          <Text style={styles.eyebrow}>SHIPPER IDENTITY HIDDEN</Text>
+      <View style={styles.note} testID="pool-identity-gate-hidden">
+        <View style={styles.lockMark}>
+          <Lock size={15} color={Theme.textPrimaryDark} strokeWidth={2.2} />
         </View>
-        <Text style={styles.stepDetail}>
-          Marketplace keeps shippers anonymous while you bid. Identity opens only
-          after the shipper accepts your bid and the Marketplace fee clears.
-        </Text>
+        <View style={styles.noteCopy}>
+          <Text style={styles.noteTitle}>Shipper identity hidden</Text>
+          <Text style={styles.noteBody}>
+            Shippers stay anonymous on the Marketplace while you bid. You see a
+            shipper's name only after they accept your bid and the Marketplace fee
+            is paid.
+          </Text>
+        </View>
       </View>
     );
   }
@@ -110,15 +113,26 @@ export function PoolHandoffPanel({
 
 const styles = StyleSheet.create({
   wrap: {
+    alignSelf: "stretch",
+    width: "100%",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
+    borderColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
-    padding: 20,
-    gap: 10,
+    padding: 16,
+    gap: 8,
+    ...Platform.select({
+      web: { boxShadow: "0 2px 8px rgba(15, 23, 42, 0.05)" } as object,
+      default: {
+        shadowColor: "#0f172a",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 6,
+        elevation: 1,
+      },
+    }),
   },
   wrapAwarded: { borderColor: Theme.positiveMutedDarkBorder },
-  lockRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   eyebrow: {
     fontSize: 11,
     fontWeight: "600",
@@ -150,8 +164,51 @@ const styles = StyleSheet.create({
   stepLabel: { fontSize: 13, fontWeight: "700", color: Theme.textPrimaryDark },
   stepDetail: {
     fontSize: 13,
-    color: Theme.textSecondary,
+    color: Theme.textRouteCard,
     lineHeight: 18,
+    ...WEB_COPY,
+  },
+  note: {
+    alignSelf: "stretch",
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    backgroundColor: Theme.surface,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  lockMark: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+  },
+  noteCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+    paddingTop: 1,
+  },
+  noteTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    ...WEB_COPY,
+  },
+  noteBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "500",
+    color: Theme.textPrimary,
     ...WEB_COPY,
   },
   cta: {

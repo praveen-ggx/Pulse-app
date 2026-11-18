@@ -86,6 +86,12 @@ function waitForReady(name, healthUrl, maxAttempts = 40, delayMs = 250) {
 }
 
 async function main() {
+  const productionBlock = require('./supabaseProject.cjs').devServerProductionBlock(projectRoot);
+  if (productionBlock) {
+    console.error(`\n[dev] ${productionBlock}\n`);
+    process.exit(1);
+  }
+
   console.log('[dev] Starting Commerce (Vite :%s)…', OMS_DEV_PORT);
   spawnNamed('oms', 'npm', ['run', 'dev', '--prefix', 'oms']);
 

@@ -9,6 +9,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PooledOpportunityScreen } from "@/features/network/components/pooled/PooledOpportunityScreen";
 import * as findLoadsForOrgService from "@/features/network/services/findLoadsForOrg.service";
+import * as standingLaneBidsService from "@/features/network/services/standingLaneBids.service";
 
 jest.mock("react-native", () => jest.requireActual("react-native"));
 
@@ -67,6 +68,19 @@ jest.mock("@/features/network/services/findLoadsForOrg.service", () => {
     submitOrgPoolBid: jest.fn(),
   };
 });
+jest.mock("@/features/network/services/standingLaneBids.service", () => ({
+  commitMarketplaceLaneRate: jest.fn().mockResolvedValue({
+    error: null,
+    commit: {
+      commitId: "commit-1",
+      linked: 0,
+      attached: 0,
+      vehicleLimit: 3,
+      validUntil: "2026-11-23T18:29:59.000Z",
+    },
+  }),
+}));
+jest.mock("@/lib/appAlert", () => ({ showAppAlert: jest.fn() }));
 jest.mock("@/features/driver/components/MarketLoadBidSheet", () => {
   const RN = jest.requireActual("react-native");
   return {
@@ -289,7 +303,7 @@ describe("PooledOpportunityScreen — one rate for the whole pool", () => {
     expect(screen.getByText("Pooled opportunity · 3 loads", SHEET)).toBeTruthy();
     expect(
       within(screen.getByTestId("bid-sheet", SHEET)).getByText(
-        "Your rate will be submitted for all 3 eligible loads in this pool. The shipper reviews bids; nothing is awarded until the shipper accepts.",
+        "Your rate is saved on this lane for 48 hours. It is placed on the 3 eligible loads open now, and a later eligible load receives the same bid. Each shipper accepts its own load. This does not reserve a vehicle or award the load.",
         SHEET,
       ),
     ).toBeTruthy();
@@ -302,6 +316,16 @@ describe("PooledOpportunityScreen — one rate for the whole pool", () => {
     expect(orgId).toBe("org-1");
     expect(amount).toBe(18500);
     expect(pool.indentIds).toEqual(["i1", "i2", "i3"]);
+    expect(standingLaneBidsService.commitMarketplaceLaneRate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org-1",
+        pickup: "Bhandara",
+        drop: "Bengaluru",
+        vehicleType: "40 FT",
+        amount: 18500,
+        vehicleLimit: 1,
+      }),
+    );
     expect(
       await screen.findByText("Your rate has been submitted for all 3 loads."),
     ).toBeTruthy();
@@ -421,7 +445,7 @@ describe("PooledOpportunityScreen — one rate for the whole pool", () => {
       await screen.findByLabelText("Pool status: Your bid submitted"),
     ).toBeTruthy();
     expect(screen.getByLabelText("Update rate for pool")).toBeTruthy();
-    expect(svc.listMyOrgMarketBids).toHaveBeenCalledWith("org-1", 100);
+    expect(svc.listMyOrgMarketBids).toHaveBeenCalledWith("org-1");
   });
 
   it("takes the organization's bid state from the manifest, including a colleague's bid", async () => {
@@ -479,7 +503,7 @@ describe("PooledOpportunityScreen — identity gate", () => {
   it("keeps identity hidden while discovering and bidding", async () => {
     const screen = renderScreen();
     expect(await screen.findByTestId("pool-identity-gate-hidden")).toBeTruthy();
-    expect(screen.getByText("SHIPPER IDENTITY HIDDEN")).toBeTruthy();
+    expect(screen.getByText("Shipper identity hidden")).toBeTruthy();
     expect(screen.queryByText("From award to trip")).toBeNull();
   });
 

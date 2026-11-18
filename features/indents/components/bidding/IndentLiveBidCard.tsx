@@ -28,6 +28,10 @@ import {
   indentHubCardShadow,
 } from "@/features/indents/styles/indentReviewHubStyles";
 import type { IndentBidAlertInfo } from "@/features/indents/utils/bidding/indentBidAlert.util";
+import {
+  MARKET_BID_EXPIRED_LABEL,
+  formatMarketBidExpiry,
+} from "@/features/network/utils/marketBidExpiry.util";
 import { formatINR } from "@/lib/format";
 
 export interface IndentLiveBidCardProps {
@@ -150,6 +154,7 @@ export const IndentLiveBidCard = memo(function IndentLiveBidCard({
   const isWithdrawn = status === "withdrawn";
   const isDealLost =
     status === "superseded" || Boolean(quote.bidderUnavailable);
+  const isExpired = status === "expired";
   const statusLabel = isAccepted
     ? "Awarded"
     : isRejected
@@ -158,10 +163,14 @@ export const IndentLiveBidCard = memo(function IndentLiveBidCard({
         ? "Withdrawn"
         : isDealLost
           ? "Deal lost"
-          : isCountered
-            ? "Countered"
-            : "Pending";
+          : isExpired
+            ? MARKET_BID_EXPIRED_LABEL
+            : isCountered
+              ? "Countered"
+              : "Pending";
   const submitted = timeAgo(quote.created_at ?? quote.updated_at);
+  const validUntilAt = status === "pending" ? formatMarketBidExpiry(quote.expires_at) : null;
+  const validUntil = validUntilAt ? `Valid until ${validUntilAt}` : null;
 
   const margin = useMemo(
     () => bidMarginFromClient(clientPriceInr, amount),
@@ -170,6 +179,7 @@ export const IndentLiveBidCard = memo(function IndentLiveBidCard({
   const vsTarget = targetRateInr > 0 && amount > 0 ? amount - targetRateInr : null;
   const isLowest =
     !isDealLost &&
+    !isExpired &&
     !isRejected &&
     !isWithdrawn &&
     (badges.some((b) => b.kind === "lowest" || b.kind === "recommended") ||
@@ -216,7 +226,7 @@ export const IndentLiveBidCard = memo(function IndentLiveBidCard({
         : null;
     const statusToneLabel = selected && !disabled && !isAccepted
       ? "Selected"
-      : lowestBadge && !isAccepted && !isRejected
+      : lowestBadge && !isAccepted && !isRejected && !isExpired
         ? lowestBadge.label
         : statusLabel;
 
@@ -250,6 +260,7 @@ export const IndentLiveBidCard = memo(function IndentLiveBidCard({
             <Text style={styles.minimalMeta} numberOfLines={1}>
               {isConnectedPartner ? "Network supplier" : "Marketplace"}
               {submitted ? ` · ${submitted}` : ""}
+              {validUntil ? ` · ${validUntil}` : ""}
             </Text>
           </View>
           <View
@@ -458,6 +469,11 @@ export const IndentLiveBidCard = memo(function IndentLiveBidCard({
             </View>
             {submitted ? (
               <Text style={styles.submittedText}>{submitted}</Text>
+            ) : null}
+            {validUntil ? (
+              <Text style={styles.submittedText} numberOfLines={1}>
+                {validUntil}
+              </Text>
             ) : null}
           </View>
         </View>

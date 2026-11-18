@@ -25,6 +25,7 @@ import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { useCompleteTripsQuery } from "@/lib/queries/useTripsQuery";
 import { useVehiclesQuery } from "@/lib/queries/useVehiclesQuery";
 import { useDriversQuery } from "@/lib/queries/useDriversQuery";
+import { readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 import {
   applyPulseFilters,
@@ -107,7 +108,13 @@ import {
   vehicleDisplayLabel,
 } from "@/features/business-pulse/lib/vehicleDisplay.util";
 import { usePulseFilters } from "@/features/business-pulse/state/pulseFilterStore";
-import type { PulseDataset } from "@/features/business-pulse/types";
+import type {
+  PulseDataset,
+  PulseFuelRow,
+  PulseMaintenanceRow,
+  PulseTollRow,
+  PulseVehicleLedgerRow,
+} from "@/features/business-pulse/types";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import {
   computePeriodDeltaPct,
@@ -274,42 +281,64 @@ export function BusinessPulseScreen({ embedded = false, topInset }: BusinessPuls
     enabled: !!orgId,
     queryFn: async () => {
       const [vehicleLedger, fuelRows, tollRows, maintenanceRows] = await Promise.all([
-        supabase()
-          .from("vehicle_ledger_entries")
-          .select("id,trip_id,vehicle_id,source_type,amount,created_at")
-          .eq("organization_id", orgId!)
-          .order("created_at", { ascending: false })
-          .limit(4000),
-        supabase()
-          .from("trip_fuel_entries")
-          .select("id,trip_id,amount_inr,approval_state,reimbursement_state,payment_owner,posting_state,status")
-          .eq("expense_context", "employer")
-          .eq("employer_org_id", orgId!)
-          .order("created_at", { ascending: false })
-          .limit(4000),
-        supabase()
-          .from("trip_toll_entries")
-          .select("id,trip_id,amount_inr,approval_state,reimbursement_state,payment_owner,posting_state,status")
-          .eq("expense_context", "employer")
-          .eq("employer_org_id", orgId!)
-          .order("created_at", { ascending: false })
-          .limit(4000),
-        supabase()
-          .from("vehicle_maintenance_entries")
-          .select("id,vehicle_id,amount_inr,status,created_at")
-          .eq("organization_id", orgId!)
-          .order("created_at", { ascending: false })
-          .limit(2000),
+        readAllPages<PulseVehicleLedgerRow, { message: string }>(async (afterId, limit) => {
+          let q = supabase()
+            .from("vehicle_ledger_entries")
+            .select("id,trip_id,vehicle_id,source_type,amount,created_at")
+            .eq("organization_id", orgId!);
+          if (afterId) q = q.gt("id", afterId);
+          const page = await q.order("id", { ascending: true }).limit(limit);
+          return { data: page.data, error: page.error };
+        }),
+        readAllPages<PulseFuelRow, { message: string }>(async (afterId, limit) => {
+          let q = supabase()
+            .from("trip_fuel_entries")
+            .select("id,trip_id,amount_inr,approval_state,reimbursement_state,payment_owner,posting_state,status")
+            .eq("expense_context", "employer")
+            .eq("employer_org_id", orgId!);
+          if (afterId) q = q.gt("id", afterId);
+          const page = await q.order("id", { ascending: true }).limit(limit);
+          return { data: page.data, error: page.error };
+        }),
+        readAllPages<PulseTollRow, { message: string }>(async (afterId, limit) => {
+          let q = supabase()
+            .from("trip_toll_entries")
+            .select("id,trip_id,amount_inr,approval_state,reimbursement_state,payment_owner,posting_state,status")
+            .eq("expense_context", "employer")
+            .eq("employer_org_id", orgId!);
+          if (afterId) q = q.gt("id", afterId);
+          const page = await q.order("id", { ascending: true }).limit(limit);
+          return { data: page.data, error: page.error };
+        }),
+        readAllPages<
+          { id: string; vehicle_id: string; amount_inr: number; status: string; entered_at: string },
+          { message: string }
+        >(async (afterId, limit) => {
+          let q = supabase()
+            .from("vehicle_maintenance_entries")
+            .select("id,vehicle_id,amount_inr,status,entered_at")
+            .eq("organization_id", orgId!);
+          if (afterId) q = q.gt("id", afterId);
+          const page = await q.order("id", { ascending: true }).limit(limit);
+          return { data: page.data, error: page.error };
+        }),
       ]);
       if (vehicleLedger.error) throw new Error(vehicleLedger.error.message);
       if (fuelRows.error) throw new Error(fuelRows.error.message);
       if (tollRows.error) throw new Error(tollRows.error.message);
       if (maintenanceRows.error) throw new Error(maintenanceRows.error.message);
+      const maintenance: PulseMaintenanceRow[] = (maintenanceRows.data ?? []).map((row) => ({
+        id: row.id,
+        vehicle_id: row.vehicle_id,
+        amount_inr: row.amount_inr,
+        status: row.status,
+        created_at: row.entered_at,
+      }));
       return {
         vehicleLedger: vehicleLedger.data ?? [],
         fuelRows: fuelRows.data ?? [],
         tollRows: tollRows.data ?? [],
-        maintenanceRows: maintenanceRows.data ?? [],
+        maintenanceRows: maintenance,
       };
     },
     staleTime: 60_000,

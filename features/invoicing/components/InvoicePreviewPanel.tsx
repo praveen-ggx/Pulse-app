@@ -46,6 +46,7 @@ import { useInvoiceWorkspaceBilling } from "@/features/invoicing/hooks/useInvoic
 import { invoiceLinesForNoteSplit } from "@/features/invoicing/services/invoiceCnDn.service";
 import {
   invoicePreviewCanSaveDraft,
+  resolveInvoicePaperDate,
   resolveInvoicePreviewItemSource,
 } from "@/features/invoicing/utils/financeInvoicePreview.util";
 import type { InvoiceDraftSaveSnapshot } from "@/features/invoicing/services/invoiceDraft.service";
@@ -477,16 +478,16 @@ export function InvoicePreviewPanel({
     draft?.client.display_name ||
     activeClient ||
     "Select a customer…";
-  const invoiceDateIso = draft?.preview_date || previewDate;
+  const invoiceDateIso = resolveInvoicePaperDate({
+    draftPreviewDate: draft?.preview_date,
+    panelPreviewDate: previewDate,
+  });
   const dueDateLabel = (() => {
     if (frozen && draft?.indicative_due_date) return displayInvoicePreviewDate(draft.indicative_due_date);
     const next = indicativeDueDateFromPreview(invoiceDateIso, paymentTerms);
     return next ? displayInvoicePreviewDate(next) : "—";
   })();
-  const invoiceDateLabel =
-    frozen && draft?.preview_date
-      ? displayInvoicePreviewDate(draft.preview_date)
-      : displayInvoicePreviewDate(previewDate);
+  const invoiceDateLabel = displayInvoicePreviewDate(invoiceDateIso);
 
   const money = (value: number) =>
     `₹${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

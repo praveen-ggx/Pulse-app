@@ -9,7 +9,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { AppLoadingSplash } from '@/components/AppLoadingSplash';
 import { View, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { DemoTabBar, type DemoTabId } from '@/components/demo';
-import { DemoTabBarAutoHideShell } from '@/contexts/DemoTabBarScrollContext';
+import { DemoTabBarAutoHideShell, useRootDockHidden } from '@/contexts/DemoTabBarScrollContext';
 import {
   getLastTabRoute,
   resolveRestorableDispatcherRoute,
@@ -22,8 +22,11 @@ import {
   scheduleDispatcherTabPreloads,
 } from '@/lib/preloadRoutes';
 import { preloadChatRoute } from '@/lib/preloadChatWarmup';
+import { preloadStoryStrip } from '@/features/network/utils/preloadStoryWarmup.util';
+import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
 import { DEFAULT_DRIVER_ROUTE, ROUTES } from '@/lib/routes';
 import { shouldMountAuthenticatedDataPlane } from '@/lib/bootGate';
+import { pathnameHasRootTopNav, pathnameIsComplianceTripDetail } from '@/lib/rootChromeRoutes';
 import { hydrateSignupFlowFlags } from '@/lib/onboarding/businessSignupBranding.util';
 import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
@@ -89,9 +92,12 @@ function DemoCustomTabBar(
 
   const routeName = state.routes[state.index]?.name;
   const activeTab: DemoTabId =
-    routeName === 'finance' ? 'finance'
-    : routeName === 'trips' ? 'trips'
-    : routeName === 'network' ? 'network'
+    pathname.startsWith('/find-loads') ? 'loadCenter'
+    : pathname.startsWith('/compliance') ? 'compliance'
+    : pathname.startsWith('/pulse-invoice') || pathname.startsWith('/invoicing-execute') ? 'invoice'
+    : pathname.includes('/finance') || routeName === 'finance' ? 'finance'
+    : pathname.includes('/trips') || routeName === 'trips' ? 'trips'
+    : pathname.includes('/network') || pathname.includes('/hub') || routeName === 'network' ? 'network'
     : routeName === 'resources' ? 'resources'
     : homeTab;
 
@@ -115,6 +121,10 @@ function DemoCustomTabBar(
         router.replace(ROUTES.TABS.NETWORK as Parameters<typeof router.replace>[0]);
         return;
       }
+      if (tab === 'trips') {
+        router.replace(`${ROUTES.TABS.TRIPS}?hub=active` as Parameters<typeof router.replace>[0]);
+        return;
+      }
       navigation.navigate(tab);
     },
     [canOpenLoadCenter, canOpenCompliance, navigation, pathname, router],
@@ -130,6 +140,18 @@ function DemoCustomTabBar(
     void saveLastTabRoute(restorable);
     // Do not resetBarVisible() here — it runs a spring on every tab swap and feels laggy.
   }, [pathname]);
+
+  const dockSuppressed = useRootDockHidden();
+  // Compliance and Find Loads draw their own dock. A fixed tabs dock stays on
+  // top of those screens, including a trip's document page and its preview.
+  if (
+    !isDesktopWeb &&
+    (dockSuppressed ||
+      pathnameHasRootTopNav(pathname) ||
+      pathnameIsComplianceTripDetail(pathname))
+  ) {
+    return null;
+  }
 
   const shellStyle = [
     styles.tabBarWrap,
@@ -260,6 +282,14 @@ function AuthenticatedTabLayout() {
     preloadChatRoute(undefined, { bootstrap: false });
   }, [loading, orgId, profile?.role]);
 
+  useEffect(() => {
+    if (loading || !orgId || profile?.role === 'driver') return;
+    if (access.isLoading || !access.sales) return;
+    scheduleIdleWork(() => {
+      preloadStoryStrip(queryClient, orgId);
+    }, 400);
+  }, [access.isLoading, access.sales, loading, orgId, profile?.role, queryClient]);
+
   /** Warm only the tab chunks the member's role can open — staggered to avoid Metro OOM. */
   useEffect(() => {
     if (isDesktopWeb) return;
@@ -332,10 +362,12 @@ function TabsWithProfileDrawer({ isDesktopWeb }: { isDesktopWeb: boolean }) {
         tabBarShowLabel: false,
         tabBarStyle: { display: 'none' },
         /**
-         * Desktop web: keep all primary tabs mounted (Slack-like persistence).
-         * Native + mobile web: lazy mount — only the active tab loads its chunk.
+         * Every platform mounts a tab on first visit. Desktop web used to mount
+         * Home, Finance and Network immediately; those screens start a complete
+         * trip-book read, so a wide window on Trips walked `p_bucket=all`.
+         * freezeOnBlur stays off on desktop so a tab the user has opened stays warm.
          */
-        lazy: !isDesktopWeb,
+        lazy: true,
         freezeOnBlur: !isDesktopWeb,
         animation: 'none',
         sceneStyle: {
@@ -349,19 +381,19 @@ function TabsWithProfileDrawer({ isDesktopWeb }: { isDesktopWeb: boolean }) {
     >
       <Tabs.Screen
         name="index"
-        options={{ title: 'Home', lazy: Platform.OS === 'web' && !isDesktopWeb }}
+        options={{ title: 'Home', lazy: Platform.OS === 'web' }}
       />
       <Tabs.Screen
         name="finance"
-        options={{ title: 'Fiscal', lazy: Platform.OS === 'web' && !isDesktopWeb }}
+        options={{ title: 'Fiscal', lazy: Platform.OS === 'web' }}
       />
       <Tabs.Screen
         name="trips"
-        options={{ title: 'Trips', lazy: Platform.OS === 'web' && !isDesktopWeb }}
+        options={{ title: 'Trips', lazy: Platform.OS === 'web' }}
       />
       <Tabs.Screen
         name="network"
-        options={{ title: 'Home', lazy: Platform.OS === 'web' && !isDesktopWeb }}
+        options={{ title: 'Home', lazy: Platform.OS === 'web' }}
       />
       <Tabs.Screen name="indents" options={{ href: null }} />
       <Tabs.Screen name="resources" options={{ href: null }} />

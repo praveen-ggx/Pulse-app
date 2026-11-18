@@ -3,6 +3,7 @@
  * See docs/PAGINATION_AND_CACHE_ANALYSIS.md.
  */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { loadComplianceTripCatalog } from "@/features/tripCompliance/services/complianceTripCatalog.service";
 import {
   getAllTripsForOrg,
   getTripsByOrganization,
@@ -21,6 +22,11 @@ import {
   hubMetricsForExactRail,
   type OrgHubMetrics,
 } from '@/features/trips/utils/orgHubMetrics.util';
+import {
+  applyOptimisticTripStatus,
+  readTripCatalogSnapshots,
+  rollbackOptimisticTripStatus,
+} from '@/lib/queries/tripCatalogFreshness';
 import { queryKeys } from '@/lib/queryKeys';
 import { STALE } from '@/lib/queryClient';
 import { refetchOnMountIfEntityListEmpty } from '@/lib/queries/entityListQueryOptions';
@@ -82,17 +88,23 @@ export function useCompleteTripsQuery(orgId: string | null) {
 }
 
 /**
- * Compliance queue catalog: same rows as useTripsQuery plus older trips still open in
- * the Compliance workflow, which the newest-400 list would drop. Lives under the trips
- * key prefix so trip realtime invalidation refreshes it too.
+ * Compliance queue catalog: every trip the ops-pipeline rule keeps.
+ * The dedicated keyset function is not installed on the live database, so
+ * the catalog uses the hub walk. Not the newest-400 list and not the loaded
+ * Trips hub page. Lives under the trips key prefix so trip realtime
+ * invalidation refreshes it too.
  */
-export function useComplianceTripCatalogQuery(orgId: string | null) {
+export function useComplianceTripCatalogQuery(
+  orgId: string | null,
+  options?: { urgent?: boolean },
+) {
   const { status } = useAuth();
-  const bootQuietOpen = useAppQueryGate(orgId);
+  // The open Compliance desk skips the post-bootstrap quiet window, same as Trips.
+  const bootQuietOpen = useAppQueryGate(orgId, { urgent: options?.urgent === true });
   return useQuery<TripRow[], Error>({
     queryKey: queryKeys.trips.compliance(orgId ?? ''),
     queryFn: async () => {
-      const res = await getTripsForOrg(orgId!, { includeComplianceBacklog: true });
+      const res = await loadComplianceTripCatalog(orgId!);
       if (res.error) throw res.error;
       return res.trips;
     },
@@ -226,37 +238,43 @@ export function useTripStatusMutation(orgId: string | null) {
     },
     onMutate: async ({ tripId, data }) => {
       await qc.cancelQueries({ queryKey: queryKeys.trips.detail(tripId) });
-      if (orgId) await qc.cancelQueries({ queryKey: queryKeys.trips.finite(orgId) });
+      if (orgId) {
+        await Promise.all([
+          qc.cancelQueries({ queryKey: queryKeys.trips.finite(orgId) }),
+          qc.cancelQueries({ queryKey: queryKeys.trips.complete(orgId) }),
+          qc.cancelQueries({ queryKey: queryKeys.trips.compliance(orgId) }),
+        ]);
+      }
 
       const prevDetail = qc.getQueryData(queryKeys.trips.detail(tripId));
-      const prevList = orgId ? qc.getQueryData(queryKeys.trips.finite(orgId)) : undefined;
+      const prevRows = orgId ? readTripCatalogSnapshots(qc, orgId, tripId) : undefined;
 
-      // Optimistically update detail cache
       qc.setQueryData(queryKeys.trips.detail(tripId), (old: Record<string, unknown> | undefined) =>
         old ? { ...old, ...data } : old,
       );
 
-      // Optimistically update list cache
-      if (orgId) {
-        qc.setQueriesData(
-            { queryKey: queryKeys.trips.finite(orgId) },
-          (old: unknown) => {
-            if (!Array.isArray(old)) return old;
-            return old.map((t: { id: string }) => (t.id === tripId ? { ...t, ...data } : t));
-          },
-        );
-      }
+      if (orgId) applyOptimisticTripStatus(qc, orgId, tripId, data);
 
-      return { prevDetail, prevList, tripId, orgId };
+      return { prevDetail, prevRows, tripId, orgId, writtenStatus: data.status };
     },
     onError: (_err, _vars, ctx) => {
       if (!ctx) return;
       if (ctx.prevDetail !== undefined) {
         qc.setQueryData(queryKeys.trips.detail(ctx.tripId), ctx.prevDetail);
       }
-      if (ctx.orgId && ctx.prevList !== undefined) {
-        qc.setQueryData(queryKeys.trips.finite(ctx.orgId), ctx.prevList);
+      if (ctx.orgId && ctx.prevRows) {
+        rollbackOptimisticTripStatus(
+          qc,
+          ctx.orgId,
+          ctx.tripId,
+          ctx.prevRows,
+          ctx.writtenStatus,
+        );
       }
+    },
+    onSuccess: (trip, { tripId }) => {
+      if (!orgId || !trip) return;
+      applyOptimisticTripStatus(qc, orgId, tripId, trip);
     },
     onSettled: (_data, _err, { tripId }) => {
       qc.invalidateQueries({ queryKey: queryKeys.trips.detail(tripId) });

@@ -40,11 +40,8 @@ import { commitMarketplaceLaneRate } from "@/features/network/services/standingL
 import {
   MARKETPLACE_LANE_RATE_COPY,
   laneRateConfirmation,
+  marketplaceLaneRateValidUntilIso,
 } from "@/features/network/utils/marketplaceLaneRate.util";
-import {
-  clampPoolVehicleCommit,
-  endOfLocalDayIso,
-} from "@/features/network/utils/networkPoolBidCommit.util";
 import { isMarketplaceSearchReady } from "@/features/network/utils/marketplaceSearch.util";
 import {
   POOL_STATE_COPY,
@@ -67,6 +64,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import {
+  keepPreviousData,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -102,12 +100,52 @@ function dateRangeLabel(
   const a = formatStoryDate(earliest);
   if (!latest || latest === earliest) return a;
   const b = formatStoryDate(latest);
-  return a === b ? a : `${a} – ${b}`;
+  if (!a || a === b) return a || b;
+  return compactDateRange(a, b);
 }
 
-function Fact({ label, value, half }: { label: string; value: string; half?: boolean }) {
+/** "13 Nov 2026" + "16 Nov 2026" → "13–16 Nov 2026", so the window stays one line. */
+function compactDateRange(a: string, b: string): string {
+  const parse = (value: string) => {
+    const match = value.trim().match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+    if (!match) return null;
+    return { day: String(Number(match[1])), month: match[2], year: match[3] };
+  };
+  const left = parse(a);
+  const right = parse(b);
+  if (!left || !right) return `${a} – ${b}`;
+  if (left.year === right.year && left.month === right.month) {
+    return `${left.day}–${right.day} ${left.month} ${left.year}`;
+  }
+  if (left.year === right.year) {
+    return `${left.day} ${left.month} – ${right.day} ${right.month} ${left.year}`;
+  }
+  return `${left.day} ${left.month} ${left.year} – ${right.day} ${right.month} ${right.year}`;
+}
+
+function Fact({
+  label,
+  value,
+  half,
+  wide,
+  span,
+}: {
+  label: string;
+  value: string;
+  half?: boolean;
+  wide?: boolean;
+  span?: "short" | "date";
+}) {
   return (
-    <View style={[styles.fact, half && styles.factHalf]}>
+    <View
+      style={[
+        styles.fact,
+        half && styles.factHalf,
+        wide && styles.factWide,
+        span === "short" && styles.factShort,
+        span === "date" && styles.factDate,
+      ]}
+    >
       <Text style={styles.factLabel}>{label}</Text>
       <Text style={styles.factValue} numberOfLines={2}>
         {value}
@@ -173,6 +211,7 @@ export function PooledOpportunityScreen() {
     },
     enabled: !!orgId && keyReady,
     staleTime: STALE.frequent,
+    placeholderData: keepPreviousData,
   });
   const loadsError = poolQ.isError;
   const fetchProgress = useMemo(
@@ -183,7 +222,7 @@ export function PooledOpportunityScreen() {
   /** Same cache as the marketplace list, so opening a pool does not refetch bids. */
   const myBidsQ = useQuery({
     queryKey: queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
-    queryFn: () => listMyOrgMarketBids(orgId as string, 100),
+    queryFn: () => listMyOrgMarketBids(orgId as string),
     enabled: !!orgId,
     staleTime: STALE.frequent,
   });
@@ -312,13 +351,46 @@ export function PooledOpportunityScreen() {
       );
       return false;
     }
+    const laneKept = await keepLaneRate(amount);
+    refreshAfterBid();
+    if (!laneKept) return true;
     if (outcome.failed.length > 0) {
       setBidTargets(null);
       setBidError(undefined);
-      refreshAfterBid();
       return false;
     }
+    return true;
+  };
+
+  /** The pool rate is the lane commitment: later loads on this lane receive it. */
+  const keepLaneRate = async (amount: number): Promise<boolean> => {
+    if (!orgId) return false;
     setLaneRateAmount(amount);
+    setLaneRateSubmitting(true);
+    setLaneRateError(undefined);
+    const { error, commit } = await commitMarketplaceLaneRate({
+      orgId,
+      pickup: key.pickup,
+      drop: key.drop,
+      vehicleType: key.vehicleType,
+      amount,
+      vehicleLimit: 1,
+      validUntilIso: marketplaceLaneRateValidUntilIso(),
+    });
+    setLaneRateSubmitting(false);
+    if (error || !commit) {
+      setLaneRateError(formatMarketplaceTransactionError(error?.message ?? ""));
+      return false;
+    }
+    const notice = laneRateConfirmation({
+      amountLabel: formatINR(amount),
+      attached: commit.attached,
+      reused: commit.reused,
+      rateChanged: commit.rateChanged,
+      renewed: commit.renewed,
+    });
+    setLaneRateAmount(null);
+    showAppAlert(notice.title, notice.message);
     return true;
   };
 
@@ -329,14 +401,8 @@ export function PooledOpportunityScreen() {
     setLaneRateError(undefined);
   };
 
-  const commitLaneRate = async ({ vehicleLimit, validUntilDate }: PoolBidCommitValue) => {
+  const commitLaneRate = async (_value: PoolBidCommitValue) => {
     if (!orgId || laneRateAmount == null) return;
-    const validUntilIso = endOfLocalDayIso(validUntilDate);
-    if (!validUntilIso) {
-      setLaneRateError("Pick a valid date.");
-      return;
-    }
-    const limit = clampPoolVehicleCommit(vehicleLimit);
     setLaneRateSubmitting(true);
     setLaneRateError(undefined);
     const { error, commit } = await commitMarketplaceLaneRate({
@@ -345,8 +411,8 @@ export function PooledOpportunityScreen() {
       drop: key.drop,
       vehicleType: key.vehicleType,
       amount: laneRateAmount,
-      vehicleLimit: limit,
-      validUntilIso,
+      vehicleLimit: 1,
+      validUntilIso: marketplaceLaneRateValidUntilIso(),
     });
     setLaneRateSubmitting(false);
     if (error || !commit) {
@@ -356,8 +422,9 @@ export function PooledOpportunityScreen() {
     const notice = laneRateConfirmation({
       amountLabel: formatINR(laneRateAmount),
       attached: commit.attached,
-      vehicleLimit: limit,
-      validUntilDate,
+      reused: commit.reused,
+      rateChanged: commit.rateChanged,
+      renewed: commit.renewed,
     });
     setLaneRateOpen(false);
     setLaneRateAmount(null);
@@ -416,18 +483,22 @@ export function PooledOpportunityScreen() {
             <Layers size={13} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
             <Text style={styles.eyebrow}>Pooled opportunity</Text>
           </View>
-          <Text style={styles.title} numberOfLines={2}>
-            {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
-          </Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.title} numberOfLines={2}>
+              {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
+            </Text>
+            <PoolStatusPill state={summary.state} label={summary.stateLabel} />
+          </View>
           <Text style={styles.subtitle} numberOfLines={2}>
             {vehicleLabel}
             {poolQ.data != null ? ` · ${countLabel}` : ""} · one rate for the pool
           </Text>
-          <Text style={styles.stateDetail} numberOfLines={2}>
-            {POOL_STATE_COPY[summary.state].detail}
-          </Text>
+          {summary.state === "open" ? null : (
+            <Text style={styles.stateDetail} numberOfLines={2}>
+              {POOL_STATE_COPY[summary.state].detail}
+            </Text>
+          )}
         </View>
-        <PoolStatusPill state={summary.state} label={summary.stateLabel} />
       </View>
     </View>
   );
@@ -442,12 +513,23 @@ export function PooledOpportunityScreen() {
           pickup={key.pickup}
           drop={key.drop}
           dropLabel="Destination"
+          hero
         />
       </View>
       <View style={styles.facts}>
         <Fact half={pageMode} label="Vehicle" value={vehicleLabel || "—"} />
-        <Fact half={pageMode} label="Loads in pool" value={poolQ.data != null ? String(poolCount) : "…"} />
-        <Fact half={pageMode} label="Pickup window" value={dates ?? "Not listed"} />
+        <Fact
+          half={pageMode}
+          span={pageMode ? undefined : "short"}
+          label="Loads in pool"
+          value={poolQ.data != null ? String(poolCount) : "…"}
+        />
+        <Fact
+          half={pageMode}
+          span={pageMode ? undefined : "date"}
+          label="Pickup window"
+          value={dates ?? "Not listed"}
+        />
         <Fact
           half={pageMode}
           label="Material"
@@ -459,6 +541,7 @@ export function PooledOpportunityScreen() {
         />
         <Fact
           half={pageMode}
+          wide={pageMode}
           label="Shippers"
           value={
             summary.shipperCount > 0
@@ -611,18 +694,18 @@ export function PooledOpportunityScreen() {
             <View style={styles.columns}>
               <View style={styles.mainCol}>
                 {summaryCard}
+                {handoff}
                 {loadsBody}
               </View>
               <View style={styles.sideCol}>
                 {showCommercial ? bidPanel : null}
-                {handoff}
               </View>
             </View>
           ) : (
             <View style={styles.stack}>
               {summaryCard}
-              {showCommercial ? bidPanel : null}
               {handoff}
+              {showCommercial ? bidPanel : null}
               {loadsBody}
             </View>
           )}
@@ -643,15 +726,16 @@ export function PooledOpportunityScreen() {
         drop={key.drop}
         vehicleType={key.vehicleType}
         targetRateInr={summary.targetRateMin}
+        targetRateMaxInr={summary.targetRateMax}
         entryLabel="Your rate for this pooled opportunity"
-        contextLine={`Applies to all ${targetsLabel} in this pool`}
+        contextLine={`Covers the ${targetsLabel} open now and loads added on this lane for 48 hours. Each load gets its own bid, and the shipper accepts it.`}
         submitLabel="Submit rate for pool"
         confirmCopy={{
-          scopeNote: `Your rate will be submitted for all ${targetsLabel} in this pool. The shipper reviews bids; nothing is awarded until the shipper accepts.`,
+          scopeNote: `Your rate is saved on this lane for 48 hours. It is placed on the ${targetsLabel} open now, and a later eligible load receives the same bid. Each shipper accepts its own load. This does not reserve a vehicle or award the load.`,
           feeNote: (fee) =>
-            `The Marketplace fee is per awarded load: you pay Pulse ${formatINR(fee)} for each load the shipper awards you at this rate.`,
+            `The Marketplace fee is charged per awarded load. You pay Pulse ${formatINR(fee)} for each load a shipper awards you.`,
           successTitle: "Rate submitted for pool",
-          successSubtitle: `Your rate has been submitted for all ${plural(targetCount, "load")}.`,
+          successSubtitle: `Your rate covers the loads open now and loads added on this lane for 48 hours. Each shipper accepts its own bid.`,
         }}
         validationError={bidError}
         onClearValidationError={() => setBidError(undefined)}
@@ -682,8 +766,8 @@ const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
   },
-  page: { flex: 1, backgroundColor: Theme.cardWhite },
-  pageBody: { flex: 1, width: "100%", backgroundColor: Theme.cardWhite },
+  page: { flex: 1, backgroundColor: Theme.surface },
+  pageBody: { flex: 1, width: "100%", backgroundColor: Theme.surface },
   pageScroll: { flex: 1, width: "100%" },
   pageContent: { flexGrow: 1, paddingHorizontal: 16, gap: 16 },
   headerPage: { paddingHorizontal: 0, paddingTop: 8, paddingBottom: 14 },
@@ -738,7 +822,12 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 12,
   },
-  headerCopy: { flex: 1, minWidth: 0, gap: 4 },
+  headerCopy: { flex: 1, minWidth: 0, gap: 6 },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   headerEyebrow: {
     flexDirection: "row",
     alignItems: "center",
@@ -752,11 +841,13 @@ const styles = StyleSheet.create({
     ...WEB_COPY,
   },
   title: {
-    fontSize: 18,
-    fontWeight: "600",
+    flex: 1,
+    minWidth: 0,
+    fontSize: 22,
+    fontWeight: "700",
     color: Theme.textPrimaryDark,
-    letterSpacing: 0,
-    lineHeight: 24,
+    letterSpacing: -0.3,
+    lineHeight: 28,
     ...WEB_COPY,
   },
   subtitle: {
@@ -781,10 +872,20 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
+    borderColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
-    padding: 20,
-    gap: 16,
+    padding: 16,
+    gap: 14,
+    ...Platform.select({
+      web: { boxShadow: "0 2px 8px rgba(15, 23, 42, 0.05)" } as object,
+      default: {
+        shadowColor: "#0f172a",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 6,
+        elevation: 1,
+      },
+    }),
   },
   cardEyebrow: {
     fontSize: 11,
@@ -794,26 +895,46 @@ const styles = StyleSheet.create({
     ...WEB_COPY,
   },
   routePanel: {
-    padding: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     borderRadius: 12,
-    backgroundColor: Theme.analyticsCanvas,
+    backgroundColor: Theme.surface,
     borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
+    borderColor: Theme.borderLight,
   },
-  facts: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  factHalf: { minWidth: 0, flexBasis: "40%" },
-  cardPage: { padding: 16, gap: 14 },
+  facts: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  factHalf: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "45%",
+    maxWidth: "50%",
+    minWidth: "42%",
+  },
+  factShort: {
+    flexGrow: 0.7,
+    flexBasis: "22%",
+    maxWidth: "30%",
+    minWidth: 88,
+  },
+  factDate: {
+    flexGrow: 1.4,
+    flexBasis: "38%",
+    maxWidth: "48%",
+    minWidth: 148,
+  },
+  factWide: { flexGrow: 1, flexBasis: "100%", maxWidth: "100%", minWidth: "100%" },
+  cardPage: { padding: 14, gap: 12 },
   fact: {
-    minWidth: 140,
+    minWidth: 0,
     flexGrow: 1,
     flexBasis: "30%",
-    gap: 4,
+    gap: 3,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: Theme.analyticsCanvas,
+    borderRadius: 12,
+    backgroundColor: Theme.surface,
     borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
+    borderColor: Theme.borderLight,
   },
   factLabel: {
     fontSize: 10,

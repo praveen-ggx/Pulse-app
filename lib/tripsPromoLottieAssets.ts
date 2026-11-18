@@ -19,6 +19,7 @@ export const TRIPS_PROMO_HERO_LOTTIE: Record<TripsPromoVariant, AnimationObject>
   history_no_due_to_pay: require("@/assets/Animated folder/compare-scale.json"),
   history_pending_soft_pod: require("@/assets/Animated folder/delivery completed.json"),
   history_pending_hard_pod: require("@/assets/Animated folder/archive.json"),
+  history_cancelled: require("@/assets/Animated folder/archive.json"),
 };
 
 /**
@@ -42,6 +43,7 @@ export const TRIPS_PROMO_HERO_VISUAL_SCALE: Record<TripsPromoVariant, number> = 
   history_no_due_to_pay: 1.04,
   history_pending_soft_pod: 1.04,
   history_pending_hard_pod: 1.04,
+  history_cancelled: 1.04,
 };
 
 export function resolveTripsPromoHeroLottie(

@@ -30,4 +30,11 @@ describe("isNonPersistedTripsQueryKey", () => {
     expect(isNonPersistedTripsQueryKey(["q", "trips", "doc-trip-ids", "v7-pod-eway", "org", "a,b"])).toBe(false);
     expect(isNonPersistedTripsQueryKey(queryKeys.trips.detail("hub-search"))).toBe(false);
   });
+
+  it("keeps the compliance catalog outside the hub list prefix", () => {
+    const catalog = queryKeys.trips.compliance("org-1");
+    const hub = queryKeys.trips.all("org-1");
+    expect(catalog.slice(0, hub.length)).not.toEqual([...hub]);
+    expect(queryKeys.trips.finite("org-1").slice(0, hub.length)).toEqual([...hub]);
+  });
 });

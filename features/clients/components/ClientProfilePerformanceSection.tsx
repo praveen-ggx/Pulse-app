@@ -29,7 +29,8 @@ import {
   type NetworkGoalsStore,
 } from "@/features/network/services/networkGoalsStorage.service";
 import type { SalesSlice } from "@/features/network/utils/connectionSalesAnalytics.util";
-import { getTripsForOrg, type TripRow } from "@/features/trips/services/trips.service";
+import { type TripRow } from "@/features/trips/services/trips.service";
+import { useCompleteTripsQuery } from "@/lib/queries/useTripsQuery";
 import { formatCityStateLabel, formatLaneRouteLabel } from "@/lib/placeCityState.util";
 import { useOrgMembersData } from "@/lib/queries/useOrgMembersQuery";
 import { queryKeys } from "@/lib/queryKeys";
@@ -228,15 +229,7 @@ export function ClientProfilePerformanceSection({
   const [draftTarget, setDraftTarget] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const tripsQ = useQuery({
-    queryKey: queryKeys.trips.finite(organizationId),
-    queryFn: async () => {
-      const { trips, error } = await getTripsForOrg(organizationId);
-      if (error) throw error;
-      return trips;
-    },
-    staleTime: 60_000,
-  });
+  const tripsQ = useCompleteTripsQuery(organizationId);
 
   const txQ = useQuery({
     queryKey: queryKeys.transactions.byContact(organizationId, clientId),

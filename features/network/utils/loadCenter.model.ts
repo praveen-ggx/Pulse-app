@@ -376,6 +376,23 @@ export type LoadCenterTicketCommerce = {
   awardedByName?: string | null;
 };
 
+/**
+ * Accepted Marketplace bid amount per indent (winning bids only). Used when the
+ * supplier has no direct quote row for an indent they were awarded through a
+ * Marketplace bid.
+ */
+export function acceptedMarketBidAmountByIndentId(
+  bids: ReadonlyArray<{ indent_id: string; amount: number; status: string }>,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const bid of bids) {
+    if ((bid.status || "").toLowerCase() !== "accepted") continue;
+    const amount = Number(bid.amount ?? 0);
+    if (Number.isFinite(amount) && amount > 0) out.set(bid.indent_id, amount);
+  }
+  return out;
+}
+
 export function resolveGetLoadTicketCommerce(
   statusFilterTab: StatusFilterTab,
   _doneSubTab: DoneSubTab,
@@ -396,6 +413,8 @@ export function resolveGetLoadTicketCommerce(
     | undefined,
   indentIdsWithTrip: ReadonlySet<string>,
   awardedToMe = false,
+  /** Accepted Marketplace bid amount for this indent, when awarded via a market bid. */
+  awardedMarketBidInr: number | null = null,
 ): LoadCenterTicketCommerce {
   // supplier_target may be a ₹/MT unit rate; resolveCommercialPricing turns
   // it into the trip total the card and the bid sheet both need.
@@ -423,6 +442,16 @@ export function resolveGetLoadTicketCommerce(
       kicker: outcome.kicker,
       amountInr: null,
       rightCaption: outcome.footerLabel,
+    };
+  }
+
+  // Awarded through a Marketplace bid: there is no direct quote row for the
+  // winner, so show the accepted bid amount instead of the target rate.
+  if (awardedToMe && awardedMarketBidInr != null && awardedMarketBidInr > 0) {
+    return {
+      kicker: "BIDS WON",
+      amountInr: awardedMarketBidInr,
+      rightCaption: "Bids won",
     };
   }
 

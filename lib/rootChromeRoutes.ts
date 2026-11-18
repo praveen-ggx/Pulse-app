@@ -27,6 +27,16 @@ export const ROOT_TOP_NAV_PATHS = [
   ROUTES.INVOICING_EXECUTE,
 ] as const;
 
+/** Queue tools stay on the dock. A trip's document page does not. */
+const COMPLIANCE_QUEUE_SEGMENTS = new Set(["report", "bulk-payment", "loading"]);
+
+export function pathnameIsComplianceTripDetail(pathname: string): boolean {
+  const prefix = `${ROUTES.COMPLIANCE}/`;
+  if (!pathname.startsWith(prefix)) return false;
+  const segment = pathname.slice(prefix.length).split("/")[0] ?? "";
+  return segment.length > 0 && !COMPLIANCE_QUEUE_SEGMENTS.has(segment);
+}
+
 function isInvoiceDockPath(pathname: string): boolean {
   return (
     pathname === ROUTES.PULSE_INVOICE ||
@@ -40,6 +50,7 @@ export function pathnameHasRootTopNav(pathname: string): boolean {
   if (!pathname) return false;
   if (isInvoiceDockPath(pathname)) return true;
   if (pathnameUsesExpoProductShell(pathname)) return false;
+  if (pathnameIsComplianceTripDetail(pathname)) return false;
   return ROOT_TOP_NAV_PATHS.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`),
   );
@@ -59,7 +70,7 @@ export function overlayActiveTab(pathname: string): OverlayDockTabId {
   if (pathname.includes('/finance')) return 'finance';
   if (pathname.includes('/trips')) return 'trips';
   if (pathname.includes('/network') || pathname.includes('/hub')) return 'network';
-  return 'loadCenter';
+  return 'trips';
 }
 
 export function overlayPathForTab(tab: OverlayDockTabId): string {

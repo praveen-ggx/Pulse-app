@@ -29,6 +29,11 @@ import {
   revokeIndentAward,
 } from "@/features/network/services/marketBids.service";
 import { formatMarketplaceTransactionError } from "@/features/marketplace/utils/marketplaceErrorFormat.util";
+import { useMarketBidNow } from "@/features/network/hooks/useMarketBidNow";
+import {
+  isMarketBidActionable,
+  isMarketBidExpiredError,
+} from "@/features/network/utils/marketBidExpiry.util";
 import {
   awardRevokePresentation,
   TEST_FEE_REVOKE_REASON,
@@ -98,8 +103,26 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
     isLoading: marketBidsLoading,
   } = useMarketBidsForIndentQuery(currentLoad?.id ?? null);
 
+  const refreshMarketBids = useCallback(() => {
+    if (!currentLoad?.id) return;
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.bids.marketForIndent(currentLoad.id),
+    });
+  }, [currentLoad?.id, queryClient]);
+  const { nowMs: bidNowMs, noteServerExpired } = useMarketBidNow(marketBids, refreshMarketBids);
+
   const handleAcceptMarketBid = useCallback(
     async (bidId: string, amount: number, bidderLabel: string, bidderType: "dco" | "organization") => {
+      const bid = marketBids.find((b) => b.id === bidId);
+      const showExpired = () => {
+        noteServerExpired(bid?.expires_at);
+        refreshMarketBids();
+        showAppAlert("Bid expired", formatMarketplaceTransactionError("bid_expired"));
+      };
+      if (bid && !isMarketBidActionable(bid, Date.now())) {
+        showExpired();
+        return;
+      }
       const bidAmountLabel = `₹${Number(amount ?? 0).toLocaleString("en-IN")}`;
 
       // A9.2: the organization branch deliberately awards the indent
@@ -142,6 +165,10 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
         setMarketBidActionId(bidId);
         const { error, feePaymentStatus } = await awardMarketBid(bidId);
         if (error) {
+          if (isMarketBidExpiredError(error.message)) {
+            showExpired();
+            return;
+          }
           showAppAlert("Could not accept bid", formatMarketplaceTransactionError(error.message));
           return;
         }
@@ -197,7 +224,7 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
         setMarketBidActionId(null);
       }
     },
-    [currentLoad?.id, currentLoad?.organization_id, queryClient, invalidateIndents],
+    [currentLoad?.id, currentLoad?.organization_id, queryClient, invalidateIndents, marketBids, refreshMarketBids, noteServerExpired],
   );
 
   const revokePresentation = awardRevokePresentation(marketBids);
@@ -623,6 +650,7 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
                       <MarketBidCard
                         key={bid.id}
                         bid={bid}
+                        nowMs={bidNowMs}
                         busy={marketBidActionId === bid.id}
                         onAccept={
                           bid.status === "pending"

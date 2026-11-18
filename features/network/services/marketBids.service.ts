@@ -46,6 +46,8 @@ export type MarketBidForIndentRow = {
   vehicle_model: string | null;
   vehicle_body_type: string | null;
   vehicle_capacity: string | null;
+  /** This bid's own acceptance deadline. Absent before 20271117021500 is applied. */
+  expires_at?: string | null;
 };
 
 /** All market_bids on this indent, newest first — RLS-backed via list_market_bids_for_indent. */

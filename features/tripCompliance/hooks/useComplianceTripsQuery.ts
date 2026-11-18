@@ -52,6 +52,7 @@ import {
 import { getTripById, type TripRow } from "@/features/trips/services/trips.service";
 import { useComplianceTripCatalogQuery } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
+import { patchTripInEveryCatalog } from "@/lib/queries/tripCatalogFreshness";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -165,12 +166,14 @@ export type ComplianceQueueResult = {
 export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   data: { summaries: ComplianceTripSummary[]; hasMore: boolean } | undefined;
   isLoading: boolean;
+  /** Head of the queue is on screen; the rest of the catalog is still loading. */
+  pipelinePartial: boolean;
 } {
   const orgId = useComplianceOrgId();
   const { user } = useAuth();
   const sessionKey = `${orgId}:${user?.uid ?? ""}`;
   const qc = useQueryClient();
-  const tripsQuery = useComplianceTripCatalogQuery(orgId || null);
+  const tripsQuery = useComplianceTripCatalogQuery(orgId || null, { urgent: true });
 
   // Ground Ops and Sourcing also see Assigned trips (upload before loading;
   // Sourcing uploads the Memo only before the trip is in transit).
@@ -183,6 +186,9 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   const pipelineTripsRef = useRef<TripRow[]>(pipelineTrips);
   pipelineTripsRef.current = pipelineTrips;
   const fullRefreshRef = useRef(false);
+  const [tailSettled, setTailSettled] = useState(false);
+  const setTailSettledRef = useRef(setTailSettled);
+  setTailSettledRef.current = setTailSettled;
   const pipelineKey = queryKeys.tripCompliance.pipeline(orgId);
 
   const summariesQuery = useQuery({
@@ -203,17 +209,45 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
       );
       let rows = rowsHead;
       if (paintFirst) {
-        // First visit: show the first page while the remaining trips are read.
-        // A refresh that already has the full queue keeps those cards.
-        qc.setQueryData<ComplianceTripInputs[]>(pipelineKey, (cur) =>
-          cur && cur.length >= rowsHead.length ? cur : rowsHead,
+        // Finish this query on the first page. Awaiting the rest kept
+        // isFetching true (header spinner up) for every remaining trip.
+        const headCurrent = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);
+        const headPaint = preserveNewerWrites(
+          rowsHead,
+          headCurrent,
+          protectedTripIds(log, startedAt, previous, headCurrent),
         );
-        const rowsTail = await loadCompliancePipelineInputs(
-          undefined,
-          tripsNow.slice(COMPLIANCE_FIRST_PAINT_TRIPS),
-          { full: true, viewerOrgId: orgId },
-        );
-        rows = rowsHead.concat(rowsTail);
+        const tailTrips = tripsNow.slice(COMPLIANCE_FIRST_PAINT_TRIPS);
+        const tailStartedAt = startedAt;
+        const loadTail = () => {
+          void loadCompliancePipelineInputs(undefined, tailTrips, {
+            full: true,
+            viewerOrgId: orgId,
+          })
+            .then((rowsTail) => {
+              const merged = rowsHead.concat(rowsTail);
+              qc.setQueryData<ComplianceTripInputs[]>(pipelineKey, (cur) =>
+                preserveNewerWrites(
+                  cur && cur.length > merged.length ? cur : merged,
+                  cur,
+                  protectedTripIds(log, tailStartedAt, previous, cur),
+                ),
+              );
+              fullyLoadedSessions.add(sessionKey);
+            })
+            .catch(() => {
+              // The next manual refresh loads the tail again.
+            })
+            .finally(() => {
+              setTailSettledRef.current(true);
+            });
+        };
+        setTailSettledRef.current(false);
+        const idle = (globalThis as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void })
+          .requestIdleCallback;
+        if (idle) idle(loadTail, { timeout: 400 });
+        else setTimeout(loadTail, 0);
+        return headPaint;
       }
       if (full) fullyLoadedSessions.add(sessionKey);
       // A write that landed while this read was in flight wins over its snapshot.
@@ -221,13 +255,15 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
       return preserveNewerWrites(rows, current, protectedTripIds(log, startedAt, previous, current));
     },
     enabled: !!orgId && tripsQuery.isSuccess,
-    // Every refetch re-reads documents/flags/events/ledger for the whole pipeline
-    // (~360 trips, 6 tables). At 15s, focus refetches made this the top DB load
-    // (prod 2026-10-29: 4.6k trip_documents reads, ~1,035s/day). Writes patch the
-    // cache and trips realtime patches POD/settlement, so 2 min is enough.
+    // Incremental refetches re-read documents, flags, events, and the ledger
+    // only for trips whose settlement or assignment fields changed. A location
+    // ping does not. Writes patch the cache, so 2 min is enough for the rest.
     staleTime: 2 * 60_000,
     placeholderData: keepPreviousData,
-    refetchOnWindowFocus: true,
+    // Focus used to re-read documents, flags, events and the ledger for every
+    // pipeline trip. Writes and realtime patch the cache; the header refresh
+    // still forces a read.
+    refetchOnWindowFocus: false,
     select: selectSummaries,
   });
 
@@ -297,6 +333,10 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     pipelineTripCount: pipelineTrips.length,
     tripsLoading: tripsQuery.isPending && !tripsQuery.data,
     summariesLoading: summariesQuery.isPending && !summariesQuery.data,
+    pipelinePartial:
+      pipelineTrips.length > summaries.length &&
+      !fullyLoadedSessions.has(sessionKey) &&
+      !tailSettled,
     isLoading,
     isError,
     error,
@@ -531,6 +571,7 @@ export function useInvalidateComplianceTrips() {
     if (!orgId) return;
     void qc.invalidateQueries({ queryKey: queryKeys.tripCompliance.pipeline(orgId) });
     void qc.invalidateQueries({ queryKey: queryKeys.trips.finite(orgId) });
+    void qc.invalidateQueries({ queryKey: queryKeys.trips.complete(orgId) });
     void qc.invalidateQueries({ queryKey: queryKeys.trips.compliance(orgId) });
     if (tripId) {
       void qc.invalidateQueries({ queryKey: queryKeys.tripCompliance.detail(orgId, tripId) });
@@ -576,13 +617,11 @@ export function useComplianceChangeSync() {
         });
         if (patchedTrip) {
           const trip: TripRow = patchedTrip;
-          for (const key of [queryKeys.trips.finite(orgId), queryKeys.trips.compliance(orgId)]) {
-            qc.setQueriesData<TripRow[]>({ queryKey: key }, (rows) =>
-              rows?.map((row) =>
-                row.id === trip.id ? { ...row, amount_paid: trip.amount_paid, updated_at: trip.updated_at } : row,
-              ),
-            );
-          }
+          patchTripInEveryCatalog(qc, orgId, trip.id, (row: TripRow) =>
+            row.id === trip.id
+              ? { ...row, amount_paid: trip.amount_paid, updated_at: trip.updated_at }
+              : row,
+          );
         }
         // Payment / verify / decline also move Finance Hub + Ledger — bust their caches.
         if (
@@ -608,6 +647,7 @@ export function useComplianceChangeSync() {
 
 export function useComplianceTripQuery(tripId: string | undefined) {
   const orgId = useComplianceOrgId();
+  const qc = useQueryClient();
 
   return useQuery({
     queryKey: queryKeys.tripCompliance.detail(orgId, tripId ?? ""),
@@ -623,6 +663,15 @@ export function useComplianceTripQuery(tripId: string | undefined) {
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    // The queue already built this summary. Paint it, then refresh in the background.
+    placeholderData: () => {
+      if (!orgId || !tripId) return undefined;
+      const rows = qc.getQueryData<ComplianceTripInputs[]>(
+        queryKeys.tripCompliance.pipeline(orgId),
+      );
+      const row = rows?.find((item) => item.trip.id === tripId);
+      return row ? summaryFor(row) : undefined;
+    },
     select: (summary) => (summary ? withChecklist(summary) : null),
   });
 }

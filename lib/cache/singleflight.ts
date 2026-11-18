@@ -17,6 +17,10 @@ export async function runSingleflight<T>(
   return next;
 }
 
+export function singleflightHas(key: string): boolean {
+  return inflight.has(key);
+}
+
 /** Test-only: drop in-flight keys so concurrent suites do not leak. */
 export function resetSingleflightForTests(): void {
   inflight.clear();

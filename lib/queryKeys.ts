@@ -11,8 +11,12 @@ export const queryKeys = {
     finite: (orgId: string) => ["q", "trips", orgId, "finite"] as const,
     /** All visible trips for totals. The finite list stays the newest 400. */
     complete: (orgId: string) => ["q", "trips", orgId, "complete"] as const,
-    /** Compliance queue catalog: newest 400 plus older unsettled Compliance trips. */
-    compliance: (orgId: string) => ["q", "trips", orgId, "compliance"] as const,
+    /**
+     * Compliance queue catalog: newest 400 plus older unsettled Compliance trips.
+     * Kept off the `trips.all` prefix. Invalidating the hub list must not rerun
+     * this full-organisation read.
+     */
+    compliance: (orgId: string) => ["q", "tripCompliance", "catalog", "v1", orgId] as const,
     partyCounts: (orgId: string) =>
       ["q", "trips", orgId, "party-counts"] as const,
     /** Exact owned-trip totals — not the newest-400 catalog length. */
@@ -423,6 +427,7 @@ export const queryKeys = {
     postIds: (orgId: string, indentIdsKey: string) =>
       ["q", "find-loads", orgId, "post-ids", indentIdsKey] as const,
     myBids: (orgId: string) => ["q", "find-loads", orgId, "my-bids"] as const,
+    bidCounts: (orgId: string) => ["q", "find-loads", orgId, "bid-counts"] as const,
     searchLanes: (orgId: string) => ["q", "find-loads", orgId, "search-lanes"] as const,
     /** Server manifest of one Marketplace pool (get_org_marketplace_pool). */
     pool: (orgId: string, poolId: string) =>

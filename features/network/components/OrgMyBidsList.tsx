@@ -25,6 +25,8 @@ import {
   type MyOrgMarketBidStatus,
 } from "@/features/network/services/findLoadsForOrg.service";
 import { formatStoryDate } from "@/features/network/utils/storyDisplay";
+import { countActiveLoadsInPlay, countLaneBids, countSubmittedBids, laneBidCaption, loadsCaption, loadsStillInPlay } from "@/features/network/utils/bidLoadCount.util";
+import { ScoreboardNumber } from "@/features/network/components/ScoreboardNumber";
 import { bidderLaneKey, groupBidsByLane } from "@/features/network/utils/marketplaceLaneSearchMemory.util";
 import { positiveLaneTarget, type MarketplaceSearchLane } from "@/features/network/utils/marketplaceSearch.util";
 import { PoolStatusPill } from "@/features/network/components/pooled/PoolStatusPill";
@@ -87,6 +89,8 @@ function statusLabel(status: MyOrgMarketBidStatus): string {
       return "Withdrawn";
     case "superseded":
       return "Superseded";
+    case "expired":
+      return "Bid expired";
     default:
       return status;
   }
@@ -237,7 +241,7 @@ export function OrgMyBidsList({
             <Inbox size={22} color={Theme.textSecondary} />
             <Text style={styles.emptyTitle}>No Marketplace bids yet</Text>
             <Text style={styles.emptyBody}>
-              Bid on an open Marketplace load and it will show up here. Network quotes are listed separately and stay pending until the shipper awards them.
+              Bid on an open Marketplace load and it will show up here.
             </Text>
           </View>
         )}
@@ -246,6 +250,8 @@ export function OrgMyBidsList({
     );
   }
 
+  const active = countActiveLoadsInPlay(groups.pending, lanesReady ? lanes : null);
+  const awardedLoads = countSubmittedBids(groups.awarded);
   const slice =
     focus === "won"
       ? wonSlice === "you"
@@ -281,17 +287,17 @@ export function OrgMyBidsList({
     <View style={styles.listContent}>
       <View style={[styles.focusRow, isDesktop && styles.focusRowDesktop]}>
         <FocusTab
-          count={bids.length}
-          label="Bids"
-          caption={`${groups.pending.length} active`}
+          count={active.bids}
+          label="Active bids"
+          caption={loadsCaption(active.loads)}
           icon={<Gavel size={15} strokeWidth={2.2} color={focus === "bids" ? Theme.textOnPrimary : Theme.textSecondary} />}
           selected={focus === "bids"}
           onPress={() => onFocusChange?.("bids")}
         />
         <FocusTab
-          count={groups.awarded.length}
+          count={countLaneBids(groups.awarded).bids}
           label="Won"
-          caption={`${groups.trips.length} on trips`}
+          caption={loadsCaption(awardedLoads.loads)}
           icon={<Trophy size={15} strokeWidth={2.2} color={focus === "won" ? Theme.textOnPrimary : Theme.textSecondary} />}
           selected={focus === "won"}
           onPress={() => onFocusChange?.("won")}
@@ -307,8 +313,8 @@ export function OrgMyBidsList({
           </>
         ) : (
           <>
-            <SliceTab label="Active" count={groups.pending.length} selected={bidSlice === "active"} onPress={() => setBidSlice("active")} />
-            <SliceTab label="Failed" count={groups.failed.length} selected={bidSlice === "failed"} onPress={() => setBidSlice("failed")} />
+            <SliceTab label="Active" count={countLaneBids(groups.pending).bids} selected={bidSlice === "active"} onPress={() => setBidSlice("active")} />
+            <SliceTab label="Failed" count={countLaneBids(groups.failed).bids} selected={bidSlice === "failed"} onPress={() => setBidSlice("failed")} />
           </>
         )}
       </View>
@@ -319,7 +325,7 @@ export function OrgMyBidsList({
           <Text style={styles.emptyBody}>{emptyCopy.body}</Text>
         </View>
       ) : (
-        <Section title={sliceTitle} count={slice.length}>
+        <Section title={sliceTitle} count={countLaneBids(slice).bids}>
           {groupBidsByLane(slice).map((group) =>
             group.bids.length === 1 ? (
               <BidCard
@@ -328,6 +334,9 @@ export function OrgMyBidsList({
                 orgId={orgId}
                 onPaymentUpdated={onPaymentUpdated}
                 lanePreview={lanePreviewByBidId[group.bids[0].id]}
+                lanes={lanes}
+                laneTargets={laneTargets}
+                lanesReady={lanesReady}
               />
             ) : (
               <BidPoolCard
@@ -385,6 +394,37 @@ function liveLaneForBids(
   };
 }
 
+function formatLaneTarget(min: number | null, max: number | null): string | null {
+  const low = formatFindLoadsRateOffer(min);
+  const high = formatFindLoadsRateOffer(max ?? min);
+  if (!low) return null;
+  if (high && high !== low) return `${low} – ${high}`;
+  return low;
+}
+
+function RateLines({ target, bid }: { target: string | null; bid: string }) {
+  return (
+    <View style={styles.rateStack}>
+      {target ? (
+        <View style={styles.poolTarget}>
+          <Text style={styles.poolTargetKicker}>Target</Text>
+          <Text style={styles.poolTargetPrice} numberOfLines={1}>{target}</Text>
+        </View>
+      ) : null}
+      <View style={styles.poolTarget}>
+        <Text style={styles.poolTargetKicker}>Your bid</Text>
+        <Text style={styles.poolTargetPrice} numberOfLines={1}>{bid}</Text>
+      </View>
+    </View>
+  );
+}
+
+function pooledLoadsLabel(ready: boolean, loadCount: number): string {
+  if (!ready) return "Loads";
+  const count = Number.isFinite(loadCount) ? loadCount : 0;
+  return `${count} load${count === 1 ? "" : "s"}`;
+}
+
 function BidPoolCard({
   bids,
   orgId,
@@ -411,9 +451,11 @@ function BidPoolCard({
   const low = amounts.length ? Math.min(...amounts) : null;
   const high = amounts.length ? Math.max(...amounts) : null;
   const oneRate = low != null && low === high;
-  const live = lanesReady && lane.loadCount > 0 && lanePreview?.tone !== "expired";
-  const loadsLabel = lanesReady ? `${lane.loadCount} load${lane.loadCount === 1 ? "" : "s"}` : "Loads";
-  const bidLabel = `${bids.length} bid${bids.length === 1 ? "" : "s"}`;
+  const covered = countLaneBids(bids);
+  const loadsNow = loadsStillInPlay(covered.loads, lanesReady ? lane.loadCount : null);
+  const live = lanesReady && loadsNow > 0 && lanePreview?.tone !== "expired";
+  const bidLabel = laneBidCaption(loadsNow);
+  const loadsLabel = pooledLoadsLabel(lanesReady, loadsNow);
   const targetLow = formatFindLoadsRateOffer(lane.targetMin);
   const targetHigh = formatFindLoadsRateOffer(lane.targetMax ?? lane.targetMin);
   const bidLow = formatAmount(low);
@@ -455,23 +497,15 @@ function BidPoolCard({
               <View style={styles.poolMetricIcon}>
                 <Package size={14} color={Theme.primaryText} strokeWidth={2.2} />
               </View>
-              <Text style={styles.poolMetricValue}>{lanesReady ? lane.loadCount : "—"}</Text>
-              <Text style={styles.poolMetricUnit}>{lane.loadCount === 1 ? "load" : "loads"}</Text>
+              <Text style={styles.poolMetricValue}>{lanesReady ? loadsNow : "—"}</Text>
+              <Text style={styles.poolMetricUnit}>{loadsNow === 1 ? "load" : "loads"}</Text>
             </View>
             <Text style={styles.poolBids}>{lanePreview ? `${bidLabel} · ${lanePreview.label}` : bidLabel}</Text>
           </View>
-          <View style={styles.poolTarget}>
-            <Text style={styles.poolTargetKicker}>{targetLow ? "Target" : "Your bid"}</Text>
-            <Text style={styles.poolTargetPrice} numberOfLines={1}>
-              {targetLow
-                ? targetHigh && targetHigh !== targetLow
-                  ? `${targetLow} – ${targetHigh}`
-                  : targetLow
-                : oneRate
-                  ? bidLow
-                  : `${bidLow} – ${bidHigh}`}
-            </Text>
-          </View>
+          <RateLines
+            target={targetLow ? (targetHigh && targetHigh !== targetLow ? `${targetLow} – ${targetHigh}` : targetLow) : null}
+            bid={oneRate ? bidLow : `${bidLow} – ${bidHigh}`}
+          />
         </View>
       </Pressable>
       {open
@@ -542,7 +576,7 @@ function FocusTab({
         <Text style={[styles.focusLabel, selected && styles.focusOnMuted]}>{label}</Text>
         <View style={[styles.focusIcon, selected && styles.focusIconOn]}>{icon}</View>
       </View>
-      <Text style={[styles.focusCount, selected && styles.focusOnText]}>{count}</Text>
+      <ScoreboardNumber value={count} style={[styles.focusCount, selected && styles.focusOnText]} />
       <Text style={[styles.focusCaption, selected && styles.focusOnMuted]} numberOfLines={1}>
         {caption}
       </Text>
@@ -579,12 +613,18 @@ function BidCard({
   orgId,
   onPaymentUpdated,
   lanePreview,
+  lanes = [],
+  laneTargets = {},
+  lanesReady = false,
   nested = false,
 }: {
   bid: MyOrgMarketBidRow;
   orgId?: string | null;
   onPaymentUpdated?: () => void;
   lanePreview?: { tone: "live" | "reduced" | "expired"; label: string };
+  lanes?: readonly MarketplaceSearchLane[];
+  laneTargets?: Readonly<Record<string, { min: number | null; max: number | null }>>;
+  lanesReady?: boolean;
   nested?: boolean;
 }) {
   const router = useRouter();
@@ -634,6 +674,8 @@ function BidCard({
     .filter(Boolean)
     .map(titleCaseWord);
   const dateLabel = bid.pickup_date ? formatStoryDate(bid.pickup_date) : null;
+  const laneQuote = lanesReady ? liveLaneForBids([bid], lanes, laneTargets) : null;
+  const targetLabel = laneQuote ? formatLaneTarget(laneQuote.targetMin, laneQuote.targetMax) : null;
 
   const handlePay = async () => {
     if (isStartingPayment) return;
@@ -932,12 +974,7 @@ function BidCard({
               {lanePreview.label}
             </Text>
           ) : null}
-          <View style={styles.poolTarget}>
-            <Text style={styles.poolTargetKicker}>Your bid</Text>
-            <Text style={styles.poolTargetPrice} numberOfLines={1}>
-              {formatAmount(bid.amount)}
-            </Text>
-          </View>
+          <RateLines target={targetLabel} bid={formatAmount(bid.amount)} />
           {identityRevealed && phoneDisplay ? (
             <Text style={styles.contact} numberOfLines={1}>
               {phoneDisplay}
@@ -1075,7 +1112,7 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   focusLabel: { fontSize: 13, lineHeight: 17, fontWeight: "600", color: Theme.textSecondary },
-  focusCaption: { fontSize: 12, lineHeight: 16, fontWeight: "500", color: Theme.textMuted },
+  focusCaption: { fontSize: 11, lineHeight: 14, fontWeight: "500", color: Theme.textMuted },
   focusOnText: { color: Theme.textOnPrimary },
   focusOnMuted: { color: Theme.textOnDarkMuted },
   sliceRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
@@ -1236,6 +1273,7 @@ const styles = StyleSheet.create({
   poolMetricValue: { fontSize: 16, fontWeight: "700", letterSpacing: -0.3, color: Theme.textPrimaryDark },
   poolMetricUnit: { fontSize: 12, fontWeight: "600", color: Theme.textSecondary },
   poolBids: { fontSize: 12, fontWeight: "600", color: Theme.textSecondary },
+  rateStack: { gap: 6 },
   poolTarget: {
     flexDirection: "row",
     alignItems: "center",

@@ -100,3 +100,67 @@ export function resolveComplianceDocumentationCharge(
 }
 
 export const COMPLIANCE_DEFAULT_ADVANCE_PERCENT = 90;
+
+/**
+ * `per_mt` and `per_trip` only. A blank basis is the legacy untagged rate and
+ * is read as per_trip (the indent column contract). Unknown values stay invalid.
+ */
+export function canonicalSupplierRateBasis(
+  basis: string | null | undefined,
+): "per_mt" | "per_trip" | null {
+  const value = (basis ?? "").trim().toLowerCase();
+  if (value === "per_mt") return "per_mt";
+  if (value === "per_trip" || value === "") return "per_trip";
+  return null;
+}
+
+/**
+ * Same payable as `compliance_advance_calculation`: unrounded base freight,
+ * TDS rounded to paise, slab charge, payable rounded to paise.
+ * Percent outside 0–100 and a non-positive payable are rejected.
+ */
+export function quoteComplianceAdvance(input: {
+  supplierRate: number | null | undefined;
+  supplierRateBasis: string | null | undefined;
+  loadTons: number | null | undefined;
+  advancePercent: number;
+  tdsRatePercent: number | null | undefined;
+  documentation?: ComplianceDocumentChargeConfig | null;
+}): {
+  basis: "per_mt" | "per_trip";
+  baseFreight: number;
+  tdsAmount: number;
+  documentationCharges: number;
+  payable: number;
+} {
+  const basis = canonicalSupplierRateBasis(input.supplierRateBasis);
+  if (!basis) throw new Error("supplier rate basis is not valid");
+  const percent = Number(input.advancePercent);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    throw new Error("advance percent must be between 0 and 100");
+  }
+  const rate = Number(input.supplierRate);
+  const tons = Number(input.loadTons);
+  let baseFreight: number | null = null;
+  if (basis === "per_mt") {
+    if (Number.isFinite(rate) && rate > 0 && Number.isFinite(tons) && tons > 0) baseFreight = rate * tons;
+  } else if (Number.isFinite(rate) && rate > 0) {
+    baseFreight = rate;
+  }
+  if (baseFreight == null || baseFreight <= 0) {
+    throw new Error("trip freight is not set; the advance cannot be approved");
+  }
+  const tdsAmount = computeComplianceTdsAmount(baseFreight, input.tdsRatePercent);
+  const documentationCharges = resolveComplianceDocumentationCharge(
+    input.documentation,
+    baseFreight,
+  ).amount;
+  const payable = computeCompliancePaymentAmount({
+    baseFreight,
+    advancePercent: percent,
+    documentationCharges,
+    tdsAmount,
+  });
+  if (payable <= 0) throw new Error("calculated advance is not positive");
+  return { basis, baseFreight, tdsAmount, documentationCharges, payable };
+}

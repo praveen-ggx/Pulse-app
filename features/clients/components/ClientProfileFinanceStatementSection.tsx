@@ -23,7 +23,7 @@ import {
   type LedgerRow,
 } from "@/features/finance/services/finance.service";
 import { getTripOperationalDisplay } from "@/features/operations/display";
-import { getTripsForOrg, type TripRow } from "@/features/trips/services/trips.service";
+import { useCompleteTripsQuery } from "@/lib/queries/useTripsQuery";
 import { STALE } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import {
@@ -127,17 +127,7 @@ export function ClientProfileFinanceStatementSection({
     refetchOnWindowFocus: true,
   });
 
-  const tripsQ = useQuery({
-    queryKey: queryKeys.trips.finite(organizationId),
-    queryFn: async () => {
-      const { trips, error } = await getTripsForOrg(organizationId);
-      if (error) throw error;
-      return trips as TripRow[];
-    },
-    staleTime: STALE.realtime,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
-  });
+  const tripsQ = useCompleteTripsQuery(organizationId);
 
   const partyTrips = useMemo(
     () =>

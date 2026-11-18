@@ -4,7 +4,9 @@ import Theme from "@/constants/Theme";
 import { formatINR } from "@/lib/format";
 import type { MyOrgMarketBidRow } from "@/features/network/services/findLoadsForOrg.service";
 import { marketplaceFeeGateSatisfied } from "@/features/network/services/marketBids.service";
-import { bidderLaneKey, groupBidsByLane } from "@/features/network/utils/marketplaceLaneSearchMemory.util";
+import { countActiveLoadsInPlay, countLaneBids, countWonMarketplaceBids, laneBidCaption, loadsCaption, loadsStillInPlay } from "@/features/network/utils/bidLoadCount.util";
+import { ScoreboardNumber } from "@/features/network/components/ScoreboardNumber";
+import { groupBidsByLane, lanePoolCounts } from "@/features/network/utils/marketplaceLaneSearchMemory.util";
 import type { MarketplaceSearchLane } from "@/features/network/utils/marketplaceSearch.util";
 import { marketplaceWalletFigures } from "@/features/network/utils/marketplaceWallet.util";
 import type { PoolLane } from "@/features/network/utils/pooledOpportunity.util";
@@ -14,14 +16,9 @@ import {
   ArrowRight,
   ChevronLeft,
   ClipboardList,
-  Gavel,
-  Lock,
-  MapPin,
-  Search,
-  ShieldCheck,
   Truck,
-  X,
 } from "lucide-react-native";
+import LottieView from "lottie-react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AccessibilityInfo, Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -32,6 +29,7 @@ const TILES = [
 ] as const;
 
 const HOT_LANE_SLIDE_MS = 40_000;
+const LANE_TRUCK = require("@/assets/Animated folder/truck-2.json");
 
 function laneRateLabel(bids: readonly MyOrgMarketBidRow[]): string {
   const amounts = bids.map((bid) => Number(bid.amount)).filter((amount) => Number.isFinite(amount));
@@ -41,39 +39,27 @@ function laneRateLabel(bids: readonly MyOrgMarketBidRow[]): string {
   return low === high ? formatINR(low) : `${formatINR(low)} – ${formatINR(high)}`;
 }
 
-function openLoadCount(
-  bids: readonly MyOrgMarketBidRow[],
-  lanes: readonly MarketplaceSearchLane[],
-): number | null {
-  if (lanes.length === 0) return null;
-  const key = bidderLaneKey(bids[0]?.pickup_area, bids[0]?.drop_location);
-  return lanes
-    .filter((lane) => bidderLaneKey(lane.pickup_area, lane.drop_location) === key)
-    .reduce((sum, lane) => sum + (Number(lane.load_count) || 0), 0);
-}
-
 function BidLaneRow({
   bids,
-  lanes,
+  openLaneLoads,
   onPress,
 }: {
   bids: readonly MyOrgMarketBidRow[];
-  lanes: readonly MarketplaceSearchLane[];
+  openLaneLoads: number | null;
   onPress: () => void;
 }) {
   const first = bids[0];
-  const loads = openLoadCount(bids, lanes);
+  const covered = countLaneBids(bids);
+  const loadsNow = loadsStillInPlay(covered.loads, openLaneLoads);
   const pending = bids.every((bid) => bid.status === "pending");
   const awarded = bids.every((bid) => bid.status === "accepted");
   const status =
-    bids.length > 1
-      ? `${bids.length} bids${loads != null ? ` · ${loads} load${loads === 1 ? "" : "s"}` : ""}`
+    covered.bids > 0 && bids.length > 1
+      ? laneBidCaption(loadsNow)
       : awarded
         ? "Awarded"
         : pending
-          ? loads != null
-            ? `${loads} pooled`
-            : "Pending"
+          ? "Pending"
           : "Closed";
   return (
     <Pressable
@@ -141,12 +127,20 @@ function MetricTile({
       </View>
       {fact.stats ? (
         <View style={styles.tileStats}>
-          {fact.stats.map((stat) => (
-            <View key={stat.label} style={styles.tileStat}>
-              <View style={styles.tileStatCell}>
-                <Text style={styles.tileStatValue} numberOfLines={1}>{stat.value}</Text>
-                <Text style={styles.tileStatLabel} numberOfLines={1}>{stat.label}</Text>
-              </View>
+          {[0, 2].map((start) => (
+            <View key={start} style={styles.tileStatRow}>
+              {fact.stats!.slice(start, start + 2).map((stat) => (
+                <View key={stat.label} style={styles.tileStat}>
+                  <View style={styles.tileStatCell}>
+                    {/^\d+$/.test(stat.value) ? (
+                      <ScoreboardNumber value={Number(stat.value)} style={styles.tileStatValue} />
+                    ) : (
+                      <Text style={styles.tileStatValue} numberOfLines={1}>{stat.value}</Text>
+                    )}
+                    <Text style={styles.tileStatLabel} numberOfLines={1}>{stat.label}</Text>
+                  </View>
+                </View>
+              ))}
             </View>
           ))}
         </View>
@@ -211,7 +205,7 @@ function AwardVehicleAlert({
       accessibilityRole="button"
       accessibilityLabel={`Bid awarded, assign a vehicle, ${(bid.pickup_area ?? "Pickup").trim()} to ${(bid.drop_location ?? "Drop").trim()}`}
     >
-      <View style={[styles.laneSlide, styles.awardCard]}>
+      <View style={[styles.laneSlide, styles.laneSlideShare, styles.awardCard]}>
         <View style={styles.tileTop}>
           <View style={styles.awardKicker}>
             <Animated.View style={[styles.awardDot, { opacity: glow }]} />
@@ -240,11 +234,14 @@ function AwardVehicleAlert({
 function HotLaneSlide({
   lanes,
   wide,
+  stack = false,
   onOpen,
   onWarm,
 }: {
   lanes: readonly PoolLane[];
   wide: boolean;
+  /** Two full-width cards, one under the other. */
+  stack?: boolean;
   onOpen: (lane: PoolLane) => void;
   onWarm?: (lane: PoolLane) => void;
 }) {
@@ -253,7 +250,7 @@ function HotLaneSlide({
   useEffect(() => {
     setIndex(0);
   }, [lanes]);
-  const visibleCount = wide ? 2 : 1;
+  const visibleCount = wide || stack ? 2 : 1;
   useEffect(() => {
     if (lanes.length <= visibleCount) return;
     const handle: { timer: ReturnType<typeof setInterval> | null } = { timer: null };
@@ -277,9 +274,11 @@ function HotLaneSlide({
   const shown = Array.from({ length: Math.min(visibleCount, lanes.length) }, (_, offset) => {
     return lanes[(index + offset) % lanes.length];
   });
-  const showDots = !wide && lanes.length > 1;
+  const showDots = !wide && !stack && lanes.length > 1;
   return (
-    <Animated.View style={[styles.laneRow, wide && styles.laneRowWide, { opacity: fade }]}>
+    <Animated.View
+      style={[styles.laneRow, stack ? styles.laneRowStack : wide && styles.laneRowWide, { opacity: fade }]}
+    >
       {shown.map((lane) => {
         const count = Number(lane.load_count) || 0;
         return (
@@ -288,7 +287,12 @@ function HotLaneSlide({
             onPress={() => onOpen(lane)}
             onPressIn={() => onWarm?.(lane)}
             onHoverIn={() => onWarm?.(lane)}
-            style={({ pressed }) => [styles.laneSlide, styles.hotLaneCard, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.laneSlide,
+              styles.hotLaneCard,
+              stack ? styles.laneSlideStack : styles.laneSlideShare,
+              pressed && styles.pressed,
+            ]}
             accessibilityRole="button"
             accessibilityLabel={`Hot lane, ${lane.pickup_area} to ${lane.drop_location}, ${count} pooled loads`}
           >
@@ -339,90 +343,28 @@ function HotLaneSlide({
   );
 }
 
-function HeroLineArt({ wide }: { wide: boolean }) {
-  const travel = useRef(new Animated.Value(0)).current;
+function LoadMark() {
+  const [reduceMotion, setReduceMotion] = useState(false);
   useEffect(() => {
-    let loop: Animated.CompositeAnimation | null = null;
     let active = true;
     AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
-      if (!active || reduce) return;
-      loop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(travel, { toValue: 1, duration: 4800, useNativeDriver: true }),
-          Animated.timing(travel, { toValue: 0, duration: 0, useNativeDriver: true }),
-        ]),
-      );
-      loop.start();
+      if (active && reduce) setReduceMotion(true);
     });
     return () => {
       active = false;
-      loop?.stop();
     };
-  }, [travel]);
-  const shift = travel.interpolate({ inputRange: [0, 1], outputRange: [0, wide ? 132 : 88] });
+  }, []);
   return (
-    <View style={styles.routeArt} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <View style={styles.routeArtHead}>
-        <View style={styles.routeArtBadge}>
-          <Truck size={16} color={Theme.loadMainTabBg} strokeWidth={2.2} />
-        </View>
-        <View style={styles.routeArtCopy}>
-          <Text style={styles.routeArtTitle}>Open lanes</Text>
-          <Text style={styles.routeArtSub}>Bids open now</Text>
-        </View>
-      </View>
-      <View style={styles.routeTrack}>
-        <View style={styles.routeDot} />
-        <View style={styles.routeLine}>
-          <Animated.View style={[styles.routeTruck, { transform: [{ translateX: shift }] }]}>
-            <Truck size={18} color={Theme.primaryText} strokeWidth={1.8} />
-          </Animated.View>
-        </View>
-        <MapPin size={16} color={Theme.primaryText} strokeWidth={2.2} />
-      </View>
-      <View style={styles.routeLabels}>
-        <Text style={styles.routeLabel}>Pickup</Text>
-        <Text style={styles.routeLabel}>Drop</Text>
-      </View>
-    </View>
-  );
-}
-
-const HERO_POINTS = [
-  { label: "Verified loads", Icon: ShieldCheck },
-  { label: "Competitive bids", Icon: Gavel },
-  { label: "Secure payments", Icon: Lock },
-] as const;
-
-function LiveMark() {
-  const pulse = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    let loop: Animated.CompositeAnimation | null = null;
-    let active = true;
-    AccessibilityInfo.isReduceMotionEnabled().then((reduce) => {
-      if (!active || reduce) return;
-      loop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulse, { toValue: 1, duration: 1800, useNativeDriver: true }),
-          Animated.timing(pulse, { toValue: 0, duration: 1800, useNativeDriver: true }),
-        ]),
-      );
-      loop.start();
-    });
-    return () => {
-      active = false;
-      loop?.stop();
-    };
-  }, [pulse]);
-  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] });
-  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] });
-  return (
-    <View style={styles.livePill}>
-      <View style={styles.liveDotWrap} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        <Animated.View style={[styles.liveDotRing, { opacity, transform: [{ scale }] }]} />
-        <View style={styles.liveDot} />
-      </View>
-      <Text style={styles.livePillText}>LIVE</Text>
+    <View style={styles.loadMark} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <LottieView
+        source={LANE_TRUCK}
+        autoPlay={!reduceMotion}
+        loop={!reduceMotion}
+        progress={reduceMotion ? 0.55 : undefined}
+        speed={0.85}
+        resizeMode="cover"
+        style={styles.loadTruck}
+      />
     </View>
   );
 }
@@ -432,20 +374,19 @@ export function MarketplaceLanding({
   bids,
   transactionBids = [],
   transactionsReady = true,
-  loadCount,
-  laneCount,
   hiddenCount: _hiddenCount,
   isDesktop,
   part = "all",
   onOpenBids,
   onOpenWallet,
   onOpenTransactions,
-  onSearchLoads,
   filters,
   featuredLanes = [],
   onOpenFeaturedLane,
   onWarmFeaturedLane,
   lanes = [],
+  lanesReady = false,
+  bidTotals = null,
   assignBids = [],
   onAssignVehicle,
 }: {
@@ -472,28 +413,36 @@ export function MarketplaceLanding({
   onOpenFeaturedLane?: (lane: PoolLane) => void;
   onWarmFeaturedLane?: (lane: PoolLane) => void;
   lanes?: readonly MarketplaceSearchLane[];
+  /** Live lane counts are in. Until then, load totals stay on the bid rows. */
+  lanesReady?: boolean;
+  /** Organization totals. Loaded bid rows are not the total. */
+  bidTotals?: { awarded: number; ratesSent: number } | null;
   /** Awarded bids that still need a vehicle. */
   assignBids?: readonly MyOrgMarketBidRow[];
   onAssignVehicle?: (bid: MyOrgMarketBidRow) => void;
 }) {
-  const figures = marketplaceWalletFigures(bids);
+  const loadedFigures = marketplaceWalletFigures(bids);
+  const figures = {
+    ...loadedFigures,
+    awarded: bidTotals?.awarded ?? loadedFigures.awarded,
+    ratesSent: bidTotals?.ratesSent ?? loadedFigures.ratesSent,
+  };
+  const openByLane = lanesReady ? lanePoolCounts(lanes) : null;
+  const submitted = countActiveLoadsInPlay(bids, lanesReady ? lanes : null);
+  const won = countWonMarketplaceBids(bids);
   const ratesSent = bids.reduce((sum, bid) => {
-    const amount = Number(bid.amount);
-    return sum + (Number.isFinite(amount) ? amount : 0);
-  }, 0);
-  const transactionValue = transactionBids.reduce((sum, bid) => {
     const amount = Number(bid.amount);
     return sum + (Number.isFinite(amount) ? amount : 0);
   }, 0);
   const tileFacts = {
     bids: {
-      value: String(bids.length),
-      body: `${figures.awarded} won`,
+      value: String(submitted.bids),
+      body: loadsCaption(submitted.loads),
       stats: [
-        { label: "Bids", value: String(bids.length) },
-        { label: "Won", value: String(figures.awarded) },
+        { label: "Active", value: String(submitted.bids) },
+        { label: "Loads", value: String(submitted.loads) },
+        { label: "Won", value: String(won.bids) },
         { label: "Transactions", value: transactionsReady ? String(transactionBids.length) : "—" },
-        { label: "Value", value: transactionsReady ? formatINR(transactionValue) : "—" },
       ],
     },
     transactions: { value: formatINR(ratesSent), body: `${figures.awarded} awarded` },
@@ -502,7 +451,6 @@ export function MarketplaceLanding({
   const wonBids = bids.filter((bid) => bid.status === "accepted");
   const [bidFilter, setBidFilter] = useState<"bids" | "won">("bids");
   const [sidePanel, setSidePanel] = useState<"bids" | "transactions">("bids");
-  const [promo, setPromo] = useState(true);
   const [openBid, setOpenBid] = useState<MyOrgMarketBidRow | null>(null);
   const { width } = useWindowDimensions();
   const preview = groupBidsByLane(activeBids).slice(0, 3);
@@ -518,13 +466,13 @@ export function MarketplaceLanding({
       <Text style={styles.walletHint}>{figures.due > 0 ? "Fees due on awarded loads" : "Nothing due"}</Text>
       <View style={styles.walletStats}>
         <View style={styles.walletStat}>
-          <Text style={styles.walletStatValue}>{figures.awarded}</Text>
-          <Text style={styles.walletStatLabel}>Awarded</Text>
+          <Text style={styles.walletStatValue}>{submitted.bids}</Text>
+          <Text style={styles.walletStatLabel}>Active bids</Text>
         </View>
         <View style={styles.walletStatRule} />
         <View style={styles.walletStat}>
-          <Text style={styles.walletStatValue}>{figures.ratesSent}</Text>
-          <Text style={styles.walletStatLabel}>Rates sent</Text>
+          <Text style={styles.walletStatValue}>{submitted.loads}</Text>
+          <Text style={styles.walletStatLabel}>{submitted.loads === 1 ? "Load" : "Loads"}</Text>
         </View>
       </View>
       <View style={styles.walletActions}>
@@ -533,63 +481,6 @@ export function MarketplaceLanding({
         </Pressable>
         <Pressable onPress={onOpenWallet} style={styles.walletPill} accessibilityRole="button" accessibilityLabel="Open wallet">
           <Text style={styles.walletLink}>Wallet</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-
-  const summaryStats: readonly { label: string; value: string; onPress: () => void; a11y: string }[] = [
-    { label: "Active bids", value: String(activeBids.length), onPress: () => onOpenBids("bids"), a11y: "Open active bids" },
-    { label: "Won", value: String(figures.awarded), onPress: () => onOpenBids("won"), a11y: "Open won bids" },
-    { label: "Rates sent", value: formatINR(ratesSent), onPress: () => onOpenBids("bids"), a11y: "Open bids you sent" },
-    {
-      label: "Trips",
-      value: transactionsReady ? String(transactionBids.length) : "—",
-      onPress: onOpenTransactions,
-      a11y: "Open marketplace transactions",
-    },
-  ];
-
-  const mobileSummary = (
-    <View style={styles.summary}>
-      <View style={styles.summaryTop}>
-        <View style={styles.summaryCopy}>
-          <Text style={styles.walletKicker}>Marketplace wallet</Text>
-          <Text style={styles.walletValue}>{figures.due > 0 ? formatINR(figures.due) : "Clear"}</Text>
-          <Text style={styles.walletHint}>{figures.due > 0 ? "Fees due on awarded loads" : "Nothing due right now"}</Text>
-        </View>
-        <Pressable
-          onPress={onOpenWallet}
-          style={({ pressed }) => [styles.summaryWalletBtn, pressed && styles.pressed]}
-          accessibilityRole="button"
-          accessibilityLabel="Open wallet"
-        >
-          <Text style={styles.summaryWalletBtnText}>Wallet</Text>
-          <ArrowRight size={14} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
-        </Pressable>
-      </View>
-      <View style={styles.summaryStats}>
-        {summaryStats.map((stat) => (
-          <Pressable
-            key={stat.label}
-            onPress={stat.onPress}
-            style={({ pressed }) => [styles.summaryStat, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel={`${stat.a11y}, ${stat.value}`}
-          >
-            <Text style={styles.summaryStatValue} numberOfLines={1}>{stat.value}</Text>
-            <Text style={styles.summaryStatLabel} numberOfLines={1}>{stat.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <View style={styles.walletActions}>
-        <Pressable onPress={() => onOpenBids()} style={styles.walletPill} accessibilityRole="button" accessibilityLabel="Open my bids">
-          <ClipboardList size={14} color={Theme.buttonPrimaryText} strokeWidth={2.2} />
-          <Text style={styles.walletLink}>My bids</Text>
-        </Pressable>
-        <Pressable onPress={onOpenTransactions} style={styles.walletPill} accessibilityRole="button" accessibilityLabel="Open transactions">
-          <ArrowLeftRight size={14} color={Theme.buttonPrimaryText} strokeWidth={2.2} />
-          <Text style={styles.walletLink}>Transactions</Text>
         </Pressable>
       </View>
     </View>
@@ -607,12 +498,22 @@ export function MarketplaceLanding({
         <BidLaneRow
           key={group.key}
           bids={group.bids}
-          lanes={lanes}
+          openLaneLoads={openByLane ? (openByLane.get(group.key) ?? 0) : null}
           onPress={() => (group.bids.length > 1 ? onOpenBids() : setOpenBid(group.bids[0]))}
         />
       ))}
     </View>
   );
+
+  const metricTiles = TILES.map((tile) => (
+    <MetricTile
+      key={tile.id}
+      tile={tile}
+      fact={tileFacts[tile.id]}
+      onPress={actions[tile.id]}
+      fill
+    />
+  ));
 
   const bidReceipt = (
     <BidReceiptModal
@@ -659,8 +560,8 @@ export function MarketplaceLanding({
           {sidePanel === "bids" ? (
             <View style={styles.sideTabs}>
               {([
-                { id: "bids" as const, label: "Bids", count: String(activeBids.length) },
-                { id: "won" as const, label: "Won", count: String(figures.awarded) },
+                { id: "bids" as const, label: "Bids", count: String(submitted.bids) },
+                { id: "won" as const, label: "Won", count: String(won.bids) },
               ]).map((item) => {
                 const selected = item.id === bidFilter;
                 return (
@@ -692,7 +593,9 @@ export function MarketplaceLanding({
                     <BidLaneRow
                       key={group.key}
                       bids={group.bids}
-                      lanes={lanes}
+                      openLaneLoads={
+                        bidFilter === "bids" && openByLane ? (openByLane.get(group.key) ?? 0) : null
+                      }
                       onPress={() => (group.bids.length > 1 ? onOpenBids(bidFilter) : setOpenBid(group.bids[0]))}
                     />
                   ))
@@ -745,6 +648,19 @@ export function MarketplaceLanding({
           </ScrollView>
         </View>
         {bidReceipt}
+        <View style={styles.sideTiles}>
+          {featuredLanes.length > 0 && onOpenFeaturedLane ? (
+            <HotLaneSlide
+              lanes={featuredLanes}
+              wide={false}
+              stack
+              onOpen={onOpenFeaturedLane}
+              onWarm={onWarmFeaturedLane}
+            />
+          ) : (
+            metricTiles
+          )}
+        </View>
       </View>
     );
   }
@@ -752,99 +668,46 @@ export function MarketplaceLanding({
   return (
     <View style={styles.wrap}>
       <View style={[styles.heroRow, isDesktop && styles.heroRowDesktop]}>
-        <View style={[styles.hero, isDesktop && styles.heroDesktop]}>
-          <View style={styles.heroIdentity}>
-            <View style={styles.heroKickerRow}>
-              <LiveMark />
-              <Text style={styles.heroKicker} numberOfLines={1}>
-                {orgName.trim() ? orgName.trim().toUpperCase() : "MARKETPLACE"}
-              </Text>
-            </View>
-            <Text
-              style={[styles.heroName, isDesktop && styles.heroNameDesktop, !isDesktop && width < 420 && styles.heroNameCompact]}
-              accessibilityRole="header"
-            >
-              Marketplace Loads
-            </Text>
-            <Text style={styles.heroTitle}>Find, bid and move more loads</Text>
-            <View style={styles.heroPoints}>
-              {HERO_POINTS.map(({ label, Icon }) => (
-                <View key={label} style={styles.heroPoint}>
-                  <Icon size={13} color={Theme.primaryText} strokeWidth={2.4} />
-                  <Text style={styles.heroPointText}>{label}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-          {isDesktop || width >= 600 ? (
-            <View style={[styles.heroArt, isDesktop && styles.heroArtDesktop]} pointerEvents="none">
-              <HeroLineArt wide={isDesktop} />
-            </View>
-          ) : null}
+        <View
+          style={[styles.hero, isDesktop ? styles.heroDesktop : styles.heroPhone]}
+          accessibilityRole="header"
+          accessibilityLabel={orgName.trim() ? `PULSE MARKETPLACE, ${orgName.trim()}` : "PULSE MARKETPLACE"}
+        >
+          <Text
+            style={[styles.heroName, isDesktop ? styles.heroNameDesktop : styles.heroNamePhone]}
+            numberOfLines={1}
+          >
+            PULSE MARKETPLACE
+            <Text style={styles.heroNameDot}>.</Text>
+          </Text>
+          <LoadMark />
         </View>
         {part === "main" ? null : isDesktop ? walletCard : null}
       </View>
 
-      {isDesktop ? (
-        <View style={styles.tilesDesktop}>
-          {assignBids.length > 0 && onAssignVehicle ? (
-            <AwardVehicleAlert bids={assignBids} wide onAssign={onAssignVehicle} />
-          ) : featuredLanes.length > 0 && onOpenFeaturedLane ? (
-            <HotLaneSlide lanes={featuredLanes} wide onOpen={onOpenFeaturedLane} onWarm={onWarmFeaturedLane} />
-          ) : null}
-          {TILES.map((tile) => (
-            <MetricTile
-              key={tile.id}
-              tile={tile}
-              fact={tileFacts[tile.id]}
-              onPress={actions[tile.id]}
-              fill
-            />
-          ))}
-        </View>
-      ) : (
-        <View style={styles.tilesMobile}>
-          {assignBids.length > 0 && onAssignVehicle ? (
-            <AwardVehicleAlert bids={assignBids} wide={false} onAssign={onAssignVehicle} />
-          ) : featuredLanes.length > 0 && onOpenFeaturedLane ? (
-            <HotLaneSlide lanes={featuredLanes} wide={false} onOpen={onOpenFeaturedLane} onWarm={onWarmFeaturedLane} />
-          ) : null}
-          {part === "main" ? null : mobileSummary}
-        </View>
-      )}
-
-      {promo ? (
-        <View style={styles.promo}>
-          <View style={styles.promoCopy}>
-            <Text style={styles.promoTitle}>Verified lanes from the open market</Text>
-            <Text style={styles.promoBody}>
-              {laneCount} pooled lanes · {loadCount} loads. A fee is due only after a lane is awarded.
-            </Text>
-          </View>
-          <Pressable onPress={() => setPromo(false)} accessibilityRole="button" accessibilityLabel="Dismiss marketplace note" hitSlop={8}>
-            <X size={16} color={Theme.textSecondary} strokeWidth={2.2} />
-          </Pressable>
-        </View>
-      ) : null}
-
       <View style={styles.loadBoard}>
-        <View style={styles.loadBoardHead}>
-          <View style={styles.loadBoardMeta}>
-            <Pressable
-              onPress={onSearchLoads}
-              style={styles.searchChip}
-              accessibilityRole="button"
-              accessibilityLabel="Search a marketplace load"
-            >
-              <Search size={14} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
-              <Text style={styles.searchChipText}>Search a load</Text>
-            </Pressable>
-          </View>
-        </View>
         {filters ? <View style={styles.loadBoardFilters}>{filters}</View> : null}
       </View>
 
-      {part === "main" ? null : bidPreview}
+      {isDesktop ? (
+        assignBids.length > 0 && onAssignVehicle ? (
+          <View style={styles.tilesDesktop}>
+            <AwardVehicleAlert bids={assignBids} wide onAssign={onAssignVehicle} />
+          </View>
+        ) : null
+      ) : assignBids.length > 0 && onAssignVehicle ? (
+        <AwardVehicleAlert bids={assignBids} wide={false} onAssign={onAssignVehicle} />
+      ) : featuredLanes.length > 0 && onOpenFeaturedLane ? (
+        <HotLaneSlide
+          lanes={featuredLanes}
+          wide={false}
+          stack
+          onOpen={onOpenFeaturedLane}
+          onWarm={onWarmFeaturedLane}
+        />
+      ) : null}
+
+      {isDesktop && part !== "main" ? bidPreview : null}
       {bidReceipt}
     </View>
   );
@@ -995,8 +858,23 @@ const styles = StyleSheet.create({
   receiptPageTitle: { fontSize: 18, fontWeight: "800", color: Theme.textPrimaryDark },
   receiptPageScroll: { flex: 1 },
   receiptPageContent: { paddingHorizontal: 16, paddingTop: 16 },
-  wrap: { paddingBottom: 4, gap: 16 },
-  side: { width: 400, alignSelf: "stretch", gap: 12, paddingTop: 0, paddingBottom: 0 },
+  wrap: { width: "100%", alignSelf: "stretch", paddingBottom: 8, gap: 16 },
+  side: {
+    width: 400,
+    alignSelf: "stretch",
+    flexDirection: "column",
+    gap: 12,
+    paddingTop: 0,
+    paddingBottom: 24,
+  },
+  sideTiles: {
+    width: "100%",
+    alignSelf: "stretch",
+    flexShrink: 0,
+    gap: 12,
+    marginTop: "auto",
+    paddingBottom: 8,
+  },
   sideCard: {
     flex: 1,
     minHeight: 0,
@@ -1050,33 +928,90 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   heroDesktop: {
-    paddingHorizontal: 28,
-    paddingVertical: 24,
-    gap: 24,
-  },
-  heroIdentity: { flex: 1, flexShrink: 1, minWidth: 0, gap: 8, justifyContent: "center" },
-  heroArt: { width: 188, flexShrink: 0 },
-  heroArtDesktop: { width: 280 },
-  routeArt: {
-    backgroundColor: Theme.loadMainTabBgIdle,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 16,
     borderRadius: 14,
+  },
+  heroPhone: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    borderRadius: 12,
+  },
+  heroIdentity: { flex: 1, flexShrink: 1, minWidth: 0, gap: 2, justifyContent: "center" },
+  heroIdentityPhone: { gap: 1 },
+  loadMark: {
+    width: 64,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.primaryText,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    flexShrink: 0,
+  },
+  loadTruck: {
+    width: 108,
+    height: 108,
+  },
+  heroAside: { alignItems: "flex-end", justifyContent: "center", flexShrink: 0, gap: 1 },
+  heroAsideLabel: { color: Theme.primaryText, fontSize: 13, fontWeight: "700", letterSpacing: -0.2 },
+  heroAsideHint: { color: Theme.primaryText, fontSize: 11, fontWeight: "500", opacity: 0.7 },
+  bannerLane: {
+    flex: 1,
+    minWidth: 180,
+    maxWidth: 280,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  bannerLaneLabel: {
+    color: Theme.textMuted,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "600",
+    letterSpacing: 0.9,
+    textTransform: "uppercase",
+  },
+  bannerTrack: { flex: 1, minWidth: 72, flexDirection: "row", alignItems: "center", gap: 6 },
+  bannerCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+    backgroundColor: Theme.loadMainTabBgIdle,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Theme.accentGoldBorder,
-    padding: 14,
-    gap: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  heroArt: { width: 188, flexShrink: 0 },
+  heroArtDesktop: { width: 196 },
+  heroArtPhone: { width: 132 },
+  routeArt: {
+    backgroundColor: Theme.loadMainTabBgIdle,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.accentGoldBorder,
+    padding: 10,
+    gap: 8,
   },
   routeArtHead: { flexDirection: "row", alignItems: "center", gap: 10 },
   routeArtBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 26,
+    height: 26,
+    borderRadius: 8,
     backgroundColor: Theme.primaryText,
     alignItems: "center",
     justifyContent: "center",
   },
-  routeArtCopy: { flex: 1, minWidth: 0, gap: 1 },
-  routeArtTitle: { color: Theme.primaryText, fontSize: 13, fontWeight: "800" },
-  routeArtSub: { color: Theme.primaryText, opacity: 0.65, fontSize: 11, fontWeight: "600" },
+  routeArtCopy: { flex: 1, minWidth: 0, gap: 0 },
+  routeArtTitle: { color: Theme.primaryText, fontSize: 12, fontWeight: "700" },
+  routeArtSub: { color: Theme.primaryText, opacity: 0.65, fontSize: 10, fontWeight: "600" },
   routeTrack: { flexDirection: "row", alignItems: "center", gap: 8 },
   routeDot: {
     width: 10,
@@ -1087,7 +1022,7 @@ const styles = StyleSheet.create({
   },
   routeLine: {
     flex: 1,
-    height: 22,
+    height: 16,
     justifyContent: "center",
     borderBottomWidth: 1.5,
     borderBottomColor: Theme.primaryText,
@@ -1100,43 +1035,49 @@ const styles = StyleSheet.create({
   heroKicker: {
     flexShrink: 1,
     color: Theme.primaryText,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 1.1,
+    letterSpacing: 0.8,
     opacity: 0.72,
   },
+  heroKickerPhone: { fontSize: 9, letterSpacing: 0.6 },
   livePill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     backgroundColor: Theme.primaryText,
     borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     flexShrink: 0,
   },
   livePillText: { color: Theme.loadMainTabBg, fontSize: 10, fontWeight: "800", letterSpacing: 1 },
   liveDotWrap: { width: 8, height: 8, alignItems: "center", justifyContent: "center" },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Theme.driverPrimary },
   liveDotRing: { position: "absolute", width: 7, height: 7, borderRadius: 4, backgroundColor: Theme.driverPrimary },
-  heroName: { color: Theme.primaryText, fontSize: 32, fontWeight: "800", letterSpacing: -0.8, lineHeight: 36 },
-  heroNameDesktop: { fontSize: 36, lineHeight: 40, letterSpacing: -0.9 },
-  heroNameCompact: { fontSize: 28, lineHeight: 32, letterSpacing: -0.6 },
-  heroPoints: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
+  heroName: { color: Theme.primaryText, fontSize: 20, fontWeight: "800", letterSpacing: 0.4, lineHeight: 24 },
+  heroNameDesktop: { fontSize: 22, lineHeight: 26, letterSpacing: 0.6 },
+  heroNamePhone: { fontSize: 18, lineHeight: 22, letterSpacing: 0.3 },
+  heroNameDot: { color: Theme.darkGreen, letterSpacing: 0 },
+  heroPoints: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
+  heroPointsPhone: { gap: 4, marginTop: 4 },
   heroPoint: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
     backgroundColor: Theme.loadMainTabBgIdle,
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
-  heroPointText: { color: Theme.primaryText, fontSize: 12, fontWeight: "600" },
+  heroPointPhone: { paddingHorizontal: 7, paddingVertical: 2, gap: 3 },
+  heroPointText: { color: Theme.primaryText, fontSize: 11, fontWeight: "600" },
+  heroPointTextPhone: { fontSize: 10, fontWeight: "600" },
   heroOffer: { gap: 4, minWidth: 0 },
   heroOfferDesktop: { alignItems: "flex-end", maxWidth: 460 },
   heroOfferText: { textAlign: "right" },
-  heroTitle: { color: Theme.primaryText, fontSize: 15, fontWeight: "500", lineHeight: 20 },
+  heroTitle: { color: Theme.primaryText, fontSize: 12, fontWeight: "500", lineHeight: 16 },
+  heroTitlePhone: { fontSize: 11, lineHeight: 14 },
   heroActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 8 },
   heroActionsDesktop: { justifyContent: "flex-end" },
   heroPrimary: {
@@ -1158,7 +1099,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   heroSecondaryText: { color: Theme.primaryText, fontWeight: "700", fontSize: 14 },
-  tilesMobile: { gap: 12 },
+  tilesMobile: { width: "100%", alignSelf: "stretch", gap: 16, paddingBottom: 8 },
   hotLaneCard: { borderColor: Theme.accentGoldBorder, gap: 2 },
   hotLaneBadge: {
     flexDirection: "row",
@@ -1172,7 +1113,13 @@ const styles = StyleSheet.create({
   hotLaneBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Theme.primaryText },
   hotLaneBadgeText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.8, color: Theme.primaryText },
   hotLaneCount: { marginLeft: "auto", fontSize: 12, fontWeight: "600", color: Theme.textMuted },
-  hotLaneFoot: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
+  hotLaneFoot: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 14,
+    minHeight: 32,
+  },
   hotLaneVehicle: {
     flexShrink: 1,
     minWidth: 0,
@@ -1185,7 +1132,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surfaceLight,
   },
   hotLaneVehicleText: { flexShrink: 1, fontSize: 12, fontWeight: "600", color: Theme.textSecondary },
-  hotLaneDots: { flexDirection: "row", alignItems: "center", gap: 4 },
+  hotLaneDots: { flexDirection: "row", alignItems: "center", justifyContent: "center", height: 16, gap: 4 },
   hotLaneDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: Theme.borderLight },
   hotLaneDotOn: { width: 14, backgroundColor: Theme.primaryText },
   hotLaneCta: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 4, minHeight: 32 },
@@ -1229,9 +1176,10 @@ const styles = StyleSheet.create({
   tileFill: { flex: 1, minWidth: 0 },
   laneRow: { flexDirection: "row", gap: 12 },
   laneRowWide: { flex: 2, minWidth: 0 },
+  laneRowStack: { flexDirection: "column", width: "100%", alignSelf: "stretch", gap: 12 },
+  laneSlideShare: { flex: 1, minWidth: 0 },
+  laneSlideStack: { width: "100%", alignSelf: "stretch", flexShrink: 0, paddingBottom: 16 },
   laneSlide: {
-    flex: 1,
-    minWidth: 0,
     minHeight: 112,
     borderRadius: 16,
     backgroundColor: Theme.cardWhite,
@@ -1262,6 +1210,7 @@ const styles = StyleSheet.create({
   },
   awardActionText: { fontSize: 12, fontWeight: "600", color: Theme.primaryText },
   tile: {
+    alignSelf: "stretch",
     minHeight: 112,
     borderRadius: 16,
     backgroundColor: Theme.cardWhite,
@@ -1298,9 +1247,11 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.loadMainTabBg,
   },
   tileChipText: { fontSize: 11, lineHeight: 14, fontWeight: "700", color: Theme.primaryText },
-  tileStats: { flexDirection: "row", flexWrap: "wrap", marginTop: 10, marginHorizontal: -3 },
-  tileStat: { width: "50%", minWidth: 0, paddingHorizontal: 3, paddingBottom: 6 },
+  tileStats: { marginTop: 10, gap: 6 },
+  tileStatRow: { flexDirection: "row", alignItems: "stretch", gap: 6 },
+  tileStat: { flex: 1, minWidth: 0 },
   tileStatCell: {
+    flex: 1,
     borderRadius: 10,
     backgroundColor: Theme.surfaceLight,
     paddingHorizontal: 8,
@@ -1347,34 +1298,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   walletLink: { color: Theme.buttonPrimaryText, fontWeight: "800", fontSize: 13 },
-  promo: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    backgroundColor: Theme.brandBlueSoft,
-    borderRadius: 16,
-    padding: 14,
-  },
-  promoCopy: { flex: 1, gap: 4 },
-  promoTitle: { fontSize: 16, fontWeight: "800", color: Theme.textPrimaryDark },
-  promoBody: { fontSize: 13, lineHeight: 18, color: Theme.textSecondary },
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   loadBoard: { gap: 10 },
-  loadBoardHead: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 12 },
-  loadBoardMeta: { flexDirection: "row", alignItems: "center", gap: 12 },
-  loadBoardFilters: { width: "100%" },
-  searchChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    minHeight: 36,
-    paddingHorizontal: 12,
-    borderRadius: Theme.buttonPrimaryRadius,
-    backgroundColor: Theme.buttonPrimary,
-    borderWidth: Theme.buttonPrimaryBorderWidth,
-    borderColor: Theme.buttonPrimaryBorder,
-  },
-  searchChipText: { fontSize: 13, fontWeight: "800", color: Theme.buttonPrimaryText },
+  loadBoardFilters: { width: "100%", zIndex: 8, overflow: "visible" },
   link: { fontSize: 12, fontWeight: "600", color: Theme.buttonPrimaryText },
   previewCard: {
     backgroundColor: Theme.cardWhite,

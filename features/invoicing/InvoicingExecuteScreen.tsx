@@ -73,7 +73,10 @@ import {
   type ManualInvoiceLineDraft,
 } from "@/features/invoicing/utils/manualInvoice.util";
 import { invoiceHsnIssueBlock } from "@/features/invoicing/utils/invoiceLineHsn.util";
-import { financeCreateInvoiceLabel } from "@/features/invoicing/utils/financeInvoicePreview.util";
+import {
+  financeCreateInvoiceLabel,
+  manualInvoiceDateFromSaved,
+} from "@/features/invoicing/utils/financeInvoicePreview.util";
 import {
   buildSavedInvoicePreviewModel,
   manualLinesFromSavedItems,
@@ -112,6 +115,7 @@ import {
   displayOperationalField,
   invoiceTripOperationalSeedFromView,
   invoiceTripSearchIncludesDisplayedNumber,
+  invoiceTripSearchIncludesTripId,
   tripListLrLabel,
 } from "@/features/invoicing/utils/invoiceTripOperational.util";
 import { updateClientInvoicePodPolicy } from "@/features/clients/services/clients.service";
@@ -211,6 +215,7 @@ function invoiceTripMatchesSearch(trip: InvoicingTripView, query: string): boole
   const q = query.toLowerCase().trim();
   if (!q) return true;
   if (invoiceTripSearchIncludesDisplayedNumber(trip, query)) return true;
+  if (invoiceTripSearchIncludesTripId(trip, query)) return true;
   const tripDate = new Date(trip.date);
   const dateLabel = Number.isNaN(tripDate.getTime())
     ? trip.date
@@ -246,6 +251,9 @@ function invoiceTripMatchesSearch(trip: InvoicingTripView, query: string): boole
     trip.digitalPodPresent ? "soft pod digital" : "soft pending",
     trip.physicalPodReceived ? "hard pod received" : "hard pending",
     trip.trip_number,
+    trip.trip_operational_code,
+    trip.trip_code,
+    trip.display_trip_id,
     tripListLrLabel(trip),
   ]
     .filter(Boolean)
@@ -515,6 +523,7 @@ export function InvoicingExecuteScreen({
   const manualIssueKey = useRef(
     `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   );
+  const hydratedManualDraftId = useRef<string | null>(null);
 
   useEffect(() => {
     const compose = Array.isArray(createParams.compose)
@@ -523,6 +532,24 @@ export function InvoicingExecuteScreen({
     if (compose === "manual") setComposeMode("manual");
     if (pathname.endsWith("/manual")) setComposeMode("manual");
   }, [createParams.compose, pathname]);
+
+  useEffect(() => {
+    if (composeMode !== "manual") return;
+    const paramDraft = parseCreateClientParam(createParams.draft);
+    if (!paramDraft || hydratedManualDraftId.current === paramDraft) return;
+    const saved = draftInvoices.find((row) => row.id === paramDraft);
+    if (!saved || invoiceSourceLabel(saved.invoice_source) !== "Manual") return;
+    if (manualDraftId && manualDraftId !== paramDraft) return;
+    const savedDate = manualInvoiceDateFromSaved(saved.invoice_date);
+    if (savedDate) setManualInvoiceDate(savedDate);
+    const parsed = parseSavedInvoiceLines(saved.line_items);
+    if (parsed.length > 0) {
+      setManualLines(manualLinesFromSavedItems(parsed));
+      setManualBuiltLines(parsed);
+    }
+    setManualDraftId(saved.id);
+    hydratedManualDraftId.current = paramDraft;
+  }, [composeMode, createParams.draft, draftInvoices, manualDraftId]);
 
   useEffect(() => {
     if (invoiceSurface !== "issued") return;
@@ -1089,6 +1116,7 @@ export function InvoicingExecuteScreen({
           taxSnapshot: manualDraftModel.tax.snapshot,
           draftId: manualDraftId,
           invoiceNumber: options?.invoiceNumber,
+          invoiceDate: manualInvoiceDate,
         };
         if (mode === "draft") {
           const res = await saveManualInvoiceDraft(shared);
@@ -1127,6 +1155,7 @@ export function InvoicingExecuteScreen({
       manualClientName,
       manualDraftId,
       manualDraftModel,
+      manualInvoiceDate,
       manualPo,
       manualTerms,
       orgId,
@@ -1911,6 +1940,9 @@ export function InvoicingExecuteScreen({
         const parsed = parseSavedInvoiceLines(draft.line_items);
         setComposeMode("manual");
         setManualDraftId(draft.id);
+        const savedDate = manualInvoiceDateFromSaved(draft.invoice_date);
+        if (savedDate) setManualInvoiceDate(savedDate);
+        hydratedManualDraftId.current = draft.id;
         if (parsed.length > 0) {
           setManualLines(manualLinesFromSavedItems(parsed));
           setManualBuiltLines(parsed);
@@ -2080,10 +2112,7 @@ export function InvoicingExecuteScreen({
       </View>
     );
   }
-  if (tripsLoading && !tripsStuck) {
-    return <CenteredLoadingView message="Syncing with Supabase..." />;
-  }
-  if (tripsLoading && tripsStuck) {
+  if (tripsLoading && tripsStuck && allTrips.length === 0) {
     return (
       <View
         style={[
@@ -2652,7 +2681,7 @@ export function InvoicingExecuteScreen({
                   onLinesBuilt={setManualBuiltLines}
                 />
               ) : (
-                <View style={{ flex: 1 }}>
+                <View style={styles.tripSelectPane}>
                 <InvoiceCreationStepper
                   stage={creationStage}
                   onStage={setCreationStage}
@@ -2722,6 +2751,7 @@ export function InvoicingExecuteScreen({
                   setStartDate={setStartDate}
                   endDate={endDate}
                   setEndDate={setEndDate}
+                  tripsLoading={tripsLoading}
                   isRefetching={isRefetching}
                   refetch={refetch}
                   mobileBottomPad={0}
@@ -3090,6 +3120,7 @@ export function InvoicingExecuteScreen({
                 setStartDate={setStartDate}
                 endDate={endDate}
                 setEndDate={setEndDate}
+                tripsLoading={tripsLoading}
                 isRefetching={isRefetching}
                 refetch={refetch}
                 mobileBottomPad={mobileBottomPad}
@@ -3348,6 +3379,7 @@ export function InvoicingExecuteScreen({
                     setStartDate={setStartDate}
                     endDate={endDate}
                     setEndDate={setEndDate}
+                    tripsLoading={tripsLoading}
                     isRefetching={isRefetching}
                     refetch={refetch}
                     mobileBottomPad={mobileBottomPad}
@@ -3718,6 +3750,7 @@ type TripListContentProps = {
   isTripInvoiceable: (trip: InvoicingTripView) => boolean;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
+  tripsLoading: boolean;
   isRefetching: boolean;
   refetch: () => void;
   startDate: string;
@@ -3760,6 +3793,7 @@ function TripListContent({
   isTripInvoiceable,
   searchQuery,
   setSearchQuery,
+  tripsLoading,
   isRefetching,
   refetch,
   startDate,
@@ -3951,7 +3985,7 @@ function TripListContent({
   );
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={styles.tripListRoot}>
       {compact ? null : (
       <View
         style={[
@@ -4126,6 +4160,7 @@ function TripListContent({
       <FlatList
         data={visibleTrips}
         keyExtractor={(item) => item.id}
+        style={styles.tripListScroll}
         {...tabBarScrollProps}
         refreshing={isRefetching}
         onRefresh={refetch}
@@ -4146,12 +4181,18 @@ function TripListContent({
             />
             <>
               <Text style={styles.emptyTitle}>
-                {sheetFilterCount > 0 ? "No trips match these filters" : "No Active Transactions"}
+                {tripsLoading
+                  ? "Loading trips"
+                  : sheetFilterCount > 0
+                    ? "No trips match these filters"
+                    : "No Active Transactions"}
               </Text>
               <Text style={styles.emptySubTitle}>
-                {sheetFilterCount > 0
-                  ? "Clear a column filter to see more trips."
-                  : "Select any trips to include on the invoice."}
+                {tripsLoading
+                  ? "Billable trips will appear here as they sync."
+                  : sheetFilterCount > 0
+                    ? "Clear a column filter to see more trips."
+                    : "Select any trips to include on the invoice."}
               </Text>
             </>
           </View>
@@ -4280,7 +4321,7 @@ function TripListContent({
                   {tripListLrLabel(trip)}
                 </Text>
               </View>
-              <View style={{ flex: 1.5 }}>
+              <View style={{ flex: 1.5, minWidth: 0 }}>
                 <Text style={styles.tripSupplier} numberOfLines={1}>
                   {displayOperationalField(trip.supplier_name)}
                 </Text>
@@ -4289,7 +4330,7 @@ function TripListContent({
                 </Text>
               </View>
 
-              <View style={{ flex: 2 }}>
+              <View style={{ flex: 2, minWidth: 0 }}>
                 <Text style={styles.tripRoute} numberOfLines={1}>
                   {trip.route}
                 </Text>
@@ -4948,7 +4989,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
-  mobileGridArea: { flex: 1, backgroundColor: "#f8f9fa" },
+  mobileGridArea: { flex: 1, minHeight: 0, backgroundColor: "#f8f9fa" },
+  tripSelectPane: { flex: 1, minHeight: 0, minWidth: 0 },
+  tripListRoot: { flex: 1, minHeight: 0, minWidth: 0, width: "100%" },
+  tripListScroll: { flex: 1, minHeight: 0 },
 
   listHeader: {
     paddingHorizontal: 16,

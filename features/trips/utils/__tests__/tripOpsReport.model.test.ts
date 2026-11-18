@@ -57,7 +57,7 @@ function trip(partial: Partial<TripRow> & { id: string }): TripRow {
 }
 
 describe("tripOpsReport.model", () => {
-  it("keeps the All Trips 20-column contract", () => {
+  it("keeps the All Trips 19-column contract (no ETA)", () => {
     expect(TRIP_OPS_REPORT_COLUMNS.map((c) => c.label)).toEqual([
       "ID",
       "TRIP ID",
@@ -75,7 +75,6 @@ describe("tripOpsReport.model", () => {
       "ASSIGNED DATE",
       "PICKUP",
       "IN-TRANSIT",
-      "ETA",
       "ARRIVED AT DROP OFF",
       "DELIVERED",
       "POD soft copy uploaded by",
@@ -280,7 +279,7 @@ describe("tripOpsReport.model", () => {
     const sheet = wb.Sheets["All Trips"];
     expect(sheet.A1?.v).toBe("ID");
     expect(sheet.L1?.v).toBe("KM");
-    expect(sheet.T1?.v).toBe("POD soft copy uploaded by");
+    expect(sheet.S1?.v).toBe("POD soft copy uploaded by");
     expect(sheet.A2?.v).toBe("IND-7");
     expect(sheet.L2?.v).toBe(120);
     expect(sheet.A1?.s?.fill?.fgColor?.rgb).toBe("B4C6E7");

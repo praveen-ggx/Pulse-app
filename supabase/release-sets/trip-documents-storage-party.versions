@@ -1,1 +1,4 @@
+# HISTORICAL — do not run. 20271012203000 is in FROZEN.versions (2026-11-17):
+# applying it would revert fn_trip_documents_storage_allowed to an older body.
+# The push tool refuses this set. Superseded by 20271117090000 (PR #124).
 20271012203000

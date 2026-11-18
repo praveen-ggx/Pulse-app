@@ -44,6 +44,14 @@ describe('formatMarketplaceTransactionError submit_market_bid indent checks', ()
   });
 });
 
+describe('formatMarketplaceTransactionError bid expiry', () => {
+  it('maps bid_expired without leaking the raw database text', () => {
+    expect(
+      formatMarketplaceTransactionError('bid_expired: bid 3f2c is no longer acceptable'),
+    ).toBe('This bid has expired and can no longer be accepted.');
+  });
+});
+
 describe('formatMarketplaceTransactionError quote checks', () => {
   it('maps quote_locked to a countered-or-decided message', () => {
     expect(

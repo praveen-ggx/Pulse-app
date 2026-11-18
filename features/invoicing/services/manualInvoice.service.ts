@@ -9,6 +9,7 @@ import type {
 import { round2 } from "@/features/invoicing/services/invoiceTax.service";
 import { draftInvoiceNumber } from "@/features/invoicing/utils/invoiceLifecycle.util";
 import { invoiceHsnIssueBlock } from "@/features/invoicing/utils/invoiceLineHsn.util";
+import { resolveSavedManualInvoiceDate } from "@/features/invoicing/utils/financeInvoicePreview.util";
 
 function toAppError(e: unknown): Error {
   return e instanceof Error ? e : new Error(String(e));
@@ -34,6 +35,8 @@ export type ManualInvoicePersistArgs = {
   draftId?: string | null;
   /** Used only when the draft is first created. Later saves leave the number alone. */
   invoiceNumber?: string | null;
+  /** Edited invoice date. A valid day is stored; empty or invalid becomes today. */
+  invoiceDate?: string | null;
 };
 
 export async function saveManualInvoiceDraft(
@@ -44,12 +47,14 @@ export async function saveManualInvoiceDraft(
     if (args.lineItems.length === 0) {
       throw new Error("Add at least one invoice line.");
     }
+    const invoiceDate = resolveSavedManualInvoiceDate(args.invoiceDate);
     if (args.draftId) {
       const { error } = await supabase()
         .from("invoices")
         .update({
           client_id: args.clientId,
           client_name: args.clientName,
+          invoice_date: invoiceDate,
           subtotal: round2(args.subtotal),
           gst_rate: args.gstRate,
           sgst_amount: round2(args.sgstAmount),
@@ -73,7 +78,6 @@ export async function saveManualInvoiceDraft(
     }
     const requested = args.invoiceNumber?.trim() ?? "";
     const invoiceNumber = requested && !requested.startsWith("DRAFT/") ? requested : draftInvoiceNumber();
-    const invoiceDate = new Date().toISOString().slice(0, 10);
     const { data, error } = await supabase()
       .from("invoices")
       .insert({
@@ -125,7 +129,7 @@ export async function issueManualInvoice(
     if (args.lineItems.length === 0) {
       throw new Error("Add at least one invoice line.");
     }
-    const invoiceDate = new Date().toISOString().slice(0, 10);
+    const invoiceDate = resolveSavedManualInvoiceDate(args.invoiceDate);
     const { data, error } = await supabase().rpc("issue_manual_invoice", {
       p_org_id: args.orgId,
       p_client_id: args.clientId,

@@ -1,8 +1,8 @@
 /**
- * The single commercial action for a pooled opportunity: one rate for every
- * eligible load in the pool. The bidder never picks loads. Underneath, each
- * load still receives its own per-indent bid, so outcomes are reported as
- * counts, never as load identifiers.
+ * The single commercial action for a pooled opportunity: one rate for the
+ * loads eligible now and for loads added on this lane later. The bidder
+ * never picks loads. Underneath, each load still receives its own per-indent
+ * bid, and the shipper accepts each one. Outcomes are reported as counts.
  */
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
@@ -119,7 +119,8 @@ export function PoolBidPanel({
       <Text style={styles.eyebrow}>COMMERCIAL</Text>
       <Text style={styles.title}>Your rate for this pooled opportunity</Text>
       <Text style={styles.body}>
-        Submit one rate for all eligible loads in this pool.
+        One rate for the loads these shippers have open now, and for loads added
+        on this lane over the next 48 hours. Each shipper accepts its own bid.
       </Text>
 
       <View style={styles.statRow}>
@@ -132,9 +133,11 @@ export function PoolBidPanel({
           </Text>
         </View>
         {range ? (
-          <View style={[styles.stat, styles.statEnd]}>
+          <View style={[styles.stat, styles.statTarget]}>
             <Text style={styles.statLabel}>Shipper target</Text>
-            <Text style={[styles.statValue, styles.statRate]}>{range}</Text>
+            <Text style={[styles.statValue, styles.statRate]} numberOfLines={1}>
+              {range}
+            </Text>
           </View>
         ) : null}
       </View>
@@ -167,8 +170,8 @@ export function PoolBidPanel({
         <Text style={styles.note}>Your role can view this pool but can't bid.</Text>
       ) : !preparing && !blockedReason && eligibleCount > 0 ? (
         <Text style={styles.note}>
-          Your rate will be submitted for all {plural(eligibleCount, "eligible load")} in
-          this pool. The shipper reviews bids; nothing is awarded until the shipper
+          Your rate covers these {plural(eligibleCount, "eligible load")} only. Each
+          shipper reviews their own load. Nothing is awarded until that shipper
           accepts.
         </Text>
       ) : null}
@@ -177,9 +180,11 @@ export function PoolBidPanel({
 
       <View style={styles.divider} />
       <Text style={styles.eyebrow}>ELIGIBILITY</Text>
-      <EligibilityRow ok={canBidCapability} label="Bidding access" />
-      <EligibilityRow ok={fitsFleet} label="Vehicle type in your fleet" />
-      <EligibilityRow ok={eligibleCount > 0} label="Loads open for your bid" />
+      <View style={styles.eligGrid}>
+        <EligibilityRow ok={canBidCapability} label="Bidding access" />
+        <EligibilityRow ok={fitsFleet} label="Vehicle type in your fleet" />
+        <EligibilityRow ok={eligibleCount > 0} label="Loads open for your bid" />
+      </View>
       <Text style={styles.note}>Competing bids are not shown to bidders.</Text>
     </View>
   );
@@ -189,10 +194,20 @@ const styles = StyleSheet.create({
   wrap: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
+    borderColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
-    padding: 20,
+    padding: 16,
     gap: 10,
+    ...Platform.select({
+      web: { boxShadow: "0 2px 8px rgba(15, 23, 42, 0.05)" } as object,
+      default: {
+        shadowColor: "#0f172a",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 6,
+        elevation: 1,
+      },
+    }),
   },
   eyebrow: {
     fontSize: 11,
@@ -210,9 +225,10 @@ const styles = StyleSheet.create({
     ...WEB_COPY,
   },
   body: {
-    fontSize: 13,
-    color: Theme.textSecondary,
-    lineHeight: 18,
+    fontSize: 14,
+    fontWeight: "500",
+    color: Theme.textPrimary,
+    lineHeight: 20,
     ...WEB_COPY,
   },
   statRow: { flexDirection: "row", gap: 10, marginTop: 4 },
@@ -220,14 +236,17 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 4,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: Theme.analyticsCanvas,
+    borderRadius: 12,
+    backgroundColor: Theme.surface,
     borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
+    borderColor: Theme.borderLight,
   },
-  statEnd: { alignItems: "flex-end" },
+  statTarget: {
+    backgroundColor: Theme.brandBlueSoft,
+    borderColor: Theme.brandBlue,
+  },
   statLabel: {
     fontSize: 10,
     fontWeight: "600",
@@ -250,7 +269,7 @@ const styles = StyleSheet.create({
     color: Theme.warning,
     lineHeight: 16,
   },
-  note: { fontSize: 12, color: Theme.textMuted, lineHeight: 17, ...WEB_COPY },
+  note: { fontSize: 13, fontWeight: "500", color: Theme.textPrimary, lineHeight: 18, ...WEB_COPY },
   cta: {
     marginTop: 4,
     minHeight: Layout.minTouchTargetSize,
@@ -275,7 +294,19 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surfaceBorder,
     marginVertical: 6,
   },
-  eligRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 22 },
+  eligGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  eligRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 32,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: Theme.surface,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+  },
   eligText: { fontSize: 13, color: Theme.textPrimaryDark, ...WEB_COPY },
   eligTextOff: { color: Theme.textMuted },
 });

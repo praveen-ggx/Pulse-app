@@ -90,6 +90,8 @@ module.exports = [
       // Non-shipping scratch/reference material — already excluded from tsconfig,
       // imported by nothing in app/features/lib/components.
       '_reference/**',
+      '.worktrees/**',
+      'pr109-accept/**',
     ],
   },
   {

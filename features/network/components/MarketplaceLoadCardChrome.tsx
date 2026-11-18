@@ -22,12 +22,15 @@ export function MarketplaceRouteGrid({
   pickupLabel = "Pickup",
   dropLabel = "Drop",
   viaStops = [],
+  hero = false,
 }: {
   pickup: string | null | undefined;
   drop: string | null | undefined;
   pickupLabel?: string;
   dropLabel?: string;
   viaStops?: readonly string[];
+  /** Pool page route. Larger cities, arrow lined up with the city names. */
+  hero?: boolean;
 }) {
   const via = viaStops.map((s) => s.trim()).filter(Boolean);
   const viaLabel = via.join(" · ");
@@ -35,27 +38,27 @@ export function MarketplaceRouteGrid({
     <View style={styles.routeBlock}>
       <View style={styles.routeGrid}>
         <View style={styles.routeCol}>
-          <Text style={styles.routeLabel}>{pickupLabel}</Text>
-          <View style={styles.routeStack}>
+          <Text style={[styles.routeLabel, hero && styles.routeLabelHero]}>{pickupLabel}</Text>
+          <View style={[styles.routeStack, hero && styles.routeStackHero]}>
             <RouteEndpointStack
               value={pickup}
-              primaryStyle={styles.routeCity}
+              primaryStyle={hero ? styles.routeCityHero : styles.routeCity}
               secondaryStyle={styles.routeState}
             />
           </View>
         </View>
-        <View style={styles.routeSep} pointerEvents="none" accessibilityElementsHidden>
+        <View style={[styles.routeSep, hero && styles.routeSepHero]} pointerEvents="none" accessibilityElementsHidden>
           <View style={styles.routeSepLine} />
-          <ArrowRight size={14} color={Theme.textMuted} strokeWidth={2.2} />
+          <ArrowRight size={hero ? 16 : 14} color={Theme.textMuted} strokeWidth={2.2} />
           <View style={styles.routeSepLine} />
         </View>
         <View style={[styles.routeCol, styles.routeColEnd]}>
-          <Text style={[styles.routeLabel, styles.routeLabelEnd]}>{dropLabel}</Text>
-          <View style={[styles.routeStack, styles.routeStackEnd]}>
+          <Text style={[styles.routeLabel, styles.routeLabelEnd, hero && styles.routeLabelHero]}>{dropLabel}</Text>
+          <View style={[styles.routeStack, styles.routeStackEnd, hero && styles.routeStackHero]}>
             <RouteEndpointStack
               value={drop}
               align="end"
-              primaryStyle={styles.routeCity}
+              primaryStyle={hero ? styles.routeCityHero : styles.routeCity}
               secondaryStyle={styles.routeState}
             />
           </View>
@@ -197,6 +200,9 @@ const styles = StyleSheet.create({
   routeStackEnd: {
     alignItems: "flex-end",
   },
+  routeStackHero: {
+    minHeight: 26,
+  },
   routeSep: {
     paddingTop: 16,
     width: 44,
@@ -207,6 +213,10 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     flexGrow: 0,
     alignSelf: "flex-start",
+  },
+  routeSepHero: {
+    paddingTop: 22,
+    width: 56,
   },
   routeSepLine: {
     flex: 1,
@@ -230,6 +240,13 @@ const styles = StyleSheet.create({
     textAlign: "right",
     width: "100%",
   },
+  routeLabelHero: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.7,
+    marginBottom: 6,
+    lineHeight: 14,
+  },
   routeCity: {
     fontSize: 12,
     fontWeight: "600",
@@ -240,6 +257,13 @@ const styles = StyleSheet.create({
       web: { whiteSpace: "pre-wrap" } as object,
       default: {},
     }),
+  },
+  routeCityHero: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+    lineHeight: 24,
+    letterSpacing: -0.3,
   },
   routeState: {
     marginTop: 1,

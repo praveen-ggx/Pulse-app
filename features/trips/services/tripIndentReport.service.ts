@@ -7,7 +7,7 @@ import {
   type IndentRow,
 } from "@/features/indents/services/indents.service";
 import {
-  getTripsForOrg,
+  loadHubTripKeysetRange,
   type TripRow,
 } from "@/features/trips/services/trips.service";
 import { getOrganizationMembers } from "@/features/organization/services/members.service";
@@ -16,12 +16,7 @@ import {
   salesReportDayBounds,
   salesReportIndentOrFilter,
 } from "@/features/trips/utils/salesReportWindow.util";
-import {
-  datedGetTripsForOrgCapNote,
-  GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP,
-  HUB_ALL_TIME_BOUNDS,
-  isDatedGetTripsForOrgCapped,
-} from "@/features/trips/utils/tripOrgFetch.util";
+import { HUB_ALL_TIME_BOUNDS } from "@/features/trips/utils/tripOrgFetch.util";
 import {
   buildTripIndentReportRows,
   type TripIndentReportEnrichment,
@@ -76,8 +71,9 @@ function tripMatchesReportDate(
 
 /**
  * Full Trip Ops export catalog:
- * - Trips from `get_trips_for_org` with the same date bounds as the hub
+ * - Trips from the hub keyset with the same date bounds as the hub
  *   (All time → HUB_ALL_TIME_BOUNDS), merged with seed rows, deduped by id.
+ *   A failed trip page returns no trip rows.
  * - Indents from paged owner-org scan, then the same hub date matcher.
  * Export is not limited to the current table page.
  */
@@ -111,27 +107,20 @@ export async function loadTripIndentReportCatalog(
   for (const i of seedIndents) acceptIndent(i);
 
   try {
-    const { error: tripsError, trips: rpcTrips } = await getTripsForOrg(orgId, {
+    const { error: tripsError, trips: rpcTrips } = await loadHubTripKeysetRange(orgId, {
       from: bounds.from,
       to: bounds.to,
     });
     if (tripsError) {
       return {
         error: tripsError,
-        trips: [...tripById.values()],
+        trips: [],
         indents: [...indentById.values()],
-        truncated: indentsTruncated,
-        notes,
+        truncated: true,
+        notes: [...notes, "Trip export stopped because a page did not finish."],
       };
     }
     for (const t of rpcTrips) acceptTrip(t);
-    if (isDatedGetTripsForOrgCapped(rpcTrips.length)) {
-      const capNote = datedGetTripsForOrgCapNote(rpcTrips.length);
-      notes.push(
-        capNote ??
-          `Export may be incomplete (newest ${GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP.toLocaleString("en-IN")} matching trips).`,
-      );
-    }
 
     for (let page = 0; page < MAX_PAGES; page += 1) {
       const offset = page * INDENT_PAGE;
@@ -144,7 +133,7 @@ export async function loadTripIndentReportCatalog(
           error,
           trips: [...tripById.values()],
           indents: [...indentById.values()],
-          truncated: indentsTruncated || isDatedGetTripsForOrgCapped(rpcTrips.length),
+          truncated: indentsTruncated,
           notes,
         };
       }
@@ -162,7 +151,7 @@ export async function loadTripIndentReportCatalog(
       error: null,
       trips: [...tripById.values()],
       indents: [...indentById.values()],
-      truncated: indentsTruncated || isDatedGetTripsForOrgCapped(rpcTrips.length),
+      truncated: indentsTruncated,
       notes,
     };
   } catch (e) {

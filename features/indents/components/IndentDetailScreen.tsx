@@ -131,6 +131,8 @@ import {
   revokeIndentAward,
 } from "@/features/network/services/marketBids.service";
 import { formatMarketplaceTransactionError } from "@/features/marketplace/utils/marketplaceErrorFormat.util";
+import { useMarketBidNow } from "@/features/network/hooks/useMarketBidNow";
+import { isMarketBidExpiredError } from "@/features/network/utils/marketBidExpiry.util";
 import {
   awardRevokePresentation,
   TEST_FEE_REVOKE_REASON,
@@ -455,6 +457,14 @@ export function IndentDetailScreen({
   const marketBidsQ = useMarketBidsForIndentQuery(
     isLikelyOwner && !hideCommercials ? indentId : null,
   );
+  const refetchMarketBids = marketBidsQ.refetch;
+  const refreshMarketBids = useCallback(() => {
+    void refetchMarketBids();
+  }, [refetchMarketBids]);
+  const { nowMs: marketBidNowMs, noteServerExpired } = useMarketBidNow(
+    marketBidsQ.data ?? [],
+    refreshMarketBids,
+  );
   const quotes = useMemo(
     () =>
       mergeIndentReviewHubOffers({
@@ -462,8 +472,9 @@ export function IndentDetailScreen({
         directQuotes,
         driverBids: driverDirectBidsQ.data,
         marketBids: marketBidsQ.data,
+        nowMs: marketBidNowMs,
       }),
-    [indentId, directQuotes, driverDirectBidsQ.data, marketBidsQ.data],
+    [indentId, directQuotes, driverDirectBidsQ.data, marketBidsQ.data, marketBidNowMs],
   );
   const quotesLoading =
     (directQuotesPending && !directQuotesFetched) ||
@@ -628,6 +639,10 @@ export function IndentDetailScreen({
       );
       const winner = pendingQuotes.find((q) => q.id === targetId);
       if (!winner) {
+        if (quotes.some((q) => q.id === targetId && q.status === "expired")) {
+          Alert.alert("Bid expired", formatMarketplaceTransactionError("bid_expired"));
+          return;
+        }
         Alert.alert(
           "Invalid selection",
           "Please select a pending offer to award.",
@@ -643,6 +658,8 @@ export function IndentDetailScreen({
         setAwarding(true);
         setSelectedQuoteId(winner.id);
         const source = winner.offer_source ?? "direct_quote";
+        // award_market_bid already sets indents.status = 'awarded' on the server.
+        let needsClientIndentStatus = true;
         if (source === "driver_direct_bid") {
           const { acceptDriverDirectBid } = await import(
             "@/features/network/services/bids.service"
@@ -658,8 +675,21 @@ export function IndentDetailScreen({
           );
           const { error: acceptErr } = await awardMarketBid(winner.id);
           if (acceptErr) {
+            if (isMarketBidExpiredError(acceptErr.message)) {
+              noteServerExpired(winner.expires_at);
+              refreshMarketBids();
+              setSelectedQuoteId(null);
+              Alert.alert("Bid expired", formatMarketplaceTransactionError(acceptErr.message));
+              return;
+            }
             Alert.alert("Could not award", acceptErr.message);
             return;
+          }
+          needsClientIndentStatus = false;
+          if (orgId) {
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.findLoadsForOrg.myBids(orgId),
+            });
           }
         } else {
           const { error: acceptErr } = await updateDirectQuoteStatus(
@@ -684,15 +714,17 @@ export function IndentDetailScreen({
         // Status only — bundling supplier_target here fails on broadcast indents
         // (enforce_indent_draft_broadcast_rules blocks commercial edits), which
         // used to leave awards stuck at broadcast after the quote was accepted.
-        const { error: indentErr } = await updateIndent(indentId, {
-          status: "awarded",
-        });
-        if (indentErr) {
-          Alert.alert(
-            "Quote accepted but status update failed",
-            indentErr.message +
-              "\n\nThe quote was accepted. The supplier can assign and deploy from Claimed.",
-          );
+        if (needsClientIndentStatus) {
+          const { error: indentErr } = await updateIndent(indentId, {
+            status: "awarded",
+          });
+          if (indentErr) {
+            Alert.alert(
+              "Quote accepted but status update failed",
+              indentErr.message +
+                "\n\nThe quote was accepted. The supplier can assign and deploy from Claimed.",
+            );
+          }
         }
         const clientRate = Number(indent.client_price ?? 0);
         const margin = clientRate > 0 ? clientRate - awardedAmount : 0;
@@ -734,6 +766,8 @@ export function IndentDetailScreen({
       queryClient,
       load,
       refetchQuotes,
+      refreshMarketBids,
+      noteServerExpired,
     ],
   );
 
@@ -747,6 +781,10 @@ export function IndentDetailScreen({
           q.id === targetId && (q.status || "").toLowerCase() === "pending",
       );
       if (!winner) {
+        if (quotes.some((q) => q.id === targetId && q.status === "expired")) {
+          Alert.alert("Bid expired", formatMarketplaceTransactionError("bid_expired"));
+          return;
+        }
         Alert.alert(
           "Invalid selection",
           "Please select a pending offer to award.",

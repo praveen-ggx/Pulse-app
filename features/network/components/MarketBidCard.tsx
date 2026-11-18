@@ -13,11 +13,14 @@ import { EntityAvatar } from "@/components/EntityAvatar";
 import Theme from "@/constants/Theme";
 import { indentHubCardShadow } from "@/features/indents/styles/indentReviewHubStyles";
 import type { MarketBidForIndentRow } from "@/features/network/services/marketBids.service";
+import { marketBidExpiryView } from "@/features/network/utils/marketBidExpiry.util";
 import { formatINR } from "@/lib/format";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 
 export interface MarketBidCardProps {
   bid: MarketBidForIndentRow;
+  /** Clock for expiry display; defaults to the device time at render. */
+  nowMs?: number;
   busy?: boolean;
   onAccept?: () => void;
   onReject?: () => void;
@@ -48,12 +51,15 @@ function vehicleSummary(bid: MarketBidForIndentRow): string | null {
 
 export const MarketBidCard = memo(function MarketBidCard({
   bid,
+  nowMs,
   busy = false,
   onAccept,
   onReject,
 }: MarketBidCardProps) {
   const status = (bid.status || "pending").toLowerCase();
-  const isPending = status === "pending";
+  const expiry = marketBidExpiryView(bid, nowMs ?? Date.now());
+  const isExpired = expiry.kind === "expired";
+  const isPending = status === "pending" && !isExpired;
   const isAccepted = status === "accepted";
   const isRejected = status === "rejected";
   // A6.4: 'superseded' is neither a business decision (rejected) nor a
@@ -69,9 +75,11 @@ export const MarketBidCard = memo(function MarketBidCard({
         ? "Withdrawn"
           : isSuperseded
             ? "Deal lost"
-            : isPending
-            ? "Pending"
-            : status;
+            : isExpired
+              ? "Expired"
+              : isPending
+                ? "Pending"
+                : status;
 
   const amountDisplay = stripCurrencyPrefix(formatINR(Number(bid.amount ?? 0)));
   const submitted = timeAgo(bid.created_at);
@@ -172,12 +180,42 @@ export const MarketBidCard = memo(function MarketBidCard({
       ) : null}
 
       <View style={styles.footerRow}>
-        {submitted ? (
-          <Text style={styles.submittedText}>{submitted}</Text>
-        ) : (
-          <View />
-        )}
-        {isPending && (onAccept || onReject) ? (
+        <View style={styles.footerMeta}>
+          {submitted ? <Text style={styles.submittedText}>{submitted}</Text> : null}
+          {expiry.kind !== "none" ? (
+            <Text
+              style={[styles.expiryText, isExpired && styles.expiryTextExpired]}
+              numberOfLines={1}
+            >
+              {expiry.label}
+            </Text>
+          ) : null}
+        </View>
+        {isExpired && onAccept ? (
+          <View style={styles.actionsRow}>
+            {onReject ? (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.rejectBtn]}
+                onPress={onReject}
+                disabled={busy}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Reject this Market bid"
+              >
+                <Text style={styles.rejectBtnText}>Reject</Text>
+              </TouchableOpacity>
+            ) : null}
+            <View
+              style={[styles.actionBtn, styles.acceptBtn, styles.actionBtnDisabled]}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: true }}
+              accessibilityLabel="Accept unavailable, bid expired"
+              testID="market-bid-accept-disabled"
+            >
+              <Text style={styles.acceptBtnText}>Accept</Text>
+            </View>
+          </View>
+        ) : isPending && (onAccept || onReject) ? (
           <View style={styles.actionsRow}>
             {onReject ? (
               <TouchableOpacity
@@ -337,6 +375,20 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "500",
     color: Theme.gpayListSubtitle,
+  },
+  footerMeta: {
+    flexShrink: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  expiryText: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: Theme.gpayListSubtitle,
+  },
+  expiryTextExpired: {
+    fontWeight: "700",
+    color: Theme.negative,
   },
   actionsRow: {
     flexDirection: "row",

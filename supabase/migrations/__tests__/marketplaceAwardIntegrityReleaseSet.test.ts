@@ -21,7 +21,7 @@ function parse() {
 describe("marketplace-award-integrity release set", () => {
   it("lists only the award state-machine migration", () => {
     const { versions } = parse();
-    expect(versions).toEqual(["20271114202000"]);
+    expect(versions).toEqual(["20271118213000"]);
     expect(versions.every((version) => !version.endsWith("000000"))).toBe(true);
   });
 

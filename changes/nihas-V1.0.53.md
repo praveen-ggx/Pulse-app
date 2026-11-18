@@ -19,7 +19,8 @@ Branched from V1 `83d800a2` on 2026-11-16 (fix isolated from the parked V1.0.51 
 - scripts/fix-marketplace-stale-quotes-backfill.sql (one-time, not in the release set)
 
 ## Migrations
-- 20271114202000_marketplace_award_state_integrity (release set `marketplace-award-integrity`). Not yet on preprod or prod. Schema before code: preprod must have it before this UI reaches gx-pulse.
+- 20271118213000_marketplace_award_state_integrity (release set `marketplace-award-integrity`). Not yet on preprod or prod. Schema before code: preprod must have it before this UI reaches gx-pulse.
+- Re-stamped from 20271114202000 to 20271118213000 (2026-11-18): V1 now has newer migrations (up to 20271118203000), so the old version would apply out of order. SQL unchanged (sha256 3092490a…). The old version was never applied on preprod or prod.
 - Backfill: scripts/fix-marketplace-stale-quotes-backfill.sql (expected 64 rows). Run once, after review, with the owner's GO.
 
 ## Tested

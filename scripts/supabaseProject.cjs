@@ -7,6 +7,11 @@
  *
  * There is no silent fallback. A missing target does not use .env, because
  * .env on a developer machine may be a cloud project.
+ *
+ * Netlify production context means production, with one named exception:
+ * the site whose SITE_NAME is exactly "gx-pulse" builds V1 for preprod in its
+ * production context. That site is locked to preprod. Every other site name,
+ * including an unset one, stays locked to production.
  */
 "use strict";
 
@@ -17,6 +22,8 @@ const PREPROD_REF = "xbisiveavvbifbzyfhgy";
 const PRODUCTION_REF = "nafxpivddesgsrthmosv";
 const PREPROD_URL = `https://${PREPROD_REF}.supabase.co`;
 const TARGETS = new Set(["local", "preprod", "production"]);
+/** Netlify SITE_NAME of the preprod site (gx-pulse.netlify.app). Exact match only. */
+const PREPROD_NETLIFY_SITE = "gx-pulse";
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "10.0.2.2", "::1"]);
 
 function hostOf(url) {
@@ -84,6 +91,7 @@ function readTargetFile(projectRoot) {
  *   processEnv?: Record<string, string | undefined>,
  *   isCI?: boolean,
  *   netlifyContext?: string,
+ *   netlifySiteName?: string,
  * }} input
  */
 function resolveSupabaseProject(input) {
@@ -91,6 +99,7 @@ function resolveSupabaseProject(input) {
   const local = input.local || {};
   const processEnv = input.processEnv || {};
   const netlifyContext = String(input.netlifyContext || "");
+  const netlifySiteName = String(input.netlifySiteName || "");
   const requested = String(
     input.explicitTarget || processEnv.PULSE_SUPABASE_TARGET || "",
   )
@@ -105,10 +114,17 @@ function resolveSupabaseProject(input) {
       );
     }
     selected = "preprod";
+  } else if (netlifyContext === "production" && netlifySiteName === PREPROD_NETLIFY_SITE) {
+    if (requested && requested !== "preprod") {
+      throw new Error(
+        `Netlify site ${PREPROD_NETLIFY_SITE} cannot use Supabase target "${requested}". It is locked to preprod ${PREPROD_REF}.`,
+      );
+    }
+    selected = "preprod";
   } else if (netlifyContext === "production") {
     if (requested && requested !== "production") {
       throw new Error(
-        `Production deploy cannot use Supabase target "${requested}". It is locked to ${PRODUCTION_REF}.`,
+        `Production deploy cannot use Supabase target "${requested}". It is locked to ${PRODUCTION_REF} (SITE_NAME ${netlifySiteName || "unset"}).`,
       );
     }
     selected = "production";
@@ -180,7 +196,8 @@ function resolveSupabaseProject(input) {
   const actual = classifySupabaseUrl(url);
   if (actual !== selected) {
     throw new Error(
-      `Supabase target is ${selected} but ${url || "(empty)"} is ${actual}. Refusing to send authentication to a different project.`,
+      `Supabase target is ${selected} but ${url || "(empty)"} is ${actual}. Refusing to send authentication to a different project.` +
+        (netlifyContext ? ` (Netlify context ${netlifyContext}, SITE_NAME ${netlifySiteName || "unset"})` : ""),
     );
   }
 
@@ -265,13 +282,20 @@ function loadSupabaseProject(projectRoot, env = process.env) {
     processEnv: env,
     isCI: env.CI === "true",
     netlifyContext: env.CONTEXT || env.EXPO_PUBLIC_NETLIFY_CONTEXT || "",
+    netlifySiteName: env.SITE_NAME || "",
   });
+  if (env.CONTEXT) {
+    console.log(
+      `[pulse][config] Netlify context ${env.CONTEXT}, SITE_NAME ${env.SITE_NAME || "unset"} -> Supabase ${resolved.target} (${resolved.projectRef})`,
+    );
+  }
   applySupabaseProject(env, resolved);
   syncClientEnvOverride(projectRoot, resolved);
   return resolved;
 }
 
 module.exports = {
+  PREPROD_NETLIFY_SITE,
   PREPROD_REF,
   PRODUCTION_REF,
   classifySupabaseUrl,

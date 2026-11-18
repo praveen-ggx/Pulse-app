@@ -44,6 +44,7 @@ import {
 import { downloadTripOpsReportExcel } from "@/features/trips/utils/tripOpsReportExport.util";
 import {
   buildTripIndentReport,
+  loadSalesReportWindow,
   loadTripIndentReportCatalog,
 } from "@/features/trips/services/tripIndentReport.service";
 import { shouldShowAggregateTripKindPill } from "@/features/drivers/utils/driverUtils.util";
@@ -3106,6 +3107,38 @@ export default function TripsScreen() {
     }, 20_000);
     try {
       const audience = resolveTripIndentReportAudience(memberDomains);
+
+      // The export can include trips not loaded on screen. Resolve supplier
+      // names for all of them (not just the on-screen list) so SUPPLIER isn't blank.
+      const partyMetaForExport = async (
+        exportTrips: Parameters<typeof buildTripHubPartyMetaByTripId>[0],
+      ) => {
+        const knownSupplierIds = new Set(
+          suppliers.map((s) => String(s.id ?? "").trim().toLowerCase()),
+        );
+        const missingSupplierIds = exportTrips
+          .map((t) => String(t.supplier_id ?? "").trim().toLowerCase())
+          .filter((id) => id && !knownSupplierIds.has(id) && !supplierNameFallbackById[id]);
+        const exportSupplierNames: Record<string, string> = {
+          ...supplierNameById,
+          ...(await fetchSupplierNamesByIds(missingSupplierIds)),
+        };
+        return buildTripHubPartyMetaByTripId(
+          exportTrips,
+          clients,
+          suppliersForHubParty,
+          drivers,
+          transactions,
+          exportSupplierNames,
+          {
+            viewerOrgId: orgId,
+            subcontracts: hubTripSubcontracts,
+            driverImageById,
+          },
+        );
+      };
+
+      if (audience === "tripops") {
       const catalog = await loadTripIndentReportCatalog(
         orgId,
         hubTrips,
@@ -3126,33 +3159,8 @@ export default function TripsScreen() {
       }
       const scopedTrips = sourcingScope.filterTrips(catalog.trips);
 
-      // The export can include trips not loaded on screen. Resolve supplier
-      // names for all of them (not just the on-screen list) so SUPPLIER isn't blank.
-      const knownSupplierIds = new Set(
-        suppliers.map((s) => String(s.id ?? "").trim().toLowerCase()),
-      );
-      const missingSupplierIds = scopedTrips
-        .map((t) => String(t.supplier_id ?? "").trim().toLowerCase())
-        .filter((id) => id && !knownSupplierIds.has(id) && !supplierNameFallbackById[id]);
-      const exportSupplierNames: Record<string, string> = {
-        ...supplierNameById,
-        ...(await fetchSupplierNamesByIds(missingSupplierIds)),
-      };
-      const exportPartyMetaByTripId = buildTripHubPartyMetaByTripId(
-        scopedTrips,
-        clients,
-        suppliersForHubParty,
-        drivers,
-        transactions,
-        exportSupplierNames,
-        {
-          viewerOrgId: orgId,
-          subcontracts: hubTripSubcontracts,
-          driverImageById,
-        },
-      );
+      const exportPartyMetaByTripId = await partyMetaForExport(scopedTrips);
 
-      if (audience === "tripops") {
         const tripIds = scopedTrips.map((t) => t.id);
         const indentCreatedAtByIndentId: Record<string, string> = {};
         for (const indent of catalog.indents) {
@@ -3213,13 +3221,22 @@ export default function TripsScreen() {
         return;
       }
 
-      const scopedIndents = sourcingScope.filterIndents(catalog.indents);
-      const driverPhoneByTripId = await loadDriverPhonesByTripId(scopedTrips);
+      const salesWindow = await loadSalesReportWindow(orgId, exportFrom, exportTo);
+      if (salesWindow.error) {
+        showAppAlert(
+          "Export failed",
+          salesWindow.error.message || "Could not load indents for the selected date range.",
+        );
+        return;
+      }
+      const salesTrips = sourcingScope.filterTrips(salesWindow.trips);
+      const salesIndents = sourcingScope.filterIndents(salesWindow.indents);
+      const driverPhoneByTripId = await loadDriverPhonesByTripId(salesTrips);
       const { error, rows, warnings } = await buildTripIndentReport({
         orgId,
-        trips: scopedTrips,
-        indents: scopedIndents,
-        partyMetaByTripId: exportPartyMetaByTripId,
+        trips: salesTrips,
+        indents: salesIndents,
+        partyMetaByTripId: await partyMetaForExport(salesTrips),
         driverPhoneByTripId,
         stageLabelForTrip: getStageLabelForTrip,
       });
@@ -3227,7 +3244,7 @@ export default function TripsScreen() {
         showAppAlert("Export failed", error.message || "Could not build the trip report.");
         return;
       }
-      const notes: string[] = [...catalog.notes, ...warnings];
+      const notes: string[] = [...salesWindow.notes, ...warnings];
       await downloadTripIndentReportExcel(rows, {
         companyName: currentOrganization?.name ?? undefined,
         includeCosts: memberDomains.finance,
@@ -5482,7 +5499,7 @@ export default function TripsScreen() {
                   key: column.key,
                   label: column.label,
                   align:
-                    column.key === "clientCost" || column.key === "supplierCost"
+                    column.key === "customerPrice" || column.key === "supplierPrice"
                       ? ("right" as const)
                       : ("left" as const),
                 })),

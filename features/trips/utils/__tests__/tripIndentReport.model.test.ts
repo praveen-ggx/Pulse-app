@@ -7,6 +7,7 @@ import {
   resolveIndentId,
   resolveIndentType,
   resolvePulseId,
+  reportIdentityIds,
   resolveTripIndentReportAudience,
   tripIndentReportColumnsForAccess,
   tripIndentReportFileName,
@@ -67,11 +68,14 @@ function indent(partial: Partial<IndentRow> & { id: string }): IndentRow {
 }
 
 describe("tripIndentReport.model", () => {
-  it("maps indent type from lane and circulation", () => {
+  it("marks a saved lane as Contract and everything else as Adhoc", () => {
     expect(resolveIndentType({ laneId: "lane-1" })).toBe("Contract");
-    expect(resolveIndentType({ circulationTarget: "marketplace" })).toBe("Spot");
-    expect(resolveIndentType({ circulationTarget: "both" })).toBe("Spot");
-    expect(resolveIndentType({})).toBe("ADHOC");
+    expect(resolveIndentType({ laneId: "lane-1", circulationTarget: "marketplace" })).toBe(
+      "Contract",
+    );
+    expect(resolveIndentType({ circulationTarget: "marketplace" })).toBe("Adhoc");
+    expect(resolveIndentType({ circulationTarget: "both" })).toBe("Adhoc");
+    expect(resolveIndentType({})).toBe("Adhoc");
   });
 
   it("formats tonnage from capacity, load tons, or indent kg", () => {
@@ -127,15 +131,50 @@ describe("tripIndentReport.model", () => {
       "org-1",
     );
     expect(rows).toHaveLength(2);
-    expect(rows[0]?.pulseId).toBe("GGV234ABCTRIP000009");
+    expect(rows[0]?.serial).toBe(1);
+    expect(rows[0]?.indentId).toBe("IND001");
+    expect(rows[0]?.pulseId).toBe("GGV234ABCIND000001");
     expect(rows[0]?.tripId).toBe("TRP-9");
-    expect(rows[0]?.status).toBe("assigned");
+    expect(rows[0]?.pulseId).not.toBe("GGV234ABCTRIP000009");
+    expect(rows[0]?.status).toBe("Assigned");
+    expect(rows[1]?.serial).toBe(2);
     expect(rows[1]?.pulseId).toBe("GGV234ABCIND000002");
     expect(rows[1]?.tripId).toBe("");
-    expect(rows[1]?.status).toBe("Pending");
+    expect(rows[1]?.status).toBe("Created");
   });
 
-  it("keeps confirmed date blank for pending indents and shows Pulse ID without Trip ID", () => {
+  it("shows the indent creator, not the person who later created the trip", () => {
+    const rows = buildTripIndentReportRows(
+      [
+        trip({
+          id: "t1",
+          indent_id: "i1",
+          created_by_user_id: "praveen",
+          created_at: "2026-11-16T10:00:00.000Z",
+        }),
+      ],
+      [
+        indent({
+          id: "i1",
+          created_by_user_id: "sandra",
+          created_at: "2026-09-04T04:30:00.000Z",
+        }),
+      ],
+      {
+        creatorNameByUserId: {
+          sandra: "Sandramariyamshaji",
+          praveen: "Praveen R",
+        },
+      },
+      "org-1",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.createdBy).toBe("Sandramariyamshaji");
+    expect(rows[0]?.indentDate).toBe("04 Sept 2026");
+    expect(rows[0]?.awardedDate).toBe("");
+  });
+
+  it("keeps the awarded date blank until the indent is awarded", () => {
     const rows = buildTripIndentReportRows(
       [],
       [
@@ -143,15 +182,111 @@ describe("tripIndentReport.model", () => {
           id: "i1",
           status: "broadcast",
           indent_operational_code: "GGV234ABCIND000010",
+          pickup_area: "Chennai, Tamil Nadu",
         }),
       ],
       {},
       "org-1",
     );
-    expect(rows[0]?.confirmedAt).toBe("");
-    expect(rows[0]?.status).toBe("Pending");
+    expect(rows[0]?.awardedDate).toBe("");
+    expect(rows[0]?.status).toBe("Created");
+    expect(rows[0]?.region).toBe("South");
+    expect(rows[0]?.commercialType).toBe("Adhoc");
     expect(rows[0]?.pulseId).toBe("GGV234ABCIND000010");
     expect(rows[0]?.tripId).toBe("");
+  });
+
+  it("uses the stored lane for Contract even when the trip payload omitted it", () => {
+    const rows = buildTripIndentReportRows(
+      [
+        trip({
+          id: "t1",
+          indent_id: "i1",
+          vehicle_display_number: "",
+          vehicle_id: "v1",
+          status: "awarded",
+        }),
+      ],
+      [
+        indent({
+          id: "i1",
+          status: "awarded",
+          lane_id: null,
+          circulation_target: "marketplace",
+          cancel_reason: null,
+        }),
+      ],
+      {
+        laneIdByTripId: { t1: "lane-contract" },
+        vehicleById: {
+          v1: { vehicleType: "Open", capacity: "16 MT", vehicleNumber: "TN01AB1234" },
+        },
+        confirmedAtByIndentId: { i1: "2026-11-02T08:30:00.000Z" },
+      },
+      "org-1",
+    );
+    expect(rows[0]?.commercialType).toBe("Contract");
+    expect(rows[0]?.truckNumber).toBe("TN01AB1234");
+    expect(rows[0]?.status).toBe("Assigned");
+    expect(rows[0]?.awardedDate).not.toBe("");
+  });
+
+  it("uses the supplier, driver, and trip cancel category stored beside the trip", () => {
+    const rows = buildTripIndentReportRows(
+      [
+        trip({
+          id: "t1",
+          indent_id: "i1",
+          supplier_id: "sup-1",
+          supplier_name: "",
+          driver_id: "drv-1",
+          driver_display_name: "",
+          vehicle_display_number: "",
+          status: "cancelled",
+        }),
+      ],
+      [indent({ id: "i1", status: "awarded", lane_id: "lane-1" })],
+      {
+        supplierNameBySupplierId: { "sup-1": "South Haul" },
+        driverNameByDriverId: { "drv-1": "Ravi" },
+        tripCancelByTripId: { t1: { reason: "client_requested", note: "" } },
+      },
+      "org-1",
+    );
+    expect(rows[0]?.commercialType).toBe("Contract");
+    expect(rows[0]?.supplierName).toBe("South Haul");
+    expect(rows[0]?.driverName).toBe("Ravi");
+    expect(rows[0]?.status).toBe("Client requested cancellation");
+  });
+
+  it("shows the stored cancel and expiry category", () => {
+    const rows = buildTripIndentReportRows(
+      [],
+      [
+        indent({
+          id: "i1",
+          status: "cancelled",
+          cancel_reason: "wrong_entry",
+        }),
+        indent({
+          id: "i2",
+          status: "expired",
+          cancel_reason: "indent_expired",
+        }),
+        indent({
+          id: "i3",
+          status: "cancelled",
+          cancel_reason: "client_cancelled",
+        }),
+      ],
+      {},
+      "org-1",
+    );
+    expect(rows.map((row) => row.status)).toEqual([
+      "Wrong entry",
+      "Indent expired",
+      "Cancelled by client",
+    ]);
   });
 
   it("builds a dated filename", () => {
@@ -160,18 +295,33 @@ describe("tripIndentReport.model", () => {
     );
   });
 
-  it("drops cost columns when finance access is off", () => {
-    const withCosts = tripIndentReportColumnsForAccess(true);
-    const withoutCosts = tripIndentReportColumnsForAccess(false);
-    expect(withCosts).toHaveLength(TRIP_INDENT_REPORT_COLUMNS.length);
-    expect(withCosts.some((c) => c.key === "clientCost")).toBe(true);
-    expect(withCosts.some((c) => c.key === "indentId")).toBe(true);
-    expect(withCosts.some((c) => c.key === "clientRate")).toBe(false);
-    expect(withCosts.some((c) => c.key === "vendorRate")).toBe(false);
-    expect(withoutCosts.some((c) => c.key === "clientCost")).toBe(false);
-    expect(withoutCosts.some((c) => c.key === "supplierCost")).toBe(false);
-    expect(withoutCosts.some((c) => c.key === "indentId")).toBe(true);
-    expect(withoutCosts).toHaveLength(TRIP_INDENT_REPORT_COLUMNS.length - 2);
+  it("keeps the MIR columns in order, including both prices", () => {
+    const columns = tripIndentReportColumnsForAccess(false);
+    expect(columns.map((column) => column.label)).toEqual([
+      "S.No",
+      "Customer (Client Name)",
+      "Region",
+      "Adhoc / Contract",
+      "Source",
+      "Destination",
+      "Supplier Name",
+      "Truck Number",
+      "Truck Type",
+      "Ton",
+      "Driver Name",
+      "Driver Number",
+      "Indent Date",
+      "Indent Awarded Date",
+      "Customer Price",
+      "Supplier Price",
+      "Status",
+      "Indent ID",
+      "Pulse ID",
+      "Trip ID",
+      "Created By",
+    ]);
+    expect(columns).toHaveLength(TRIP_INDENT_REPORT_COLUMNS.length);
+    expect(tripIndentReportColumnsForAccess(true)).toEqual(columns);
   });
 
   it("resolves report audience from member domains (Sales wins when both)", () => {
@@ -187,6 +337,36 @@ describe("tripIndentReport.model", () => {
     expect(resolveTripIndentReportAudience({ sales: false, tripops: false })).toBe(
       "tripops",
     );
+  });
+
+  it("keeps Indent ID, Pulse ID, and Trip ID on different fields", () => {
+    expect(
+      reportIdentityIds({
+        indent: {
+          display_indent_id: "IND003359",
+          indent_number: "IND003359",
+          indent_operational_code: "SAT812GOGIND003360",
+          indent_code: "SAT812-IND-003359",
+        },
+        trip: {
+          display_trip_id: "TRP001933",
+          trip_number: "TRP001933",
+        },
+      }),
+    ).toEqual({
+      indentId: "IND003359",
+      pulseId: "SAT812GOGIND003360",
+      tripId: "TRP001933",
+    });
+    expect(
+      reportIdentityIds({
+        indent: {
+          display_indent_id: "IND003375",
+          indent_operational_code: "SAT812GOGIND003376",
+        },
+        trip: null,
+      }).tripId,
+    ).toBe("");
   });
 
   it("resolves Indent ID from display codes (never UUID)", () => {
@@ -219,9 +399,10 @@ describe("tripIndentReport.model", () => {
       {},
       "org-1",
     );
-    expect(rows[0]?.indentId).toBe("IND-7");
-    expect(rows[0]?.clientCost).toBe(20000);
-    expect(rows[0]?.supplierCost).toBe(17000);
+    expect(rows[0]?.indentId).toBe("IND001");
+    expect(rows[0]?.pulseId).toBe("GGV-IND-7");
+    expect(rows[0]?.customerPrice).toBe(20000);
+    expect(rows[0]?.supplierPrice).toBe(17000);
     expect(rows[0]?.tripId).toBeTruthy();
   });
 });

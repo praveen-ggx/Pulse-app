@@ -4,6 +4,7 @@
 - Business Sales Report includes a row only when that indent's own creation day (Asia/Kolkata) is inside the selected range.
 - Indent Date, Awarded Date, and Created By stay on the original indent. Created By is the indent creator's name from the organization roster.
 - Indent ID, Pulse ID, and Trip ID are separate columns: the indent display number, the indent operational code, and the trip display number. Trip ID is blank when no trip exists.
+- The sales indent page read awaits its query, and sales party names are built from the sales-window trips rather than the hub list.
 
 ## Why
 - A November download was including September and October indents because a later pickup or trip date matched, and Created By showed only the person who downloaded the file. The indent number and the Pulse operational code were also printed as one column.

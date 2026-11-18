@@ -115,6 +115,7 @@ import {
   displayOperationalField,
   invoiceTripOperationalSeedFromView,
   invoiceTripSearchIncludesDisplayedNumber,
+  invoiceTripSearchIncludesTripId,
   tripListLrLabel,
 } from "@/features/invoicing/utils/invoiceTripOperational.util";
 import { updateClientInvoicePodPolicy } from "@/features/clients/services/clients.service";
@@ -214,6 +215,7 @@ function invoiceTripMatchesSearch(trip: InvoicingTripView, query: string): boole
   const q = query.toLowerCase().trim();
   if (!q) return true;
   if (invoiceTripSearchIncludesDisplayedNumber(trip, query)) return true;
+  if (invoiceTripSearchIncludesTripId(trip, query)) return true;
   const tripDate = new Date(trip.date);
   const dateLabel = Number.isNaN(tripDate.getTime())
     ? trip.date
@@ -249,6 +251,9 @@ function invoiceTripMatchesSearch(trip: InvoicingTripView, query: string): boole
     trip.digitalPodPresent ? "soft pod digital" : "soft pending",
     trip.physicalPodReceived ? "hard pod received" : "hard pending",
     trip.trip_number,
+    trip.trip_operational_code,
+    trip.trip_code,
+    trip.display_trip_id,
     tripListLrLabel(trip),
   ]
     .filter(Boolean)
@@ -2676,7 +2681,7 @@ export function InvoicingExecuteScreen({
                   onLinesBuilt={setManualBuiltLines}
                 />
               ) : (
-                <View style={{ flex: 1 }}>
+                <View style={styles.tripSelectPane}>
                 <InvoiceCreationStepper
                   stage={creationStage}
                   onStage={setCreationStage}
@@ -3980,7 +3985,7 @@ function TripListContent({
   );
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={styles.tripListRoot}>
       {compact ? null : (
       <View
         style={[
@@ -4155,6 +4160,7 @@ function TripListContent({
       <FlatList
         data={visibleTrips}
         keyExtractor={(item) => item.id}
+        style={styles.tripListScroll}
         {...tabBarScrollProps}
         refreshing={isRefetching}
         onRefresh={refetch}
@@ -4315,7 +4321,7 @@ function TripListContent({
                   {tripListLrLabel(trip)}
                 </Text>
               </View>
-              <View style={{ flex: 1.5 }}>
+              <View style={{ flex: 1.5, minWidth: 0 }}>
                 <Text style={styles.tripSupplier} numberOfLines={1}>
                   {displayOperationalField(trip.supplier_name)}
                 </Text>
@@ -4324,7 +4330,7 @@ function TripListContent({
                 </Text>
               </View>
 
-              <View style={{ flex: 2 }}>
+              <View style={{ flex: 2, minWidth: 0 }}>
                 <Text style={styles.tripRoute} numberOfLines={1}>
                   {trip.route}
                 </Text>
@@ -4983,7 +4989,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
-  mobileGridArea: { flex: 1, backgroundColor: "#f8f9fa" },
+  mobileGridArea: { flex: 1, minHeight: 0, backgroundColor: "#f8f9fa" },
+  tripSelectPane: { flex: 1, minHeight: 0, minWidth: 0 },
+  tripListRoot: { flex: 1, minHeight: 0, minWidth: 0, width: "100%" },
+  tripListScroll: { flex: 1, minHeight: 0 },
 
   listHeader: {
     paddingHorizontal: 16,

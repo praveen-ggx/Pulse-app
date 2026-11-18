@@ -1,5 +1,6 @@
 import {
   buildActiveHubRailCounts,
+  hubTileBadgeCounts,
   filterHubTripsForActiveList,
   filterHubTripsForHistoryList,
   rowsForHubStatusList,
@@ -138,6 +139,23 @@ describe("Active rail", () => {
     const onlyCancelled = buildActiveHubRailCounts([trip({ status: "cancelled" })], DOCS);
     expect(onlyCancelled.delivered_docs_pending).toBe(0);
     expect(hubActiveAllTripCount(onlyCancelled)).toBe(0);
+  });
+
+  it("keeps the server unassigned total, including cancelled, without zeroing other tiles", () => {
+    const full = buildActiveHubRailCounts(SOURCE, DOCS);
+    const tilePage = buildActiveHubRailCounts(
+      [trip({ id: "cancelled", status: "cancelled", driver_id: null })],
+      DOCS,
+    );
+    const badges = hubTileBadgeCounts(tilePage, {
+      tileBucket: "unassigned",
+      tileTotal: 7,
+      preservedRail: full,
+    });
+    expect(badges.unassigned).toBe(7);
+    expect(badges.assigned).toBe(full.assigned);
+    expect(badges.loading).toBe(full.loading);
+    expect(hubActiveAllTripCount(full)).toBe(filterHubTripsForActiveList(SOURCE).length);
   });
 
   it("metric counts follow the selected date filter", () => {

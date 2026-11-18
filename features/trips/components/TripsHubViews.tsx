@@ -3,6 +3,8 @@
  * Styling aligns with fleet hub / reference; data bindings mirror TripExpandableCard.
  */
 import { PartyAvatar } from "@/components/PartyAvatar";
+import { PartyFilterSheet } from "@/components/PartyFilterSheet";
+import { SmartFilterButton } from "@/components/SmartFilterButton";
 import {
   formatHubListPaginationMeta,
   HubListPaginationBar,
@@ -53,7 +55,7 @@ import {
 import { TripsHubTripCardToolbar } from "./TripsHubTripCardToolbar";
 
 export { MOBILE_TRIP_CANVAS_BG, TripsHubMobileTripListCanvas };
-import { Building2, ChevronDown, Plus, Search, Truck, User, X } from "lucide-react-native";
+import { Building2, Calendar, ChevronDown, Plus, Search, Truck, User, X } from "lucide-react-native";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, memo, useRef, useState, type ReactNode } from "react";
 import {
     LayoutAnimation,
@@ -1108,7 +1110,7 @@ export type TripsHubTableViewProps = {
    * Lifecycle rows (e.g. INDENT cards) that belong above the trip table/cards
    * but below the shared hub toolbar.
    */
-  renderAboveBody?: ReactNode;
+  renderAboveBody?: ReactNode | ((rows: TripRow[]) => ReactNode);
   /** Hide trip table/cards while keeping the shared search/date toolbar. */
   hideBody?: boolean;
   /** Override the toolbar "Showing n of m" label (e.g. INDENT loads). */
@@ -1158,6 +1160,9 @@ export type TripsHubTableViewProps = {
   onOpenDateRangePicker?: () => void;
   /** Shown on the collapsed date tag when the filter is a custom range. */
   dateRangeLabel?: string | null;
+  attributionFilter?: "all" | "attributed";
+  onAttributionFilterChange?: (next: "all" | "attributed") => void;
+  attributedCount?: number | null;
   /** When set, renders an inline "Add Trip" button on the desktop toolbar row, anchored to the right after the search input. Hidden on mobile (the trips screen still owns mobile FAB placement). */
   onAddTrip?: () => void;
   /** Label for the inline Add Trip button (e.g. translated "Add trip"). Defaults to "Add Trip". */
@@ -1355,6 +1360,9 @@ export function TripsHubTableView({
   onDateRangeFilterChange,
   onOpenDateRangePicker,
   dateRangeLabel = null,
+  attributionFilter = "all",
+  onAttributionFilterChange,
+  attributedCount = null,
   onAddTrip,
   addTripLabel,
   pagination,
@@ -1392,7 +1400,6 @@ export function TripsHubTableView({
   const [partyPanelOpen, setPartyPanelOpen] = useState(false);
   const [partyListQuery, setPartyListQuery] = useState("");
   const [ewayMenuOpen, setEwayMenuOpen] = useState(false);
-  const [dateMenuOpen, setDateMenuOpen] = useState(false);
   const [ewayStatusFilter, setEwayStatusFilter] =
     useState<EwayHubStatusFilter | null>(null);
   const [receiptTx, setReceiptTx] = useState<{
@@ -1599,10 +1606,9 @@ export function TripsHubTableView({
   const rowsForTableBody = useMemo(() => {
     if (!pagination) return displayedTrips;
     if (pagination.offset != null && pagination.limit != null) {
-      return displayedTrips.slice(
-        pagination.offset,
-        pagination.offset + pagination.limit,
-      );
+      const start =
+        pagination.offset < displayedTrips.length ? pagination.offset : 0;
+      return displayedTrips.slice(start, start + pagination.limit);
     }
     const start = pagination.page * pagination.pageSize;
     return displayedTrips.slice(start, start + pagination.pageSize);
@@ -1767,107 +1773,63 @@ export function TripsHubTableView({
     ] as const
   );
 
-  const dateFilterTagLabel = (() => {
-    if (dateRangeFilter === "custom") {
-      const custom = (dateRangeLabel ?? "").trim();
-      return custom ? `DATE · ${custom}` : "DATE";
-    }
-    if (dateRangeFilter === "all") return "DATE";
-    const preset =
-      datePresetOptions.find((opt) => opt.id === dateRangeFilter)?.label;
-    return preset ? `DATE · ${preset}` : "DATE";
-  })();
-
-  const dateFilterActive = dateRangeFilter !== "all";
-
   const dateFilterChips = onDateRangeFilterChange ? (
-    <>
-      <TouchableOpacity
-        style={[
-          styles.auditDateChip,
-          (dateMenuOpen || dateFilterActive) && styles.auditDateChipActive,
-        ]}
-        onPress={() => {
-          setDateMenuOpen((open) => !open);
-          setEwayMenuOpen(false);
-        }}
-        activeOpacity={0.85}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: dateMenuOpen, selected: dateFilterActive }}
-        accessibilityLabel={`Date filter ${dateFilterTagLabel}`}
-      >
-        <Text
-          style={[
-            styles.auditDateChipText,
-            (dateMenuOpen || dateFilterActive) && styles.auditDateChipTextActive,
-          ]}
-          numberOfLines={1}
-        >
-          {dateFilterTagLabel}
-        </Text>
-        <ChevronDown
-          size={11}
-          color={
-            dateMenuOpen || dateFilterActive
-              ? Theme.primary
-              : Theme.textRouteCard
-          }
-          strokeWidth={2.4}
-          style={{
-            marginLeft: 3,
-            transform: [{ rotate: dateMenuOpen ? "180deg" : "0deg" }],
-          }}
-        />
-      </TouchableOpacity>
-      {dateMenuOpen
-        ? datePresetOptions.map(({ id, label }) => (
-            <TouchableOpacity
-              key={id}
-              style={[
-                styles.auditDateChip,
-                dateRangeFilter === id && styles.auditDateChipActive,
-              ]}
-              onPress={() => {
-                onDateRangeFilterChange(id);
-                setDateMenuOpen(false);
-              }}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityState={{ selected: dateRangeFilter === id }}
-            >
-              <Text
-                style={[
-                  styles.auditDateChipText,
-                  dateRangeFilter === id && styles.auditDateChipTextActive,
-                ]}
-                numberOfLines={1}
-              >
-                {label}
-              </Text>
-            </TouchableOpacity>
-          ))
-        : null}
-      {dateMenuOpen && onOpenDateRangePicker ? (
-        <TouchableOpacity
-          style={[
-            styles.auditDateIconBtn,
-            dateRangeFilter === "custom" && styles.auditDateChipActive,
-          ]}
-          onPress={onOpenDateRangePicker}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel="Open custom date range"
-        >
-          <FontAwesome
-            name="calendar"
-            size={12}
-            color={
-              dateRangeFilter === "custom" ? Theme.primary : Theme.textRouteCard
-            }
-          />
-        </TouchableOpacity>
-      ) : null}
-    </>
+    <SmartFilterButton
+      title="Filter by date"
+      triggerLabel={
+        dateRangeFilter === "custom"
+          ? `Date · ${(dateRangeLabel ?? "Custom").trim() || "Custom"}`
+          : dateRangeFilter === "all"
+            ? "Date"
+            : `Date · ${
+                datePresetOptions.find((opt) => opt.id === dateRangeFilter)?.label ?? "Date"
+              }`
+      }
+      triggerActive={dateRangeFilter !== "all"}
+      kind="date"
+      onKindChange={() => {}}
+      kinds={[
+        {
+          id: "date",
+          label: "Date",
+          allLabel: "All dates",
+          hint: "Which trips to show",
+          icon: Calendar,
+          searchPlaceholder: "Search periods",
+          selectedId: dateRangeFilter === "all" ? null : dateRangeFilter,
+          choices: [
+            { id: "today", name: "Today", meta: "Trips from today" },
+            { id: "yesterday", name: "Yesterday", meta: "The day before" },
+            { id: "this_week", name: "This week", meta: "This calendar week" },
+            { id: "this_month", name: "This month", meta: "This calendar month" },
+            {
+              id: "custom",
+              name: "Custom range",
+              meta: (dateRangeLabel ?? "").trim() || "Choose a start and end",
+            },
+          ],
+        },
+      ]}
+      onSelect={(_kind, id) => {
+        setEwayMenuOpen(false);
+        if (id == null || id === "all") {
+          onDateRangeFilterChange("all");
+          return;
+        }
+        if (id === "custom") {
+          onOpenDateRangePicker?.();
+          return;
+        }
+        if (
+          id === "today" ||
+          id === "yesterday" ||
+          id === "this_week" ||
+          id === "this_month"
+        ) {
+          onDateRangeFilterChange(id);
+        }
+      }}
+    />
   ) : null;
 
   const ewayStatusOptions = [
@@ -1893,7 +1855,6 @@ export function TripsHubTableView({
           ]}
           onPress={() => {
             setEwayMenuOpen((open) => !open);
-            setDateMenuOpen(false);
           }}
           activeOpacity={0.85}
           accessibilityRole="button"
@@ -1963,6 +1924,38 @@ export function TripsHubTableView({
       </>
     );
 
+  const attributionChip = onAttributionFilterChange ? (
+    <TouchableOpacity
+      style={[
+        styles.auditToolbarBtn,
+        attributionFilter === "attributed" && styles.auditDateChipActive,
+      ]}
+      onPress={() =>
+        onAttributionFilterChange(
+          attributionFilter === "attributed" ? "all" : "attributed",
+        )
+      }
+      activeOpacity={0.85}
+      accessibilityRole="button"
+      accessibilityState={{ selected: attributionFilter === "attributed" }}
+      accessibilityLabel={
+        attributedCount != null
+          ? `Attributed trips, ${attributedCount}`
+          : "Attributed trips"
+      }
+    >
+      <Text
+        style={[
+          styles.auditToolbarText,
+          attributionFilter === "attributed" && styles.auditDateChipTextActive,
+        ]}
+        numberOfLines={1}
+      >
+        ATTRIBUTED
+      </Text>
+    </TouchableOpacity>
+  ) : null;
+
   const partyKindMeta = HUB_PARTY_FILTER_OPTIONS.find((opt) => opt.id === partyKind);
   const partyFilterPills = (
     <>
@@ -1973,18 +1966,17 @@ export function TripsHubTableView({
         ]}
         onPress={() => {
           setPartyPanelOpen(true);
-          setDateMenuOpen(false);
           setEwayMenuOpen(false);
         }}
         activeOpacity={0.85}
         accessibilityRole="button"
         accessibilityLabel="Filter trips by client, supplier, or driver"
       >
-        <FontAwesome name="filter" size={11} color="#64748b" />
+        <FontAwesome name="filter" size={11} color={Theme.textRouteCard} />
         <Text style={styles.auditToolbarText} numberOfLines={1}>
           {partyKindMeta ? partyKindMeta.label : "Filter"}
         </Text>
-        <FontAwesome name="chevron-down" size={9} color="#64748b" />
+        <FontAwesome name="chevron-down" size={9} color={Theme.textRouteCard} />
       </TouchableOpacity>
       <TouchableOpacity
         style={[
@@ -1996,7 +1988,6 @@ export function TripsHubTableView({
         onPress={() => {
           if (!partyKind) return;
           setPartyPanelOpen(true);
-          setDateMenuOpen(false);
           setEwayMenuOpen(false);
         }}
         disabled={partyKind == null}
@@ -2025,7 +2016,7 @@ export function TripsHubTableView({
         <Text style={styles.partyValueText} numberOfLines={1}>
           {partyValue ?? partyKindMeta?.allLabel ?? "List"}
         </Text>
-        <FontAwesome name="chevron-down" size={9} color="#64748b" />
+        <FontAwesome name="chevron-down" size={9} color={Theme.textRouteCard} />
       </TouchableOpacity>
     </>
   );
@@ -2143,6 +2134,7 @@ export function TripsHubTableView({
               >
                 <View style={styles.auditDatePresetRowInner}>
                   {dateFilterChips}
+                  {attributionChip}
                   {ewayFilterChips}
                 </View>
               </View>
@@ -2184,6 +2176,7 @@ export function TripsHubTableView({
               >
                 {toolbarStatusTags}
                 {dateFilterChips}
+                {attributionChip}
                 {ewayFilterChips}
                 {toolbarLeading}
                 {partyFilterPills}
@@ -2204,6 +2197,7 @@ export function TripsHubTableView({
                 <View style={styles.auditDatePresetRowInner}>
                   {toolbarStatusTags}
                   {dateFilterChips}
+                  {attributionChip}
                   {ewayFilterChips}
                 </View>
               </View>
@@ -2267,7 +2261,9 @@ export function TripsHubTableView({
         )}
       </View>
 
-      {renderAboveBody}
+      {typeof renderAboveBody === "function"
+        ? renderAboveBody(rowsForTableBody)
+        : renderAboveBody}
 
       {hideBody ? null : renderBody ? (
         <View style={styles.auditCardListBody}>
@@ -3483,186 +3479,47 @@ export function TripsHubTableView({
         </View>
       </Modal>
 
-      <Modal
+      <PartyFilterSheet
         visible={partyPanelOpen}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setPartyPanelOpen(false)}
-      >
-        <View
-          style={
-            useDesktopToolbarRow
-              ? styles.partyBackdropDesktop
-              : styles.partyBackdropMobile
-          }
-        >
-          <Pressable
-            style={StyleSheet.absoluteFillObject}
-            onPress={() => setPartyPanelOpen(false)}
-            accessibilityRole="button"
-            accessibilityLabel="Close filter"
-          />
-          <View
-            style={[
-              useDesktopToolbarRow ? styles.partyPanelDesktop : styles.partyPanelMobile,
-              !useDesktopToolbarRow && {
-                paddingBottom: Math.max(insets.bottom, 12) + 8,
-              },
-            ]}
-          >
-            {useDesktopToolbarRow ? null : <View style={styles.partyPanelHandle} />}
-            <Text style={styles.partyPanelTitle}>Filter trips</Text>
-            <Text style={styles.partyPanelHint}>
-              {partyKindMeta?.hint ?? "Pick a party, then choose a name"}
-            </Text>
-            <View
-              style={
-                useDesktopToolbarRow ? styles.partyKindGrid : styles.partyKindRow
-              }
-            >
-              {HUB_PARTY_FILTER_OPTIONS.map((opt) => {
-                const selected = partyKind === opt.id;
-                const Icon = HUB_PARTY_FILTER_ICON[opt.id];
-                return (
-                  <Pressable
-                    key={opt.id}
-                    style={[
-                      styles.partyKindCard,
-                      useDesktopToolbarRow && styles.partyKindCardDesktop,
-                      selected && styles.partyKindCardOn,
-                    ]}
-                    onPress={() => {
-                      setPartyKind(opt.id);
-                      setPartyValue(null);
-                      setPartyListQuery("");
-                    }}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                  >
-                    <View
-                      style={[
-                        styles.partyKindIcon,
-                        selected && styles.partyKindIconOn,
-                      ]}
-                    >
-                      <Icon
-                        size={16}
-                        color={selected ? Theme.buttonPrimaryText : Theme.primary}
-                        strokeWidth={2.2}
-                      />
-                    </View>
-                    <Text
-                      style={[
-                        styles.partyKindLabel,
-                        selected && styles.partyKindLabelOn,
-                      ]}
-                    >
-                      {opt.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <View style={styles.partySearchWrap}>
-              <Search size={14} color={Theme.textMuted} />
-              <TextInput
-                value={partyListQuery}
-                onChangeText={setPartyListQuery}
-                editable={partyKind != null}
-                placeholder={
-                  partyKindMeta ? `Search ${partyKindMeta.label.toLowerCase()}s` : "Choose a party first"
-                }
-                placeholderTextColor={Theme.textMuted}
-                autoCapitalize="none"
-                style={styles.partySearchInput}
-              />
-              {partyListQuery ? (
-                <Pressable onPress={() => setPartyListQuery("")} hitSlop={8}>
-                  <X size={14} color={Theme.textMuted} />
-                </Pressable>
-              ) : null}
-            </View>
-            <ScrollView
-              style={useDesktopToolbarRow ? styles.partyListDesktop : styles.partyListMobile}
-              contentContainerStyle={
-                useDesktopToolbarRow ? styles.partyListGrid : undefined
-              }
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              {partyKind ? (
-                <Pressable
-                  style={[
-                    styles.partyChoice,
-                    useDesktopToolbarRow && styles.partyChoiceDesktop,
-                    partyValue == null && styles.partyChoiceOn,
-                  ]}
-                  onPress={() => {
-                    setPartyValue(null);
-                    setPartyPanelOpen(false);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: partyValue == null }}
-                >
-                  <View style={styles.partyChoiceAvatarFallback}>
-                    <Text style={styles.partyChoiceAvatarFallbackText}>All</Text>
-                  </View>
-                  <View style={styles.partyChoiceCopy}>
-                    <Text style={styles.partyChoiceName} numberOfLines={1}>
-                      {partyKindMeta?.allLabel ?? "All"}
-                    </Text>
-                    <Text style={styles.partyChoiceMeta}>
-                      {partyChoices.length} on this list
-                    </Text>
-                  </View>
-                </Pressable>
-              ) : null}
-              {visiblePartyChoices.map((choice) => {
-                const selected = partyValue === choice.name;
-                return (
-                  <Pressable
-                    key={choice.name}
-                    style={[
-                      styles.partyChoice,
-                      useDesktopToolbarRow && styles.partyChoiceDesktop,
-                      selected && styles.partyChoiceOn,
-                    ]}
-                    onPress={() => {
-                      setPartyValue(choice.name);
-                      setPartyPanelOpen(false);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                  >
-                    <PartyAvatar
-                      name={choice.name}
-                      initialsColorSeed={choice.initialsColorSeed}
-                      organizationImageUrl={choice.organizationImageUrl}
-                      organizationAvatarSeed={choice.organizationAvatarSeed}
-                      avatarUrl={choice.avatarUrl}
-                      avatarSeed={choice.avatarSeed}
-                      entityType={partyKind ?? "client"}
-                      isIntegrated={choice.isIntegrated}
-                      size={useDesktopToolbarRow ? 40 : 36}
-                    />
-                    <View style={styles.partyChoiceCopy}>
-                      <Text style={styles.partyChoiceName} numberOfLines={1}>
-                        {choice.name}
-                      </Text>
-                      <Text style={styles.partyChoiceMeta}>
-                        {choice.count} {choice.count === 1 ? "trip" : "trips"}
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-              {partyKind && visiblePartyChoices.length === 0 ? (
-                <Text style={styles.partyEmpty}>None on this list</Text>
-              ) : null}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+        title="Filter trips"
+        desktop={useDesktopToolbarRow}
+        options={HUB_PARTY_FILTER_OPTIONS.map((opt) => ({
+          ...opt,
+          icon: HUB_PARTY_FILTER_ICON[opt.id],
+        }))}
+        kind={partyKind}
+        onKindChange={(next) => {
+          setPartyKind(next);
+          setPartyValue(null);
+          setPartyListQuery("");
+        }}
+        query={partyListQuery}
+        onQueryChange={setPartyListQuery}
+        choices={visiblePartyChoices.map((choice) => ({
+          id: choice.name,
+          name: choice.name,
+          meta: `${choice.count} ${choice.count === 1 ? "trip" : "trips"}`,
+          avatar: (
+            <PartyAvatar
+              name={choice.name}
+              initialsColorSeed={choice.initialsColorSeed}
+              organizationImageUrl={choice.organizationImageUrl}
+              organizationAvatarSeed={choice.organizationAvatarSeed}
+              avatarUrl={choice.avatarUrl}
+              avatarSeed={choice.avatarSeed}
+              entityType={partyKind ?? "client"}
+              isIntegrated={choice.isIntegrated}
+              size={28}
+            />
+          ),
+        }))}
+        selectedId={partyValue}
+        onSelect={(id) => {
+          setPartyValue(id);
+          setPartyPanelOpen(false);
+        }}
+        onClose={() => setPartyPanelOpen(false)}
+      />
 
       <Modal
         visible={columnPickerOpen}
@@ -4560,196 +4417,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     fontSize: 8,
     fontWeight: "600",
-    color: "#64748b",
+    color: Theme.textRouteCard,
     letterSpacing: 0.55,
     textTransform: "uppercase",
-  },
-  partyBackdropDesktop: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 28,
-    backgroundColor: "rgba(15,23,42,0.45)",
-  },
-  partyBackdropMobile: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(15,23,42,0.45)",
-  },
-  partyPanelDesktop: {
-    width: "100%",
-    maxWidth: 680,
-    maxHeight: "78%",
-    alignSelf: "center",
-    backgroundColor: Theme.cardWhite,
-    borderRadius: 20,
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 16,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-  },
-  partyPanelMobile: {
-    maxHeight: "84%",
-    backgroundColor: Theme.cardWhite,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderColor: Theme.borderLight,
-  },
-  partyPanelHandle: {
-    alignSelf: "center",
-    width: 36,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: Theme.borderMedium,
-    marginBottom: 10,
-  },
-  partyPanelTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: Theme.textPrimaryDark,
-  },
-  partyPanelHint: {
-    marginTop: 2,
-    marginBottom: 12,
-    fontSize: 13,
-    color: Theme.textSecondary,
-  },
-  partyKindRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  partyKindGrid: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  partyKindCard: {
-    flex: 1,
-    minHeight: 72,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
-  },
-  partyKindCardDesktop: {
-    minHeight: 84,
-  },
-  partyKindCardOn: {
-    borderColor: Theme.primary,
-    backgroundColor: Theme.brandBlueSoft,
-  },
-  partyKindIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Theme.cardWhite,
-  },
-  partyKindIconOn: {
-    backgroundColor: Theme.primary,
-  },
-  partyKindLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: Theme.textPrimaryDark,
-  },
-  partyKindLabelOn: {
-    color: Theme.primary,
-  },
-  partySearchWrap: {
-    marginTop: 12,
-    marginBottom: 10,
-    minHeight: 40,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.surface,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-  },
-  partySearchInput: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 14,
-    color: Theme.textPrimaryDark,
-    paddingVertical: 8,
-    ...Platform.select({
-      web: { outlineStyle: "none" } as object,
-      default: {},
-    }),
-  },
-  partyListDesktop: {
-    maxHeight: 420,
-  },
-  partyListMobile: {
-    maxHeight: 420,
-  },
-  partyListGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  partyChoice: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    minHeight: 56,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.cardWhite,
-    marginBottom: 8,
-  },
-  partyChoiceDesktop: {
-    width: "48.5%",
-    marginBottom: 0,
-  },
-  partyChoiceOn: {
-    borderColor: Theme.primary,
-    backgroundColor: Theme.brandBlueSoft,
-  },
-  partyChoiceCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  partyChoiceName: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: Theme.textPrimaryDark,
-  },
-  partyChoiceMeta: {
-    fontSize: 12,
-    color: Theme.textSecondary,
-  },
-  partyChoiceAvatarFallback: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Theme.primary,
-  },
-  partyChoiceAvatarFallbackText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: Theme.buttonPrimaryText,
-  },
-  partyEmpty: {
-    paddingVertical: 16,
-    fontSize: 13,
-    color: Theme.textSecondary,
   },
   auditToolbarText: {
     fontSize: 8,
@@ -4791,17 +4461,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     textTransform: "uppercase",
   },
-  /** Matches Chat `tabRow` — date presets + calendar (+ mobile sort) live inside this tray. */
+  /** Date capsule, attributed, and e-way sit in one row. The capsule owns its own chrome. */
   auditDatePresetTray: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingVertical: 2,
-    paddingHorizontal: 2,
-    borderRadius: 12,
-    backgroundColor: Theme.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
+    gap: 6,
+    flexShrink: 1,
+    minWidth: 0,
   },
   auditDatePresetTrayDesktop: {
     flexShrink: 0,
@@ -4913,18 +4579,6 @@ const styles = StyleSheet.create({
   },
   auditDateChipTextActive: {
     color: Theme.primary,
-  },
-  auditDateIconBtn: {
-    minHeight: 26,
-    minWidth: 26,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.screenBackground,
-    alignItems: "center",
-    justifyContent: "center",
   },
   manifestFilterRow: {
     flexDirection: "row",

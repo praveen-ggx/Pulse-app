@@ -7,6 +7,7 @@ import {
     chatFilterChromeStyles as chatChrome,
 } from "@/constants/ChatFilterChrome";
 import { ChatFilterMirrorToggle } from "@/components/ChatFilterMirrorToggle";
+import { SmartDateFilter } from "@/components/SmartDateFilter";
 import Theme from '@/constants/Theme';
 import {
     WEB_POINTER,
@@ -135,6 +136,10 @@ export interface TreasurySummaryCardProps {
   containerStyle?: StyleProp<ViewStyle>;
   /** Optional toolbar skin override for desktop-light surfaces. */
   toolbarTheme?: 'dark' | 'light';
+  /** Finance tabs: date capsule rendered beside the type filter. */
+  toolbarLeading?: ReactNode;
+  /** Parent owns the smart filter sheet, so this card does not also list choices. */
+  suppressSmartChoices?: boolean;
 }
 
 const ENTITY_FILTER_LABELS: Record<EntityListFilter, string> = {
@@ -357,6 +362,8 @@ export function TreasurySummaryCard({
   isAnyFilterActive = false,
   containerStyle,
   toolbarTheme = 'dark',
+  toolbarLeading,
+  suppressSmartChoices = false,
 }: TreasurySummaryCardProps) {
   const dockFilters = useFinanceFilterDock();
   const tripPills = dockFilters != null;
@@ -543,12 +550,47 @@ export function TreasurySummaryCard({
   const showLedgerCategoryInPeriodDropdown =
     cashNetworkToolbar && onEntityFilterChange == null && onLedgerCategoryChange != null;
 
+  const ledgerChoiceCapsule =
+    !suppressSmartChoices &&
+    cashNetworkLayout &&
+    onLedgerCategoryChange != null &&
+    onEntityFilterChange == null &&
+    !showPeriodFilter ? (
+      <SmartDateFilter
+        mark="Filter"
+        markIcon="filter"
+        value={ledgerCategory}
+        options={ledgerCategoryOptions.map((category) => ({
+          id: category,
+          label: LEDGER_CATEGORY_LABELS[category],
+        }))}
+        onChange={onLedgerCategoryChange}
+      />
+    ) : null;
+
+  const sourceChoiceCapsule =
+    !suppressSmartChoices &&
+    cashNetworkLayout && sourceFilterLabel != null && !showInlineSourceChips && onSourceFilterChange != null ? (
+      <SmartDateFilter
+        mark="Source"
+        markIcon="filter"
+        value={sourceFilter}
+        options={(["all", "asset", "aggregate"] as const).map((source) => ({
+          id: source,
+          label: SOURCE_FILTER_LABELS[source],
+        }))}
+        onChange={onSourceFilterChange}
+      />
+    ) : null;
+
   const periodAndSourceFilters = (
     <>
-      {filterLabel != null && !hideEntityFilterDropdown && (
+      {ledgerChoiceCapsule}
+      {sourceChoiceCapsule}
+      {filterLabel != null && !hideEntityFilterDropdown && ledgerChoiceCapsule == null && !suppressSmartChoices && (
         <View
           ref={refPeriodFilter}
-          style={[styles.filterBlock, tripPills && styles.filterBlockTrip] as ViewStyle}
+          style={[styles.filterBlock, tripPills && styles.filterBlockTrip] as StyleProp<ViewStyle>}
           collapsable={false}
         >
           <TouchableOpacity
@@ -591,7 +633,7 @@ export function TreasurySummaryCard({
             onPressOut={() => {
               filterBtnScale.value = withSpring(1, springConfig);
             }}
-            style={[styles.filterTrigger, tripPills && styles.filterTriggerTrip] as ViewStyle}
+            style={[styles.filterTrigger, tripPills && styles.filterTriggerTrip] as StyleProp<ViewStyle>}
           >
             <Animated.View
               style={[
@@ -1059,10 +1101,10 @@ export function TreasurySummaryCard({
           )}
         </View>
       )}
-      {sourceFilterLabel != null && !showInlineSourceChips && (
+      {sourceFilterLabel != null && !showInlineSourceChips && sourceChoiceCapsule == null && (
         <View
           ref={refSourceFilter}
-          style={[styles.filterBlock, tripPills && styles.filterBlockTrip] as ViewStyle}
+          style={[styles.filterBlock, tripPills && styles.filterBlockTrip] as StyleProp<ViewStyle>}
           collapsable={false}
         >
           <TouchableOpacity
@@ -1089,7 +1131,7 @@ export function TreasurySummaryCard({
             onPressOut={() => {
               filterBtnScale.value = withSpring(1, springConfig);
             }}
-            style={[styles.filterTrigger, tripPills && styles.filterTriggerTrip] as ViewStyle}
+            style={[styles.filterTrigger, tripPills && styles.filterTriggerTrip] as StyleProp<ViewStyle>}
           >
             <Animated.View
               style={[
@@ -1470,37 +1512,18 @@ export function TreasurySummaryCard({
                 </View>
                 )}
 
-                {onEntityFilterChange != null && !tripPills ? (
-                  <View style={chatChrome.scopeSegment}>
-                    {(["all", "has_due", "no_due"] as const).map((f) => {
-                      const active = entityFilter === f;
-                      return (
-                        <Pressable
-                          key={f}
-                          style={(state: HoverPressState) => [
-                            chatChrome.scopePill,
-                            active && chatChrome.scopePillActive,
-                            WEB_POINTER,
-                            WEB_TRANSITION,
-                            !active && isHovered(state) && hoverRowWash,
-                          ]}
-                          onPress={() => onEntityFilterChange(f)}
-                          accessibilityRole="tab"
-                          accessibilityState={{ selected: active }}
-                        >
-                          <Text
-                            style={[
-                              chatChrome.scopePillText,
-                              active && chatChrome.scopePillTextActive,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {effectiveEntityFilterLabels[f]}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
+                {toolbarLeading}
+                {onEntityFilterChange != null && !tripPills && !suppressSmartChoices ? (
+                  <SmartDateFilter
+                    mark="Filter"
+                    markIcon="filter"
+                    value={entityFilter}
+                    options={(["all", "has_due", "no_due"] as const).map((id) => ({
+                      id,
+                      label: effectiveEntityFilterLabels[id],
+                    }))}
+                    onChange={onEntityFilterChange}
+                  />
                 ) : null}
 
                 {onEntityFilterChange == null && !tripPills ? periodAndSourceFilters : null}

@@ -31,6 +31,11 @@ import {
 } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import type { ComplianceTripInputs } from "@/features/tripCompliance/tripCompliance.types";
 import {
+  COMPLETE_HISTORY_FIELDS,
+  LOCATION_PING_FIELDS,
+} from "@/lib/queries/tripCatalogFreshness";
+import type { TripRow } from "@/features/trips/services/trips.service";
+import {
   applyComplianceDeclined,
   applyComplianceRejected,
   applyComplianceResubmitted,
@@ -51,7 +56,6 @@ import {
   upsertTripInputs,
 } from "@/features/tripCompliance/utils/compliancePipelinePatch.util";
 import { complianceRejectQueueDestination } from "@/features/tripCompliance/utils/complianceRejectReason.util";
-import type { TripRow } from "@/features/trips/services/trips.service";
 
 export type PipelinePatch = (current: ComplianceTripInputs[]) => ComplianceTripInputs[];
 
@@ -213,13 +217,36 @@ export async function patchForPipelineTrips(
   return (cur) => upsertTripInputs(reconcilePipelineTrips(cur, pipelineTrips).next, fetched, order);
 }
 
+function tripField(row: TripRow, field: string): unknown {
+  return (row as Record<string, unknown>)[field];
+}
+
+/**
+ * An incremental pipeline refresh reloads documents, flags, workflow events,
+ * and the ledger only for trips whose settlement, assignment, or payment
+ * fields changed. A location ping does not. A non-location `updated_at`
+ * change still reloads that trip, so a courier remarks rewrite (same AWB,
+ * new received-LR payload) stays visible.
+ */
+export function tripNeedsScopedReread(previous: TripRow, incoming: TripRow): boolean {
+  if (COMPLETE_HISTORY_FIELDS.some((field) => tripField(previous, field) !== tripField(incoming, field))) {
+    return true;
+  }
+  if (LOCATION_PING_FIELDS.some((field) => tripField(previous, field) !== tripField(incoming, field))) {
+    return false;
+  }
+  const previousAt = previous.updated_at ?? null;
+  const incomingAt = incoming.updated_at ?? null;
+  return previousAt !== incomingAt;
+}
+
 /**
  * Pipeline query fn.
  *   full (first load this session, or explicit refresh) → one batched read of everything
- *   incremental (focus / invalidate) → reconcile with the trips catalog, re-read only
- *     trip-specific inputs (docs, flags, transactions — 3 batched reads), full inputs
- *     only for new / identity-changed trips. Vehicle, driver and partner-vehicle
- *     viewer reads are not repeated.
+ *   incremental (focus / invalidate) → reconcile with the trips catalog. Trip-scoped
+ *     inputs are re-read only for trips that {@link tripNeedsScopedReread} selects.
+ *     Full inputs are read only for new or identity-changed trips. Unchanged trips
+ *     keep the cached POD, courier, and settlement inputs.
  */
 export async function loadCompliancePipelineInputs(
   previous: ComplianceTripInputs[] | undefined,
@@ -231,9 +258,18 @@ export async function loadCompliancePipelineInputs(
 
   const { next, needsInputs } = reconcilePipelineTrips(previous, pipelineTrips);
   const needsIds = new Set(needsInputs.map((trip) => trip.id));
-  const keptIds = next.filter((row) => !needsIds.has(row.trip.id)).map((row) => row.trip.id);
+  const cachedById = new Map(previous.map((row) => [row.trip.id, row.trip]));
+  const incomingById = new Map(pipelineTrips.map((trip) => [trip.id, trip]));
+  const scopedIds = next
+    .filter((row) => !needsIds.has(row.trip.id))
+    .filter((row) => {
+      const cached = cachedById.get(row.trip.id);
+      const incoming = incomingById.get(row.trip.id);
+      return cached && incoming ? tripNeedsScopedReread(cached, incoming) : false;
+    })
+    .map((row) => row.trip.id);
   const [scoped, fetched] = await Promise.all([
-    fetchTripScopedInputs(keptIds),
+    fetchTripScopedInputs(scopedIds),
     fetchComplianceTripInputs(needsInputs, options.viewerOrgId),
   ]);
   const refreshed = next.map((row) => {

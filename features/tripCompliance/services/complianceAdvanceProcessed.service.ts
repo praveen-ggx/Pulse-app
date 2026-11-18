@@ -115,18 +115,24 @@ export async function fetchLiveAdvanceApproval(tripId: string): Promise<{
 } | null> {
   const id = tripId.trim();
   if (!id) return null;
+  // limit(1), not maybeSingle. This trip has no advance request yet. maybeSingle
+  // asks PostgREST for exactly one object, so zero rows come back as HTTP 406.
+  // Safari reports that 406 as "access control checks" and the panel then
+  // treats the lookup as failed and shows ₹0.
   const { data, error } = await supabase()
     .from("payment_requests")
     .select("approved_amount, terms_snapshot, status")
     .eq("trip_id", id)
     .eq("payment_type", "advance")
     .neq("status", "cancelled")
-    .maybeSingle();
+    .order("created_at", { ascending: false })
+    .limit(1);
   if (error) throw new Error(error.message);
-  if (!data || data.approved_amount == null) return null;
-  const snapshot = data.terms_snapshot as { formula_version?: number; advance_percent?: number } | null;
+  const row = data?.[0];
+  if (!row || row.approved_amount == null) return null;
+  const snapshot = row.terms_snapshot as { formula_version?: number; advance_percent?: number } | null;
   return {
-    approvedAmount: Number(data.approved_amount),
+    approvedAmount: Number(row.approved_amount),
     formulaVersion: snapshot?.formula_version == null ? null : Number(snapshot.formula_version),
     advancePercent: snapshot?.advance_percent == null ? null : Number(snapshot.advance_percent),
   };

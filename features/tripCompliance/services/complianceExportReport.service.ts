@@ -15,6 +15,7 @@ import {
 import { getSupplierById, getSupplierDetails } from "@/features/suppliers/services/suppliers.service";
 import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util";
 import { buildComplianceTripSummaries } from "@/features/tripCompliance/services/tripComplianceRead.service";
+import { getTripDriverPhones } from "@/features/tripCompliance/services/tripDriverPhones.service";
 import { isComplianceVerifiedQueue } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import {
   advanceVerificationExportSummaries,
@@ -219,6 +220,32 @@ async function loadSupplierVaultBundle(
   };
 }
 
+/** get_trip_driver_phones rejects a list longer than 500 ids. */
+const TRIP_DRIVER_PHONES_CHUNK = 500;
+
+/**
+ * Vendor drivers belong to the supplier org, so a direct drivers-table read
+ * hides their phones. The trip RPC returns the number for trips this user
+ * can already see.
+ */
+async function loadVerifiedDriverPhonesByTrip(
+  summaries: ComplianceTripSummary[],
+): Promise<Map<string, string>> {
+  const phones = new Map<string, string>();
+  const refs = summaries.map((summary) => ({
+    id: summary.trip.id,
+    driver_id: summary.trip.driver_id ?? null,
+  }));
+  for (let i = 0; i < refs.length; i += TRIP_DRIVER_PHONES_CHUNK) {
+    const part = await getTripDriverPhones(refs.slice(i, i + TRIP_DRIVER_PHONES_CHUNK));
+    for (const [tripId, phone] of part) {
+      const trimmed = phone.trim();
+      if (trimmed) phones.set(tripId, trimmed);
+    }
+  }
+  return phones;
+}
+
 /**
  * Build enrichment maps for verified trips (bank, vendor %, TDS, truck, driver phone).
  */
@@ -231,14 +258,7 @@ export async function buildVerifiedExportEnrichment(
 
   const supplierCache = new Map<string, Promise<SupplierVaultBundle>>();
   const truckCache = new Map<string, Promise<string>>();
-  const driverIds = Array.from(
-    new Set(
-      summaries
-        .map((s) => s.trip.driver_id?.trim() || "")
-        .filter((id) => id.length > 0),
-    ),
-  );
-  const phonesPromise = getDriverPhonesByIds(driverIds);
+  const tripPhonesPromise = loadVerifiedDriverPhonesByTrip(summaries);
   const docChargeCache = new Map<string, Promise<ComplianceDocumentChargeConfig | null>>();
   const docChargeConfigFor = (id: string) => {
     let pending = docChargeCache.get(id);
@@ -250,7 +270,7 @@ export async function buildVerifiedExportEnrichment(
   };
 
   await Promise.all([
-    phonesPromise,
+    tripPhonesPromise,
     mapWithConcurrency(summaries, EXPORT_FETCH_CONCURRENCY, async (summary) => {
     const trip = summary.trip;
     const tripOrgId = (trip.organization_id ?? orgId).trim() || orgId;
@@ -294,17 +314,28 @@ export async function buildVerifiedExportEnrichment(
     byTrip.set(trip.id, enrichment);
     }),
   ]);
-  const { error: phoneError, phoneByDriverId } = await phonesPromise;
+  const phoneByTripId = await tripPhonesPromise;
+
+  // Trip RPC is authoritative. Fill only the trips it left blank, from the
+  // drivers table, and only for drivers that read did not already return.
+  const driverIdsStillMissing = Array.from(
+    new Set(
+      summaries
+        .filter((summary) => !phoneByTripId.get(summary.trip.id))
+        .map((summary) => summary.trip.driver_id?.trim() || "")
+        .filter((id) => id.length > 0),
+    ),
+  );
+  const { error: phoneError, phoneByDriverId } = await getDriverPhonesByIds(driverIdsStillMissing);
   if (phoneError) {
     throw new Error(
       `Couldn't load driver phone numbers (${phoneError.message}). The report was not created.`,
     );
   }
 
-  // Bulk read is RLS-scoped. Fill only the phones it did not return, a few at a time.
-  // A failed bulk read never reaches here, so it cannot fan out into one request per driver.
   const missingDriverOrg = new Map<string, string>();
   for (const summary of summaries) {
+    if (phoneByTripId.get(summary.trip.id)) continue;
     const driverId = summary.trip.driver_id?.trim() || "";
     if (driverId && !phoneByDriverId.get(driverId) && !missingDriverOrg.has(driverId)) {
       missingDriverOrg.set(driverId, (summary.trip.organization_id ?? orgId).trim() || orgId);
@@ -328,9 +359,10 @@ export async function buildVerifiedExportEnrichment(
   for (const summary of summaries) {
     const enrichment = byTrip.get(summary.trip.id) ?? {};
     const driverId = summary.trip.driver_id?.trim() || "";
-    if (driverId) {
-      enrichment.driverPhone = phoneByDriverId.get(driverId) ?? "";
-    }
+    enrichment.driverPhone =
+      phoneByTripId.get(summary.trip.id) ||
+      (driverId ? phoneByDriverId.get(driverId) : "") ||
+      "";
     byTrip.set(summary.trip.id, enrichment);
   }
 

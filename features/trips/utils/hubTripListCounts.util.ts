@@ -110,6 +110,41 @@ export function buildActiveHubRailCounts(
   return counts;
 }
 
+const HUB_SERVER_TILES = new Set([
+  "unassigned",
+  "assigned",
+  "loading",
+  "in_transit",
+  "unloading",
+]);
+
+/**
+ * Badges while a single tile page is loaded.
+ * The selected tile uses the server bucket count, which includes cancelled rows
+ * on Unassigned. The other tiles keep the counts from the last full Active or
+ * History page for the same filters, so one tile page does not zero them.
+ */
+export function hubTileBadgeCounts(
+  rail: Record<TripMetricId, number>,
+  opts: {
+    tileBucket: string;
+    tileTotal: number | null;
+    preservedRail: Record<TripMetricId, number> | null;
+  },
+): Record<TripMetricId, number> {
+  const tileQuery = HUB_SERVER_TILES.has(opts.tileBucket);
+  const counts: Record<TripMetricId, number> =
+    tileQuery && opts.preservedRail ? { ...opts.preservedRail } : { ...rail };
+  if (
+    tileQuery &&
+    opts.tileTotal != null &&
+    opts.tileBucket in counts
+  ) {
+    counts[opts.tileBucket as TripMetricId] = opts.tileTotal;
+  }
+  return counts;
+}
+
 /** ALL = open trips (Active tab). Delivered (History) is not part of it. */
 export function hubActiveAllTripCount(
   rail: Pick<

@@ -23,7 +23,7 @@ import {
   TextInput,
   useWindowDimensions,
 } from 'react-native';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DateRangePickerModal } from '@/components/DateRangePickerModal';
@@ -41,6 +41,8 @@ import {
   applyLedgerReportView,
   columnValueCounts,
   EMPTY_LEDGER_REPORT_VIEW,
+  excelReportCell,
+  fitReportColumnWidth,
   ledgerReportViewIsActive,
   pickReportStatusFacet,
   uniqueColumnValues,
@@ -337,6 +339,82 @@ export interface LedgerReportModalProps {
   downloadFileName?: string;
 }
 
+const REPORT_COL_MIN = 88;
+const REPORT_COL_MAX = 720;
+
+function ReportColumnResizeHandle({
+  width,
+  onResize,
+}: {
+  width: number;
+  onResize: (next: number) => void;
+}) {
+  const widthRef = useRef(width);
+  useEffect(() => {
+    widthRef.current = width;
+  }, [width]);
+  const drag = useRef<{ originX: number; start: number } | null>(null);
+  const apply = (pageX: number) => {
+    const session = drag.current;
+    if (!session) return;
+    onResize(
+      Math.min(REPORT_COL_MAX, Math.max(REPORT_COL_MIN, Math.round(session.start + pageX - session.originX))),
+    );
+  };
+  const finish = () => {
+    drag.current = null;
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  };
+  const begin = (originX: number) => {
+    drag.current = { originX, start: widthRef.current };
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const onMove = (move: PointerEvent) => apply(move.pageX);
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        finish();
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    }
+  };
+  return (
+    <View
+      style={styles.colResizeHandle}
+      accessibilityRole="adjustable"
+      accessibilityLabel="Resize column"
+      onStartShouldSetResponder={() => Platform.OS !== 'web'}
+      onMoveShouldSetResponder={() => Platform.OS !== 'web'}
+      onResponderGrant={(event) => begin(event.nativeEvent.pageX)}
+      onResponderMove={(event) => apply(event.nativeEvent.pageX)}
+      onResponderRelease={finish}
+      onResponderTerminate={finish}
+      {...(Platform.OS === 'web'
+        ? {
+            onPointerDown: (event: {
+              nativeEvent?: { pageX?: number };
+              preventDefault?: () => void;
+              stopPropagation?: () => void;
+            }) => {
+              event.preventDefault?.();
+              event.stopPropagation?.();
+              begin(event.nativeEvent?.pageX ?? 0);
+            },
+          }
+        : null)}
+    >
+      <View style={styles.colResizeGrip} />
+    </View>
+  );
+}
+
 export function LedgerReportModal({
   visible,
   onClose,
@@ -355,6 +433,7 @@ export function LedgerReportModal({
   const [formatPickerVisible, setFormatPickerVisible] = useState(false);
   const [formatPickerMode, setFormatPickerMode] = useState<'download' | 'share'>('download');
   const [viewState, setViewState] = useState<LedgerReportViewState>(EMPTY_LEDGER_REPORT_VIEW);
+  const [columnWidthOverrides, setColumnWidthOverrides] = useState<Record<string, number>>({});
   const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [filterColumnKey, setFilterColumnKey] = useState<string | null>(null);
   const [filterDraftEquals, setFilterDraftEquals] = useState<string[]>([]);
@@ -441,16 +520,24 @@ export function LedgerReportModal({
   }, [customReport, viewRows, csv]);
   const activeHtml = useMemo(() => {
     if (!customReport) return html;
-    const colWidth = `${Math.max(8, Math.floor(100 / customReport.columns.length))}%`;
+    const fitted = customReport.columns.map((col) => {
+      const values: string[] = [];
+      for (const row of customSourceRows) {
+        const raw = row[col.key];
+        if (raw != null && String(raw).trim() !== "") values.push(String(raw));
+      }
+      return Math.max(getCustomColumnWidth(col.key, col.label), fitReportColumnWidth(col.label, values));
+    });
+    const fittedTotal = fitted.reduce((sum, width) => sum + width, 0) || 1;
     const rangeLine = [periodLabel, dateRangeLabel].filter(Boolean).join(' · ') || undefined;
     return buildPulseIntelligenceReportHtml({
       title: displayTitle,
       dateRangeLabel: rangeLine,
-      columns: customReport.columns.map((col) => ({
+      columns: customReport.columns.map((col, index) => ({
         key: col.key,
         label: col.label,
         align: col.align === 'right' ? 'right' : col.align === 'center' ? 'center' : 'left',
-        width: colWidth,
+        width: `${Math.max(4, Math.round((fitted[index] / fittedTotal) * 100))}%`,
       })),
       rows: viewRows.map((row) => {
         const out: Record<string, string> = {};
@@ -465,22 +552,49 @@ export function LedgerReportModal({
       }),
       landscape: customReport.columns.length > 7,
     });
-  }, [customReport, viewRows, html, displayTitle, periodLabel, dateRangeLabel]);
+  }, [customReport, customSourceRows, viewRows, html, displayTitle, periodLabel, dateRangeLabel]);
 
   const reportTitleParts = useMemo(
     () => parseReportTitle(displayTitle),
     [displayTitle],
   );
 
+  const customColumnWidths = useMemo(() => {
+    const widths = new Map<string, number>();
+    if (!customReport) return widths;
+    for (const col of customReport.columns) {
+      const values: string[] = [];
+      for (const row of customSourceRows) {
+        const raw = row[col.key];
+        if (raw != null && String(raw).trim() !== "") values.push(String(raw));
+      }
+      widths.set(
+        col.key,
+        Math.max(getCustomColumnWidth(col.key, col.label), fitReportColumnWidth(col.label, values)),
+      );
+    }
+    return widths;
+  }, [customReport, customSourceRows]);
+
+  const columnKeySignature = customReport?.columns.map((col) => col.key).join("|") ?? "";
+  useEffect(() => {
+    setColumnWidthOverrides({});
+  }, [columnKeySignature]);
+
+  const widthForColumn = (key: string, label?: string) =>
+    columnWidthOverrides[key] ??
+    customColumnWidths.get(key) ??
+    getCustomColumnWidth(key, label);
+
   const customTableMinWidth = useMemo(() => {
     if (!customReport) return 0;
-    const columnSum = customReport.columns.reduce(
-      (sum, col) => sum + getCustomColumnWidth(col.key, col.label),
-      0,
-    );
+    const columnSum = customReport.columns.reduce((sum, col) => {
+      const fitted = customColumnWidths.get(col.key) ?? getCustomColumnWidth(col.key, col.label);
+      return sum + (columnWidthOverrides[col.key] ?? fitted);
+    }, 0);
     const gaps = Math.max(0, customReport.columns.length - 1) * COLUMN_GAP;
     return columnSum + gaps + TABLE_HPAD * 2;
-  }, [customReport]);
+  }, [customReport, columnWidthOverrides, customColumnWidths]);
 
   const customTableWidth = Math.max(customTableMinWidth, windowWidth);
   const showScrollHint =
@@ -695,24 +809,28 @@ export function LedgerReportModal({
       ? `${displayTitle} · ${periodLabel}`
       : displayTitle;
     try {
+      const customWorkbook = () => {
+        const columns = customReport!.columns;
+        const ws = XLSX.utils.aoa_to_sheet(
+          prependPulseExcelBanner(
+            [
+              columns.map((c) => c.label),
+              ...viewRows.map((row) =>
+                columns.map((c) =>
+                  excelReportCell(row[c.key], c.align === 'right' || isMoneyColumn(c.key)),
+                ),
+              ),
+            ],
+            excelSubtitle,
+          ),
+        );
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Report');
+        return wb;
+      };
       if (Platform.OS === 'web') {
         const workbook = isCustomReport
-          ? (() => {
-              const ws = XLSX.utils.aoa_to_sheet(
-                prependPulseExcelBanner(
-                  [
-                    customReport!.columns.map((c) => c.label),
-                    ...viewRows.map((row) =>
-                      customReport!.columns.map((c) => row[c.key] ?? ''),
-                    ),
-                  ],
-                  excelSubtitle,
-                ),
-              );
-              const wb = XLSX.utils.book_new();
-              XLSX.utils.book_append_sheet(wb, ws, 'Report');
-              return wb;
-            })()
+          ? customWorkbook()
           : buildLedgerWorkbook(sortedTransactions, totalIn, totalOut, periodLabel);
         const arrayBuffer = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
         const blob = new Blob(
@@ -731,22 +849,7 @@ export function LedgerReportModal({
       const cacheDirectory = (FileSystem as { cacheDirectory?: string }).cacheDirectory;
       if (!cacheDirectory) throw new Error('No cache directory available');
       const workbook = isCustomReport
-        ? (() => {
-            const ws = XLSX.utils.aoa_to_sheet(
-              prependPulseExcelBanner(
-                [
-                  customReport!.columns.map((c) => c.label),
-                  ...viewRows.map((row) =>
-                    customReport!.columns.map((c) => row[c.key] ?? ''),
-                  ),
-                ],
-                excelSubtitle,
-              ),
-            );
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, 'Report');
-            return wb;
-          })()
+        ? customWorkbook()
         : buildLedgerWorkbook(sortedTransactions, totalIn, totalOut, periodLabel);
       const base64 = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' });
       const uri = `${cacheDirectory}${downloadFileName?.trim() || `ledger-report-${Date.now()}.xlsx`}`;
@@ -983,7 +1086,10 @@ export function LedgerReportModal({
                 horizontal
                 style={styles.customTableScroll}
                 showsHorizontalScrollIndicator
-                contentContainerStyle={styles.customTableScrollContent}
+                contentContainerStyle={[
+                  styles.customTableScrollContent,
+                  { minWidth: customTableWidth },
+                ]}
               >
                 <View style={[styles.customTablePane, { width: customTableWidth }]}>
                   <View style={[styles.tableHeader, styles.customTableHeader]}>
@@ -996,7 +1102,7 @@ export function LedgerReportModal({
                           style={[
                             styles.thFixed,
                             {
-                              width: getCustomColumnWidth(col.key, col.label),
+                              width: widthForColumn(col.key, col.label),
                               flexDirection: 'row',
                               alignItems: 'center',
                               justifyContent:
@@ -1006,6 +1112,8 @@ export function LedgerReportModal({
                                     ? 'center'
                                     : 'flex-start',
                               gap: 4,
+                              position: 'relative',
+                              overflow: 'visible',
                             },
                           ]}
                         >
@@ -1017,6 +1125,7 @@ export function LedgerReportModal({
                             <Text
                               style={[
                                 styles.th,
+                                styles.thLabel,
                                 col.align === 'right' ? styles.thNum : undefined,
                                 sorted && styles.thSorted,
                                 {
@@ -1051,6 +1160,12 @@ export function LedgerReportModal({
                               color={filtered ? Theme.primary : PULSE_METRONIC.muted}
                             />
                           </TouchableOpacity>
+                          <ReportColumnResizeHandle
+                            width={widthForColumn(col.key, col.label)}
+                            onResize={(next) =>
+                              setColumnWidthOverrides((current) => ({ ...current, [col.key]: next }))
+                            }
+                          />
                         </View>
                       );
                     })}
@@ -1088,7 +1203,7 @@ export function LedgerReportModal({
                               money ? styles.cellMoney : undefined,
                               col.align === 'right' ? styles.cellNum : undefined,
                               {
-                                width: getCustomColumnWidth(col.key, col.label),
+                                width: widthForColumn(col.key, col.label),
                                 textAlign:
                                   (col.align === 'right'
                                     ? 'right'
@@ -1102,7 +1217,7 @@ export function LedgerReportModal({
                               return (
                                 <View
                                   key={`${idx}-${col.key}`}
-                                  style={{ width: getCustomColumnWidth(col.key, col.label) }}
+                                  style={{ width: widthForColumn(col.key, col.label) }}
                                 >
                                   <Text
                                     style={cellStyle}
@@ -1573,8 +1688,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    minWidth: 0,
-    flexShrink: 1,
+    flexShrink: 0,
   },
   thSorted: {
     color: PULSE_METRONIC.text,
@@ -1695,17 +1809,17 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     maxHeight: '80%',
-    backgroundColor: Theme.surface,
+    backgroundColor: Theme.cardWhite,
     borderRadius: 16,
-    padding: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: Theme.borderLight,
   },
   columnFilterInput: {
-    marginTop: 10,
-    height: 40,
+    marginTop: 8,
+    height: 36,
     borderRadius: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     backgroundColor: '#F5F8FA',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: PULSE_METRONIC.border,
@@ -1729,9 +1843,13 @@ const styles = StyleSheet.create({
   columnFilterOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 10,
+    gap: 8,
     minHeight: 44,
+    paddingHorizontal: 8,
+    marginBottom: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
   },
   columnFilterOptionText: {
     flex: 1,
@@ -1758,8 +1876,28 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
+  thLabel: { flexShrink: 0 },
   thEntity: { flex: 1, minWidth: 0 },
-  thFixed: { flexShrink: 0 },
+  thFixed: { flexShrink: 0, overflow: 'visible' },
+  colResizeHandle: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: -6,
+    width: 12,
+    zIndex: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web'
+      ? ({ cursor: 'col-resize', touchAction: 'none', userSelect: 'none' } as object)
+      : null),
+  },
+  colResizeGrip: {
+    width: 3,
+    height: 18,
+    borderRadius: 2,
+    backgroundColor: Theme.complianceTripCardBorder,
+  },
   thDate: { width: 80, flexShrink: 0 },
   thNum: { textAlign: 'right', flexShrink: 0 },
   thNumLedger: { width: 72, textAlign: 'right', flexShrink: 0 },
@@ -1817,9 +1955,11 @@ const styles = StyleSheet.create({
   },
   customTableScrollContent: {
     flexGrow: 1,
+    alignItems: 'stretch',
   },
   customTablePane: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 0,
     minHeight: 0,
   },
   list: {

@@ -6,6 +6,7 @@
  * selection rules live in shipperPoolIndents.util; award, vehicle and driver
  * stay on each indent's existing Review flow.
  */
+import { PartyFilterSheet } from "@/components/PartyFilterSheet";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import {
@@ -43,9 +44,7 @@ import { laneBidHint } from "@/features/trips/utils/indentLaneBids.util";
 import { formatINR } from "@/lib/format";
 import { ArrowRight, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Layers, Search, X } from "lucide-react-native";
 import { useMemo, useState, type ReactNode } from "react";
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 const QUICK_POOL_LIMIT = 6;
 const INDENT_PAGE_SIZE = 10;
 const NO_SNAPSHOTS: Record<string, IndentBidSnapshot> = {};
@@ -967,13 +966,19 @@ function PoolClientFilter({
   onChange: (next: string | null) => void;
   compact: boolean;
 }) {
-  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const selected = options.find((option) => option.key === value) ?? null;
+  const visible = options.filter((option) =>
+    option.label.toLowerCase().includes(query.trim().toLowerCase()),
+  );
   return (
     <View style={[styles.clientFilter, compact && styles.clientFilterStacked]}>
       <Pressable
-        onPress={() => setOpen(true)}
+        onPress={() => {
+          setQuery("");
+          setOpen(true);
+        }}
         style={[styles.clientChip, selected && styles.clientChipOn]}
         accessibilityRole="button"
         accessibilityLabel="Client"
@@ -1004,67 +1009,37 @@ function PoolClientFilter({
           <X size={12} color={Theme.textSecondary} strokeWidth={2.4} />
         </Pressable>
       ) : null}
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <View style={styles.clientBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
-          <View
-            style={[
-              styles.clientSheet,
-              { paddingBottom: Math.max(insets.bottom, 14) },
-            ]}
-          >
-            <View style={styles.clientSheetHead}>
-              <Text style={styles.clientSheetTitle}>Filter by client</Text>
-              <Pressable
-                onPress={() => setOpen(false)}
-                style={styles.clientSheetClose}
-                accessibilityRole="button"
-                accessibilityLabel="Close client list"
-                hitSlop={Layout.touchTargetHitSlop}
-              >
-                <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.2} />
-              </Pressable>
-            </View>
-            <ScrollView keyboardShouldPersistTaps="handled" style={styles.clientList}>
-              <Pressable
-                onPress={() => {
-                  onChange(null);
-                  setOpen(false);
-                }}
-                style={[styles.clientOption, !value && styles.clientOptionOn]}
-                accessibilityRole="button"
-                accessibilityLabel="All clients"
-              >
-                <Text style={styles.clientOptionLabel}>All clients</Text>
-                <Text style={styles.clientOptionCount}>
-                  {options.reduce((sum, option) => sum + option.count, 0)}
-                </Text>
-              </Pressable>
-              {options.map((option) => {
-                const on = option.key === value;
-                return (
-                  <Pressable
-                    key={option.key}
-                    onPress={() => {
-                      onChange(option.key);
-                      setOpen(false);
-                    }}
-                    style={[styles.clientOption, on && styles.clientOptionOn]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${option.label}, ${option.count} available`}
-                  >
-                    <Text style={[styles.clientOptionLabel, on && styles.clientOptionLabelOn]} numberOfLines={1}>
-                      {option.label}
-                    </Text>
-                    <Text style={styles.clientOptionCount}>{option.count}</Text>
-                    {on ? <Check size={14} color={Theme.primary} strokeWidth={2.4} /> : null}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      <PartyFilterSheet
+        visible={open}
+        title="Filter by client"
+        desktop={!compact}
+        showKinds={false}
+        options={[
+          {
+            id: "client",
+            label: "Client",
+            allLabel: "All clients",
+            hint: "Who the load is for",
+            icon: Building2,
+          },
+        ]}
+        kind="client"
+        onKindChange={() => {}}
+        query={query}
+        onQueryChange={setQuery}
+        choices={visible.map((option) => ({
+          id: option.key,
+          name: option.label,
+          meta: `${option.count} available`,
+        }))}
+        selectedId={value}
+        onSelect={(id) => {
+          onChange(id);
+          setOpen(false);
+        }}
+        onClose={() => setOpen(false)}
+        emptyLabel="No matching clients"
+      />
     </View>
   );
 }
@@ -1793,54 +1768,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  clientBackdrop: {
-    flex: 1,
-    backgroundColor: Theme.overlayBackdrop,
-    justifyContent: "center",
-    paddingHorizontal: 16,
-  },
-  clientSheet: {
-    width: "100%",
-    maxWidth: 420,
-    maxHeight: "80%",
-    alignSelf: "center",
-    backgroundColor: Theme.cardWhite,
-    borderRadius: 18,
-    overflow: "hidden",
-  },
-  clientSheetHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 8,
-  },
-  clientSheetTitle: { fontSize: 16, fontWeight: "800", color: Theme.textPrimaryDark },
-  clientSheetClose: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  clientList: { maxHeight: 360 },
-  clientOption: {
-    minHeight: 48,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  clientOptionOn: { backgroundColor: Theme.brandBlueSoft },
-  clientOptionLabel: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: "600",
-    color: Theme.textPrimaryDark,
-  },
-  clientOptionLabelOn: { color: Theme.primary },
-  clientOptionCount: { fontSize: 12, fontWeight: "700", color: Theme.textSecondary },
   finderTitle: {
     fontSize: 15,
     fontWeight: "800",

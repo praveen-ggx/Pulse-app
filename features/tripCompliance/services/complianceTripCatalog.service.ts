@@ -9,11 +9,11 @@ import {
 /**
  * Compliance queue membership.
  *
- * Rows come from list_compliance_ops_pipeline_keyset, which uses the same
- * status and driver rule as isComplianceOpsPipelineTrip. Assigned and draft
- * trips are included only for Ground Ops and Sourcing. A database that does
- * not have the function yet falls back to the hub walk. A short walk, a
- * repeated id, or a stuck cursor returns no rows.
+ * Rows use the same status and driver rule as isComplianceOpsPipelineTrip.
+ * Assigned and draft trips are included only for Ground Ops and Sourcing.
+ * list_compliance_ops_pipeline_keyset is not installed on the live database,
+ * so the catalog uses the hub walk. A short walk, a repeated id, or a stuck
+ * cursor returns no rows.
  */
 export async function loadComplianceTripCatalog(
   orgId: string,

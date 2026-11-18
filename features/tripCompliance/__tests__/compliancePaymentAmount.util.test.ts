@@ -177,8 +177,23 @@ describe("quoteComplianceAdvance", () => {
     expect(quoted.payable).toBe(8700);
   });
 
+  it("reads a blank basis as a per-trip freight total", () => {
+    const quoted = quoteComplianceAdvance({
+      supplierRate: 5250,
+      supplierRateBasis: null,
+      loadTons: 6,
+      advancePercent: 90,
+      tdsRatePercent: 1,
+      documentation: null,
+    });
+    expect(quoted.basis).toBe("per_trip");
+    expect(quoted.baseFreight).toBe(5250);
+  });
+
   it("rejects an unknown basis, a percent outside 0–100, and a non-positive payable", () => {
     expect(canonicalSupplierRateBasis("flat")).toBeNull();
+    expect(canonicalSupplierRateBasis(null)).toBe("per_trip");
+    expect(canonicalSupplierRateBasis("")).toBe("per_trip");
     expect(() =>
       quoteComplianceAdvance({
         supplierRate: 1000,

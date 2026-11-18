@@ -11,7 +11,7 @@ import { queryKeys } from "@/lib/queryKeys";
 
 type TripId = { id?: string };
 
-const LOCATION_PING_FIELDS = [
+export const LOCATION_PING_FIELDS = [
   "last_location_at",
   "last_location_chat_at",
   "gps_distance_km",
@@ -81,7 +81,7 @@ export function patchFiniteTripFromRealtime<T extends TripId>(
 ): T {
   if (isOlderThanCached(row, incoming)) return row;
   if (typeof incoming.updated_at !== "string" || incoming.updated_at.length === 0) {
-    const next: Record<string, unknown> = { ...row };
+    const next = { ...row } as T & Record<string, unknown>;
     let changed = false;
     for (const field of LOCATION_PING_FIELDS) {
       if (field in incoming && incoming[field] !== next[field]) {

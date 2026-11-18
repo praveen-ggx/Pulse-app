@@ -487,7 +487,7 @@ export async function loadSalesReportWindow(
   const notes: string[] = [];
   const indentById = new Map<string, IndentRow>();
 
-  const { data, error } = await readAllPages<IndentRow, { message: string }>((afterId, limit) => {
+  const { data, error } = await readAllPages<IndentRow, { message: string }>(async (afterId, limit) => {
     let query = supabase()
       .from("indents")
       .select("*")
@@ -495,7 +495,8 @@ export async function loadSalesReportWindow(
       .is("deleted_at", null)
       .or(salesReportIndentOrFilter(bounds));
     if (afterId) query = query.gt("id", afterId);
-    return query.order("id", { ascending: true }).limit(limit);
+    const page = await query.order("id", { ascending: true }).limit(limit);
+    return { data: (page.data ?? null) as IndentRow[] | null, error: page.error };
   });
   if (error) {
     return {

@@ -34,7 +34,7 @@ import {
     preloadPulseLoadsRoute,
     preloadTabScreen,
 } from "@/lib/preloadRoutes";
-import { preloadStoryStrip } from "@/lib/preloadStoryWarmup";
+import { preloadStoryStrip } from "@/features/network/utils/preloadStoryWarmup.util";
 import { prefetchTripsList } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
 import { useQueryClient } from "@tanstack/react-query";

@@ -736,7 +736,7 @@ export default function TripsScreen() {
     (workspaceCtx!.isLoading || !workspaceCtx!.membershipResolved);
   const orgBootPending = orgLoading || workspaceResolving;
   const orgId = canAccess ? (currentOrganization?.id ?? null) : null;
-  const { pendingCount: pendingInviteCount } = useProtocolInvitesWithDriverSent(orgId);
+  const { pendingCount: _pendingInviteCount } = useProtocolInvitesWithDriverSent(orgId);
   const networkLoadsQ = useMarketIndentsQuery(canOpenLoadNetwork ? orgId : null);
   const networkLoadCount = useMemo(() => {
     let count = 0;

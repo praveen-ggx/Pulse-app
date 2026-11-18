@@ -406,7 +406,7 @@ export function LoadCenterView({
     useMyDirectQuotesQuery(orgId, { urgent: !isTripsPresentation });
   const myMarketBidsQ = useQuery({
     queryKey: queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
-    queryFn: () => listMyOrgMarketBids(orgId as string, 100),
+    queryFn: () => listMyOrgMarketBids(orgId as string),
     enabled: !!orgId,
     staleTime: STALE.frequent,
   });

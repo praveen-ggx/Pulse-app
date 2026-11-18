@@ -30,6 +30,8 @@ Branched from V1 `83d800a2` on 2026-11-16 (fix isolated from the parked V1.0.51 
 
 - Synced with V1 `cc1451ac` (prod sync #128) by a merge commit (no rebase, no force-push). `20271118213000` is still the newest migration version.
 
+- After the V1 sync: `LoadCenterView` calls `listMyOrgMarketBids(orgId)` (prod's sync removed the page-size parameter; the function already pages at 100), and the lint baseline stays at V1's 98 (this PR had lowered it to 97 against its old base).
+
 ## Not tested
 - Vendor card does not update live; it updates on refetch. Realtime on market_bids is not built.
 - Backfill not run on preprod or prod.

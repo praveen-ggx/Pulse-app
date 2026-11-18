@@ -245,6 +245,45 @@ export function applyLedgerReportView(
   return [...filtered].sort((a, b) => compareRows(a, b, key, dir));
 }
 
+/**
+ * Preview column width from the header and the longest cell.
+ * Header is 10px bold uppercase with letter-spacing, plus sort and filter icons.
+ * Cells are 11px. Caps and digits are wider than mixed case. One very long cell
+ * stops at 480 so one cell cannot take the whole sheet. Drag a column edge to open it further.
+ */
+export function fitReportColumnWidth(label: string, values: readonly string[]): number {
+  const header = label.trim();
+  let longest = "";
+  for (const value of values) {
+    const text = value.trim();
+    if (text.length > longest.length) longest = text;
+  }
+  const sample = longest.length >= header.length ? longest : header;
+  const charPx = /[a-z]/.test(sample) ? 7.1 : 8.4;
+  const content = Math.ceil(sample.length * charPx) + 16;
+  const headerPx = Math.ceil(header.length * 8.1) + 52;
+  return Math.min(480, Math.max(88, content, headerPx));
+}
+
+const EXCEL_NUMBER = /^-?\d+(?:\.\d+)?$/;
+
+/**
+ * Money columns must be Excel numbers. A numeric string ("4725", "₹4,725", "13.2%")
+ * is stored as text, and Excel's status bar then shows Count only — no Sum or Average.
+ * Identifiers, phones, and account numbers stay text when `numeric` is false.
+ */
+export function excelReportCell(value: ReportCell, numeric: boolean): string | number {
+  if (value == null) return "";
+  if (typeof value === "number") return Number.isFinite(value) ? value : "";
+  const text = String(value).trim();
+  if (!text || text === "—" || text === "-") return numeric ? "" : text;
+  if (!numeric) return text;
+  const cleaned = text.replace(/[₹,\s]/g, "").replace(/%$/, "");
+  if (!EXCEL_NUMBER.test(cleaned)) return text;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : text;
+}
+
 export function ledgerReportViewIsActive(state: LedgerReportViewState): boolean {
   return Boolean(
     state.search.trim() ||

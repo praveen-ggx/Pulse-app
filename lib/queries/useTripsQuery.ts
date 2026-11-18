@@ -88,9 +88,10 @@ export function useCompleteTripsQuery(orgId: string | null) {
 }
 
 /**
- * Compliance queue catalog: every trip the ops-pipeline rule keeps, paged by
- * list_compliance_ops_pipeline_keyset. Not the newest-400 list and not the
- * loaded Trips hub page. Lives under the trips key prefix so trip realtime
+ * Compliance queue catalog: every trip the ops-pipeline rule keeps.
+ * The dedicated keyset function is not installed on the live database, so
+ * the catalog uses the hub walk. Not the newest-400 list and not the loaded
+ * Trips hub page. Lives under the trips key prefix so trip realtime
  * invalidation refreshes it too.
  */
 export function useComplianceTripCatalogQuery(

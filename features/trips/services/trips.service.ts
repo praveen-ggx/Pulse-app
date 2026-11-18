@@ -525,11 +525,31 @@ function hubCount(value: unknown): number | null {
 }
 
 let hubRowsRpcMissing = false;
+/**
+ * 20271118143000 is not applied on production or preprod, so
+ * list_compliance_ops_pipeline_keyset answers 404. Stay on the hub walk
+ * and do not call the function. Set this to false after that migration
+ * is applied, so the dedicated queue is used.
+ */
+let compliancePipelineRpcMissing = true;
 
-function isMissingHubRowsRpc(error: { code?: string; message?: string }): boolean {
+function isMissingHubRowsRpc(error: {
+  code?: string;
+  message?: string;
+  details?: string;
+  status?: number;
+  statusCode?: number;
+}): boolean {
   const code = String(error.code ?? "");
-  const msg = String(error.message ?? "").toLowerCase();
-  return code === "PGRST202" || code === "42883" || msg.includes("could not find the function");
+  const msg = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+  const status = error.status ?? error.statusCode;
+  return (
+    code === "PGRST202" ||
+    code === "42883" ||
+    msg.includes("could not find the function") ||
+    msg.includes("schema cache") ||
+    status === 404
+  );
 }
 
 /**
@@ -645,7 +665,8 @@ export async function getComplianceOpsPipelinePage(
   hasMore: boolean;
   total: number | null;
 }> {
-  const empty = { trips: [] as TripRow[], hasMore: false, total: null, missing: false };
+  const empty = { error: null, trips: [] as TripRow[], hasMore: false, total: null, missing: false };
+  if (compliancePipelineRpcMissing) return { ...empty, missing: true };
   const limit = Math.min(250, Math.max(1, opts?.limit ?? 250));
   const { data, error } = await supabase().rpc("list_compliance_ops_pipeline_keyset", {
     p_org_id: orgId,
@@ -654,7 +675,10 @@ export async function getComplianceOpsPipelinePage(
     p_before_id: opts?.cursor?.id ?? null,
     p_include_assigned: opts?.includeAssigned === true,
   });
-  if (error && isMissingHubRowsRpc(error)) return { ...empty, error: null, missing: true };
+  if (error && isMissingHubRowsRpc(error)) {
+    compliancePipelineRpcMissing = true;
+    return { ...empty, error: null, missing: true };
+  }
   if (error) return { ...empty, error: new Error(error.message) };
   if (data == null) {
     return { ...empty, error: new Error("Compliance trips are not available for this organization.") };

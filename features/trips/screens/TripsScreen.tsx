@@ -138,6 +138,7 @@ import {
 } from "@/features/trips/utils/hubAssignmentAuditTripIds.util";
 import {
     buildActiveHubRailCounts,
+    hubTileBadgeCounts,
     rowsForHubStatusList,
     filterHubTripsForHistoryList,
     hubActiveAllTripCount,
@@ -834,6 +835,8 @@ export default function TripsScreen() {
   const {
     trips: hubDateRangeTripsRaw,
     total: hubServerTotal,
+    activeCount: hubActiveCount,
+    historyCount: hubHistoryCount,
     attributedCount: hubAttributedCount,
     hasMore: hubHasMore,
     loadMore: loadMoreHubTrips,
@@ -2005,12 +2008,49 @@ export default function TripsScreen() {
     () => buildActiveHubRailCounts(hubScopedTrips, EMPTY_HUB_DOC_TRIP_IDS),
     [hubScopedTrips],
   );
+  const datedScopeKey = `${dateRangeFilter}|${customDateFrom ?? ""}|${customDateTo ?? ""}|${attributionFilter}|${supplyFilter}`;
+  const datedHubCountsRef = useRef<{
+    key: string;
+    rail: ReturnType<typeof buildActiveHubRailCounts>;
+    active: number;
+    history: number;
+  } | null>(null);
+  if (
+    (hubTileBucket === "active" || hubTileBucket === "history") &&
+    hubDateRangeFetched &&
+    !hubDateRangeFetching
+  ) {
+    const tabCounts = hubTabTripCounts(hubScopedTrips);
+    datedHubCountsRef.current = {
+      key: datedScopeKey,
+      rail: openHubRailCounts,
+      active:
+        hubTileBucket === "active" && hubServerTotal != null
+          ? hubServerTotal
+          : (hubActiveCount ?? tabCounts.active),
+      history:
+        hubTileBucket === "history" && hubServerTotal != null
+          ? hubServerTotal
+          : (hubHistoryCount ?? tabCounts.history),
+    };
+  }
+  const preservedDatedCounts =
+    datedHubCountsRef.current?.key === datedScopeKey
+      ? datedHubCountsRef.current
+      : null;
 
   const metricCounts = useMemo(() => {
     if (hubStructuralSearchActive) {
       return { ...hubSearchScoped.metricCounts };
     }
-    const counts = { ...openHubRailCounts, indent: liveIndentCount };
+    const counts = {
+      ...hubTileBadgeCounts(openHubRailCounts, {
+        tileBucket: hubTileBucket,
+        tileTotal: hubServerTotal,
+        preservedRail: preservedDatedCounts?.rail ?? null,
+      }),
+      indent: liveIndentCount,
+    };
     const unfiltered =
       supplyFilter === "all" &&
       attributionFilter === "all" &&
@@ -2034,6 +2074,9 @@ export default function TripsScreen() {
     hubSearchScoped,
     liveIndentCount,
     openHubRailCounts,
+    hubTileBucket,
+    hubServerTotal,
+    preservedDatedCounts,
     supplyFilter,
     attributionFilter,
     dateRangeFilter,
@@ -2997,6 +3040,22 @@ export default function TripsScreen() {
     return names;
   }, [hubPartyOrgById]);
 
+  /** Indent cards keep `trips` empty in the table, so the party sheet reads these rows. */
+  const indentCardFilterTrips = useMemo(
+    () =>
+      indentStageIndents.map((indent) => {
+        const trip = indentRowToHubTrip(indent);
+        const supplierId = String(indent.assigned_supplier_id ?? "").trim();
+        const supplierName =
+          (supplierId && (orgNameById[supplierId] || supplierNameById[supplierId])) ||
+          String(
+            (indent as { assigned_supplier_name?: string | null }).assigned_supplier_name ?? "",
+          ).trim();
+        return supplierName ? { ...trip, supplier_name: supplierName } : trip;
+      }),
+    [indentStageIndents, orgNameById, supplierNameById],
+  );
+
   const tripHubPartyMetaByTripId = useMemo(
     () =>
       buildTripHubPartyMetaByTripId(
@@ -3615,10 +3674,27 @@ export default function TripsScreen() {
         cancelled: hubMetrics.tripsCancelled,
       };
     }
-    if (hubServerTotal != null) {
+    if (
+      hubActiveCount != null ||
+      hubHistoryCount != null ||
+      hubServerTotal != null
+    ) {
       return {
-        active: hubListBucket === "active" ? hubServerTotal : fromRows.active,
-        history: hubListBucket === "history" ? hubServerTotal : fromRows.history,
+        active:
+          hubTileBucket === "active" && hubServerTotal != null
+            ? hubServerTotal
+            : (hubActiveCount ?? preservedDatedCounts?.active ?? fromRows.active),
+        history:
+          hubTileBucket === "history" && hubServerTotal != null
+            ? hubServerTotal
+            : (hubHistoryCount ?? preservedDatedCounts?.history ?? fromRows.history),
+        cancelled: hubMetrics?.tripsCancelled ?? fromRows.cancelled,
+      };
+    }
+    if (preservedDatedCounts) {
+      return {
+        active: preservedDatedCounts.active,
+        history: preservedDatedCounts.history,
         cancelled: hubMetrics?.tripsCancelled ?? fromRows.cancelled,
       };
     }
@@ -3632,8 +3708,12 @@ export default function TripsScreen() {
     dateRangeFilter,
     hubMetrics,
     hubListBucket,
+    hubTileBucket,
     useRangeCounts,
     hubServerTotal,
+    hubActiveCount,
+    hubHistoryCount,
+    preservedDatedCounts,
   ]);
 
   const formatMainTabLabel = useCallback(
@@ -4850,21 +4930,27 @@ export default function TripsScreen() {
           activeMetricTab === "indent" &&
           effectiveListLayout !== "table" ? (
             <TripsHubTableView
-              trips={[]}
+              trips={indentCardFilterTrips}
               hideBody
-              renderAboveBody={
-                <IndentStageViews
-                  state={indentPoolView}
-                  canView={canViewIndentPools}
-                  canSelect={canSelectPoolIndents}
-                  bidCountById={indentOfferCounts}
-                  bidSnapshotById={indentBidSnapshots}
-                  listCapped={allIndents.length >= FINITE_LIST_CAP}
-                  compact={isMobileViewport}
-                  onOpenIndent={handleOpenUnallocatedIndent}
-                  cards={renderIndentStageBody(paginatedHubIndents)}
-                />
-              }
+              renderAboveBody={(rows) => {
+                const visible = new Set(rows.map((row) => row.id));
+                const indents = indentStageIndents.filter((indent) =>
+                  visible.has(indent.id),
+                );
+                return (
+                  <IndentStageViews
+                    state={indentPoolView}
+                    canView={canViewIndentPools}
+                    canSelect={canSelectPoolIndents}
+                    bidCountById={indentOfferCounts}
+                    bidSnapshotById={indentBidSnapshots}
+                    listCapped={allIndents.length >= FINITE_LIST_CAP}
+                    compact={isMobileViewport}
+                    onOpenIndent={handleOpenUnallocatedIndent}
+                    cards={renderIndentStageBody(indents)}
+                  />
+                );
+              }}
               renderBody={() => null}
               toolbarCountLabel={indentStageToolbarCountLabel}
               toolbarTags={indentHubToolbarTags}
@@ -4897,6 +4983,9 @@ export default function TripsScreen() {
                 }
               }}
               onOpenDateRangePicker={() => setShowDateRangePicker(true)}
+              attributionFilter={attributionFilter}
+              onAttributionFilterChange={setAttributionFilter}
+              attributedCount={attributedTripCount}
               onExportLedger={openTripLedgerExport}
               clientNameByTripId={shipperNameByTripId}
               linkedOrgByOrganizationId={linkedOrgByOrganizationId}
@@ -4989,6 +5078,9 @@ export default function TripsScreen() {
                     }
                   }}
                   onOpenDateRangePicker={() => setShowDateRangePicker(true)}
+                  attributionFilter={attributionFilter}
+                  onAttributionFilterChange={setAttributionFilter}
+                  attributedCount={attributedTripCount}
                     onExportLedger={openTripLedgerExport}
                   clientNameByTripId={shipperNameByTripId}
                   linkedOrgByOrganizationId={linkedOrgByOrganizationId}
@@ -5061,6 +5153,9 @@ export default function TripsScreen() {
                   }
                 }}
                 onOpenDateRangePicker={() => setShowDateRangePicker(true)}
+                attributionFilter={attributionFilter}
+                onAttributionFilterChange={setAttributionFilter}
+                attributedCount={attributedTripCount}
                 onExportLedger={openTripLedgerExport}
                 clientNameByTripId={shipperNameByTripId}
                 linkedOrgByOrganizationId={linkedOrgByOrganizationId}

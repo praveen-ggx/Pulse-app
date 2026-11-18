@@ -44,6 +44,7 @@ module.exports = {
   PREPROD_SUPABASE_REF,
   PROD_SUPABASE_REF,
   PREPROD_SUPABASE_URL,
+  PREPROD_SUPABASE_ANON_KEY,
   applyDeployPreviewSupabaseEnv,
   isDeployPreviewContext,
   supabaseHost,

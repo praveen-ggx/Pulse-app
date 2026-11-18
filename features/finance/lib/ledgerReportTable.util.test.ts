@@ -1,6 +1,8 @@
 import {
   applyLedgerReportView,
   EMPTY_LEDGER_REPORT_VIEW,
+  excelReportCell,
+  fitReportColumnWidth,
   pickReportStatusFacet,
   toReportIsoDate,
 } from "./ledgerReportTable.util";
@@ -105,5 +107,23 @@ describe("ledgerReportTable.util", () => {
     );
     expect(view).toHaveLength(1);
     expect(view[0].party).toBe("Luminous");
+  });
+
+  it("writes money cells as numbers so Excel can sum and average them", () => {
+    expect(excelReportCell("4725", true)).toBe(4725);
+    expect(excelReportCell("₹4,725.50", true)).toBe(4725.5);
+    expect(excelReportCell("13.2%", true)).toBe(13.2);
+    expect(excelReportCell("—", true)).toBe("");
+    expect(excelReportCell("Pending", true)).toBe("Pending");
+    expect(excelReportCell("62028153251", false)).toBe("62028153251");
+  });
+
+  it("sizes a report column from the longest cell and the header", () => {
+    const headerOnly = fitReportColumnWidth("SUPPLIER NAME", []);
+    const withName = fitReportColumnWidth("SUPPLIER NAME", ["SRUNGARAPU VENKATESWARA RAO"]);
+    const tripId = fitReportColumnWidth("TRIP ID", ["SAT812GOGTRIP002698"]);
+    expect(withName).toBeGreaterThan(headerOnly);
+    expect(tripId).toBeGreaterThan(headerOnly);
+    expect(fitReportColumnWidth("NOTE", ["x".repeat(400)])).toBe(480);
   });
 });

@@ -391,7 +391,7 @@ export function DriverTripHistoryDetailScreen({
     setDetailPodViewUrls({});
     setDetailPodLoading(true);
     let cancelled = false;
-    tripDocumentsService.getDocumentsByTripId(tid).then(({ documents, error }) => {
+    tripDocumentsService.getDocumentsByTripId(tid, { includeStorageFallback: true }).then(({ documents, error }) => {
       if (cancelled) return;
       setDetailPodLoading(false);
       if (!error) setDetailPodDocuments(documents.filter((d) => d.document_type === 'pod'));

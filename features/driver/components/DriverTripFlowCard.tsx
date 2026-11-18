@@ -1004,7 +1004,7 @@ export function DriverTripFlowCard({
       const id = localTrip?.id;
       if (!id) return;
       if (!opts?.silent) setPodLoading(true);
-      tripDocumentsService.getDocumentsByTripId(id).then(({ documents, error }) => {
+      tripDocumentsService.getDocumentsByTripId(id, { includeStorageFallback: true }).then(({ documents, error }) => {
         setPodLoading(false);
         if (!error) {
           setPodDocuments(documents.filter((d) => d.document_type === 'pod'));
@@ -1032,7 +1032,7 @@ export function DriverTripFlowCard({
       const id = localTrip?.id;
       if (!id) return;
       if (!opts?.silent) setLrLoading(true);
-      tripDocumentsService.getDocumentsByTripId(id).then(({ documents, error }) => {
+      tripDocumentsService.getDocumentsByTripId(id, { includeStorageFallback: true }).then(({ documents, error }) => {
         setLrLoading(false);
         if (!error) {
           setLrDocuments(documents.filter((d) => d.document_type === 'lr'));

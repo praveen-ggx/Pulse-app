@@ -329,26 +329,42 @@ export function isUsableStorageListObject(name: string | undefined | null): bool
  * 2) If table returns no rows and includeStorageFallback is true, list storage
  *    prefix {tripId}/ so POD still shows when the file exists in storage but the
  *    table row is missing. Trip Detail defers this until the Documents/POD viewer.
+ *
+ * Storage listing is off unless the caller opts in. Production `storage.search`
+ * has a 401 ms floor and a 24 s worst case, so a list or count must not pay it.
  */
 export type GetDocumentsByTripIdOptions = {
   /** Join OCR jobs for LR rows. Default true for non–trip-detail callers. */
   includeOcr?: boolean;
   /**
-   * List Storage when the table returns no rows. Default true for callers that
-   * still need the historical storage-only POD path. Trip Detail defers this
-   * until the Documents/POD viewer is opened.
+   * List Storage when the table returns no rows. Off by default. Pass true only
+   * for a viewer that must still show a legacy file with no trip_documents row.
    */
   includeStorageFallback?: boolean;
   /** Cap table rows (trip detail Docs tab). */
   limit?: number;
 };
 
+/** Same folder is not listed again while a viewer remounts or a second card asks. */
+const STORAGE_FALLBACK_TTL_MS = 60_000;
+
+type StorageFallbackResult = { documents: TripDocumentRow[]; error: Error | null };
+
+const storageFallbackCache = new Map<string, { at: number; result: StorageFallbackResult }>();
+const storageFallbackInflight = new Map<string, Promise<StorageFallbackResult>>();
+
+/** Test hook. A real upload writes a trip_documents row, so the next read skips this cache. */
+export function clearTripDocumentStorageFallbackCache(): void {
+  storageFallbackCache.clear();
+  storageFallbackInflight.clear();
+}
+
 export async function getDocumentsByTripId(
   tripId: string,
   options?: GetDocumentsByTripIdOptions,
 ): Promise<{ documents: TripDocumentRow[]; error: Error | null }> {
   const includeOcr = options?.includeOcr !== false;
-  const includeStorageFallback = options?.includeStorageFallback !== false;
+  const includeStorageFallback = options?.includeStorageFallback === true;
   const runSelect = (columns: string) => {
     const q = supabase()
       .from("trip_documents")
@@ -385,6 +401,28 @@ export async function getDocumentsByTripId(
     return { documents: [], error: tableError };
   }
 
+  const cachedFallback = storageFallbackCache.get(tripId);
+  if (cachedFallback && Date.now() - cachedFallback.at < STORAGE_FALLBACK_TTL_MS) {
+    return cachedFallback.result;
+  }
+  const pendingFallback = storageFallbackInflight.get(tripId);
+  if (pendingFallback) return pendingFallback;
+
+  const listing = loadLegacyStorageDocuments(tripId, tableError).then((result) => {
+    storageFallbackCache.set(tripId, { at: Date.now(), result });
+    return result;
+  });
+  storageFallbackInflight.set(tripId, listing);
+  void listing.finally(() => {
+    if (storageFallbackInflight.get(tripId) === listing) storageFallbackInflight.delete(tripId);
+  });
+  return listing;
+}
+
+async function loadLegacyStorageDocuments(
+  tripId: string,
+  tableError: Error | null,
+): Promise<{ documents: TripDocumentRow[]; error: Error | null }> {
   // Fallback: list storage folder for this trip so dispatcher/supplier can still preview POD
   const { data: listData, error: listError } = await supabase()
     .storage

@@ -3134,14 +3134,14 @@ export default function TripsScreen() {
       const missingSupplierIds = scopedTrips
         .map((t) => String(t.supplier_id ?? "").trim().toLowerCase())
         .filter((id) => id && !knownSupplierIds.has(id) && !supplierNameFallbackById[id]);
-      const exportSupplierNames = {
-        ...supplierNameFallbackById,
+      const exportSupplierNames: Record<string, string> = {
+        ...supplierNameById,
         ...(await fetchSupplierNamesByIds(missingSupplierIds)),
       };
       const exportPartyMetaByTripId = buildTripHubPartyMetaByTripId(
         scopedTrips,
         clients,
-        suppliers,
+        suppliersForHubParty,
         drivers,
         transactions,
         exportSupplierNames,
@@ -3254,6 +3254,8 @@ export default function TripsScreen() {
     sourcingScope,
     suppliers,
     supplierNameFallbackById,
+    suppliersForHubParty,
+    supplierNameById,
     clients,
     drivers,
     transactions,

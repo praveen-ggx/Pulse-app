@@ -44,6 +44,7 @@ describe("trip document download", () => {
   const clicks: string[] = [];
 
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.clearAllMocks();
     savedBlobs.length = 0;
     clicks.length = 0;
@@ -95,6 +96,11 @@ describe("trip document download", () => {
     };
   });
 
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
   it("keeps every name, and makes duplicates unique", () => {
     expect(
       assignDownloadFileNames([
@@ -142,6 +148,9 @@ describe("trip document download", () => {
     });
     expect(result.error).toBeNull();
     expect(clicks).toEqual(["Invoices.zip"]);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(30_000);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:invoices");
     expect(savedBlobs).toHaveLength(1);
     const files = unzip(new Uint8Array(await savedBlobs[0]!.arrayBuffer()));
     expect(Object.keys(files).sort()).toEqual([

@@ -236,19 +236,21 @@ async function readTripDocumentBytes(
 }
 
 function saveZipOnWeb(bytes: Uint8Array, fileName: string): { error: Error | null } {
+  let anchor: HTMLAnchorElement | null = null;
   try {
-    const blob = new Blob([bytes], { type: "application/zip" });
+    const blob = new Blob([new Uint8Array(bytes)], { type: "application/zip" });
     const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
+    anchor = document.createElement("a");
     anchor.href = objectUrl;
     anchor.download = fileName;
     document.body.appendChild(anchor);
     anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(objectUrl);
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
     return { error: null };
   } catch (e) {
     return { error: e instanceof Error ? e : new Error(String(e)) };
+  } finally {
+    if (anchor) document.body.removeChild(anchor);
   }
 }
 

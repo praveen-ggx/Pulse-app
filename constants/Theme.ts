@@ -350,6 +350,14 @@ export const Theme = {
   /** Accents, amounts, dots — emerald-700/800 (modern / restrained) */
   driverEmerald: "#047857",
   driverEmeraldDark: "#065f46",
+  /** Odometer capture viewfinder. */
+  odometerViewfinder: "#101010",
+  /** Muted sage fill for the odometer save action. */
+  odometerSaveFill: "#618476",
+  /** Active step fill on the odometer start / end / trip rail. */
+  odometerStepActive: "#E2E8F0",
+  /** Page canvas behind the expense and odometer entry screens. */
+  driverEmeraldWash: "#F8FAFC",
   /** Updated reference: gold for ETA, rank */
   driverGold: "#F59E0B",
   /** Overlay on driver screens */
@@ -365,6 +373,67 @@ export const Theme = {
   driverEmeraldMutedText: "rgba(4,120,87,0.52)",
   driverEmeraldMutedText2: "rgba(4,120,87,0.62)",
   driverEmeraldBorderSoft: "rgba(4,120,87,0.28)",
+  /** Deep forest green (TRIPS. wordmark) — trip card footer strip */
+  driverForest: "#336F5A",
+  driverOnForest: "#FFFFFF",
+  driverOnForestMuted: "rgba(255,255,255,0.66)",
+  driverOnForestRule: "rgba(255,255,255,0.22)",
+  driverOnForestYield: "#BBF7D0",
+  /** Soft mint header (driver expense entry): gradient top → white */
+  driverMintHeaderTop: "#DCF2E4",
+  driverMintHeaderMid: "#ECF8F0",
+  driverMintHeaderInk: "#0F5132",
+  driverMintHeaderTitle: "#0B2E1E",
+  driverMintHeaderHint: "#334155",
+  driverMintRouteBorder: "#C5E3D0",
+  driverMintRouteText: "#0F291E",
+  /** Driver collect payment (mint / forest system) */
+  payMintPage: "#F6F8F9",
+  payCardBorder: "#E6ECE9",
+  payCircleBorder: "#DCE5E1",
+  payTile: "#E8EEF0",
+  paySage: "#D5EAD9",
+  payInk: "#0F172A",
+  payMuted: "#64748B",
+  payModeLabel: "#334155",
+  payInputBorder: "#CBD5D1",
+  payFooterBorder: "#E2E8F0",
+  payCancelBorder: "#CBD5E1",
+  payCancelInk: "#1E293B",
+  /** Driver expense payment / status chip icons */
+  chipIconCash: "#16A34A",
+  chipIconFastag: "#7C3AED",
+  chipIconCard: "#2563EB",
+  chipIconCredit: "#D97706",
+  chipIconOther: "#64748B",
+  chipIconPaid: "#059669",
+  chipIconPending: "#F59E0B",
+  chipIconPartPaid: "#0EA5E9",
+  chipIconWaived: "#E11D48",
+  /** Trip card split route (origin → destination) */
+  routeSplitInk: "#0F172A",
+  routeSplitMuted: "#475569",
+  /** Expense header illustration (receipt + coin + rising arrow) */
+  expenseArtPaper: "#FFFFFF",
+  expenseArtPaperEdge: "#D7E3DC",
+  expenseArtLine: "#94A3B8",
+  expenseArtLineSoft: "#CBD5E1",
+  expenseArtArrow: "#4A90E2",
+  expenseArtArrowShade: "#3B7BD0",
+  expenseArtCoin: "#F6C445",
+  expenseArtCoinInner: "#F0A93B",
+  expenseArtCoinMark: "#FFFFFF",
+  expenseArtGround: "rgba(15,81,50,0.12)",
+  /** Collect payment header art (hand + coins) */
+  collectArtInk: "#1F2937",
+  collectArtSkin: "#F9C29C",
+  collectArtSkinShade: "#F2AE82",
+  collectArtCuff: "#2BBEF9",
+  collectArtCuffShade: "#1FA4E0",
+  collectArtCoinRim: "#FCE58F",
+  collectArtCoinFace: "#FFD21F",
+  collectArtCoinMark: "#FFFFFF",
+  collectArtSparkle: "#FFF6C7",
   /** Negative (red) muted background */
   negativeMuted: "rgba(220,38,38,0.15)",
   /** Positive (green) muted on dark */

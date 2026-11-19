@@ -50,6 +50,8 @@ interface DecimalKeypadProps {
   size?: 'default' | 'compact';
   layout?: 'decimal' | 'phone';
   hapticsEnabled?: boolean;
+  /** Page color behind the keys. Keys themselves stay unchanged. */
+  canvasColor?: string;
 }
 
 export const DecimalKeypad = memo(function DecimalKeypad({
@@ -59,6 +61,7 @@ export const DecimalKeypad = memo(function DecimalKeypad({
   size = 'default',
   layout = 'decimal',
   hapticsEnabled = true,
+  canvasColor,
 }: DecimalKeypadProps) {
   const isApple = variant === 'apple';
   const isPay = variant === 'pay';
@@ -208,7 +211,13 @@ export const DecimalKeypad = memo(function DecimalKeypad({
     const digitRows = isPhoneLayout ? PHONE_ROWS : ROWS.slice(0, 3);
 
     return (
-      <View style={[styles.gridPay, isCompact && styles.gridPayCompact]}>
+      <View
+        style={[
+          styles.gridPay,
+          isCompact && styles.gridPayCompact,
+          canvasColor ? { backgroundColor: canvasColor } : null,
+        ]}
+      >
         {digitRows.map((row, rowIdx) => (
           <View key={rowIdx} style={styles.payRow}>
             {row.map((key) => renderPayKey(key))}

@@ -2,7 +2,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useIsOnline } from "@/contexts/NetworkContext";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { DriverOpsEntryFooter } from "@/features/trips/operations/shared/DriverOpsEntryFooter";
-import { OpsEntryBodyPhotoSlot } from "@/features/trips/operations/shared/OpsEntryBodyPhotoSlot";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -204,10 +203,11 @@ export function OdometerStartEndScreen({ trip }: { trip: TripRow }) {
           saving={saving}
           saveDisabled={!hasAnyReading}
           hint={syncFooterHint}
+          emphasis="odometer"
         />
       }
     >
-      {(openPhotoPreview) => (
+      {() => (
         <OdometerKeypadFlow
           shellMode
           startRawValue={startRaw}
@@ -225,45 +225,16 @@ export function OdometerStartEndScreen({ trip }: { trip: TripRow }) {
             /* active field switched via thumb tap */
           }}
           bodyHeader={
-            <>
-              <OpsEntryBodyPhotoSlot
-                compact
-                uri={activePhotoUri}
-                title={`${activeField === "start" ? "Start" : "End"} odometer photo`}
-                emptyTitle={`${activeField === "start" ? "Start" : "End"} odometer photo`}
-                hint="Tap image to enlarge · scan fills KM when detected"
-                emptyHint="Photograph the dashboard to auto-fill KM for this reading"
-                scanning={scanActive}
-                busy={saving || activeOcr.scanning}
-                scanLabel="Reading KM"
-                onAttach={() => void activeOcr.handleCapture()}
-                onPress={activePhotoUri ? openPhotoPreview : undefined}
-                onRetake={() => void activeOcr.handleCapture()}
-                onRemove={activeOcr.clearPhoto}
+            showScanBanner && !scanActive ? (
+              <OdometerScanBanner
+                scan={activeOcr.scanState}
+                hasPhoto={Boolean(activePhotoUri)}
+                onApplyPending={activeOcr.applyPendingReading}
+                onDismissPending={activeOcr.dismissPendingReading}
+                onRescanPhoto={() => void activeOcr.rescanPhoto()}
+                onReviewOcr={activeOcr.reopenOcrReview}
               />
-              {showScanBanner ? (
-                <OdometerScanBanner
-                  scan={activeOcr.scanState}
-                  hasPhoto={Boolean(activePhotoUri)}
-                  onApplyPending={activeOcr.applyPendingReading}
-                  onDismissPending={activeOcr.dismissPendingReading}
-                  onRescanPhoto={() => void activeOcr.rescanPhoto()}
-                  onReviewOcr={activeOcr.reopenOcrReview}
-                />
-              ) : activePhotoUri ? (
-                <OdometerScanBanner
-                  scan={{
-                    phase: "complete",
-                    message: "Photo attached · re-scan to read KM or enter manually",
-                    detectedKm: null,
-                    appliedFields: [],
-                    stepIndex: 3,
-                  }}
-                  hasPhoto
-                  onRescanPhoto={() => void activeOcr.rescanPhoto()}
-                />
-              ) : null}
-            </>
+            ) : null
           }
           extras={
             <View style={styles.extras}>

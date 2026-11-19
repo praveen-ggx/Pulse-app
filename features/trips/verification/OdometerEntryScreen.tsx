@@ -3,8 +3,8 @@ import { showAppAlert } from "@/lib/appAlert";
 import { useIsOnline } from "@/contexts/NetworkContext";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { DriverOpsEntryFooter } from "@/features/trips/operations/shared/DriverOpsEntryFooter";
-import { OpsEntryBodyPhotoSlot } from "@/features/trips/operations/shared/OpsEntryBodyPhotoSlot";
-import { useRouter } from "expo-router";
+import { type Href, useRouter } from "expo-router";
+import { ROUTES } from "@/lib/routes";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -220,10 +220,11 @@ export function OdometerEntryScreen({
           onSave={() => void handleSave()}
           saving={saving}
           hint={syncFooterHint}
+          emphasis="odometer"
         />
       }
     >
-      {(openPhotoPreview) => (
+      {() => (
         <OdometerKeypadFlow
           shellMode
           startRawValue={startRaw}
@@ -231,51 +232,29 @@ export function OdometerEntryScreen({
           onStartRawChange={onStartRawChange}
           onEndRawChange={onEndRawChange}
           activeFieldId={side}
+          onActiveFieldChange={(next) => {
+            if (next === side) return;
+            router.replace(ROUTES.tripVerification(trip.id, next) as Href);
+          }}
+          onTripPress={() => {
+            router.replace(ROUTES.tripVerification(trip.id, "both") as Href);
+          }}
           tripDistanceKm={tripDistanceKm}
           startHasPhoto={side === "start" && Boolean(photoUriTrimmed)}
           endHasPhoto={side === "end" && Boolean(photoUriTrimmed)}
           startPhotoUri={side === "start" ? photoUriTrimmed : null}
           endPhotoUri={side === "end" ? photoUriTrimmed : null}
           bodyHeader={
-            <>
-              <OpsEntryBodyPhotoSlot
-                compact
-                uri={photoUriTrimmed}
-                title={`${side === "start" ? "Start" : "End"} odometer photo`}
-                emptyTitle={`${side === "start" ? "Start" : "End"} odometer photo`}
-                hint="Tap image to enlarge · scan fills KM when detected"
-                emptyHint="Photograph the dashboard to auto-fill KM for this reading"
-                scanning={scanActive}
-                busy={saving || scanning}
-                scanLabel="Reading KM"
-                onAttach={() => void handleCapture()}
-                onPress={photoUriTrimmed ? openPhotoPreview : undefined}
-                onRetake={() => void handleCapture()}
-                onRemove={clearPhoto}
+            showScanBanner && !scanActive ? (
+              <OdometerScanBanner
+                scan={scanState}
+                hasPhoto={Boolean(photoUriTrimmed)}
+                onApplyPending={applyPendingReading}
+                onDismissPending={dismissPendingReading}
+                onRescanPhoto={() => void rescanPhoto()}
+                onReviewOcr={reopenOcrReview}
               />
-              {showScanBanner ? (
-                <OdometerScanBanner
-                  scan={scanState}
-                  hasPhoto={Boolean(photoUriTrimmed)}
-                  onApplyPending={applyPendingReading}
-                  onDismissPending={dismissPendingReading}
-                  onRescanPhoto={() => void rescanPhoto()}
-                  onReviewOcr={reopenOcrReview}
-                />
-              ) : photoUriTrimmed ? (
-                <OdometerScanBanner
-                  scan={{
-                    phase: "complete",
-                    message: "Photo attached · re-scan to read KM or enter manually",
-                    detectedKm: null,
-                    appliedFields: [],
-                    stepIndex: 3,
-                  }}
-                  hasPhoto
-                  onRescanPhoto={() => void rescanPhoto()}
-                />
-              ) : null}
-            </>
+            ) : null
           }
           extras={
             <View style={styles.extras}>

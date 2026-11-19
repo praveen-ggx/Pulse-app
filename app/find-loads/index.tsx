@@ -13,7 +13,7 @@
  * fleet/driver is chosen at allocation after award (A4.4 Phase 3).
  */
 import { ChromeBelowTopNavLoadingScreen } from "@/components/chromeLoadingScreens";
-import { HomePageHeader } from "@/components/HomePageHeader";
+import { HubMobileUnderlineTab, hubMobileChromeStyles as hubChrome } from "@/components/hub";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
@@ -23,20 +23,23 @@ import { MarketplaceLanding } from "@/features/network/components/MarketplaceLan
 import { MarketplaceWalletBoard } from "@/features/network/components/MarketplaceWalletBoard";
 import { OrgMyBidsList } from "@/features/network/components/OrgMyBidsList";
 import { LaneBidInvitesCard } from "@/features/network/components/laneOffers/LaneBidInvitesCard";
-import { NetworkMyQuotesList } from "@/features/network/components/laneOffers/NetworkMyQuotesList";
 import { PooledOpportunityCard } from "@/features/network/components/pooled/PooledOpportunityCard";
 import {
   listMarketplaceSearchLanes,
+  countMyOrgMarketBids,
   listMyOrgMarketBids,
   listMarketplaceConvertedTrips,
-  listOpenMarketplaceLoadsPage,
   getOrgMarketplacePool,
   marketBidsFromQueryData,
 } from "@/features/network/services/findLoadsForOrg.service";
-import {
-  positiveLaneTarget,
-} from "@/features/network/utils/marketplaceSearch.util";
 import { hotMarketplaceLanes } from "@/features/network/utils/hotMarketplaceLanes.util";
+import {
+  applyLaneTargetBootstrap,
+  bootstrapMarketplaceLaneTargets,
+  laneDeclaresTargetRange,
+  marketplaceLaneTargetKey,
+  type LaneTargetRange,
+} from "@/features/network/utils/marketplaceLaneTargetBootstrap.util";
 import { marketplaceArBook } from "@/features/network/utils/marketplaceWallet.util";
 import {
   liveLaneSelection,
@@ -51,7 +54,6 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ChevronLeft } from "lucide-react-native";
 import {
-  canonicalPoolField,
   filterLanesBySelection,
   filterPoolLanes,
   laneSelectionActive,
@@ -63,12 +65,13 @@ import {
 import { STALE } from "@/lib/queryClient";
 import { isVehicleTypeCompatibleWithFleet } from "@/features/marketplace/utils/fleetFit.util";
 import { getVehiclesByOrganization } from "@/features/vehicles/services/vehicles.service";
+import { countActiveLoadsInPlay, loadsCaption } from "@/features/network/utils/bidLoadCount.util";
 import { marketplaceFeeGateSatisfied } from "@/features/network/services/marketBids.service";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -80,8 +83,32 @@ import {
   View,
 } from "react-native";
 
-type Segment = "discover" | "wallet" | "myBids";
+type Segment = "discover" | "myBids" | "transactions" | "wallet";
 
+const DiscoverLaneCard = React.memo(function DiscoverLaneCard({
+  lane,
+  fitsFleet,
+  isDesktop,
+  columns,
+  onOpen,
+}: {
+  lane: ReturnType<typeof filterPoolLanes>[number];
+  fitsFleet: boolean;
+  isDesktop: boolean;
+  columns: number;
+  onOpen: (lane: ReturnType<typeof filterPoolLanes>[number], bid: boolean) => void;
+}) {
+  return (
+    <PooledOpportunityCard
+      lane={lane}
+      fitsFleet={fitsFleet}
+      isDesktop={isDesktop}
+      columns={columns}
+      onPress={() => onOpen(lane, false)}
+      onBid={() => onOpen(lane, true)}
+    />
+  );
+});
 
 export default function FindLoadsScreen() {
   const layout = useLayoutInsets();
@@ -115,18 +142,23 @@ export default function FindLoadsScreen() {
   const params = useLocalSearchParams<{ segment?: string }>();
   const [bidFocus, setBidFocus] = useState<"bids" | "won">("bids");
   const [segment, setSegment] = useState<Segment>(
-    params.segment === "my-bids" ? "myBids" : params.segment === "wallet" ? "wallet" : "discover",
+    params.segment === "my-bids"
+      ? "myBids"
+      : params.segment === "transactions"
+        ? "transactions"
+        : params.segment === "wallet"
+          ? "wallet"
+          : "discover",
   );
   useEffect(() => {
     if (params.segment === "my-bids") setSegment("myBids");
+    else if (params.segment === "transactions") setSegment("transactions");
+    else if (params.segment === "wallet") setSegment("wallet");
   }, [params.segment]);
   const [appliedSelection, setAppliedSelection] = useState<LaneSelection | null>(null);
-  /** Results page open. Back keeps the search on the home filter card. */
-  const [resultsOpen, setResultsOpen] = useState(false);
   const [browseAllLanes, setBrowseAllLanes] = useState(false);
   const [pickupOpenToken, setPickupOpenToken] = useState(0);
   const searchActive = laneSelectionActive(appliedSelection);
-  const showingResults = resultsOpen && searchActive;
   const searchHydrated = useRef<string | null>(null);
 
   const contentTopInset = layout.isDesktopWeb
@@ -146,11 +178,25 @@ export default function FindLoadsScreen() {
     [vehiclesQ.data],
   );
 
-  const myBidsQ = useQuery({
-    queryKey: queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
-    queryFn: () => listMyOrgMarketBids(orgId as string, 100),
+  const bidCountsQ = useQuery({
+    queryKey: queryKeys.findLoadsForOrg.bidCounts(orgId ?? ""),
+    queryFn: async () => {
+      const { error, counts } = await countMyOrgMarketBids(orgId as string);
+      if (error) throw error;
+      return counts;
+    },
     enabled: !!orgId,
     staleTime: STALE.frequent,
+  });
+  const bidTotals = bidCountsQ.data
+    ? { awarded: bidCountsQ.data.accepted, ratesSent: bidCountsQ.data.total }
+    : null;
+  const myBidsQ = useQuery({
+    queryKey: queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
+    queryFn: () => listMyOrgMarketBids(orgId as string),
+    enabled: !!orgId,
+    staleTime: STALE.frequent,
+    placeholderData: keepPreviousData,
   });
   const lanesQ = useQuery({
     queryKey: queryKeys.findLoadsForOrg.searchLanes(orgId ?? ""),
@@ -161,6 +207,7 @@ export default function FindLoadsScreen() {
     },
     enabled: !!orgId && (segment === "discover" || segment === "myBids"),
     staleTime: STALE.moderate,
+    placeholderData: keepPreviousData,
   });
   const myBids = marketBidsFromQueryData(myBidsQ.data);
   const wonIndentKey = useMemo(
@@ -206,7 +253,52 @@ export default function FindLoadsScreen() {
     [myBids, convertedTrips, wonTripsQ.data?.receipts, orgId],
   );
 
-  const lanes = useMemo(() => lanesQ.data ?? [], [lanesQ.data]);
+  const rawLanes = lanesQ.data ?? [];
+  const [targetBootstrap, setTargetBootstrap] = useState<Record<string, LaneTargetRange>>({});
+  const lanes = useMemo(
+    () => applyLaneTargetBootstrap(rawLanes, targetBootstrap),
+    [rawLanes, targetBootstrap],
+  );
+
+  useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    void AsyncStorage.getItem(marketplaceLaneTargetKey(orgId)).then((raw) => {
+      if (cancelled || !raw) return;
+      try {
+        const parsed = JSON.parse(raw) as Record<string, LaneTargetRange>;
+        if (!parsed || typeof parsed !== "object") return;
+        setTargetBootstrap((prev) => ({ ...parsed, ...prev }));
+      } catch {
+        /* a bad cache just waits for the next read */
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
+
+  useEffect(() => {
+    if (!orgId || rawLanes.length === 0) return;
+    if (rawLanes.every(laneDeclaresTargetRange)) return;
+    let cancelled = false;
+    void bootstrapMarketplaceLaneTargets(
+      orgId,
+      rawLanes,
+      (poolId, range) => {
+        if (cancelled) return;
+        setTargetBootstrap((prev) => {
+          const next = { ...prev, [poolId]: range };
+          AsyncStorage.setItem(marketplaceLaneTargetKey(orgId), JSON.stringify(next)).catch(() => undefined);
+          return next;
+        });
+      },
+      () => cancelled,
+    ).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, rawLanes]);
   const [laneHighWater, setLaneHighWater] = useState<Record<string, number>>({});
   const laneCountsReady = useRef<string | null>(null);
 
@@ -282,12 +374,10 @@ export default function FindLoadsScreen() {
     };
   }, [orgId, lanes]);
 
-  const updateSearch = (next: LaneSelection, source: "apply" | "edit" = "apply") => {
+  const updateSearch = (next: LaneSelection, _source: "apply" | "edit" = "apply") => {
     const active = laneSelectionActive(next);
     setAppliedSelection(next);
     if (!active) setBrowseAllLanes(false);
-    if (!active) setResultsOpen(false);
-    else if (source === "apply") setResultsOpen(true);
     if (!orgId) return;
     AsyncStorage.setItem(
       marketplaceLaneSearchKey(orgId),
@@ -300,98 +390,41 @@ export default function FindLoadsScreen() {
     [lanes, searchActive],
   );
 
+  const openLanes = useMemo(() => filterLanesBySelection(lanes, null), [lanes]);
   const pools = useMemo(
-    () => filterLanesBySelection(lanes, showingResults ? appliedSelection : null),
-    [lanes, appliedSelection, showingResults],
+    () => (searchActive ? filterLanesBySelection(lanes, appliedSelection) : openLanes),
+    [lanes, appliedSelection, searchActive, openLanes],
   );
   const poolLoadTotal = useMemo(
     () => pools.reduce((n, lane) => n + (Number(lane.load_count) || 0), 0),
     [pools],
   );
   const featuredLanes = useMemo(() => {
-    const ranked = [...pools].sort(
+    const ranked = [...openLanes].sort(
       (a, b) => (Number(b.load_count) || 0) - (Number(a.load_count) || 0),
     );
     const busy = ranked.filter((lane) => (Number(lane.load_count) || 0) >= 10);
     return busy.length > 0 ? busy : ranked;
-  }, [pools]);
-  const showHotLanesOnly = !showingResults && !browseAllLanes;
+  }, [openLanes]);
+  const showHotLanesOnly = !browseAllLanes;
   const listedPools = useMemo(
-    () => (showHotLanesOnly ? hotMarketplaceLanes(pools) : pools),
-    [showHotLanesOnly, pools],
+    () => (showHotLanesOnly && !searchActive ? hotMarketplaceLanes(openLanes) : pools),
+    [showHotLanesOnly, searchActive, openLanes, pools],
   );
-  const bidPools = useMemo(() => {
+  const _bidPools = useMemo(() => {
     const keys = new Set(myBids.map((bid) => bidderLaneKey(bid.pickup_area, bid.drop_location)));
     return filterPoolLanes(lanes, null).filter((lane) =>
       keys.has(bidderLaneKey(lane.pickup_area, lane.drop_location)),
     );
   }, [lanes, myBids]);
-  const discoverColumns = layout.isDesktopWeb ? 3 : 1;
-  const [laneTargets, setLaneTargets] = useState<
-    Record<string, { min: number | null; max: number | null }>
-  >({});
-
-  useEffect(() => {
-    const source = segment === "discover" ? listedPools : segment === "myBids" ? bidPools : [];
-    if (!orgId || source.length === 0) return;
-    const missing = source.filter(
-      (lane) =>
-        positiveLaneTarget(lane.target_rate_min) == null &&
-        laneTargets[lane.poolId] == null,
-    );
-    if (missing.length === 0) return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      void (async () => {
-        const found: Record<string, { min: number | null; max: number | null }> = {};
-        for (let index = 0; index < missing.length; index += 2) {
-          if (cancelled) return;
-          const wave = missing.slice(index, index + 2);
-          await Promise.all(
-            wave.map(async (lane) => {
-              let min: number | null = null;
-              let max: number | null = null;
-              let seen = 0;
-              let offset = 0;
-              const expected = Number(lane.load_count) || 0;
-              for (let page = 0; page < 6; page += 1) {
-                if (cancelled) return;
-                const result = await listOpenMarketplaceLoadsPage(orgId, offset, 15, {
-                  pickup: lane.pickup_area,
-                  drop: lane.drop_location,
-                  vehicleType: lane.vehicle_type,
-                });
-                if (result.error) break;
-                for (const load of result.loads) {
-                  if (load.is_sponsored) continue;
-                  if (
-                    canonicalPoolField(load.pickup_area) !== canonicalPoolField(lane.pickup_area) ||
-                    canonicalPoolField(load.drop_location) !== canonicalPoolField(lane.drop_location) ||
-                    canonicalPoolField(load.vehicle_type) !== canonicalPoolField(lane.vehicle_type)
-                  ) {
-                    continue;
-                  }
-                  seen += 1;
-                  const rate = positiveLaneTarget(load.rate_offer);
-                  if (rate == null) continue;
-                  min = min == null ? rate : Math.min(min, rate);
-                  max = max == null ? rate : Math.max(max, rate);
-                }
-                if (!result.hasMore || result.nextOffset == null || (expected > 0 && seen >= expected)) break;
-                offset = result.nextOffset;
-              }
-              found[lane.poolId] = { min, max };
-            }),
-          );
-        }
-        if (!cancelled) setLaneTargets((current) => ({ ...current, ...found }));
-      })();
-    }, 700);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [segment, orgId, listedPools, bidPools, laneTargets]);
+  const discoverColumns = layout.isDesktopWeb ? 2 : 1;
+  const openLane = useCallback(
+    (lane: (typeof listedPools)[number], bid: boolean) => {
+      warmPool(lane);
+      router.push(ROUTES.findLoadsPool(poolKeyFromLane(lane), bid ? { bid: true } : undefined) as Href);
+    },
+    [router, warmPool],
+  );
 
   if (accessLoading) {
     return <ChromeBelowTopNavLoadingScreen variant="preparing" />;
@@ -407,11 +440,14 @@ export default function FindLoadsScreen() {
     return <ChromeBelowTopNavLoadingScreen variant={orgLoading ? "preparing" : "generic"} />;
   }
 
+  const myBidTotals = countActiveLoadsInPlay(myBids, lanesQ.isSuccess ? lanes : null);
   const headerSubtitle =
     segment === "wallet"
-      ? "Wallet and marketplace transactions"
-      : segment === "myBids"
-      ? `${myBids.length} bid${myBids.length === 1 ? "" : "s"} from your org`
+      ? "Fees due on awarded loads"
+      : segment === "transactions"
+        ? "Rates that became trips"
+        : segment === "myBids"
+      ? `${myBidTotals.bids} active bid${myBidTotals.bids === 1 ? "" : "s"} · ${loadsCaption(myBidTotals.loads)} from your org`
       : lanesQ.isLoading
         ? "Finding pooled opportunities…"
         : showHotLanesOnly && listedPools.length < pools.length
@@ -420,7 +456,7 @@ export default function FindLoadsScreen() {
             poolLoadTotal === 1 ? "" : "s"
           }`;
 
-  const showBack = segment !== "discover" || showingResults || browseAllLanes;
+  const showBack = segment !== "discover" || browseAllLanes;
   const backLabel = segment === "discover" ? "Back to marketplace home" : "Back to marketplace loads";
   const goBack = () => {
     if (segment !== "discover") {
@@ -428,7 +464,6 @@ export default function FindLoadsScreen() {
       return;
     }
     setBrowseAllLanes(false);
-    setResultsOpen(false);
   };
 
   const laneFilters = (
@@ -454,12 +489,12 @@ export default function FindLoadsScreen() {
             showHotLanesOnly &&
             !lanesQ.isLoading &&
             !lanesQ.isError &&
-            pools.length > 0 &&
+            (pools.length > 0 || searchActive) &&
             styles.chromeFlush,
         ]}
       >
         <View style={styles.chromeInner}>
-          {segment === "discover" && showHotLanesOnly && !lanesQ.isLoading && !lanesQ.isError && pools.length > 0 ? null : (
+          {segment === "discover" && showHotLanesOnly && !lanesQ.isLoading && !lanesQ.isError && (pools.length > 0 || searchActive) ? null : (
           <View style={[styles.headerInner, !layout.isDesktopWeb && styles.headerInnerMobile]}>
             {showBack ? (
               <Pressable
@@ -521,50 +556,74 @@ export default function FindLoadsScreen() {
     <View style={styles.pageBody}>
       <Text style={styles.message}>Finding pooled opportunities…</Text>
     </View>
-  ) : pools.length === 0 ? (
+  ) : pools.length === 0 && !searchActive ? (
     <View style={styles.pageBody}>
-      <Text style={styles.message}>
-        {showingResults
-          ? "No pooled opportunities match these filters."
-          : "No open Marketplace loads right now."}
-      </Text>
-      {showingResults ? (
-        <Pressable
-          onPress={() => {
-            setResultsOpen(false);
-            setPickupOpenToken((token) => token + 1);
-          }}
-          style={({ pressed }) => [styles.retryBtn, pressed && styles.retryBtnPressed]}
-          accessibilityRole="button"
-          accessibilityLabel="Change marketplace filters"
-        >
-          <Text style={styles.retryBtnText}>Change filters</Text>
-        </Pressable>
-      ) : null}
+      <Text style={styles.message}>No open Marketplace loads right now.</Text>
     </View>
   ) : null;
 
   const showDiscoverCards = segment === "discover" && discoverBody == null;
   const scrollBottomPad = { paddingBottom: layout.scrollBottomPadding(24) };
+  const mobileTabs = layout.isDesktopWeb ? null : (
+    <View accessibilityRole="tablist">
+      <View style={[hubChrome.tabHeaderRow, styles.mobileTabs]}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={hubChrome.primaryTabsScroll}
+          contentContainerStyle={hubChrome.primaryTabsContent}
+        >
+          {(
+            [
+              { id: "discover" as const, label: "Discover" },
+              { id: "myBids" as const, label: `My bids (${myBidTotals.bids})` },
+              {
+                id: "transactions" as const,
+                label: `Transactions (${transactionsReady ? transactionBids.length : "…"})`,
+              },
+              { id: "wallet" as const, label: "Wallet" },
+            ]
+          ).map((tab) => (
+            <HubMobileUnderlineTab
+              key={tab.id}
+              label={tab.label}
+              isActive={segment === tab.id}
+              onPress={() => setSegment(tab.id)}
+            />
+          ))}
+        </ScrollView>
+      </View>
+      <View style={hubChrome.tabDivider} />
+    </View>
+  );
 
   return (
     <View style={[styles.root, { paddingTop: contentTopInset }]}>
-      {chromeScrollsWithContent ? <HomePageHeader autoHide skipSafeAreaTop /> : null}
       <View style={[styles.frame, layout.isDesktopWeb && styles.frameDesktop]}>
+      {mobileTabs}
       {chromeScrollsWithContent ? null : pageChrome()}
-      {segment === "wallet" ? (
+      {segment === "wallet" || segment === "transactions" ? (
         <ScrollView
           style={styles.pageScroll}
           contentContainerStyle={[styles.pageScrollContent, scrollBottomPad]}
           {...tabBarScrollProps}
         >
-          {chromeScrollsWithContent ? pageChrome() : null}
+          {chromeScrollsWithContent && layout.isDesktopWeb ? pageChrome() : null}
           <MarketplaceWalletBoard
             orgName={organization?.name ?? ""}
             bids={myBids}
+            bidTotals={bidTotals}
             statementBids={transactionBids}
             statementReady={transactionsReady}
             arBook={arBook}
+            pane={
+              layout.isDesktopWeb
+                ? "full"
+                : segment === "transactions"
+                  ? "transactions"
+                  : "wallet"
+            }
             onOpenBids={() => {
               setBidFocus("bids");
               setSegment("myBids");
@@ -578,10 +637,9 @@ export default function FindLoadsScreen() {
           contentContainerStyle={[styles.pageScrollContent, scrollBottomPad]}
           {...tabBarScrollProps}
         >
-          {chromeScrollsWithContent ? pageChrome() : null}
+          {chromeScrollsWithContent && layout.isDesktopWeb ? pageChrome() : null}
           <OrgMyBidsList
             actionSlot={<LaneBidInvitesCard onResponded={() => void myBidsQ.refetch()} />}
-            footerSlot={<NetworkMyQuotesList />}
             bids={myBids}
             focus={bidFocus}
             onFocusChange={setBidFocus}
@@ -589,13 +647,13 @@ export default function FindLoadsScreen() {
             awardIndents={wonTripsQ.data?.indents ?? []}
             lanePreviewByBidId={lanePreviewByBidId}
             lanes={lanes}
-            laneTargets={laneTargets}
             lanesReady={lanesQ.isSuccess}
             isLoading={myBidsQ.isLoading}
             orgId={orgId}
             onPaymentUpdated={() => {
               if (orgId) {
                 queryClient.invalidateQueries({ queryKey: queryKeys.findLoadsForOrg.myBids(orgId) });
+                queryClient.invalidateQueries({ queryKey: queryKeys.findLoadsForOrg.bidCounts(orgId) });
               }
             }}
           />
@@ -607,9 +665,14 @@ export default function FindLoadsScreen() {
           key={`discover-${discoverColumns}-${showHotLanesOnly ? "hot" : "all"}`}
           numColumns={discoverColumns}
           keyExtractor={(item) => item.poolId}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          updateCellsBatchingPeriod={50}
           style={styles.list}
           contentContainerStyle={[
             styles.listContent,
+            !layout.isDesktopWeb && styles.listContentPhone,
             layout.isDesktopWeb && styles.listContentDesktop,
             scrollBottomPad,
           ]}
@@ -618,7 +681,7 @@ export default function FindLoadsScreen() {
           }
           {...tabBarScrollProps}
           ListHeaderComponent={
-            <View>
+            <View style={styles.listHeaderLift}>
               {chromeScrollsWithContent ? pageChrome() : null}
               {showHotLanesOnly ? (
                 <MarketplaceLanding
@@ -638,16 +701,19 @@ export default function FindLoadsScreen() {
                     setSegment("myBids");
                   }}
                   onOpenWallet={() => setSegment("wallet")}
-                  onOpenTransactions={() => setSegment("wallet")}
+                  onOpenTransactions={() => setSegment("transactions")}
                   onShowAllLanes={() => {}}
                   onSearchLoads={() => setPickupOpenToken((token) => token + 1)}
                   filters={laneFilters}
-                  featuredLanes={featuredLanes}
-                  onOpenFeaturedLane={(lane) =>
-                    router.push(ROUTES.findLoadsPool(poolKeyFromLane(lane)) as Href)
-                  }
+                  featuredLanes={searchActive ? [] : featuredLanes}
+                  onOpenFeaturedLane={(lane) => {
+                    warmPool(lane);
+                    router.push(ROUTES.findLoadsPool(poolKeyFromLane(lane)) as Href);
+                  }}
                   onWarmFeaturedLane={warmPool}
                   lanes={lanes}
+                  lanesReady={lanesQ.isSuccess}
+                  bidTotals={bidTotals}
                   assignBids={assignBids}
                   onAssignVehicle={(bid) =>
                     router.push(ROUTES.indentAllocation(bid.indent_id, "vehicle") as Href)
@@ -655,7 +721,7 @@ export default function FindLoadsScreen() {
                 />
               ) : (
                 <>
-                  {browseAllLanes && !showingResults ? (
+                  {browseAllLanes ? (
                 <Pressable
                   onPress={() => setBrowseAllLanes(false)}
                   style={styles.hotLaneBack}
@@ -670,21 +736,18 @@ export default function FindLoadsScreen() {
               )}
             </View>
           }
+          ListEmptyComponent={
+            searchActive ? (
+              <Text style={styles.filterEmpty}>No pooled opportunities match these filters.</Text>
+            ) : null
+          }
           renderItem={({ item }) => (
-            <PooledOpportunityCard
-              lane={{
-                ...item,
-                target_rate_min: item.target_rate_min ?? laneTargets[item.poolId]?.min,
-                target_rate_max: item.target_rate_max ?? laneTargets[item.poolId]?.max,
-              }}
+            <DiscoverLaneCard
+              lane={item}
               fitsFleet={isVehicleTypeCompatibleWithFleet(item.vehicle_type, fleetVehicleTypes)}
               isDesktop={!!layout.isDesktopWeb}
               columns={discoverColumns}
-              onPress={() => router.push(ROUTES.findLoadsPool(poolKeyFromLane(item)) as Href)}
-              onBid={() =>
-                router.push(ROUTES.findLoadsPool(poolKeyFromLane(item), { bid: true }) as Href)
-              }
-              onWarm={() => warmPool(item)}
+              onOpen={openLane}
             />
           )}
         />
@@ -706,9 +769,17 @@ export default function FindLoadsScreen() {
               setSegment("myBids");
             }}
             onOpenWallet={() => setSegment("wallet")}
-            onOpenTransactions={() => setSegment("wallet")}
+            onOpenTransactions={() => setSegment("transactions")}
             onShowAllLanes={() => {}}
             lanes={lanes}
+            lanesReady={lanesQ.isSuccess}
+            bidTotals={bidTotals}
+            featuredLanes={featuredLanes}
+            onOpenFeaturedLane={(lane) => {
+              warmPool(lane);
+              router.push(ROUTES.findLoadsPool(poolKeyFromLane(lane)) as Href);
+            }}
+            onWarmFeaturedLane={warmPool}
           />
         ) : null}
         </View>
@@ -728,7 +799,7 @@ export default function FindLoadsScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Theme.analyticsCanvas },
+  root: { flex: 1, backgroundColor: Theme.surface },
   pageScroll: {
     flex: 1,
     width: "100%",
@@ -751,6 +822,14 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   message: { fontSize: 16, color: Theme.textSecondary },
+  filterEmpty: {
+    paddingTop: 8,
+    paddingBottom: 24,
+    fontSize: 15,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+    textAlign: "center",
+  },
   retryBtn: {
     marginTop: 14,
     paddingHorizontal: 20,
@@ -762,6 +841,10 @@ const styles = StyleSheet.create({
   },
   retryBtnPressed: { opacity: 0.85 },
   retryBtnText: { fontSize: 14, fontWeight: "700", color: Theme.buttonPrimaryText },
+  mobileTabs: {
+    alignItems: "center",
+    minHeight: 36,
+  },
   frame: {
     flex: 1,
     width: "100%",
@@ -774,7 +857,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   chrome: {
-    backgroundColor: Theme.analyticsCanvas,
+    backgroundColor: Theme.surface,
     paddingTop: 18,
     paddingBottom: 8,
   },
@@ -809,6 +892,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  listHeaderLift: {
+    zIndex: 8,
+    overflow: "visible",
+  },
   headerFilters: {
     flex: 1,
     minWidth: 0,
@@ -816,7 +903,8 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
     borderColor: Theme.borderLight,
-    overflow: "hidden",
+    overflow: "visible",
+    zIndex: 8,
     justifyContent: "center",
   },
   backBtn: {
@@ -893,16 +981,17 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     gap: 12,
   },
+  listContentPhone: { gap: 8 },
   listContent: {
     width: "100%",
     alignSelf: "stretch",
     paddingTop: 8,
     paddingBottom: 32,
-    gap: 12,
+    gap: 8,
   },
   listContentDesktop: {
     paddingTop: 0,
     paddingHorizontal: 0,
-    gap: 16,
+    gap: 8,
   },
 });

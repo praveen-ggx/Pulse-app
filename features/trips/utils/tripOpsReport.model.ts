@@ -4,7 +4,7 @@
  * Used by Trip Ops members on the Trips hub Download button.
  * Sales members use `tripIndentReport` instead — do not mix those column sets.
  *
- * Column contract (20 columns, All Trips sample sheet):
+ * Column contract (19 columns, All Trips sample sheet):
  * - ID ← indent_reference_code | source_indent_code
  * - TRIP ID ← display_trip_id | trip_number | id
  * - LR NO ← trip_documents LR via loadHubPodReceiptFlags
@@ -21,7 +21,6 @@
  * - ASSIGNED DATE ← trip_status_audit assigned | created_at
  * - PICKUP ← trip_status_audit in_progress | started_at
  * - IN-TRANSIT ← trip_status_audit in_transit
- * - ETA ← manifest delivery plan estimate
  * - ARRIVED AT DROP OFF ← trip_status_audit at_drop
  * - DELIVERED ← completed_at | trip_status_audit completed
  * - POD soft copy uploaded by ← trip_documents POD uploader display name
@@ -33,7 +32,6 @@ import {
 } from "@/features/trips/components/trip-detail/tripDetail.helpers";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import type { TripStatusTimesByTripId } from "@/features/trips/services/tripStatusTimes.service";
-import { buildManifestDeliveryPlan } from "@/features/trips/utils/manifestDeliveryPlan.util";
 import { lookupIndianCityCoordinate } from "@/lib/indianCityCoordinates.util";
 import { isUsablePlaceCoordinate } from "@/lib/maps/placeSearch.util";
 
@@ -88,7 +86,6 @@ export const TRIP_OPS_REPORT_COLUMNS = [
   { key: "assignedDate", label: "ASSIGNED DATE" },
   { key: "pickup", label: "PICKUP" },
   { key: "inTransit", label: "IN-TRANSIT" },
-  { key: "eta", label: "ETA" },
   { key: "arrivedAtDrop", label: "ARRIVED AT DROP OFF" },
   { key: "delivered", label: "DELIVERED" },
   { key: "softCopyUploadedBy", label: "POD soft copy uploaded by" },
@@ -280,16 +277,6 @@ export function buildTripOpsReportRow(
   const times = enrichment.statusTimesByTripId?.[key] ?? {};
   const meta = partyMetaFor(enrichment, trip.id);
   const km = resolveTripOpsReportKm(trip, enrichment.kmByTripId?.[key]);
-  const eta = buildManifestDeliveryPlan({
-    tripDistance:
-      trip.distance ??
-      trip.actual_distance_traveled_km ??
-      trip.odometer_distance_km ??
-      enrichment.kmByTripId?.[key],
-    startedAt: trip.started_at,
-    pickupAt: trip.pickup_date,
-    createdAt: trip.created_at,
-  }).estimatedDeliveryAt;
   const indentId = blank(trip.indent_id) || blank(trip.source_indent_id);
   const indentCreatedAt = indentId
     ? enrichment.indentCreatedAtByIndentId?.[indentId]
@@ -314,7 +301,6 @@ export function buildTripOpsReportRow(
     assignedDate: formatTripOpsReportDateTime(times.assigned ?? trip.created_at),
     pickup: formatTripOpsReportDateTime(times.in_progress ?? trip.started_at),
     inTransit: formatTripOpsReportDateTime(times.in_transit),
-    eta: eta ? formatTripOpsReportDateTime(eta.toISOString()) : "",
     arrivedAtDrop: formatTripOpsReportDateTime(times.at_drop),
     delivered: formatTripOpsReportDateTime(trip.completed_at ?? times.completed),
     softCopyUploadedBy: blank(enrichment.softCopyUploaderByTripId?.[key]),

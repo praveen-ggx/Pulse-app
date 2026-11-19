@@ -45,9 +45,7 @@ export function ComplianceChecklistGapArt() {
 
 const styles = StyleSheet.create({
   image: {
-    width: "72%",
-    maxWidth: 168,
-    aspectRatio: 1008 / 606,
-    maxHeight: 72,
+    width: 84,
+    height: 32,
   },
 });

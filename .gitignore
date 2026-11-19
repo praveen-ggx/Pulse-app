@@ -36,6 +36,7 @@ yarn-error.*
 # local env files
 .env
 .env*.local
+.pulse-supabase-target
 supabase/functions/.env
 packages/pulse-v2/.env.v2
 

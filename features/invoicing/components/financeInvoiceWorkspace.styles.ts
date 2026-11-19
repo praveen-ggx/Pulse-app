@@ -146,6 +146,7 @@ export const financeInvoiceWorkspaceStyles = StyleSheet.create({
   stage: {
     flex: 1,
     minWidth: 0,
+    minHeight: 0,
     backgroundColor: Theme.screenBackground,
   },
   stageBody: {
@@ -156,6 +157,8 @@ export const financeInvoiceWorkspaceStyles = StyleSheet.create({
   workPane: {
     flex: 1,
     minWidth: 0,
+    minHeight: 0,
+    overflow: "hidden",
     backgroundColor: Theme.screenBackground,
   },
   previewCol: {
@@ -165,6 +168,7 @@ export const financeInvoiceWorkspaceStyles = StyleSheet.create({
     width: 820,
     maxWidth: 860,
     minWidth: 680,
+    minHeight: 0,
     backgroundColor: Theme.screenBackground,
   },
   clientHeadRow: {

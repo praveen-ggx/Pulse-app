@@ -10,6 +10,13 @@ const path = require('path');
 const projectRoot = path.join(__dirname, '..');
 
 require('./expo-env');
+const supabaseProject = require('./supabaseProject.cjs');
+const productionBlock = supabaseProject.devServerProductionBlock(projectRoot);
+if (productionBlock) {
+  console.error(`\n[pulse] ${productionBlock}\n`);
+  process.exit(1);
+}
+supabaseProject.loadSupabaseProject(projectRoot);
 
 require('dotenv').config({
   path: path.join(projectRoot, '.env'),

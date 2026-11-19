@@ -466,7 +466,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!mounted || !isCurrentListenerSeq(seqId)) return;
           try {
             if (auth) {
-              if (restoringRef.current) return;
+              // A password grant can finish while cold start is still refreshing
+              // a dead token. Dropping that event left the form on screen after
+              // the server had already accepted the password.
+              restoringRef.current = false;
               commitAuthenticatedSession(auth.user, auth.profile, {
                 logEvent: "auth_state_signed_in",
               });
@@ -723,8 +726,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const signInAttemptId = beginAuthAttempt();
     const result = await authService.signInWithPassword(email, password);
     if (!result.error) {
-      setRestoreError(null);
-      setStatus("authenticated");
+      restoringRef.current = false;
+      if (result.session) {
+        commitAuthenticatedSession(result.session.user, result.session.profile, {
+          logEvent: "password_sign_in_applied",
+        });
+      } else {
+        setRestoreError(null);
+        setStatus("authenticated");
+      }
       resetCircuitBreaker();
       await setKeepSignedIn(keepSignedIn);
       if (!isCurrentAuthAttempt(signInAttemptId)) return { error: null };

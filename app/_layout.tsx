@@ -20,9 +20,13 @@ import {
   DemoTabBarAutoHideShell,
   DemoTabBarScrollProvider,
   useDemoTabBarScrollOptional,
+  useRootDockHidden,
 } from '@/contexts/DemoTabBarScrollContext';
 import * as authService from '@/features/auth/services/auth.service';
-import { isSessionExpiredError } from '@/features/auth/services/auth.service';
+import {
+  abandonLocalSession,
+  isSessionExpiredError,
+} from '@/features/auth/services/auth.service';
 import {
     isPublicAuthRoute,
     shouldMountAuthenticatedDataPlane,
@@ -51,6 +55,11 @@ import {
     purgeLinkedOrgDisplayQueries,
 } from '@/lib/queries/linkedOrgDisplayCache';
 import { useQueryCacheOwner } from '@/lib/cache/cacheOwner';
+import {
+  createSessionTreeTracer,
+  formatSessionTreeTraceEntry,
+  type SessionTreeBranch,
+} from '@/lib/diagnostics/sessionTreeTrace';
 import { getQueryClient } from '@/lib/queryClient';
 import { isNonPersistedTripsQueryKey, isSessionScopedLaneOfferQueryKey, purgeSessionScopedLaneOfferQueries } from '@/lib/queryKeys';
 import {
@@ -91,7 +100,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { useFonts } from 'expo-font';
 import { Redirect, Stack, usePathname, useRouter, useSegments, type ErrorBoundaryProps } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ViewStyle } from 'react-native';
 import { LogBox, Platform, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -532,22 +541,51 @@ function AppSessionTree() {
     void safeHideSplashAsync().catch(() => {});
   }, [sessionAttached]);
 
-  if (shouldMountAuthenticatedDataPlane(sessionAttached) && cacheOwnedByUser) {
-    return <AuthenticatedDataPlane />;
-  }
+  const branch: SessionTreeBranch =
+    shouldMountAuthenticatedDataPlane(sessionAttached) && cacheOwnedByUser
+      ? 'data-plane'
+      : shouldRenderPublicAuthTree({ sessionAttached, publicRoute, status })
+        ? 'public'
+        : 'splash';
 
-  if (
-    shouldRenderPublicAuthTree({
-      sessionAttached,
-      publicRoute,
+  // DEV-ONLY diagnostic (no state, no deps → runs after every commit, logs only on change).
+  const traceInstanceRef = useRef(0);
+  useLayoutEffect(() => {
+    if (!__DEV__ || !sessionTreeTracer) return;
+    if (traceInstanceRef.current === 0) traceInstanceRef.current = ++sessionTreeInstanceCount;
+    sessionTreeTracer.record({
+      branch,
+      pathname,
       status,
-    })
-  ) {
-    return <PublicAuthTree />;
-  }
+      sessionAttached,
+      cacheOwnedByUser,
+      instance: traceInstanceRef.current,
+    });
+  });
 
+  if (branch === 'data-plane') return <AuthenticatedDataPlane />;
+  if (branch === 'public') return <PublicAuthTree />;
   return <AppLoadingSplash variant="session" />;
 }
+
+// DEV-ONLY: null in production builds, so nothing is recorded or logged.
+// A fast refresh can evaluate this module before the diagnostic import is
+// bound. That must not take down the root layout.
+let sessionTreeInstanceCount = 0;
+const sessionTreeTracer = (() => {
+  if (!__DEV__) return null;
+  try {
+    return createSessionTreeTracer({
+      log: (e) => {
+        const line = formatSessionTreeTraceEntry(e);
+        if (e.marker) console.warn(line);
+        else console.log(line);
+      },
+    });
+  } catch {
+    return null;
+  }
+})();
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
@@ -629,15 +667,15 @@ function RootLayoutNav() {
               <Stack.Screen name="load-board" options={{ presentation: 'fullScreenModal' }} />
               <Stack.Screen
                 name="chat"
-                options={{ presentation: 'fullScreenModal', animation: 'slide_from_right', headerShown: false }}
+                options={{ presentation: 'fullScreenModal', animation: 'none', headerShown: false }}
               />
               <Stack.Screen name="trip" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="driver-trip" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="track" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="fleet-operations" options={{ animation: 'slide_from_right', headerShown: false }} />
-              <Stack.Screen name="compliance" options={{ animation: 'slide_from_right', headerShown: false }} />
+              <Stack.Screen name="compliance" options={{ animation: 'none', headerShown: false }} />
               <Stack.Screen name="pulse-loads" options={{ animation: 'slide_from_right', headerShown: false }} />
-              <Stack.Screen name="find-loads" options={{ animation: 'slide_from_right', headerShown: false }} />
+              <Stack.Screen name="find-loads" options={{ animation: 'none', headerShown: false }} />
               <Stack.Screen name="create-indent" options={{ presentation: 'fullScreenModal' }} />
               <Stack.Screen name="indent" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="log-incoming-pods" options={{ presentation: 'card', animation: 'slide_from_right' }} />
@@ -714,6 +752,7 @@ function RootOverlayTabBar() {
     (surfaceLoading || canSurface('trip_compliance.tab')) && complianceProductActive;
 
   const showOnRootScreens = pathnameHasRootTopNav(pathname);
+  const dockHidden = useRootDockHidden();
 
   useEffect(() => {
     if (showOnRootScreens) scrollControls?.resetBarVisible();
@@ -730,7 +769,7 @@ function RootOverlayTabBar() {
     });
   }, [showOnRootScreens, orgId, queryClient, auth?.profile?.role]);
 
-  if (!showOnRootScreens) return null;
+  if (!showOnRootScreens || dockHidden) return null;
 
   const activeTab: DemoTabId = overlayActiveTab(pathname);
   const isDesktopWeb = Platform.OS === 'web' && layoutWidth >= Layout.webDesktopMinWidth;
@@ -768,14 +807,16 @@ function RootOverlayTabBar() {
       onTabChange={(tab) => {
         if (tab === 'loadCenter' && !canViewLoadsHub) return;
         if (tab === 'compliance' && !canOpenCompliance) return;
-        if (tab === 'loadCenter') preloadPulseLoadsRoute();
-        else if (tab === 'finance' || tab === 'trips' || tab === 'network') {
-          preloadTabScreen(tab as PreloadableTab);
-          if (tab === 'finance' && orgId) {
-            preloadFinanceWarmup(queryClient, orgId);
-          }
-        }
         router.push(overlayPathForTab(tab) as '/');
+        requestAnimationFrame(() => {
+          if (tab === 'loadCenter') preloadPulseLoadsRoute();
+          else if (tab === 'finance' || tab === 'trips' || tab === 'network') {
+            preloadTabScreen(tab as PreloadableTab);
+            if (tab === 'finance' && orgId) {
+              preloadFinanceWarmup(queryClient, orgId);
+            }
+          }
+        });
       }}
       onProfilePress={() => router.push(ROUTES.WORKSPACE)}
       onNotificationsPress={() => router.push('/notifications')}

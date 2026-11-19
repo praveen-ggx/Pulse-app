@@ -8,6 +8,7 @@ import {
   shouldShowTripExpenseHub,
 } from "@/features/trips/domain/tripExecutionModel";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import { shouldShowAggregateTripKindPill } from "@/features/drivers/utils/driverUtils.util";
 
 function trip(overrides: Partial<TripRow> = {}): TripRow {
   return {
@@ -220,5 +221,58 @@ describe("tripExecutionModel", () => {
       });
       expect(shouldShowTripExpenseHub(handedOff)).toBe(false);
     });
+  });
+});
+
+/**
+ * Boolean inside list_org_hub_trips_keyset p_supply = 'aggregated'.
+ * Kept in the test only. The hub pill must not call p_supply unless this matches.
+ */
+function sqlSupplyAggregated(trip: TripRow): boolean {
+  const mode = String(trip.operating_mode ?? "").trim().toUpperCase();
+  const execution = String(trip.execution_type ?? "").trim().toUpperCase();
+  const source = String(trip.source ?? "").trim().toLowerCase();
+  const payout = String(trip.trip_payout_mode ?? "").trim().toLowerCase();
+  return (
+    mode === "DCO" ||
+    execution === "AGGREGATE" ||
+    (execution !== "ASSET" &&
+      source !== "mover_asset" &&
+      payout !== "asset" &&
+      (payout === "market" ||
+        (!(source === "direct_quote" && trip.driver_id != null && trip.vehicle_id != null) &&
+          trip.supplier_id != null)))
+  );
+}
+
+describe("hub supply pill versus keyset p_supply", () => {
+  it("matches Asset, Aggregate, and DCO on ordinary ids", () => {
+    const rows = [
+      trip({ execution_type: "ASSET", supplier_id: "s1" }),
+      trip({ execution_type: "AGGREGATE" }),
+      trip({ operating_mode: "DCO", execution_type: "ASSET" }),
+      trip({ source: "mover_asset", supplier_id: "s1" }),
+      trip({ trip_payout_mode: "market" }),
+      trip({
+        source: "direct_quote",
+        driver_id: "d1",
+        vehicle_id: "v1",
+        supplier_id: "s1",
+      }),
+    ];
+    for (const row of rows) {
+      expect(shouldShowAggregateTripKindPill(row)).toBe(sqlSupplyAggregated(row));
+    }
+  });
+
+  it("diverges when a direct-quote driver id is blank rather than null", () => {
+    const row = trip({
+      source: "direct_quote",
+      driver_id: "",
+      vehicle_id: "v1",
+      supplier_id: "s1",
+    });
+    expect(shouldShowAggregateTripKindPill(row)).toBe(true);
+    expect(sqlSupplyAggregated(row)).toBe(false);
   });
 });

@@ -38,6 +38,19 @@ describe("parseComplianceBulkPaymentCsv", () => {
     });
   });
 
+  it("skips note lines that start with #", () => {
+    const csv = [
+      "# compliance payment post",
+      "# Trip ID: Trip code from the export",
+      "Trip ID,Amount,Mode,Date,UTR,Remarks",
+      "trip-1,9000,UPI,2026-09-08,HDFC123456,Loading advance",
+    ].join("\n");
+    const rows = parseComplianceBulkPaymentCsv(csv);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].tripId).toBe("trip-1");
+    expect(rows[0].rowIndex).toBe(4);
+  });
+
   it("returns an empty array for a header-only or empty file (malformed CSV)", () => {
     expect(parseComplianceBulkPaymentCsv("Trip ID,Amount,Mode,Date,UTR,Remarks")).toEqual([]);
     expect(parseComplianceBulkPaymentCsv("")).toEqual([]);
@@ -48,5 +61,22 @@ describe("parseComplianceBulkPaymentCsv", () => {
     const rows = parseComplianceBulkPaymentCsv(csv);
     expect(rows).toHaveLength(1);
     expect(Number.isNaN(rows[0].amount)).toBe(true);
+  });
+
+  it("reads Mode from its own column and accepts a posted label", () => {
+    const csv = [
+      "Remarks,Mode,Trip ID,Date,Amount,UTR",
+      "Loading advance,Bank Transfer,trip-1,2026-09-08,9000,HDFC123456",
+    ].join("\n");
+    const rows = parseComplianceBulkPaymentCsv(csv);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tripId: "trip-1",
+      amount: 9000,
+      paymentModeId: "BANK",
+      date: "2026-09-08",
+      utr: "HDFC123456",
+      remarks: "Loading advance",
+    });
   });
 });

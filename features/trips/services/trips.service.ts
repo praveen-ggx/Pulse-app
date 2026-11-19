@@ -15,8 +15,6 @@ import {
     type OrgHubMetricsSource,
 } from "@/features/trips/utils/orgHubMetrics.util";
 import {
-    completeTripRangeStep,
-    HUB_ALL_TIME_BOUNDS,
     shouldFallbackTripsTableScan,
     shouldTableScanTripsForOrg,
     tripsForOrgRpcArgs,
@@ -352,58 +350,50 @@ export async function getTripsForOrg(
 }
 
 /**
- * Every trip get_trips_for_org can see, not the newest-400 catalog.
- * Dated pages stop at 2000, so a full page is split until each slice fits.
+ * Every trip this org can see. Pages `list_org_hub_trips_keyset` until the
+ * server count is reached. A short or mismatched walk is an error and returns
+ * no rows. Undated `get_trips_for_org` is still the newest 400 for callers
+ * that only need the live catalog.
  */
 export async function getAllTripsForOrg(
   orgId: string,
 ): Promise<{ error: Error | null; trips: TripRow[] }> {
-  const byId = new Map<string, TripRow>();
-  const pending: { from: string; to: string }[] = [{ ...HUB_ALL_TIME_BOUNDS }];
-  let steps = 0;
-  while (pending.length > 0) {
-    if (++steps > 96) {
-      return { error: new Error("Trip history is too large to load in one pass"), trips: [] };
-    }
-    const range = pending.shift()!;
-    const res = await getTripsForOrg(orgId, range);
-    if (res.error) return { error: res.error, trips: [] };
-    const step = completeTripRangeStep(range, res.trips.length);
-    if (!step.accept) {
-      pending.push(...step.children);
-      continue;
-    }
-    for (const trip of res.trips) {
-      if (trip.id) byId.set(trip.id, trip);
-    }
-  }
-  return { error: null, trips: [...byId.values()] };
+  return loadHubTripKeysetRange(orgId);
 }
 
+/** One more than this means the hub search result is incomplete. */
+export const HUB_SEARCH_PAGE_SIZE = 200;
+
 /**
- * Trips hub search across every trip the org can see — not only the newest 400 in
- * getTripsForOrg. Matches trip ids, client, supplier, route, vehicle, driver name /
- * phone, indent code and LR number server-side. Same row shape as getTripsForOrg.
- * Returns no hits (not an error) until the RPC is deployed.
+ * Trips hub search across the trips the org can see. Matches trip ids, client,
+ * supplier, route, vehicle, driver name / phone, indent code and LR number
+ * server-side. A full page is returned with capped true so the screen does not
+ * treat it as every match.
  */
 export async function searchTripsForOrg(
   orgId: string,
   query: string,
-): Promise<{ error: Error | null; trips: TripRow[] }> {
+): Promise<{ error: Error | null; trips: TripRow[]; capped: boolean }> {
   const needle = query.trim();
-  if (!orgId || needle.length < 2) return { error: null, trips: [] };
+  if (!orgId || needle.length < 2) return { error: null, trips: [], capped: false };
   const { data, error } = await supabase().rpc("search_trips_for_org", {
     p_org_id: orgId,
     p_query: needle,
+    p_limit: HUB_SEARCH_PAGE_SIZE + 1,
   });
   if (error) {
-    if (shouldFallbackTripsTableScan(error)) return { error: null, trips: [] };
-    return { error: new Error(error.message), trips: [] };
+    if (shouldFallbackTripsTableScan(error)) return { error: null, trips: [], capped: false };
+    return { error: new Error(error.message), trips: [], capped: false };
   }
   const trips = ((data ?? []) as TripRow[]).map((row) =>
     normalizeTripRowWithIndent(row as TripRow & { indents?: TripIndentJoin | null }),
   );
-  return { error: null, trips };
+  const capped = trips.length > HUB_SEARCH_PAGE_SIZE;
+  return {
+    error: null,
+    trips: capped ? trips.slice(0, HUB_SEARCH_PAGE_SIZE) : trips,
+    capped,
+  };
 }
 
 export type TripPartyCounts = {
@@ -494,21 +484,72 @@ export async function getTripsByOrganization(
     return { error: null, trips: resultTrips, hasMore };
   }
 
-  const { data, error } = await q.limit(200);
+  // Owner rows only. The hub keyset also returns supplier-carried trips, so this
+  // walk stays on organization_id. Ordered by id for the cursor, then newest first.
+  const { data, error } = await readAllPages((afterId, limit) => {
+    let page = supabase().from("trips").select(TRIP_SELECT_LIGHT).eq("organization_id", orgId);
+    if (afterId) page = page.gt("id", afterId);
+    return page.order("id", { ascending: true }).limit(limit);
+  });
   if (error) return { error: new Error(error.message), trips: [] };
-  return { error: null, trips: processData(data) };
+  const trips = processData(data);
+  trips.sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
+  return { error: null, trips };
 }
 
-type HubKeysetCursor = { createdAt: string; id: string };
+export type HubKeysetCursor = { createdAt: string; id: string };
 
-const HUB_KEYSET_PAGE_SIZE = 100;
-const HUB_KEYSET_MAX_PAGES = 80;
+/** Existing hub buckets, plus the rail tiles counted by hub_metric_contrib. */
+export type HubKeysetBucket =
+  | "all"
+  | "active"
+  | "history"
+  | "cancelled"
+  | "closed"
+  | "unassigned"
+  | "assigned"
+  | "loading"
+  | "in_transit"
+  | "unloading";
+
+/** Server cap is 250 from 20271116100100 (100 before); the walk does not rely on full pages. */
+const HUB_KEYSET_PAGE_SIZE = 250;
 const TRIP_DELTA_PAGE_SIZE = 200;
 const TRIP_DELTA_MAX_PAGES = 40;
 
 function hubCount(value: unknown): number | null {
+  // Rows-only pages send null counts; Number(null) would read as 0.
+  if (value === null || value === undefined) return null;
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+let hubRowsRpcMissing = false;
+/**
+ * 20271118143000 is not applied on production or preprod, so
+ * list_compliance_ops_pipeline_keyset answers 404. Stay on the hub walk
+ * and do not call the function. Set this to false after that migration
+ * is applied, so the dedicated queue is used.
+ */
+let compliancePipelineRpcMissing = true;
+
+function isMissingHubRowsRpc(error: {
+  code?: string;
+  message?: string;
+  details?: string;
+  status?: number;
+  statusCode?: number;
+}): boolean {
+  const code = String(error.code ?? "");
+  const msg = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+  const status = error.status ?? error.statusCode;
+  return (
+    code === "PGRST202" ||
+    code === "42883" ||
+    msg.includes("could not find the function") ||
+    msg.includes("schema cache") ||
+    status === 404
+  );
 }
 
 /**
@@ -522,21 +563,40 @@ export async function getHubTripKeysetPage(
     cursor?: HubKeysetCursor | null;
     from?: string | null;
     to?: string | null;
-    bucket?: "all" | "active" | "history" | "cancelled" | "closed";
+    bucket?: HubKeysetBucket;
+    /** Notes prefix used by the production attribution count. */
+    attributed?: "all" | "attributed";
+    /** false: rows only (list_org_hub_trips_keyset_rows), no six-tab recount. */
+    withCounts?: boolean;
   },
 ): Promise<{
   error: Error | null;
   trips: TripRow[];
   nextCursor: HubKeysetCursor | null;
   total: number | null;
+  bucketCount: number | null;
+  activeCount: number | null;
+  historyCount: number | null;
+  cancelledCount: number | null;
+  attributedCount: number | null;
 }> {
-  const empty = { trips: [] as TripRow[], nextCursor: null, total: null };
+  const empty = {
+    trips: [] as TripRow[],
+    nextCursor: null,
+    total: null,
+    bucketCount: null,
+    activeCount: null,
+    historyCount: null,
+    cancelledCount: null,
+    attributedCount: null,
+  };
+  const rowsOnly = opts?.withCounts === false && !hubRowsRpcMissing;
   const limit = Math.min(HUB_KEYSET_PAGE_SIZE, Math.max(1, opts?.limit ?? HUB_KEYSET_PAGE_SIZE));
   const dated = tripsForOrgRpcArgs(orgId, {
     from: opts?.from ?? undefined,
     to: opts?.to ?? undefined,
   });
-  const { data, error } = await supabase().rpc("list_org_hub_trips_keyset", {
+  const { data, error } = await supabase().rpc(rowsOnly ? "list_org_hub_trips_keyset_rows" : "list_org_hub_trips_keyset", {
     p_org_id: orgId,
     p_limit: limit,
     p_before_created_at: opts?.cursor?.createdAt ?? null,
@@ -550,13 +610,18 @@ export async function getHubTripKeysetPage(
     p_vehicle_id: null,
     p_vehicle_norm: null,
     p_supply: "all",
-    p_attributed: "all",
+    p_attributed: opts?.attributed === "attributed" ? "attributed" : "all",
     p_client_id: null,
     p_driver_id: null,
     p_payment: "all",
     p_load_type: null,
     p_compliance: false,
   });
+  if (error && rowsOnly && isMissingHubRowsRpc(error)) {
+    // Backend without 20271116100100: the counting function serves every page.
+    hubRowsRpcMissing = true;
+    return getHubTripKeysetPage(orgId, { ...opts, withCounts: true });
+  }
   if (error) return { ...empty, error: new Error(error.message) };
   if (data == null || typeof data !== "object" || Array.isArray(data)) {
     return { ...empty, error: new Error("Hub trips are not available for this organization.") };
@@ -571,25 +636,114 @@ export async function getHubTripKeysetPage(
     trips.length === limit && last?.created_at && last.id
       ? { createdAt: String(last.created_at), id: String(last.id) }
       : null;
-  return { error: null, trips, nextCursor, total: hubCount(payload.total) };
+  return {
+    error: null,
+    trips,
+    nextCursor,
+    total: hubCount(payload.total),
+    bucketCount: hubCount(payload.bucket_count),
+    activeCount: hubCount(payload.active_count),
+    historyCount: hubCount(payload.history_count),
+    cancelledCount: hubCount(payload.cancelled_count),
+    attributedCount: hubCount(payload.attributed_count),
+  };
 }
 
-/** Every hub page for a date range. A short walk is an error, not a partial book. */
+/**
+ * One page of the compliance ops queue. Assigned and draft rows are returned
+ * only when the caller is Ground Ops or Sourcing; passing the flag as a
+ * normal member does not widen the page. A missing function is reported so
+ * the catalog can use the previous hub walk on an older database.
+ */
+export async function getComplianceOpsPipelinePage(
+  orgId: string,
+  opts?: { cursor?: HubKeysetCursor | null; includeAssigned?: boolean; limit?: number },
+): Promise<{
+  error: Error | null;
+  missing: boolean;
+  trips: TripRow[];
+  hasMore: boolean;
+  total: number | null;
+}> {
+  const empty = { error: null, trips: [] as TripRow[], hasMore: false, total: null, missing: false };
+  if (compliancePipelineRpcMissing) return { ...empty, missing: true };
+  const limit = Math.min(250, Math.max(1, opts?.limit ?? 250));
+  const { data, error } = await supabase().rpc("list_compliance_ops_pipeline_keyset", {
+    p_org_id: orgId,
+    p_limit: limit,
+    p_before_created_at: opts?.cursor?.createdAt ?? null,
+    p_before_id: opts?.cursor?.id ?? null,
+    p_include_assigned: opts?.includeAssigned === true,
+  });
+  if (error && isMissingHubRowsRpc(error)) {
+    compliancePipelineRpcMissing = true;
+    return { ...empty, error: null, missing: true };
+  }
+  if (error) return { ...empty, error: new Error(error.message) };
+  if (data == null) {
+    return { ...empty, error: new Error("Compliance trips are not available for this organization.") };
+  }
+  if (typeof data !== "object" || Array.isArray(data)) {
+    return { ...empty, error: new Error("Compliance trips are not available for this organization.") };
+  }
+  const payload = data as Record<string, unknown>;
+  if (payload.error === "invalid_cursor") {
+    return { ...empty, error: new Error("Compliance page cursor is invalid.") };
+  }
+  const rawRows = Array.isArray(payload.rows) ? payload.rows : [];
+  const trips = rawRows.map((row) =>
+    normalizeTripRowWithIndent(row as TripRow & { indents?: TripIndentJoin | null }),
+  );
+  return {
+    error: null,
+    missing: false,
+    trips,
+    hasMore: payload.has_more === true,
+    total: hubCount(payload.total),
+  };
+}
+
+/**
+ * Every hub page for a date range. A short walk is an error, not a partial book.
+ *
+ * Page 1 carries the exact counts; later pages are rows only (the server used
+ * to recount all six tabs on every page). The walk follows `(created_at, id)`
+ * until the count is reached or a page comes back empty. There is no page-count
+ * ceiling: a repeated id or a cursor that does not move is an error. If the
+ * walk and the count disagree (a trip deleted or edited mid-walk), one fresh
+ * count decides. The returned array is empty whenever the result is incomplete.
+ */
 export async function loadHubTripKeysetRange(
   orgId: string,
-  opts?: { from?: string | null; to?: string | null },
+  opts?: {
+    from?: string | null;
+    to?: string | null;
+    bucket?: HubKeysetBucket;
+    attributed?: "all" | "attributed";
+  },
 ): Promise<{ error: Error | null; trips: TripRow[] }> {
   const trips: TripRow[] = [];
   const seen = new Set<string>();
   let cursor: HubKeysetCursor | null = null;
   let total: number | null = null;
-  for (let page = 0; page < HUB_KEYSET_MAX_PAGES; page += 1) {
-    const result = await getHubTripKeysetPage(orgId, { ...opts, cursor, limit: HUB_KEYSET_PAGE_SIZE });
+  const bucket = opts?.bucket ?? "all";
+  for (let page = 0; ; page += 1) {
+    const result = await getHubTripKeysetPage(orgId, {
+      from: opts?.from,
+      to: opts?.to,
+      bucket,
+      attributed: opts?.attributed,
+      cursor,
+      limit: HUB_KEYSET_PAGE_SIZE,
+      withCounts: page === 0,
+    });
     if (result.error) return { error: result.error, trips: [] };
-    if (result.total == null) {
+    const pageTarget = bucket === "all" ? result.total : (result.bucketCount ?? result.total);
+    if (page === 0 || pageTarget != null) total = pageTarget;
+    if (total == null) {
       return { error: new Error("Hub trip count is unavailable."), trips: [] };
     }
-    total = result.total;
+    if (result.trips.length === 0) break;
     for (const trip of result.trips) {
       if (!trip.id || seen.has(trip.id)) {
         return { error: new Error("Hub page cursor repeated a trip."), trips: [] };
@@ -597,8 +751,30 @@ export async function loadHubTripKeysetRange(
       seen.add(trip.id);
     }
     trips.push(...result.trips);
-    if (result.trips.length === 0 || trips.length >= total || !result.nextCursor) break;
-    cursor = result.nextCursor;
+    const last = result.trips[result.trips.length - 1];
+    if (!last?.created_at || !last.id || seen.size >= total) break;
+    const nextCursor = { createdAt: String(last.created_at), id: String(last.id) };
+    if (
+      cursor &&
+      nextCursor.createdAt === cursor.createdAt &&
+      nextCursor.id === cursor.id
+    ) {
+      return { error: new Error("Hub page cursor did not advance."), trips: [] };
+    }
+    cursor = nextCursor;
+  }
+  if (total != null && trips.length !== total) {
+    const recount = await getHubTripKeysetPage(orgId, {
+      from: opts?.from,
+      to: opts?.to,
+      bucket,
+      attributed: opts?.attributed,
+      cursor: null,
+      limit: 1,
+      withCounts: true,
+    });
+    const recounted = bucket === "all" ? recount.total : (recount.bucketCount ?? recount.total);
+    if (!recount.error && recounted != null) total = recounted;
   }
   if (total == null || trips.length !== total) {
     return {
@@ -716,20 +892,77 @@ export async function getTripsWhereOrgIsClient(orgId: string): Promise<{
 
 /**
  * Load-based trips where the given org is the supplier (via suppliers.linked_organization_id).
- * Used when the logged-in org is the supplier (Load Hub / Staff Handshake) so they see
- * only shared load trips they supply in Trips Control and can open trip detail.
+ * Pages through list_trips_where_org_is_supplier_keyset. The unbounded
+ * get_trips_where_org_is_supplier RPC remains for clients that have not
+ * migrated; a missing keyset function falls back to it and is marked incomplete.
  */
+const SUPPLIER_KEYSET_PAGE_SIZE = 250;
+/** Local and default PostgREST db-max-rows. A full legacy page is not proof the history ended. */
+const SUPPLIER_LEGACY_ROW_CAP = 1000;
+
+type SupplierKeysetPage = {
+  rows?: SupplierTripRow[] | null;
+  has_more?: boolean | null;
+};
+
 export async function getTripsWhereOrgIsSupplier(orgId: string): Promise<{
   error: Error | null;
   trips: SupplierTripRow[];
+  /** False when the legacy unbounded RPC was used because the keyset function is not installed. */
+  paged: boolean;
 }> {
-  const { data, error } = await supabase().rpc(
-    "get_trips_where_org_is_supplier",
-    { p_org_id: orgId },
-  );
-  if (error) return { error: new Error(error.message), trips: [] };
-  const trips = (data ?? []) as SupplierTripRow[];
-  return { error: null, trips };
+  const seen = new Set<string>();
+  const trips: SupplierTripRow[] = [];
+  let beforeCreatedAt: string | null = null;
+  let beforeId: string | null = null;
+
+  for (;;) {
+    const { data, error } = await supabase().rpc(
+      "list_trips_where_org_is_supplier_keyset",
+      {
+        p_org_id: orgId,
+        p_limit: SUPPLIER_KEYSET_PAGE_SIZE,
+        p_before_created_at: beforeCreatedAt,
+        p_before_id: beforeId,
+      },
+    );
+    if (error) {
+      if (trips.length === 0 && isMissingHubRowsRpc(error)) {
+        const legacy = await supabase().rpc("get_trips_where_org_is_supplier", {
+          p_org_id: orgId,
+        });
+        if (legacy.error) return { error: new Error(legacy.error.message), trips: [], paged: false };
+        const legacyRows = (legacy.data ?? []) as SupplierTripRow[];
+        if (legacyRows.length >= SUPPLIER_LEGACY_ROW_CAP) {
+          return {
+            error: new Error("Supplier history hit the legacy row cap and is incomplete."),
+            trips: [],
+            paged: false,
+          };
+        }
+        return { error: null, trips: legacyRows, paged: false };
+      }
+      return { error: new Error(error.message), trips: [], paged: true };
+    }
+    const page = (data ?? {}) as SupplierKeysetPage;
+    const rows = page.rows ?? [];
+    if (rows.length === 0) return { error: null, trips, paged: true };
+    const last = rows[rows.length - 1];
+    if (!last?.id || (last.id === beforeId && (last.created_at ?? null) === beforeCreatedAt)) {
+      return { error: new Error("Supplier page cursor did not advance."), trips: [], paged: true };
+    }
+    for (const row of rows) {
+      if (!row?.id || seen.has(row.id)) {
+        return { error: new Error("Supplier page cursor repeated a trip."), trips: [], paged: true };
+      }
+      seen.add(row.id);
+      trips.push(row);
+    }
+    const more = page.has_more === true || (page.has_more == null && rows.length >= SUPPLIER_KEYSET_PAGE_SIZE);
+    if (!more) return { error: null, trips, paged: true };
+    beforeCreatedAt = last.created_at ?? null;
+    beforeId = last.id;
+  }
 }
 
 /**

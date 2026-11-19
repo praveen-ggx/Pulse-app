@@ -946,7 +946,11 @@ export function AlertRegistryPanel({
                   <Text style={[styles.tabText, selected && styles.tabTextActive]}>
                     {t.label}
                   </Text>
-                  {showCount ? <View style={styles.tabUnreadDot} /> : null}
+                  {showCount ? (
+                    <Text style={styles.tabCount}>
+                      {count > 99 ? "99+" : count}
+                    </Text>
+                  ) : null}
                 </View>
                 {selected ? <View style={styles.tabIndicator} /> : null}
               </Pressable>
@@ -1140,17 +1144,11 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: Theme.buttonPrimary,
   },
-  /** Metronic tab unread — small green dot, no solid count pill. */
-  tabUnreadDot: {
-    position: "absolute",
-    top: -1,
-    right: -5,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#50CD89",
-    borderWidth: 1,
-    borderColor: Theme.cardWhite,
+  tabCount: {
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 14,
+    color: "#50CD89",
   },
   settingsBtn: {
     width: 28,

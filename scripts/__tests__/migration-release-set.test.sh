@@ -205,7 +205,10 @@ assert_eq "$(cat "$dup_snap/snapshot-local-only.txt")" "$(printf '%s\n' \
 count="$(find "$dup_snap/supabase/migrations" -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
 assert_eq "$count" "5" "remote history plus four local-only files"
 
-# The same prefix on Remote cannot be copied: the builder refuses to choose a file.
+# A prefix already on Remote, with two local files, must not be chosen between.
+# The snapshot stands in a comment-only placeholder so the CLI can see the
+# recorded version. Neither file is copied, and a local-only duplicate still
+# fails above through migration_file_for_version.
 cat >"$tmp/dup-remote-list.txt" <<'EOF'
    `20271014184500` | `20271014184500` | `2027-10-14 18:45:00`
    `20261109144113` | ` `              | `2026-11-09 14:41:13`
@@ -213,10 +216,16 @@ cat >"$tmp/dup-remote-list.txt" <<'EOF'
    `20261110083407` | ` `              | `2026-11-10 08:34:07`
    `20271108094500` | ` `              | `2027-11-08 09:45:00`
 EOF
-if build_release_snapshot "$dup" "$tmp/dup-remote-list.txt" "$tmp/dup.versions" \
-  "$dup/supabase/release-sets/FROZEN.versions" "$tmp/dup-remote-snap" 2>"$tmp/dup-remote.err"; then
-  fail "remote duplicate prefix was accepted"
+build_release_snapshot "$dup" "$tmp/dup-remote-list.txt" "$tmp/dup.versions" \
+  "$dup/supabase/release-sets/FROZEN.versions" "$tmp/dup-remote-snap" 2>"$tmp/dup-remote.err" \
+  || fail "remote duplicate prefix should stay a history placeholder"
+[[ ! -e "$tmp/dup-remote-snap/supabase/migrations/20271014184500_godrej.sql" ]] || fail "remote duplicate godrej copied"
+[[ ! -e "$tmp/dup-remote-snap/supabase/migrations/20271014184500_bank.sql" ]] || fail "remote duplicate bank copied"
+placeholder="$tmp/dup-remote-snap/supabase/migrations/20271014184500_remote_history_placeholder.sql"
+[[ -f "$placeholder" ]] || fail "remote duplicate placeholder missing"
+grep -q "Already recorded on the linked database" "$placeholder" || fail "placeholder is not the history stand-in"
+if grep -E -q 'CREATE |ALTER |INSERT |UPDATE ' "$placeholder"; then
+  fail "placeholder contains executable SQL"
 fi
-grep -q "2 migration files for 20271014184500" "$tmp/dup-remote.err" || fail "missing duplicate-file rejection"
 
 echo "migration-release-set tests passed"

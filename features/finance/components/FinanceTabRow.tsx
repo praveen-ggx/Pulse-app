@@ -75,9 +75,12 @@ export function FinanceTabRow({
             <Text
               style={[
                 styles.financeHeroPillText,
+                mobileBar && styles.financeHeroPillTextMobile,
                 isActive && styles.financeHeroPillTextActive,
               ]}
               numberOfLines={1}
+              adjustsFontSizeToFit={mobileBar}
+              minimumFontScale={mobileBar ? 0.7 : 1}
             >
               {t(TAB_I18N_KEYS[tab.id])}
             </Text>

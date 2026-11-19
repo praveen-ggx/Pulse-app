@@ -185,7 +185,7 @@ BEGIN
     'fee_payment_status', v_fee_status, 'platform_fee_amount', v_platform_fee
   );
 END;
-$function$
+$function$;
 
 
 
@@ -250,7 +250,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
+$function$;
 
 
 

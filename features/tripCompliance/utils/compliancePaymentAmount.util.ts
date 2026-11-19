@@ -101,6 +101,101 @@ export function resolveComplianceDocumentationCharge(
 
 export const COMPLIANCE_DEFAULT_ADVANCE_PERCENT = 90;
 
+function rupees(amount: number): string {
+  return `₹${amount.toLocaleString("en-IN")}`;
+}
+
+function percentLabel(percent: number): string {
+  const rounded = Math.round(percent * 100) / 100;
+  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, "");
+  return `${text}%`;
+}
+
+/**
+ * Percent that makes the advance payable equal the file amount.
+ * Returns null when the amount cannot be reached between 0% and 100%.
+ */
+export function percentForAdvancePayable(input: {
+  baseFreight: number | null;
+  documentationCharges: number;
+  tdsAmount: number;
+  targetPayable: number;
+}): number | null {
+  const base = Number(input.baseFreight);
+  const target = Math.round(Number(input.targetPayable) * 100) / 100;
+  if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(target) || target <= 0) return null;
+  const doc = Math.max(0, Number(input.documentationCharges) || 0);
+  const tds = Math.max(0, Number(input.tdsAmount) || 0);
+  const percent = ((target + doc + tds) / base) * 100;
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null;
+  const payable = computeCompliancePaymentAmount({
+    baseFreight: base,
+    advancePercent: percent,
+    documentationCharges: doc,
+    tdsAmount: tds,
+  });
+  if (Math.round(payable * 100) !== Math.round(target * 100)) return null;
+  return percent;
+}
+
+/**
+ * A file amount is never replaced. When it differs from the current advance,
+ * the percent is updated so the payable matches the file. A blank amount uses
+ * the current payable.
+ */
+export function advancePostAmount(input: {
+  fileAmount: number | null;
+  payable: number | null;
+  advancePercent: number | null;
+  baseFreight?: number | null;
+  documentationCharges?: number;
+  tdsAmount?: number;
+}): { amount: number | null; advancePercent: number | null; notice: string | null; tone: "preview" | "alert" | null; error: string | null } {
+  const payable = input.payable;
+  const currentPercent = input.advancePercent;
+  const file = input.fileAmount;
+  if (file == null || !Number.isFinite(file)) {
+    if (payable == null || !Number.isFinite(payable) || payable <= 0) {
+      return { amount: null, advancePercent: currentPercent, notice: null, tone: null, error: null };
+    }
+    const label = currentPercent != null && Number.isFinite(currentPercent) ? `${percentLabel(currentPercent)} · ` : "";
+    return {
+      amount: payable,
+      advancePercent: currentPercent,
+      notice: `Advance ${label}${rupees(payable)} will be posted.`,
+      tone: "preview",
+      error: null,
+    };
+  }
+  if (payable != null && Number.isFinite(payable) && Math.round(file * 100) === Math.round(payable * 100)) {
+    const label = currentPercent != null && Number.isFinite(currentPercent) ? `${percentLabel(currentPercent)} · ` : "";
+    return { amount: file, advancePercent: currentPercent, notice: `Advance ${label}${rupees(file)}`, tone: "preview", error: null };
+  }
+  const nextPercent = percentForAdvancePayable({
+    baseFreight: input.baseFreight ?? null,
+    documentationCharges: input.documentationCharges ?? 0,
+    tdsAmount: input.tdsAmount ?? 0,
+    targetPayable: file,
+  });
+  if (nextPercent == null) {
+    return {
+      amount: file,
+      advancePercent: null,
+      notice: null,
+      tone: null,
+      error: `${rupees(file)} cannot be reached by changing the advance percent. The amount was not changed.`,
+    };
+  }
+  const from = currentPercent != null && Number.isFinite(currentPercent) ? ` from ${percentLabel(currentPercent)}` : "";
+  return {
+    amount: file,
+    advancePercent: nextPercent,
+    notice: `Advance percent updated${from} to ${percentLabel(nextPercent)}. ${rupees(file)} will be posted.`,
+    tone: "alert",
+    error: null,
+  };
+}
+
 /**
  * `per_mt` and `per_trip` only. A blank basis is the legacy untagged rate and
  * is read as per_trip (the indent column contract). Unknown values stay invalid.

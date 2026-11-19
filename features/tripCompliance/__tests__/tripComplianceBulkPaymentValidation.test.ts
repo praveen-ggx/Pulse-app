@@ -20,8 +20,11 @@ function mockMakeThenable<T>(result: { data: T; error: null }) {
   builder.select = chain;
   builder.eq = chain;
   builder.in = chain;
+  builder.is = chain;
+  builder.neq = chain;
   builder.order = chain;
   builder.limit = chain;
+  builder.maybeSingle = async () => ({ data: null, error: null });
   builder.gt = () => {
     current = { data: [], error: null };
     return builder;
@@ -64,7 +67,18 @@ jest.mock("@/lib/supabase", () => ({
       if (table === "trips") return mockMakeThenable(mockTripsResult);
       if (table === "transactions") return mockMakeThenable(mockTxnsResult);
       if (table === "trip_documents") return mockMakeThenable(mockDocsResult);
-      throw new Error(`unexpected table ${table}`);
+      if (table === "payment_requests") {
+        return mockMakeThenable({
+          data: ["trip-1", "trip-2"].map((tripId) => ({
+            trip_id: tripId,
+            approved_amount: 5000,
+            terms_snapshot: { advance_percent: 90 },
+            created_at: "2026-09-02T00:00:00Z",
+          })),
+          error: null,
+        });
+      }
+      return mockMakeThenable({ data: [], error: null });
     },
     // Batch document read: first keyset page is the trip_documents fixture, the next page is empty.
     rpc: (name: string, args?: Record<string, unknown>) =>
@@ -104,7 +118,9 @@ describe("validateComplianceBulkPayments", () => {
       rows: [{ rowIndex: 2, tripId: "trip-unknown", amount: 5000, paymentModeId: "UPI", utr: "UTR001" }],
     });
     expect(result.valid).toHaveLength(0);
-    expect(result.invalid[0].errors).toContain("Trip ID not found in this organization");
+    expect(result.invalid[0].errors).toContain(
+      "trip-unknown is not a trip in this workspace. Only this organization's trips can be posted.",
+    );
   });
 
   it("rejects an invalid amount", async () => {
@@ -179,7 +195,8 @@ describe("validateComplianceBulkPayments", () => {
       rows: [{ rowIndex: 2, tripId: "trip-1", amount: 5000, paymentModeId: "CASH" }],
     });
     expect(result.valid).toHaveLength(0);
-    expect(result.blocked[0].gateReason).toBe("Invoice missing");
+    expect(result.blocked[0].gateReason).toBe("Compliance pending · Documents pending · Advance pending");
+    expect(result.blocked[0].alerts?.find((alert) => alert.kind === "documents")?.detail).toBe("Invoice missing");
   });
 
   it("blocks advance when required documents are pending verification", async () => {
@@ -203,7 +220,8 @@ describe("validateComplianceBulkPayments", () => {
       category: "compliance_advance",
       rows: [{ rowIndex: 2, tripId: "trip-1", amount: 5000, paymentModeId: "CASH" }],
     });
-    expect(result.blocked[0].gateReason).toBe("LR pending verification");
+    expect(result.blocked[0].gateReason).toBe("Compliance pending · Documents pending · Advance pending");
+    expect(result.blocked[0].alerts?.find((alert) => alert.kind === "documents")?.detail).toBe("LR awaiting verification · E-way Bill awaiting verification · Invoice awaiting verification");
   });
 
   it("blocks advance when documents are verified but Compliance is not marked verified", async () => {
@@ -213,7 +231,8 @@ describe("validateComplianceBulkPayments", () => {
       category: "compliance_advance",
       rows: [{ rowIndex: 2, tripId: "trip-1", amount: 5000, paymentModeId: "CASH" }],
     });
-    expect(result.blocked[0].gateReason).toBe("Compliance verification not completed");
+    expect(result.blocked[0].gateReason).toBe("Compliance pending · Advance pending");
+    expect(result.blocked[0].alerts?.some((alert) => alert.kind === "documents")).toBe(false);
   });
 
   it("rejects a duplicate reference read from the structured payment_reference column, not just parsed description", async () => {
@@ -287,15 +306,16 @@ describe("validateComplianceBulkPayments — document semantics match the Compli
     mockDocsResult = { data: listShapedDocs("trip-1", JSON.stringify({ ewayNo: "582093285239", entries: [{ ewayNo: "582093285239" }] })), error: null };
     const result = await validateComplianceBulkPayments({ organizationId: "org-1", category: "compliance_advance", rows: [advanceRow] });
     expect(result.valid).toHaveLength(0);
-    expect(result.blocked[0].gateReason).toBe("Compliance verification not completed");
+    expect(result.blocked[0].gateReason).toBe("Compliance pending · Advance pending");
+    expect(result.blocked[0].alerts?.some((alert) => alert.kind === "documents")).toBe(false);
   });
 
   it("an E-way details marker with no numbers is still missing", async () => {
     mockTripsResult = { data: [TRIP_1], error: null };
     mockDocsResult = { data: listShapedDocs("trip-1", "{}"), error: null };
     const result = await validateComplianceBulkPayments({ organizationId: "org-1", category: "compliance_advance", rows: [advanceRow] });
-    expect(result.blocked[0].gateReason).toMatch(/missing$/);
-    expect(result.blocked[0].gateReason).toMatch(/e-?way/i);
+    expect(result.blocked[0].gateReason).toBe("Compliance pending · Documents pending · Advance pending");
+    expect(result.blocked[0].alerts?.find((alert) => alert.kind === "documents")?.detail).toMatch(/e-?way bill missing/i);
   });
 
   it("eligibility is unchanged: a compliance + finance verified trip is payable regardless of documents", async () => {

@@ -15,6 +15,8 @@ import type { LedgerRow } from "@/features/finance";
 import {
   validateDriverInviteCompensation,
 } from "../utils/driverInviteCompensation.util";
+import { withdrawDriverInvite } from "./driverInviteNegotiation.service";
+import { hasAnyPayTerm, resolveAgreedPayTerms } from "../utils/driverPayTerms.util";
 
 const DRIVER_COLUMNS = [
   "id", "organization_id", "user_id", "name", "phone", "email",
@@ -42,6 +44,10 @@ export interface CreateDriverServiceData {
   payableAmount?: number | null;
   commissionPercent?: number | null;
   commissionPerKm?: number | null;
+  /** Fleet invite: vehicle, route, shift / hours, duties. */
+  jobDescription?: string | null;
+  /** Fleet invite: terms & conditions the driver must agree to. */
+  termsText?: string | null;
 }
 
 export interface DriverRow {
@@ -657,26 +663,10 @@ export async function updateDriver(
   if (error) return { error: new Error(error.message), driver: null };
   const driver = data as DriverRow;
 
-  // Best-effort: keep the accepted invite's compensation terms in sync.
-  // getDriverOffersByOrganization() reads driver_invites.payable_amount /
-  // commission_* in preference to the drivers table, so an edit here would
-  // otherwise never surface in trip-cost/PnL calculations.
-  const touchesCompensation =
-    patch.payable_amount !== undefined ||
-    patch.commission_percent !== undefined ||
-    patch.commission_per_km !== undefined;
-  if (touchesCompensation && driver.user_id) {
-    const inviteUpdates: Record<string, unknown> = {};
-    if (patch.payable_amount !== undefined) inviteUpdates.payable_amount = patch.payable_amount;
-    if (patch.commission_percent !== undefined) inviteUpdates.commission_percent = patch.commission_percent;
-    if (patch.commission_per_km !== undefined) inviteUpdates.commission_per_km = patch.commission_per_km;
-    await supabase()
-      .from("driver_invites")
-      .update(inviteUpdates)
-      .eq("from_organization_id", orgId)
-      .eq("to_user_id", driver.user_id)
-      .eq("status", "accepted");
-  }
+  // No invite "sync" here: RLS never lets a fleet update an accepted invite,
+  // so that write silently changed nothing and the old invite terms kept
+  // winning. The driver row is now the source of truth everywhere
+  // (resolveAgreedPayTerms); the accepted invite stays the original offer.
 
   return { error: null, driver };
 }
@@ -1035,6 +1025,7 @@ async function createDriverInvite(
   fromOrgName?: string | null,
   inviteeName?: string | null,
   offer?: DriverInviteOffer | null,
+  details?: { jobDescription?: string | null; termsText?: string | null } | null,
 ): Promise<{ error: Error | null; created: boolean }> {
   const payload: Record<string, unknown> = {
     from_organization_id: fromOrganizationId,
@@ -1043,6 +1034,11 @@ async function createDriverInvite(
     from_org_name: fromOrgName ?? null,
     invitee_name: (inviteeName ?? "").trim() || null,
   };
+  // Only sent when filled, so invites keep working before the migration lands.
+  const jobDescription = (details?.jobDescription ?? "").trim();
+  const termsText = (details?.termsText ?? "").trim();
+  if (jobDescription) payload.job_description = jobDescription;
+  if (termsText) payload.terms_text = termsText;
   if (offer) {
     if (offer.payableAmount != null && offer.payableAmount > 0)
       payload.payable_amount = offer.payableAmount;
@@ -1268,6 +1264,7 @@ export async function inviteDriver(
           orgName,
           inviteeName,
           offer,
+          { jobDescription: data.jobDescription, termsText: data.termsText },
         );
         if (inviteErr) return { error: inviteErr, driver: null, inviteSent: false };
         if (created) return { error: null, driver: null, inviteSent: true };
@@ -1325,6 +1322,7 @@ export async function inviteDriver(
       orgName,
       invitee.full_name ?? null,
       offer,
+      { jobDescription: data.jobDescription, termsText: data.termsText },
     );
     if (inviteError)
       return { error: inviteError, driver: null, inviteSent: false };
@@ -1765,48 +1763,42 @@ export async function getDriverOffersByOrganization(orgId: string): Promise<{
   const { error: driversErr, drivers } = await getDriversByOrganization(orgId);
   if (driversErr || !drivers.length)
     return { error: driversErr ?? null, offersByDriverId: {} };
+
+  // Fallback only: the latest accepted invite per app user, for driver rows
+  // that carry no terms at all (accepted before terms were copied to the row).
   const userIds = drivers
+    .filter((d) => !hasAnyPayTerm(resolveAgreedPayTerms(d, null)))
     .map((d) => d.user_id)
     .filter((u): u is string => u != null && u !== "");
-  if (userIds.length === 0) return { error: null, offersByDriverId: {} };
-  const { data: invites, error } = await supabase()
-    .from("driver_invites")
-    .select("to_user_id, payable_amount, commission_percent, commission_per_km")
-    .eq("from_organization_id", orgId)
-    .eq("status", "accepted")
-    .in("to_user_id", userIds);
-  if (error) return { error: new Error(error.message), offersByDriverId: {} };
-  const userToDriver = new Map<string, (typeof drivers)[0]>();
-  for (const d of drivers) {
-    if (d.user_id) userToDriver.set(d.user_id, d);
+  const inviteByUser = new Map<string, Record<string, unknown>>();
+  if (userIds.length > 0) {
+    const { data: invites, error } = await supabase()
+      .from("driver_invites")
+      .select("to_user_id, payable_amount, commission_percent, commission_per_km, responded_at")
+      .eq("from_organization_id", orgId)
+      .eq("status", "accepted")
+      .in("to_user_id", userIds)
+      .order("responded_at", { ascending: false });
+    if (error) return { error: new Error(error.message), offersByDriverId: {} };
+    for (const row of (invites ?? []) as Array<Record<string, unknown>>) {
+      const uid = String(row.to_user_id ?? "");
+      if (uid && !inviteByUser.has(uid)) inviteByUser.set(uid, row);
+    }
   }
-  /** Parse numeric from DB (Supabase may return numeric as string). */
-  const num = (v: unknown): number | null => {
-    if (v == null) return null;
-    const n = typeof v === "number" ? v : Number(v);
-    return Number.isFinite(n) ? n : null;
-  };
 
+  // Driver row = current agreed terms (edited by the fleet, paid by the DB
+  // trigger). Same rule as the driver app: resolveAgreedPayTerms.
   const offersByDriverId: Record<string, DriverOffer> = {};
-  for (const row of invites ?? []) {
-    const driver = userToDriver.get(
-      (row as { to_user_id: string }).to_user_id,
+  for (const d of drivers) {
+    const terms = resolveAgreedPayTerms(
+      d,
+      d.user_id ? (inviteByUser.get(d.user_id) ?? null) : null,
     );
-    if (!driver) continue;
-    const r = row as {
-      payable_amount?: unknown;
-      commission_percent?: unknown;
-      commission_per_km?: unknown;
-    };
-    // Invite fields take priority; fall back to drivers table when invite was accepted
-    // without commission terms (e.g. invite pre-dated the compensation edit).
-    const payable = num(r.payable_amount) ?? num(driver.payable_amount);
-    const pct = num(r.commission_percent) ?? num(driver.commission_percent);
-    const perKm = num(r.commission_per_km) ?? num(driver.commission_per_km);
-    offersByDriverId[driver.id] = {
-      payableAmount: payable,
-      commissionPercent: pct,
-      commissionPerKm: perKm,
+    if (!hasAnyPayTerm(terms)) continue;
+    offersByDriverId[d.id] = {
+      payableAmount: terms.payableAmount,
+      commissionPercent: terms.commissionPercent,
+      commissionPerKm: terms.commissionPerKm,
     };
   }
   return { error: null, offersByDriverId };
@@ -2053,7 +2045,9 @@ export async function acceptDriverInvite(inviteId: string): Promise<{
         ? "You're already registered with this organization."
         : error.message?.includes("dco_not_employee_driver")
           ? "DCOs cannot join a business as employee drivers. You can operate independently as a DCO."
-          : error.message;
+          : error.message?.includes("driver_already_in_fleet")
+            ? "You already work under another fleet. Leave that fleet first, then accept this invite."
+            : error.message;
     return {
       error: new Error(message),
       driver_id: null,
@@ -2082,13 +2076,19 @@ export async function rejectDriverInvite(
 }
 
 /**
- * Cancel a driver invite that you have sent.
- * Deletes the pending invite row.
+ * Cancel (recall) a driver invite that you have sent.
+ * Marks it withdrawn via fleet_withdraw_driver_invite (there is no DELETE
+ * policy on driver_invites, so a plain delete removed nothing). Falls back to
+ * the old delete until that migration is applied.
  */
 export async function cancelDriverInvite(inviteId: string): Promise<{
   error: Error | null;
   deleted: boolean;
 }> {
+  const withdrawn = await withdrawDriverInvite(inviteId);
+  if (!withdrawn.missingRpc) {
+    return { error: withdrawn.error, deleted: withdrawn.withdrawn };
+  }
   const { data: deleteData, error } = await supabase()
     .from("driver_invites")
     .delete()

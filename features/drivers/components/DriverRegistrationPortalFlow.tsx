@@ -184,6 +184,8 @@ export function DriverRegistrationPortalFlow({
       payableAmount: formData.payableAmount,
       commissionPercent: formData.commissionPercent,
       commissionPerKm: formData.commissionPerKm,
+      jobDescription: formData.jobDescription ?? '',
+      termsText: formData.termsText ?? '',
     }),
     [formData],
   );
@@ -441,6 +443,8 @@ export function DriverRegistrationPortalFlow({
           onChangeCommissionPerKm={(v) =>
             setFormData((p) => ({ ...p, commissionPerKm: v }))
           }
+          onChangeJobDescription={(v) => setFormData((p) => ({ ...p, jobDescription: v }))}
+          onChangeTermsText={(v) => setFormData((p) => ({ ...p, termsText: v }))}
           phoneLookupLoading={phoneLookupLoading}
           phoneLookupError={phoneLookupError}
           existingMatches={existingMatches}

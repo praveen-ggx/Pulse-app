@@ -28,7 +28,7 @@ import {
   tripEarningsDetailForDriver,
   tripEarningsForDriver,
 } from '@/features/drivers/utils/driverUtils.util';
-import { buildCompensationSalaryLines, buildDriverInviteSalaryLines } from '@/features/drivers/utils/driverInviteOffer.util';
+import { buildCompensationSalaryLines } from '@/features/drivers/utils/driverInviteOffer.util';
 import { resolveDriverOrgAvatarUri } from '@/features/drivers/utils/resolveDriverOrgAvatar.util';
 import {
   buildDriverTripNumberMap,
@@ -61,6 +61,7 @@ import {
     View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { resolveAgreedPayTerms } from '@/features/drivers/utils/driverPayTerms.util';
 
 function formatTransactionDateSection(dateStr: string): string {
   const d = new Date(dateStr);
@@ -552,30 +553,18 @@ export default function DriverPassbookDetailScreen() {
       )[0] ?? null;
   }, [invites, orgId]);
 
-  const salaryTermLines = useMemo(() => {
-    if (acceptedInviteForOrg) return buildDriverInviteSalaryLines(acceptedInviteForOrg);
-    return buildCompensationSalaryLines({
-      payableAmount: driver?.payable_amount ?? null,
-      commissionPercent: driver?.commission_percent ?? null,
-      commissionPerKm: driver?.commission_per_km ?? null,
-    });
-  }, [acceptedInviteForOrg, driver?.payable_amount, driver?.commission_percent, driver?.commission_per_km]);
-
-  const tripPayoutTerms = useMemo(
-    () => ({
-      commissionPercent: acceptedInviteForOrg?.commission_percent ?? driver?.commission_percent ?? null,
-      commissionPerKm: acceptedInviteForOrg?.commission_per_km ?? driver?.commission_per_km ?? null,
-      payableAmount: acceptedInviteForOrg?.payable_amount ?? driver?.payable_amount ?? null,
-    }),
-    [
-      acceptedInviteForOrg?.commission_percent,
-      acceptedInviteForOrg?.commission_per_km,
-      acceptedInviteForOrg?.payable_amount,
-      driver?.commission_percent,
-      driver?.commission_per_km,
-      driver?.payable_amount,
-    ],
+  // Current agreed terms: this fleet's driver row first, invite only as fallback.
+  const resolvedTerms = useMemo(
+    () => resolveAgreedPayTerms(driver, acceptedInviteForOrg),
+    [driver, acceptedInviteForOrg],
   );
+
+  const salaryTermLines = useMemo(
+    () => buildCompensationSalaryLines(resolvedTerms),
+    [resolvedTerms],
+  );
+
+  const tripPayoutTerms = resolvedTerms;
 
   const earningsForTrip = useCallback(
     (trip: tripsService.TripRow) => tripEarningsForDriver(trip, tripPayoutTerms),

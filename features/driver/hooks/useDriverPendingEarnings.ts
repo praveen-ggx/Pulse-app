@@ -13,6 +13,7 @@ import { groupTripsByDateSection } from '@/features/driver/utils/pendingEarnings
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { showAppAlert } from '@/lib/appAlert';
+import { resolveAgreedPayTerms } from '@/features/drivers/utils/driverPayTerms.util';
 
 function isCompleted(status: string) {
   const s = (status || '').toLowerCase();
@@ -254,16 +255,10 @@ export function useDriverPendingEarnings() {
           String(d.organization_id ?? '') === String(trip.organization_id ?? '') &&
           String(d.id ?? '') === String(trip.driver_id ?? ''),
       );
-      const payoutTerms = {
-        commissionPercent:
-          acceptedInviteForTripOrg?.commission_percent ??
-          linkedDriverForTrip?.commission_percent ??
-          null,
-        commissionPerKm:
-          acceptedInviteForTripOrg?.commission_per_km ??
-          linkedDriverForTrip?.commission_per_km ??
-          null,
-      };
+      const payoutTerms = resolveAgreedPayTerms(
+        linkedDriverForTrip,
+        acceptedInviteForTripOrg ?? null,
+      );
 
       const view = buildDriverTripSettlementView({
         trip,

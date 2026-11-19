@@ -8,8 +8,8 @@
  * parses that answer and derives display/routing decisions from it — it must
  * not recompute DCO status from dco_profiles, owner_vehicles or drivers rows.
  */
-import { isFleetTripMarked } from '../utils/driverFleetTripMark.util';
 import { isDcoOperatingTrip } from '../../trips/domain/tripDcoOperating';
+import { isConnectedFleetTripMark } from '../utils/driverFleetTripMark.util';
 
 export type DriverOperatingModeKind =
   | 'DRIVER'
@@ -222,7 +222,10 @@ export function driverHistoryLane(
   isFleetDispatched: boolean,
 ): DriverHistoryLane {
   if (driverJobSource(trip) === 'marketplace_award') return 'marketplace';
-  if (isFleetDispatched || isFleetTripMarked(trip.notes)) return 'fleet';
+  // Fleet = the connected fleet dispatched it, or a fleet-connected driver
+  // marked it as their own fleet's work (mark carries fleetOrgId). Older
+  // marks without fleetOrgId came from any driver, so they stay offline.
+  if (isFleetDispatched || isConnectedFleetTripMark(trip.notes)) return 'fleet';
   return 'offline';
 }
 

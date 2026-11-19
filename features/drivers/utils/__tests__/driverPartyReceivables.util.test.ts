@@ -311,7 +311,7 @@ describe("tripNeedsPartyTag", () => {
           notes: '<!--pulse-fleet-trip:{"name":"Godrej India"}-->',
         }),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

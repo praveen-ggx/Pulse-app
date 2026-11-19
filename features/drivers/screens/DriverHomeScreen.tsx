@@ -51,7 +51,6 @@ import {
   useDriverTheme,
   useDriverThemeColors,
 } from "@/contexts/DriverThemeContext";
-import { computeDriverTripEstEarningsInr } from "@/features/finance/selectors/assetTripProvisionSelectors";
 import {
   useDriverCommunication,
   useDriverLocationStream,
@@ -82,6 +81,7 @@ import {
     getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
 import {
+  computeDriverTripPayInr,
     buildOfferText,
     canShowDriverTripEstEarnings,
     DRIVER_PAY_NA_AMOUNT,
@@ -196,6 +196,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { driverTabBarBottomPad } from "@/components/driver/driverTabBarInsets";
 import { fetchRouteExtraStopsForTrips } from "@/features/trips/services/routeExtraStops.service";
+import { pickDriverRowForTrip, resolveAgreedPayTerms } from "@/features/drivers/utils/driverPayTerms.util";
 
 /** Default map region when driver location is not yet available (India center). */
 const DEFAULT_MAP_REGION = {
@@ -1586,34 +1587,27 @@ export default function DriverRadarScreen() {
         String(i.status ?? "").toLowerCase() === "accepted",
     ) ??
       null);
-  const offerForCommission = {
-    payableAmount:
-      acceptedInviteForOrg?.payable_amount ?? driver?.payable_amount ?? null,
-    commissionPercent:
-      acceptedInviteForOrg?.commission_percent ??
-      driver?.commission_percent ??
-      null,
-    commissionPerKm:
-      acceptedInviteForOrg?.commission_per_km ??
-      driver?.commission_per_km ??
-      null,
-  };
+  // Driver row for that fleet = current agreed terms (resolveAgreedPayTerms).
+  const offerForCommission = resolveAgreedPayTerms(
+    pickDriverRowForTrip(effectiveFirstIncoming, [
+      ...linkedDriversQuery.activeLinkedDrivers,
+      driver,
+    ]),
+    acceptedInviteForOrg,
+  );
   const newAssignmentCommission =
     effectiveFirstIncoming != null &&
     canShowDriverTripEstEarnings(effectiveFirstIncoming, offerForCommission, {
       trackingOnly: driver?.tracking_only,
     })
-      ? computeDriverTripEstEarningsInr(
-          effectiveFirstIncoming,
-          offerForCommission,
-        )
+      ? computeDriverTripPayInr(effectiveFirstIncoming, offerForCommission)
       : 0;
   const activeMissionCommission =
     activeMission != null &&
     canShowDriverTripEstEarnings(activeMission, offerForCommission, {
       trackingOnly: driver?.tracking_only,
     })
-      ? computeDriverTripEstEarningsInr(activeMission, offerForCommission)
+      ? computeDriverTripPayInr(activeMission, offerForCommission)
       : 0;
   const incomingNotificationsWithMeta = useMemo(
     () =>
@@ -1658,22 +1652,14 @@ export default function DriverRadarScreen() {
               )
             : undefined) ??
           null;
-        const payoutOffer = {
-          payableAmount:
-            acceptedInviteForTrip?.payable_amount ?? driver?.payable_amount ?? null,
-          commissionPercent:
-            acceptedInviteForTrip?.commission_percent ??
-            driver?.commission_percent ??
-            null,
-          commissionPerKm:
-            acceptedInviteForTrip?.commission_per_km ??
-            driver?.commission_per_km ??
-            null,
-        };
+        const payoutOffer = resolveAgreedPayTerms(
+          pickDriverRowForTrip(trip, [...linkedDriversQuery.activeLinkedDrivers, driver]),
+          acceptedInviteForTrip,
+        );
         const commissionForTrip = canShowDriverTripEstEarnings(trip, payoutOffer, {
           trackingOnly: driver?.tracking_only,
         })
-          ? computeDriverTripEstEarningsInr(trip, payoutOffer)
+          ? computeDriverTripPayInr(trip, payoutOffer)
           : 0;
         return {
           trip,
@@ -1685,6 +1671,7 @@ export default function DriverRadarScreen() {
           assignerLineSecondary,
           requiresOtp,
           commissionForTrip,
+          monthlySalaryForTrip: Number(payoutOffer.payableAmount ?? 0) || 0,
         };
       }),
     [
@@ -4872,7 +4859,10 @@ export default function DriverRadarScreen() {
     );
   };
 
-  const renderDriverDashboardTripInner = (mapSheet: boolean) => (
+  const renderDriverDashboardTripInner = (mapSheet: boolean) => {
+  /** Dashboard list (map preview + earnings above): compact radar so the CTA clears the dock. */
+  const compactSearching = !mapSheet && showDashboardMapPreview;
+  return (
     <>
       {/* Only show separate OTP block when first pending OTP (non-roster) is not already the main assignment card */}
       {pendingOtpTripsRequiringOtp.length > 0 &&
@@ -5241,12 +5231,12 @@ export default function DriverRadarScreen() {
             </Text>
           </View>
         ) : !isOnline && !hasIncomingTrip && !mergedIncomingTrips.length ? (
-          <View style={[styles.centerCardWrap, styles.offlineCardContent]}>
+          <View style={[styles.centerCardWrap, styles.offlineCardContent, styles.offlineDashboardCard]}>
             <Text style={[styles.offlineCardTitle, { color: colors.text }]}>
               You are currently offline
             </Text>
             <Text
-              style={[styles.offlineCardSubtitle, { color: colors.textMuted }]}
+              style={[styles.offlineCardSubtitle, styles.offlineDashboardSubtitle, { color: colors.textMuted }]}
             >
               Go online to view and accept trip assignments.
             </Text>
@@ -5301,12 +5291,12 @@ export default function DriverRadarScreen() {
         ) : assignableTripsNotifyOnlyAfterMission &&
           hasAssignableIncomingTrip &&
           !isOnline ? (
-            <View style={[styles.centerCardWrap, styles.offlineCardContent]}>
+            <View style={[styles.centerCardWrap, styles.offlineCardContent, styles.offlineDashboardCard]}>
               <Text style={[styles.offlineCardTitle, { color: colors.text }]}>
                 You are currently offline
               </Text>
               <Text
-                style={[styles.offlineCardSubtitle, { color: colors.textMuted }]}
+                style={[styles.offlineCardSubtitle, styles.offlineDashboardSubtitle, { color: colors.textMuted }]}
               >
                 Go online when you are ready for your next assignment.
               </Text>
@@ -5413,12 +5403,18 @@ export default function DriverRadarScreen() {
             earnings={
               (selectedIncomingMeta?.commissionForTrip ?? 0) > 0
                 ? formatINR(selectedIncomingMeta?.commissionForTrip ?? 0)
-                : DRIVER_PAY_NA_AMOUNT
+                : (selectedIncomingMeta?.monthlySalaryForTrip ?? 0) > 0
+                  ? "SALARY"
+                  : DRIVER_PAY_NA_AMOUNT
             }
             earningsLabel={
               (selectedIncomingMeta?.commissionForTrip ?? 0) > 0
-                ? "EST. EARNINGS"
-                : DRIVER_PAY_NA_LABEL
+                ? (selectedIncomingMeta?.monthlySalaryForTrip ?? 0) > 0
+                  ? `TRIP PAY + ${formatINR(selectedIncomingMeta?.monthlySalaryForTrip ?? 0)}/MO SALARY`
+                  : "TRIP PAY"
+                : (selectedIncomingMeta?.monthlySalaryForTrip ?? 0) > 0
+                  ? `${formatINR(selectedIncomingMeta?.monthlySalaryForTrip ?? 0)}/MONTH`
+                  : DRIVER_PAY_NA_LABEL
             }
             onAccept={() => handleAcceptMission(effectiveFirstIncoming)}
             onDecline={() => handleDeclineAssignment(effectiveFirstIncoming.id)}
@@ -5533,10 +5529,21 @@ export default function DriverRadarScreen() {
         ) : showSearchingOverlay ? (
           <View style={styles.driverSearchingEmptyWrap}>
             <View style={styles.driverSearchingEmptyContent}>
-              <View style={styles.driverSearchingVisualWrap}>
+              <View
+                style={
+                  compactSearching ? styles.driverSearchingCompactRow : undefined
+                }
+              >
+              <View
+                style={[
+                  styles.driverSearchingVisualWrap,
+                  compactSearching && styles.driverSearchingVisualWrapCompact,
+                ]}
+              >
                 <Animated.View
                   style={[
                     styles.driverSearchingRingOuter,
+                    compactSearching && styles.driverSearchingRingOuterCompact,
                     {
                       backgroundColor: colors.emerald,
                       opacity: searchPulseAnim.interpolate({
@@ -5549,6 +5556,7 @@ export default function DriverRadarScreen() {
                 <Animated.View
                   style={[
                     styles.driverSearchingRingMid,
+                    compactSearching && styles.driverSearchingRingMidCompact,
                     {
                       backgroundColor: colors.emerald,
                       opacity: searchPulseAnim.interpolate({
@@ -5561,6 +5569,7 @@ export default function DriverRadarScreen() {
                 <Animated.View
                   style={[
                     styles.driverSearchingRingInner,
+                    compactSearching && styles.driverSearchingRingInnerCompact,
                     {
                       backgroundColor: colors.emerald,
                       opacity: searchPulseAnim.interpolate({
@@ -5573,10 +5582,16 @@ export default function DriverRadarScreen() {
                 <View
                   style={[
                     styles.driverSearchingVisualInner,
+                    compactSearching && styles.driverSearchingVisualInnerCompact,
                     { backgroundColor: colors.emerald },
                   ]}
                 >
-                  <FontAwesome name="truck" size={40} color={colors.surface} />
+                  <FontAwesome
+                    name="truck"
+                    size={compactSearching ? 18 : 40}
+                    color={colors.surface}
+                  />
+                  {compactSearching ? null : (
                   <View style={styles.driverSearchingDots}>
                     <View
                       style={[
@@ -5597,28 +5612,41 @@ export default function DriverRadarScreen() {
                       ]}
                     />
                   </View>
+                  )}
                 </View>
               </View>
 
+              <View
+                style={
+                  compactSearching ? styles.driverSearchingCompactText : undefined
+                }
+              >
               <Text
-                style={[styles.driverSearchingTitle, { color: colors.text }]}
+                style={[
+                  styles.driverSearchingTitle,
+                  compactSearching && styles.driverSearchingTextCompact,
+                  { color: colors.text },
+                ]}
               >
                 No trips available
               </Text>
               <Text
                 style={[
                   styles.driverSearchingSubtitle,
-                  { color: colors.textMuted, marginTop: 8 },
+                  compactSearching && styles.driverSearchingTextCompact,
+                  { color: colors.textMuted, marginTop: compactSearching ? 4 : 8 },
                 ]}
               >
                 We’re looking for trips in your area.
               </Text>
+              </View>
+              </View>
 
               <TouchableOpacity
                 style={[
                   styles.searchOfflineBtn,
                   {
-                    marginTop: 18,
+                    marginTop: compactSearching ? 14 : 18,
                     backgroundColor: colors.surface,
                     borderColor: colors.border,
                   },
@@ -5636,12 +5664,12 @@ export default function DriverRadarScreen() {
             </View>
           </View>
         ) : (
-          <View style={[styles.centerCardWrap, styles.offlineCardContent]}>
+          <View style={[styles.centerCardWrap, styles.offlineCardContent, styles.offlineDashboardCard]}>
             <Text style={[styles.offlineCardTitle, { color: colors.text }]}>
               {isOnline ? "Ready for the next trip" : "You are currently offline"}
             </Text>
             <Text
-              style={[styles.offlineCardSubtitle, { color: colors.textMuted }]}
+              style={[styles.offlineCardSubtitle, styles.offlineDashboardSubtitle, { color: colors.textMuted }]}
             >
               {isOnline
                 ? "Assignments will show here when they arrive."
@@ -5679,6 +5707,7 @@ export default function DriverRadarScreen() {
       ) : null}
     </>
   );
+  };
 
   return (
     <View
@@ -6328,6 +6357,50 @@ const styles = withWebSafeShadows(
     justifyContent: "center",
     zIndex: 2,
   },
+  driverSearchingCompactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "stretch",
+    gap: 16,
+    paddingTop: 8,
+  },
+  driverSearchingCompactText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  driverSearchingTextCompact: {
+    textAlign: "left",
+  },
+  driverSearchingVisualWrapCompact: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    marginBottom: 0,
+  },
+  driverSearchingRingOuterCompact: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+  },
+  driverSearchingRingMidCompact: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    left: (84 - 64) / 2,
+    top: (84 - 64) / 2,
+  },
+  driverSearchingRingInnerCompact: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    left: (84 - 50) / 2,
+    top: (84 - 50) / 2,
+  },
+  driverSearchingVisualInnerCompact: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
   driverSearchingDots: {
     flexDirection: "row",
     gap: 6,
@@ -6949,6 +7022,15 @@ const styles = withWebSafeShadows(
     textAlign: "center",
     alignSelf: "center", // Changed from 'stretch' to 'center'
     paddingHorizontal: 16, // Add horizontal padding for better text wrapping
+  },
+  /** Dashboard offline prompt: compact so "Go online" sits above the floating dock. */
+  offlineDashboardCard: {
+    paddingTop: 8,
+    paddingBottom: 8,
+    marginBottom: 0,
+  },
+  offlineDashboardSubtitle: {
+    marginBottom: 4,
   },
   offlineCardSubtitle: {
     fontSize: 13,

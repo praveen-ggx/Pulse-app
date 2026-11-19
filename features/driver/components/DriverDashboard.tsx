@@ -78,6 +78,7 @@ import Reanimated, {
     withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { pickDriverRowForTrip, resolveAgreedPayTerms } from '@/features/drivers/utils/driverPayTerms.util';
 
 type BottomSheetComponentProps = {
   children?: ReactNode;
@@ -1003,11 +1004,10 @@ export default function DriverDashboard() {
           String(i.status ?? '').toLowerCase() === 'accepted'
       ) ?? null)
     : null;
-  const offerForCommission = acceptedInviteForOrg
-    ? {
-        commissionPercent: acceptedInviteForOrg.commission_percent ?? null,
-        commissionPerKm: acceptedInviteForOrg.commission_per_km ?? null,
-      }
+  // Current terms: the driver row for that fleet first, old invite only as fallback.
+  const commissionTrip = activeMission ?? effectiveFirstIncoming ?? null;
+  const offerForCommission = commissionTrip
+    ? resolveAgreedPayTerms(pickDriverRowForTrip(commissionTrip, [driver]), acceptedInviteForOrg)
     : null;
   const newAssignmentCommission =
     effectiveFirstIncoming != null && !isAggregateTrip(effectiveFirstIncoming)

@@ -76,6 +76,7 @@ import Animated, {
     withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { resolveAgreedPayTerms } from "@/features/drivers/utils/driverPayTerms.util";
 
 // Reference layout: Royal Emerald trip card (app/driver/referenced TripHistoryView)
 const TRIP_CARD_REF = {
@@ -729,11 +730,7 @@ export default function DriverTripsScreen() {
           String(i.status ?? "").toLowerCase() === "accepted" &&
           String(i.from_organization_id ?? "").trim() === orgId,
       );
-      return {
-        commissionPercent: invite?.commission_percent ?? driverRow?.commission_percent ?? null,
-        commissionPerKm: invite?.commission_per_km ?? driverRow?.commission_per_km ?? null,
-        payableAmount: invite?.payable_amount ?? driverRow?.payable_amount ?? null,
-      };
+      return resolveAgreedPayTerms(driverRow, invite ?? null);
     },
     [linkedDriverRows, invites],
   );

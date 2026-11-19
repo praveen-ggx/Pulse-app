@@ -427,6 +427,9 @@ function PartyRegistrationPortalInner(
   const [driverCommissionPerKm, setDriverCommissionPerKm] = useState<
     number | null
   >(null);
+  /** Fleet invite: job description + terms & conditions (driver must agree). */
+  const [driverJobDescription, setDriverJobDescription] = useState("");
+  const [driverTermsText, setDriverTermsText] = useState("");
   /** When true, Save creates a fleet driver row via `onAddDriver` instead of sending an in-app invite. */
   const [driverPreferOfflineOnly, setDriverPreferOfflineOnly] = useState(false);
 
@@ -476,6 +479,8 @@ function PartyRegistrationPortalInner(
     setDriverPayableAmount(null);
     setDriverCommissionPercent(null);
     setDriverCommissionPerKm(null);
+    setDriverJobDescription("");
+    setDriverTermsText("");
     setDriverPreferOfflineOnly(false);
     setDriverExistingMatches([]);
     setDriverPhoneLookupLoading(false);
@@ -1029,6 +1034,8 @@ function PartyRegistrationPortalInner(
     payableAmount: driverPayableAmount,
     commissionPercent: driverCommissionPercent,
     commissionPerKm: driverCommissionPerKm,
+    jobDescription: driverJobDescription.trim(),
+    termsText: driverTermsText.trim(),
   });
 
   const confirmSave = async () => {
@@ -2698,6 +2705,26 @@ function PartyRegistrationPortalInner(
                     </View>
                     {onInviteDriver ? (
                       <>
+                        <Field label="Job description">
+                          <TextInput
+                            style={[styles.input, { minHeight: 72, textAlignVertical: "top" }]}
+                            placeholder="Vehicle, route, shift / working hours, duties"
+                            placeholderTextColor={Theme.textMuted}
+                            multiline
+                            value={driverJobDescription}
+                            onChangeText={setDriverJobDescription}
+                          />
+                        </Field>
+                        <Field label="Terms & conditions (driver must agree)">
+                          <TextInput
+                            style={[styles.input, { minHeight: 72, textAlignVertical: "top" }]}
+                            placeholder="e.g. Notice period, leave, fuel / toll rules, payment day"
+                            placeholderTextColor={Theme.textMuted}
+                            multiline
+                            value={driverTermsText}
+                            onChangeText={setDriverTermsText}
+                          />
+                        </Field>
                         <Text style={styles.clientPhoneLookupHint}>
                           {t("existingDriverOnPlatform")}. If this number matches a
                           driver account, you can send an in-app invitation on the

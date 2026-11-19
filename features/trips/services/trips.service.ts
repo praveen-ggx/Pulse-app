@@ -3200,27 +3200,32 @@ export async function stampTripDriverPayFromTerms(
 
   const { data: driver, error: driverErr } = await supabase()
     .from("drivers")
-    .select("commission_percent, commission_per_km")
+    .select("payable_amount, commission_percent, commission_per_km")
     .eq("id", driverId)
     .maybeSingle();
   if (driverErr) return { error: new Error(driverErr.message), amount: null };
 
-  // Accepted invite terms win over the driver row (same precedence the wallet
-  // uses); fall back to the driver record when no invite is present.
-  const { data: invite } = await supabase()
-    .from("driver_invites")
-    .select("commission_percent, commission_per_km")
-    .eq("driver_id", driverId)
-    .eq("from_organization_id", orgId)
-    .eq("status", "accepted")
-    .maybeSingle();
-
-  const terms = {
-    commissionPercent:
-      invite?.commission_percent ?? driver?.commission_percent ?? null,
-    commissionPerKm:
-      invite?.commission_per_km ?? driver?.commission_per_km ?? null,
-  };
+  // Driver row = current agreed terms (the fleet edits it; the DB trigger
+  // pays from it). The accepted invite is only a fallback for rows that carry
+  // no terms at all — see resolveAgreedPayTerms.
+  const { resolveAgreedPayTerms, hasAnyPayTerm } = await import(
+    "@/features/drivers/utils/driverPayTerms.util"
+  );
+  const fromRow = resolveAgreedPayTerms(driver, null);
+  let invite: Record<string, unknown> | null = null;
+  if (!hasAnyPayTerm(fromRow)) {
+    const { data } = await supabase()
+      .from("driver_invites")
+      .select("payable_amount, commission_percent, commission_per_km")
+      .eq("driver_id", driverId)
+      .eq("from_organization_id", orgId)
+      .eq("status", "accepted")
+      .order("responded_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    invite = (data as Record<string, unknown> | null) ?? null;
+  }
+  const terms = resolveAgreedPayTerms(driver, invite);
 
   const detail = tripEarningsDetailForDriver(trip as never, terms);
   if (detail.isEstimated || detail.amount <= 0) {

@@ -18,7 +18,7 @@ import {
   Sparkles,
   Wallet,
 } from 'lucide-react-native';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -45,7 +45,11 @@ export type DriverFleetInviteSalaryModalMode =
   | 'fleet_reinvite'
   | 'signup_match'
   /** Edit pay terms on an already-connected driver — saves, sends no invite. */
-  | 'edit_terms';
+  | 'edit_terms'
+  /** Fleet answers a driver's "request changes" with revised terms. */
+  | 'fleet_revise'
+  /** Driver asks the fleet for different pay terms. */
+  | 'driver_counter';
 
 type Props = {
   visible: boolean;
@@ -57,6 +61,10 @@ type Props = {
   submitting?: boolean;
   onClose: () => void;
   onSubmit: (compensation: DriverInviteCompensation) => void | Promise<void>;
+  /** Optional chat shown at the top (e.g. the driver's change request thread). */
+  conversation?: ReactNode;
+  /** Optional message sent with the offer (e.g. reply to the driver). */
+  message?: { value: string; onChange: (v: string) => void; placeholder?: string };
 };
 
 const EMERALD = Theme.driverEmerald;
@@ -135,6 +143,8 @@ export function DriverFleetInviteSalaryModal({
   submitting = false,
   onClose,
   onSubmit,
+  conversation,
+  message,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -164,6 +174,34 @@ export function DriverFleetInviteSalaryModal({
           'Applies to trips assigned from now on',
           'Trips already priced keep their amount',
           'Driver sees these terms in the app',
+        ],
+      };
+    }
+    if (mode === 'fleet_revise') {
+      return {
+        eyebrow: 'REVISE OFFER',
+        title: `Revise ${firstName}'s offer`,
+        pill: 'Asked for changes',
+        subtitle: 'Prefilled with what the driver asked for',
+        note: 'At least one pay term is required.',
+        nextSteps: [
+          'Driver sees your revised offer',
+          'They accept, decline or ask again',
+          'Assign trips after they connect',
+        ],
+      };
+    }
+    if (mode === 'driver_counter') {
+      return {
+        eyebrow: 'REQUEST CHANGES',
+        title: `Your terms for ${driverName}`,
+        pill: 'Counter-offer',
+        subtitle: 'Salary, commission % and per km add up',
+        note: 'At least one pay term is required.',
+        nextSteps: [
+          'The fleet sees what you asked for',
+          'They agree, revise or withdraw',
+          'You accept once you are happy',
         ],
       };
     }
@@ -340,6 +378,13 @@ export function DriverFleetInviteSalaryModal({
               showsVerticalScrollIndicator={false}
               bounces={false}
             >
+              {conversation ? (
+                <View style={styles.nextCard}>
+                  <Text style={styles.nextTitle}>Conversation</Text>
+                  {conversation}
+                </View>
+              ) : null}
+
               <View style={styles.reminderBanner}>
                 <FontAwesome name="info-circle" size={11} color={EMERALD} />
                 <Text style={styles.reminderText}>{copy.note}</Text>
@@ -423,6 +468,24 @@ export function DriverFleetInviteSalaryModal({
               </View>
               <PayPreviewTiles lines={previewLines} compact={isCompact || previewLines.length >= 3} />
 
+              {message ? (
+                <>
+                  <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionLabel}>MESSAGE (OPTIONAL)</Text>
+                  </View>
+                  <TextInput
+                    style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
+                    placeholder={message.placeholder ?? 'Add a message'}
+                    placeholderTextColor={Theme.textMuted}
+                    multiline
+                    maxLength={500}
+                    value={message.value}
+                    onChangeText={message.onChange}
+                    editable={!submitting}
+                  />
+                </>
+              ) : null}
+
               <View style={styles.nextCard}>
                 <Text style={styles.nextTitle}>What happens next</Text>
                 {copy.nextSteps.map((item) => (
@@ -472,7 +535,13 @@ export function DriverFleetInviteSalaryModal({
                           color="#fff"
                         />
                         <Text style={styles.submitBtnText}>
-                          {mode === 'edit_terms' ? 'Save pay terms' : 'Send invitation'}
+                          {mode === 'edit_terms'
+                            ? 'Save pay terms'
+                            : mode === 'driver_counter'
+                              ? 'Send to fleet'
+                              : mode === 'fleet_revise'
+                                ? 'Send revised offer'
+                                : 'Send invitation'}
                         </Text>
                       </>
                     )}
@@ -895,7 +964,8 @@ const styles = StyleSheet.create({
   submitBtnText: {
     fontSize: 14,
     fontWeight: '800',
-    color: Theme.buttonPrimaryText,
+    // White on the green gradient (matches the white send icon).
+    color: '#fff',
     letterSpacing: -0.2,
   },
   btnDisabled: {

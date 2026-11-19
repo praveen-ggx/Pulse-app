@@ -94,6 +94,7 @@ import { DriverDocumentGalleryPreview } from "@/features/driver/components/Drive
 import { useTripVerificationSync } from "@/features/trips/verification";
 import { DriverTripOperationsTab } from "@/features/driver/components/DriverTripOperationsTab";
 import { useRegisterDriverContextTrip } from "@/contexts/DriverTripOpsContext";
+import { resolveAgreedPayTerms } from "@/features/drivers/utils/driverPayTerms.util";
 
 function TimelinePulseIcon({
   expanded,
@@ -589,11 +590,10 @@ export function DriverTripHistoryDetailScreen({
           String(i.status ?? "").toLowerCase() === "accepted" &&
           String(i.from_organization_id ?? "") === historyCurrentEmployer.orgId,
       );
-      const { hasAgreedPayoutTerms, commissionDetail } = resolveDriverTripPayoutTerms(trip, {
-        commissionPercent: invite?.commission_percent ?? driverRow?.commission_percent ?? null,
-        commissionPerKm: invite?.commission_per_km ?? driverRow?.commission_per_km ?? null,
-        payableAmount: invite?.payable_amount ?? driverRow?.payable_amount ?? null,
-      });
+      const { hasAgreedPayoutTerms, commissionDetail } = resolveDriverTripPayoutTerms(
+        trip,
+        resolveAgreedPayTerms(driverRow, invite ?? null),
+      );
       if (!hasAgreedPayoutTerms || commissionDetail.amount <= 0) {
         Alert.alert(
           "No agreed payout terms",

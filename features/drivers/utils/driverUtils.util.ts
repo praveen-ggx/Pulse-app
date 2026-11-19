@@ -174,6 +174,47 @@ export interface DriverTripEarnings {
   basis: DriverEarningsBasis;
   /** True when no agreed pay terms back this number — it is a guess, not a rate. */
   isEstimated: boolean;
+  /**
+   * Breakdown when agreed terms explain the amount: commission % part and
+   * per-km part (they add up). Absent for DCO / estimated / manual figures.
+   */
+  parts?: DriverTripEarningsParts;
+}
+
+export interface DriverTripEarningsParts {
+  /** Commission % of the trip amount (₹). 0 when no % is agreed. */
+  commission: number;
+  commissionPercent: number;
+  /** km × per-km rate (₹). 0 when no per-km rate is agreed. */
+  perKm: number;
+  perKmRate: number;
+  km: number;
+}
+
+/**
+ * Agreed commission % + per-km pay for one trip. Both parts add up when both
+ * are agreed. % is taken on the trip amount = client_price (what the client
+ * pays for the trip). supplier_rate is the cost paid to an outside supplier,
+ * not the trip amount — so it is never the base here. Same base as the DB
+ * trigger fill_driver_commission, so the shown pay equals the saved pay.
+ */
+function agreedTripPayParts(
+  trip: TripWithSupplier,
+  payoutTerms?: DriverTripPayoutTerms | null,
+): DriverTripEarningsParts | null {
+  const perKmRate = Number(payoutTerms?.commissionPerKm ?? 0) || 0;
+  const km = perKmRate > 0 ? pickTripDistanceKm(trip) : 0;
+  const perKm = perKmRate > 0 && km > 0 ? Math.round(km * perKmRate) : 0;
+
+  const commissionPercent = Math.min(100, Number(payoutTerms?.commissionPercent ?? 0) || 0);
+  const tripAmount = Number(trip.client_price ?? 0) || 0;
+  const commission =
+    commissionPercent > 0 && tripAmount > 0
+      ? Math.round((tripAmount * commissionPercent) / 100)
+      : 0;
+
+  if (perKm <= 0 && commission <= 0) return null;
+  return { commission, commissionPercent, perKm, perKmRate, km };
 }
 
 /**
@@ -250,41 +291,29 @@ export function tripEarningsDetailForDriver(
      */
     if (isForeignOrg && commission <= 0) return none;
   }
+  const parts = agreedTripPayParts(trip, payoutTerms);
+
   if (commission > 0) {
+    // Stored (snapshotted) figure wins. Show the breakdown only when the
+    // agreed terms explain exactly this amount.
+    const amount = Math.round(commission);
+    const explained = parts != null && parts.commission + parts.perKm === amount;
     return {
-      amount: Math.round(commission),
+      amount,
       basis: "trip_commission",
       isEstimated: false,
+      ...(explained ? { parts } : {}),
     };
   }
 
-  const perKm = Number(payoutTerms?.commissionPerKm ?? 0) || 0;
-  if (perKm > 0) {
-    const km = pickTripDistanceKm(trip);
-    if (km > 0) {
-      return { amount: Math.round(km * perKm), basis: "per_km", isEstimated: false };
-    }
-  }
-
-  const commissionPercent = Number(payoutTerms?.commissionPercent ?? 0) || 0;
-  if (commissionPercent > 0) {
-    const ratio = Math.min(100, commissionPercent) / 100;
-    const supplierRate = Number(trip.supplier_rate ?? 0) || 0;
-    if (supplierRate > 0) {
-      return {
-        amount: Math.round(supplierRate * ratio),
-        basis: "commission_percent",
-        isEstimated: false,
-      };
-    }
-    const clientPrice = Number(trip.client_price ?? 0) || 0;
-    if (clientPrice > 0) {
-      return {
-        amount: Math.round(clientPrice * ratio),
-        basis: "commission_percent",
-        isEstimated: false,
-      };
-    }
+  // Agreed terms: commission % and per km ADD UP when both are agreed.
+  if (parts) {
+    return {
+      amount: parts.commission + parts.perKm,
+      basis: parts.commission > 0 ? "commission_percent" : "per_km",
+      isEstimated: false,
+      parts,
+    };
   }
 
   const supplierRate = Number(trip.supplier_rate ?? 0) || 0;
@@ -309,20 +338,33 @@ export function tripEarningsDetailForDriver(
 /**
  * Trip earnings shown to driver.
  * Priority:
- * 1) explicit `driver_commission` on trip
- * 2) accepted invite per-km payout (odometer distance first, then GPS, then trip distance)
- * 3) accepted invite trip-level commission %
- * 4) legacy fallback (10% supplier_rate, else 10% client_price)
+ * 1) explicit `driver_commission` on trip (snapshot)
+ * 2) agreed commission % of the trip amount + agreed per-km × km (added)
  *
- * Returns the bare number. Use `tripEarningsDetailForDriver` when the caller
- * needs to know whether case 4 fired.
+ * Returns the bare number. With no agreed terms it returns 0 — the legacy 10%
+ * guess is never counted as money owed (wallet / pending totals included).
+ * `tripEarningsDetailForDriver` still reports the guess as `estimated`.
  */
 export function tripEarningsForDriver(
   trip: TripWithSupplier | null | undefined,
   payoutTerms?: DriverTripPayoutTerms | null,
   driverOrgIds?: Iterable<string> | null,
 ): number {
-  return tripEarningsDetailForDriver(trip, payoutTerms, driverOrgIds).amount;
+  const detail = tripEarningsDetailForDriver(trip, payoutTerms, driverOrgIds);
+  return detail.isEstimated ? 0 : detail.amount;
+}
+
+/**
+ * Driver-facing pay for ONE trip: stored figure, else commission % + per km.
+ * Same number as the trip Settlement tab. Monthly salary is NOT included —
+ * it is paid monthly whether or not this trip runs. (The fleet's cost view,
+ * computeDriverTripEstEarningsInr, adds a salary day-share on purpose.)
+ */
+export function computeDriverTripPayInr(
+  trip: TripWithSupplier | null | undefined,
+  payoutTerms?: DriverTripPayoutTerms | null,
+): number {
+  return tripEarningsForDriver(trip, payoutTerms);
 }
 
 export interface DriverTripPayoutOffer extends DriverTripPayoutTerms {

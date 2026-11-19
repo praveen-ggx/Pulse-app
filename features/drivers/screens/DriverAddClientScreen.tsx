@@ -21,10 +21,7 @@ import { DriverTagPartyDialogs } from "@/features/drivers/components/DriverTagPa
 import { rememberDriverOfflineParty } from "@/features/drivers/offline/driverOfflineParty";
 import { listTagPartyChoices } from "@/features/drivers/utils/driverSelectableParties.util";
 import { useAuth } from "@/contexts/AuthContext";
-import {
-  markTripAsFleetTrip,
-  tagTripWithDcoClient,
-} from "@/features/drivers/services/driverTripClient.service";
+import { tagTripWithDcoClient } from "@/features/drivers/services/driverTripClient.service";
 import { tripReceivableBilled } from "@/features/drivers/utils/driverPartyReceivables.util";
 import {
   driverBodySecondary,
@@ -204,9 +201,16 @@ export default function DriverAddClientScreen() {
     setPickingId("fleet");
     setWorkspaceError(null);
     try {
-      const { error } = await markTripAsFleetTrip(tripId, {
-        name: partyName,
-        orgId: tripQuery.data?.organization_id,
+      // The assigner is the driver's own offline party (client-direct trip),
+      // not fleet work. Tag it so the trip stays in the Offline lane.
+      const key = partyName.trim().toLowerCase();
+      const saved = existingParties.find((row) => row.name.trim().toLowerCase() === key);
+      const party = saved
+        ? { id: saved.id, name: saved.name }
+        : await rememberDriverOfflineParty({ name: partyName });
+      const { error } = await tagTripWithDcoClient(tripId, {
+        id: party.id,
+        name: party.name,
       });
       if (error) {
         setWorkspaceError(error.message);
@@ -214,11 +218,11 @@ export default function DriverAddClientScreen() {
       }
       await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
       await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(tripId) });
-      setSuccessParty({ id: `fleet:${partyName}`, name: partyName });
+      setSuccessParty({ id: party.id, name: party.name });
     } finally {
       setPickingId(null);
     }
-  }, [partyName, pickingId, queryClient, tripId, tripQuery.data?.organization_id]);
+  }, [existingParties, partyName, pickingId, queryClient, tripId]);
 
   const handlePickExisting = useCallback((row: { id: string; name: string }) => {
     if (pickingId) return;
@@ -425,13 +429,13 @@ export default function DriverAddClientScreen() {
           onPress={() => void handleMarkFleet()}
           disabled={!!pickingId}
           accessibilityRole="button"
-          accessibilityLabel={`Mark ${partyName} party trip`}
+          accessibilityLabel={`Tag ${partyName} as party`}
         >
           {pickingId === "fleet" ? (
             <ActivityIndicator size="small" color={Theme.buttonDarkText} />
           ) : (
             <Text style={styles.fleetBtnText} numberOfLines={1}>
-              Mark {partyName} party trip
+              Tag {partyName} as party
             </Text>
           )}
         </TouchableOpacity>

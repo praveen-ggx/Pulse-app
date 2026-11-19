@@ -1,49 +1,33 @@
 /**
  * O(n) driver aggregation. due = from trips (commission); paid = from ledger only (amount_out).
- * Commission: from driver offer (client_price * commission_percent/100 or distance * commission_per_km)
- * when available; else the trip's already-stamped driver_commission (see stampTripDriverPayFromTerms,
- * which only ever writes this when real agreed terms existed). No agreed terms → 0, never a guess.
+ * Commission: see computeDriverCommissionForTrip — saved trip amount first, else
+ * commission % + per km from the agreed terms. No agreed terms → 0, never a guess.
  */
 import type { FinancialRowData, AggregationTotals } from './types';
 import type { LedgerTx, TripForDriver, DriverLike, DriverOfferForAggregation, TripPartyMap } from './types';
 import { isDcoOperatingTrip } from '@/features/trips/domain/tripDcoOperating';
 import { isDriverLedgerContactType } from '@/features/finance/domain/financeCounterpartyLane';
-
-/** Parse trip distance (km) to numeric km for per-km commission. */
-function parseDistanceKm(distance: string | number | null | undefined): number | null {
-  if (distance == null) return null;
-  if (typeof distance === 'string' && distance.trim() === '') return null;
-  const n = Number(
-    typeof distance === 'number'
-      ? distance
-      : String(distance).replace(/,/g, '').trim(),
-  );
-  return Number.isFinite(n) && n >= 0 ? n : null;
-}
+import {
+  tripEarningsForDriver,
+  type TripWithSupplier,
+} from '@/features/drivers/utils/driverUtils.util';
 
 /**
- * Compute trip-based commission for one trip. Used in TRANSACTION LEDGER table (COMMISSION column).
- * 1) Driver offer: client_price * (commission_percent/100) or distance_km * commission_per_km.
- * 2) Else trip.driver_commission (already-stamped real amount — see stampTripDriverPayFromTerms).
- * No agreed terms and nothing stamped → 0. Never guess from supplier_rate/client_price: an
- * unagreed amount must not be treated as a real payable (see the driver-app equivalent,
- * resolveDriverTripPayoutTerms/hasAgreedPayoutTerms in driverUtils.util.ts, which this mirrors
- * on the business side).
+ * Driver pay for one trip, as the FLEET sees it — the SAME rule as the driver
+ * app (tripEarningsForDriver), so both sides always show the same number:
+ * 1) the amount already saved on the trip (driver_commission) — old trips
+ *    never change when the driver's terms change later;
+ * 2) else agreed commission % of the trip amount + agreed per-km × km (added);
+ * 3) no agreed terms and nothing saved → 0 (never a guess).
+ * DCO trips are settled with the DCO, not as employee pay → 0 here.
+ * Monthly salary is separate (not per trip).
  */
 export function computeDriverCommissionForTrip(
   trip: Omit<TripForDriver, 'distance'> & { distance?: string | number | null },
   offer: DriverOfferForAggregation | null | undefined
 ): number {
   if (isDcoOperatingTrip(trip)) return 0;
-  const basePrice = Number(trip.client_price ?? 0) || 0;
-  const distanceKm = parseDistanceKm(trip.distance);
-  if (offer) {
-    const pct = offer.commissionPercent != null && Number(offer.commissionPercent) >= 0 ? Number(offer.commissionPercent) : null;
-    const perKm = offer.commissionPerKm != null && Number(offer.commissionPerKm) >= 0 ? Number(offer.commissionPerKm) : null;
-    if (pct != null && basePrice > 0) return (basePrice * pct) / 100;
-    if (perKm != null && distanceKm != null && distanceKm > 0) return distanceKm * perKm;
-  }
-  return Number(trip.driver_commission ?? 0) || 0;
+  return tripEarningsForDriver(trip as TripWithSupplier, offer ?? null);
 }
 
 export function aggregateDrivers(

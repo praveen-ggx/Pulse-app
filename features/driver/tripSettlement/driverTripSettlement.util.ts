@@ -2,6 +2,7 @@ import type { LedgerEntryReceiptDetailRow } from "@/components/ledger/LedgerEntr
 import {
   isAggregateTrip,
   tripEarningsDetailForDriver,
+  type DriverTripEarningsParts,
   type DriverTripPayoutTerms,
 } from "@/features/drivers/utils/driverUtils.util";
 import { getDriverTripDisplayNumber } from "@/features/driver/utils/driverTripSequence.util";
@@ -42,6 +43,8 @@ export type DriverTripSettlementView = {
   otherIncomeAmount: number;
   /** Deduction ledger total for this trip (absolute INR). */
   deductionsAmount: number;
+  /** Agreed pay breakdown (commission % part + per-km part), when known. */
+  payParts: DriverTripEarningsParts | null;
   /** Fleet-marked amount before driver verifies (if any) */
   fleetMarkedAmount: number | null;
   /** Verified settlement amount (if settled) */
@@ -352,6 +355,7 @@ export function buildDriverTripSettlementView(input: {
     showEstimatedEarning,
     otherIncomeAmount,
     deductionsAmount,
+    payParts: isSalary || isEstimated ? null : (earningsDetail.parts ?? null),
   };
 
   if (isSalary) {

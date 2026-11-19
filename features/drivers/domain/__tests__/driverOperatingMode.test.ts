@@ -301,13 +301,26 @@ describe('driverHistoryLane / driverHistoryTabsForMode', () => {
     expect(driverHistoryLane({ source: 'indent' }, true)).toBe('fleet');
   });
 
-  it('a driver fleet mark moves an offline trip into the fleet lane', () => {
+  it('an old driver fleet mark keeps the driver offline trip in the offline lane', () => {
     expect(
       driverHistoryLane(
         {
           source: 'manual',
           operating_mode: 'DCO',
           notes: '<!--pulse-fleet-trip:{"name":"Godrej India"}-->',
+        },
+        false,
+      ),
+    ).toBe('offline');
+  });
+
+  it('a fleet-connected driver mark (fleetOrgId) moves the trip into the fleet lane', () => {
+    expect(
+      driverHistoryLane(
+        {
+          source: 'manual',
+          operating_mode: 'FLEET',
+          notes: '<!--pulse-fleet-trip:{"name":"GK Logistics","fleetOrgId":"org-gk"}-->',
         },
         false,
       ),

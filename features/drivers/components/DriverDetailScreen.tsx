@@ -57,9 +57,12 @@ import {
 import {
     canAccessFinance } from "@/lib/capabilities";
 import { useCapabilities } from "@/lib/useCapabilities";
+import { showAppAlert } from "@/lib/appAlert";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queryKeys";
+import { invalidateFleetDriverConnectionCaches } from "@/lib/invalidateFleetDriverConnectionCaches";
+import { hasAnyPayTerm, resolveAgreedPayTerms } from "@/features/drivers/utils/driverPayTerms.util";
 import {
     formatIndianVehicleNumber,
     formatINR,
@@ -566,14 +569,20 @@ export default function DriverDetailScreen({
             ? {}
             : (offersRes.offersByDriverId ?? {});
           const offer = offers[driverId];
+          // Pay terms from the driver row loaded fresh just now (the source of
+          // truth). The offers map can be a cached copy from before an edit;
+          // it is only used when the row carries no terms (invite fallback).
+          const rowTerms = resolveAgreedPayTerms(driverRow);
           setDriverOffer(
-            offer
-              ? {
-                  payableAmount: offer.payableAmount ?? null,
-                  commissionPercent: offer.commissionPercent ?? null,
-                  commissionPerKm: offer.commissionPerKm ?? null,
-                }
-              : null,
+            hasAnyPayTerm(rowTerms)
+              ? rowTerms
+              : offer
+                ? {
+                    payableAmount: offer.payableAmount ?? null,
+                    commissionPercent: offer.commissionPercent ?? null,
+                    commissionPerKm: offer.commissionPerKm ?? null,
+                  }
+                : null,
           );
           setDriverLedgerEntries(
             bundleRes.error
@@ -1312,16 +1321,20 @@ export default function DriverDetailScreen({
     historicalInviteOffer,
   );
 
+  /** Writes the terms to this fleet's driver row (the source of truth). */
   const persistDriverCompensation = async (
     compensation: DriverInviteCompensation,
-  ) => {
-    if (!currentOrganization?.id || !driver) return;
+  ): Promise<{ error: Error | null }> => {
+    if (!currentOrganization?.id || !driver) {
+      return { error: new Error("Driver not loaded. Refresh and try again.") };
+    }
     const normalized = normalizeDriverInviteCompensation(compensation);
-    await updateDriver(currentOrganization.id, driver.id, {
+    const { error } = await updateDriver(currentOrganization.id, driver.id, {
       payable_amount: normalized.payableAmount,
       commission_percent: normalized.commissionPercent,
       commission_per_km: normalized.commissionPerKm,
     });
+    return { error };
   };
 
   const handleSubmitInviteWithCompensation = async (
@@ -1334,7 +1347,15 @@ export default function DriverDetailScreen({
 
     setInviting(true);
     try {
-      await persistDriverCompensation(normalized);
+      const { error: saveError } = await persistDriverCompensation(normalized);
+      if (saveError) {
+        // Never show terms as saved when the database did not keep them.
+        showAppAlert("Could not save pay terms", saveError.message);
+        return;
+      }
+      // Drop the cached terms copy so every fleet screen (this profile,
+      // Finance dues, driver list) reads the new terms, also after refresh.
+      void invalidateFleetDriverConnectionCaches(queryClient, currentOrganization.id);
 
       // Editing terms on a connected driver — persist only, no invite.
       if (inviteSalaryModalMode === "edit_terms") {

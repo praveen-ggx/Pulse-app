@@ -15,7 +15,10 @@ import {
     Sparkles,
     Wallet,
 } from 'lucide-react-native';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { getDriverInviteDetails } from '@/features/drivers/services/driverInviteNegotiation.service';
+import { DriverInviteThread } from '@/features/drivers/components/DriverInviteThread';
 import {
     ActivityIndicator,
     Image,
@@ -24,6 +27,7 @@ import {
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -38,6 +42,10 @@ type Props = {
   onAccept: () => void;
   onDecline: () => void;
   onLater: () => void;
+  /** Driver opens the first "request changes" message. */
+  onRequestChanges?: () => void;
+  /** Inline reply in the Messages thread. Resolves true when sent. */
+  onSendMessage?: (message: string) => Promise<boolean>;
 };
 
 function salaryLineIcon(label: string, size = 18) {
@@ -64,6 +72,8 @@ export function DriverInviteModal({
   onAccept,
   onDecline,
   onLater,
+  onRequestChanges,
+  onSendMessage,
 }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useDriverThemeColors();
@@ -82,6 +92,48 @@ export function DriverInviteModal({
       }),
     [invite, orgId, brandingById],
   );
+
+  // Job description, T&C and revise history (20271118120100).
+  const detailsQ = useQuery({
+    queryKey: ['q', 'driverInviteDetails', invite.id],
+    queryFn: async () => (await getDriverInviteDetails([invite.id]))[invite.id] ?? null,
+    enabled: visible && !!invite.id,
+    staleTime: 30_000,
+  });
+  const jobDescription = detailsQ.data?.job_description?.trim() || null;
+  const termsText = detailsQ.data?.terms_text?.trim() || null;
+  const fleetReplied =
+    (detailsQ.data?.rounds?.length ?? 0) > 1 && detailsQ.data?.last_action_by === 'fleet';
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  useEffect(() => {
+    // New invite (or the fleet changed the offer): agree again.
+    setAgreed(false);
+    setTermsOpen(false);
+  }, [invite.id, invite.payable_amount, invite.commission_percent, invite.commission_per_km]);
+  const hasThread = (detailsQ.data?.rounds ?? []).some((r) => !!r.note?.trim());
+  const scrollRef = useRef<ScrollView>(null);
+  const [termsY, setTermsY] = useState<number | null>(null);
+  const openTerms = () => {
+    setTermsOpen(true);
+    if (termsY != null) scrollRef.current?.scrollTo({ y: Math.max(0, termsY - 12), animated: true });
+  };
+  const [reply, setReply] = useState('');
+  const [sending, setSending] = useState(false);
+  useEffect(() => setReply(''), [invite.id]);
+  const canSendReply = !!onSendMessage && reply.trim().length >= 2 && !sending && !busy;
+  const handleSendReply = async () => {
+    if (!onSendMessage || !canSendReply) return;
+    setSending(true);
+    try {
+      const ok = await onSendMessage(reply.trim());
+      if (ok) setReply('');
+    } finally {
+      setSending(false);
+    }
+  };
+  // Wait for the details before allowing Accept, so T&C can't be skipped.
+  const acceptBlocked = busy || detailsQ.isLoading || (!!termsText && !agreed);
 
   const salaryLines = buildDriverInviteSalaryLines(invite);
   const orgName = invite.from_org_name?.trim() || 'Fleet organisation';
@@ -179,6 +231,7 @@ export function DriverInviteModal({
           </LinearGradient>
 
           <ScrollView
+            ref={scrollRef}
             style={styles.body}
             contentContainerStyle={[styles.bodyContent, { paddingBottom: 12 }]}
             showsVerticalScrollIndicator={false}
@@ -252,6 +305,115 @@ export function DriverInviteModal({
               </View>
             )}
 
+            {fleetReplied ? (
+              <View
+                style={[
+                  styles.reminderBanner,
+                  { backgroundColor: colors.emeraldMuted, borderColor: colors.emeraldBorderSoft },
+                ]}
+              >
+                <FontAwesome name="refresh" size={12} color={EMERALD} />
+                <Text style={[styles.reminderText, { color: colors.text }]}>
+                  {orgName} replied. Read and reply below.
+                </Text>
+              </View>
+            ) : null}
+
+            {/* ── Messages with the fleet (thread + inline reply) ── */}
+            {hasThread ? (
+              <View
+                style={[
+                  styles.nextCard,
+                  { backgroundColor: colors.surfaceElevated, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.nextTitle, { color: colors.text }]}>Messages</Text>
+                <DriverInviteThread
+                  rounds={detailsQ.data?.rounds ?? []}
+                  viewer="driver"
+                  fleetName={orgName}
+                  driverName="You"
+                />
+                {onSendMessage ? (
+                  <View style={[styles.composer, { borderColor: colors.border }]}>
+                    <TextInput
+                      style={[styles.composerInput, { color: colors.text }]}
+                      placeholder={`Reply to ${orgName}…`}
+                      placeholderTextColor={colors.textMuted}
+                      multiline
+                      maxLength={500}
+                      value={reply}
+                      onChangeText={setReply}
+                      editable={!sending && !busy}
+                    />
+                    <TouchableOpacity
+                      style={[styles.sendBtn, !canSendReply && styles.disabled]}
+                      onPress={() => void handleSendReply()}
+                      disabled={!canSendReply}
+                      accessibilityRole="button"
+                      accessibilityLabel="Send reply"
+                    >
+                      {sending ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <FontAwesome name="send" size={14} color="#fff" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
+            {/* ── Job description ─────────────────────── */}
+            {jobDescription ? (
+              <View
+                style={[
+                  styles.nextCard,
+                  { backgroundColor: colors.surfaceElevated, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.nextTitle, { color: colors.text }]}>Job description</Text>
+                <Text style={[styles.nextText, { color: colors.textMuted }]}>{jobDescription}</Text>
+              </View>
+            ) : null}
+
+            {/* ── Terms & conditions (read here; agree in the footer) ── */}
+            {termsText ? (
+              <View
+                onLayout={(e) => setTermsY(e.nativeEvent.layout.y)}
+                style={[
+                  styles.nextCard,
+                  { backgroundColor: colors.surfaceElevated, borderColor: colors.border },
+                ]}
+              >
+                <TouchableOpacity
+                  style={styles.termsHeader}
+                  onPress={() => setTermsOpen((v) => !v)}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Terms and conditions"
+                >
+                  <FontAwesome name="file-text-o" size={14} color={EMERALD} />
+                  <Text style={[styles.nextTitle, { color: colors.text, flex: 1, marginBottom: 0 }]}>
+                    Terms & conditions
+                  </Text>
+                  <FontAwesome
+                    name={termsOpen ? 'chevron-up' : 'chevron-down'}
+                    size={12}
+                    color={colors.textMuted}
+                  />
+                </TouchableOpacity>
+                {termsOpen ? (
+                  <ScrollView
+                    style={[styles.termsBody, { borderColor: colors.border }]}
+                    nestedScrollEnabled
+                  >
+                    <Text style={[styles.nextText, { color: colors.text }]}>{termsText}</Text>
+                  </ScrollView>
+                ) : null}
+              </View>
+            ) : null}
+
             {/* ── What happens next ───────────────────── */}
             <View
               style={[
@@ -289,6 +451,35 @@ export function DriverInviteModal({
           <View
             style={[styles.footer, { borderTopColor: colors.border }]}
           >
+            {/* "I agree" sits right above Accept so it is always visible. */}
+            {termsText ? (
+              <View style={styles.agreeRow}>
+                <TouchableOpacity
+                  style={styles.agreeTap}
+                  onPress={() => setAgreed((v) => !v)}
+                  activeOpacity={0.8}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: agreed }}
+                >
+                  <View
+                    style={[
+                      styles.agreeBox,
+                      { borderColor: agreed ? EMERALD : colors.border },
+                      agreed && { backgroundColor: EMERALD },
+                    ]}
+                  >
+                    {agreed ? <Check size={12} color="#fff" strokeWidth={3} /> : null}
+                  </View>
+                  <Text style={[styles.agreeText, { color: colors.text }]}>
+                    I agree to the Terms & Conditions
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={openTerms} accessibilityRole="link">
+                  <Text style={styles.viewLink}>View</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
             <View style={styles.actions}>
               <TouchableOpacity
                 style={[
@@ -303,10 +494,11 @@ export function DriverInviteModal({
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.acceptBtn, busy && styles.disabled]}
+                style={[styles.acceptBtn, acceptBlocked && styles.disabled]}
                 onPress={onAccept}
-                disabled={busy}
+                disabled={acceptBlocked}
                 activeOpacity={0.88}
+                accessibilityState={{ disabled: acceptBlocked }}
               >
                 <LinearGradient
                   colors={[EMERALD, EMERALD_DARK]}
@@ -326,6 +518,21 @@ export function DriverInviteModal({
               </TouchableOpacity>
             </View>
 
+            {/* First request only; once talking, the reply box is in Messages. */}
+            {onRequestChanges && !hasThread ? (
+              <TouchableOpacity
+                onPress={onRequestChanges}
+                disabled={busy}
+                style={[styles.changesBtn, { borderColor: colors.border }]}
+                activeOpacity={0.8}
+              >
+                <FontAwesome name="comment-o" size={12} color={colors.text} />
+                <Text style={[styles.changesText, { color: colors.text }]}>
+                  Request changes
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+
             <TouchableOpacity
               onPress={onLater}
               disabled={busy}
@@ -342,6 +549,64 @@ export function DriverInviteModal({
 }
 
 const styles = StyleSheet.create({
+  termsHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  termsBody: {
+    maxHeight: 200,
+    marginTop: 10,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+  },
+  agreeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    gap: 10,
+  },
+  agreeTap: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  agreeText: { fontSize: 14, fontWeight: '600', flex: 1 },
+  viewLink: { fontSize: 14, fontWeight: '700', color: EMERALD, textDecorationLine: 'underline' },
+  composer: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingLeft: 12,
+    paddingRight: 6,
+    paddingVertical: 6,
+    backgroundColor: '#fff',
+  },
+  composerInput: { flex: 1, fontSize: 14, minHeight: 36, maxHeight: 110, paddingVertical: 6 },
+  sendBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: EMERALD,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  agreeBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  changesBtn: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  changesText: { fontSize: 14, fontWeight: '600' },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.75)',

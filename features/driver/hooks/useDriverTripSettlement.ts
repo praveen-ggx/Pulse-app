@@ -21,6 +21,7 @@ import * as Sharing from "expo-sharing";
 import { injectPulseWatermarkIntoHtml } from "@/lib/reportWatermark.util";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Linking, Platform, Share } from "react-native";
+import { resolveAgreedPayTerms } from "@/features/drivers/utils/driverPayTerms.util";
 
 function openWhatsAppReminder(message: string) {
   const encoded = encodeURIComponent(message);
@@ -232,12 +233,7 @@ export function useDriverTripSettlement(
       ) ??
       linkedDrivers.find((d) => String(d.organization_id ?? "") === orgId) ??
       null;
-    return {
-      commissionPercent:
-        acceptedInvite?.commission_percent ?? linkedDriver?.commission_percent ?? null,
-      commissionPerKm:
-        acceptedInvite?.commission_per_km ?? linkedDriver?.commission_per_km ?? null,
-    };
+    return resolveAgreedPayTerms(linkedDriver, acceptedInvite ?? null);
   }, [trip, invites, linkedDrivers]);
 
   const isFleetLinkedFromDrivers = useMemo(() => {

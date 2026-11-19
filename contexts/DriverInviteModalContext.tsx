@@ -20,8 +20,13 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Platform } from 'react-native';
 import { showAppAlert } from '@/lib/appAlert';
+import { DriverInviteChangeRequestModal } from '@/features/drivers/components/DriverInviteChangeRequestModal';
+import {
+  declineDriverInviteWithReason,
+  requestDriverInviteChangesByMessage,
+} from '@/features/drivers/services/driverInviteNegotiation.service';
+import { askDeclineReason } from '@/features/drivers/utils/askDeclineReason.util';
 
 type DriverInviteModalContextValue = {
   allInvites: DriverInviteRow[];
@@ -63,6 +68,8 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
   const [sessionSnoozedIds, setSessionSnoozedIds] = useState<Set<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [declineTarget, setDeclineTarget] = useState<DriverInviteRow | null>(null);
+  /** Invite the driver is sending changed pay terms for (popup hides meanwhile). */
+  const [counterTarget, setCounterTarget] = useState<DriverInviteRow | null>(null);
   const [fleetConnectionRevision, setFleetConnectionRevision] = useState(0);
 
   const bumpFleetConnectionRevision = useCallback(() => {
@@ -134,7 +141,7 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
   );
 
   const activeInvite = visiblePendingInvites[0] ?? null;
-  const showModal = !!activeInvite && !declineTarget;
+  const showModal = !!activeInvite && !declineTarget && !counterTarget;
 
   const presentPendingInvite = useCallback(() => {
     clearSessionSnooze();
@@ -185,9 +192,11 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
   ]);
 
   const runDecline = useCallback(
-    async (invite: DriverInviteRow) => {
+    async (invite: DriverInviteRow, reason: string | null = null) => {
       setBusyId(invite.id);
-      const { error: declineError } = await driversService.rejectDriverInvite(invite.id);
+      // Reason goes to the fleet (driver_decline_invite); falls back to the old
+      // reject when the migration is missing.
+      const { error: declineError } = await declineDriverInviteWithReason(invite.id, reason);
       setBusyId(null);
       setDeclineTarget(null);
       if (declineError) {
@@ -211,15 +220,58 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
 
   const handleDeclinePress = useCallback(() => {
     if (!activeInvite) return;
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const ok = window.confirm(
-        'Decline invitation?\n\nYou will reject this fleet connection invitation.',
-      );
-      if (ok) void runDecline(activeInvite);
-      return;
-    }
-    setDeclineTarget(activeInvite);
+    const invite = activeInvite;
+    void (async () => {
+      const reason = await askDeclineReason();
+      if (reason === undefined) return;
+      await runDecline(invite, reason);
+    })();
   }, [activeInvite, runDecline]);
+
+  /** Inline reply from the popup's Messages thread. */
+  const handleSendMessage = useCallback(
+    async (message: string): Promise<boolean> => {
+      const invite = activeInvite;
+      if (!invite) return false;
+      const { error: sendError } = await requestDriverInviteChangesByMessage(invite, message);
+      if (sendError) {
+        showAppAlert('Could not send', sendError.message);
+        return false;
+      }
+      showAppAlert(
+        'Sent to fleet',
+        `${invite.from_org_name || 'The fleet'} will see your reply. You will get the invite back when they answer.`,
+      );
+      invalidateInvites();
+      return true;
+    },
+    [activeInvite, invalidateInvites],
+  );
+
+  const handleRequestChangesPress = useCallback(() => {
+    if (activeInvite) setCounterTarget(activeInvite);
+  }, [activeInvite]);
+
+  const submitCounter = useCallback(
+    async (message: string) => {
+      const invite = counterTarget;
+      if (!invite) return;
+      setBusyId(invite.id);
+      const { error: counterError } = await requestDriverInviteChangesByMessage(invite, message);
+      setBusyId(null);
+      if (counterError) {
+        showAppAlert('Could not send', counterError.message);
+        return;
+      }
+      setCounterTarget(null);
+      showAppAlert(
+        'Sent to fleet',
+        `${invite.from_org_name || 'The fleet'} will see your message. You will get the invite back when they reply.`,
+      );
+      invalidateInvites();
+    },
+    [counterTarget, invalidateInvites],
+  );
 
   const value = useMemo(
     (): DriverInviteModalContextValue => ({
@@ -256,6 +308,19 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
           onAccept={() => void handleAccept()}
           onDecline={handleDeclinePress}
           onLater={handleLater}
+          onRequestChanges={handleRequestChangesPress}
+          onSendMessage={handleSendMessage}
+        />
+      ) : null}
+
+      {uid ? (
+        <DriverInviteChangeRequestModal
+          visible={counterTarget != null}
+          orgName={counterTarget?.from_org_name || 'the fleet'}
+          offer={counterTarget ?? {}}
+          submitting={counterTarget != null && busyId === counterTarget.id}
+          onClose={() => setCounterTarget(null)}
+          onSubmit={submitCounter}
         />
       ) : null}
 

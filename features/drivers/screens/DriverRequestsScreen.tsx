@@ -9,6 +9,13 @@ import {
 } from '@/features/driver/utils/driverTripSequence.util';
 import { DriverBrandMark } from '@/components/driver/DriverBrandMark';
 import { DriverInviteCard } from '@/components/driver/DriverInviteCard';
+import { DriverInviteChangeRequestModal } from '@/features/drivers/components/DriverInviteChangeRequestModal';
+import {
+  declineDriverInviteWithReason,
+  requestDriverInviteChangesByMessage,
+} from '@/features/drivers/services/driverInviteNegotiation.service';
+import { askDeclineReason } from '@/features/drivers/utils/askDeclineReason.util';
+
 import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
 import {
@@ -27,10 +34,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   AppState,
   Image,
-  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -50,6 +55,8 @@ import {
   fleetDisconnectConfirmTitle,
 } from '@/features/drivers/utils/fleetDisconnectWarning.util';
 import * as salaryRequestsService from '@/features/drivers/services/salaryRequests.service';
+import { resolveAgreedPayTerms } from '@/features/drivers/utils/driverPayTerms.util';
+
 
 
 /**
@@ -108,6 +115,8 @@ export default function DriverRequestsScreen() {
   // request instead of firing a second Promise.all of the same RPCs.
   const fetchInFlightRef = useRef<Promise<void> | null>(null);
   const [inviteActionId, setInviteActionId] = useState<string | null>(null);
+  const [counterInvite, setCounterInvite] = useState<driversService.DriverInviteRow | null>(null);
+
   const [leavingOrgId, setLeavingOrgId] = useState<string | null>(null);
   const [leaveFleetPressedOrgId, setLeaveFleetPressedOrgId] = useState<string | null>(null);
   const [quickTab, setQuickTab] = useState<RequestsQuickTab>('all');
@@ -181,7 +190,10 @@ export default function DriverRequestsScreen() {
     fetch().finally(() => setRefreshing(false));
   }, [fetch]);
 
-  const pendingInvites = invites.filter((i) => i.status === 'pending');
+  // 'countered' = driver asked for changes; stays here until the fleet replies.
+  const pendingInvites = invites.filter(
+    (i) => i.status === 'pending' || i.status === 'countered',
+  );
   const resolvedInvites = invites.filter((i) => i.status !== 'pending');
   const acceptedInvites = resolvedInvites.filter((i) => i.status === 'accepted');
 
@@ -239,11 +251,7 @@ export default function DriverRequestsScreen() {
       // Same authoritative resolver used elsewhere — an accepted invite for
       // this org doesn't mean every trip has agreed per-trip terms; only
       // trips with real agreed terms contribute to the total.
-      const offer = {
-        commissionPercent: inv.commission_percent ?? driver.commission_percent ?? null,
-        commissionPerKm: inv.commission_per_km ?? driver.commission_per_km ?? null,
-        payableAmount: inv.payable_amount ?? driver.payable_amount ?? null,
-      };
+      const offer = resolveAgreedPayTerms(driver, inv);
       const totalEarned = Math.round(
         completed.reduce((sum, t) => {
           const { hasAgreedPayoutTerms } = resolveDriverTripPayoutTerms(t, offer);
@@ -1085,48 +1093,21 @@ export default function DriverRequestsScreen() {
                   offerText={buildOfferText(inv)}
                   busy={inviteActionId === inv.id}
                   fallbackAvatarUri={avatarUri}
-                  onIgnore={() => {
-                    const title = "Decline invitation?";
-                    const msg = "You will reject this fleet connection invitation.";
-                    
-                    if (Platform.OS === "web" && typeof window !== "undefined") {
-                      const confirmed = window.confirm(`${title}\n\n${msg}`);
-                      if (confirmed) {
-                        (async () => {
-                          setInviteActionId(inv.id);
-                          const { error } = await driversService.rejectDriverInvite(inv.id);
-                          setInviteActionId(null);
-                          if (error) {
-                            showAppAlert('Decline failed', error.message ?? 'Could not decline. Try again.');
-                          }
-                          fetch();
-                          refreshAfterFleetChange();
-                        })();
-                      }
-                      return;
+                  waitingForFleet={inv.status === 'countered'}
+                  onRequestChanges={
+                    inv.status === 'pending' ? () => setCounterInvite(inv) : undefined
+                  }
+                  onIgnore={async () => {
+                    const reason = await askDeclineReason();
+                    if (reason === undefined) return;
+                    setInviteActionId(inv.id);
+                    const { error } = await declineDriverInviteWithReason(inv.id, reason);
+                    setInviteActionId(null);
+                    if (error) {
+                      showAppAlert('Decline failed', error.message ?? 'Could not decline. Try again.');
                     }
-
-                    Alert.alert(
-                      title,
-                      msg,
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        {
-                          text: "Decline",
-                          style: "destructive",
-                          onPress: async () => {
-                            setInviteActionId(inv.id);
-                            const { error } = await driversService.rejectDriverInvite(inv.id);
-                            setInviteActionId(null);
-                            if (error) {
-                              showAppAlert('Decline failed', error.message ?? 'Could not decline. Try again.');
-                            }
-                            fetch();
-                            refreshAfterFleetChange();
-                          }
-                        }
-                      ]
-                    );
+                    fetch();
+                    refreshAfterFleetChange();
                   }}
                   onAccept={async () => {
                     setInviteActionId(inv.id);
@@ -1142,6 +1123,26 @@ export default function DriverRequestsScreen() {
                   }}
                 />
               ))}
+              <DriverInviteChangeRequestModal
+                visible={counterInvite != null}
+                orgName={counterInvite?.from_org_name || 'the fleet'}
+                offer={counterInvite ?? {}}
+                submitting={counterInvite != null && inviteActionId === counterInvite.id}
+                onClose={() => setCounterInvite(null)}
+                onSubmit={async (message) => {
+                  if (!counterInvite) return;
+                  setInviteActionId(counterInvite.id);
+                  const { error } = await requestDriverInviteChangesByMessage(counterInvite, message);
+                  setInviteActionId(null);
+                  if (error) {
+                    showAppAlert('Could not send', error.message);
+                    return;
+                  }
+                  setCounterInvite(null);
+                  showAppAlert('Sent to fleet', 'The fleet will see your message and reply.');
+                  fetch();
+                }}
+              />
             </View>
           )}
 
@@ -1150,6 +1151,13 @@ export default function DriverRequestsScreen() {
               {connectedAcceptedInvites.map((inv) => {
                 const passbook = passbookByOrgId[inv.from_organization_id];
                 const isLeaving = leavingOrgId === inv.from_organization_id;
+                // Current terms: this fleet's driver row (edited by the fleet), not the old invite.
+                const currentTerms = resolveAgreedPayTerms(
+                  activeLinkedDrivers.find(
+                    (d) => String(d.organization_id ?? '') === String(inv.from_organization_id ?? ''),
+                  ),
+                  inv,
+                );
                 const receivedPercentage =
                   passbook && passbook.totalEarned > 0
                     ? Math.min(100, Math.round((passbook.totalReceived / passbook.totalEarned) * 100))
@@ -1224,13 +1232,13 @@ export default function DriverRequestsScreen() {
                         <View style={styles.quickStatsRow}>
                           <View style={styles.quickStatCol}>
                             <Text style={[styles.quickStatLabel, { color: colors.textMuted }]}>Rate</Text>
-                            <Text style={[styles.quickStatValue, { color: colors.text }]}>₹{inv.payable_amount?.toLocaleString('en-IN') ?? 0}</Text>
+                            <Text style={[styles.quickStatValue, { color: colors.text }]}>₹{(currentTerms.payableAmount ?? 0).toLocaleString('en-IN')}</Text>
 
                           </View>
                           <View style={[styles.quickDivider, { backgroundColor: colors.border }]} />
                           <View style={styles.quickStatCol}>
                             <Text style={[styles.quickStatLabel, { color: colors.textMuted }]}>Commission</Text>
-                            <Text style={[styles.quickStatValue, { color: colors.text }]}>{inv.commission_percent ?? 0}%</Text>
+                            <Text style={[styles.quickStatValue, { color: colors.text }]}>{currentTerms.commissionPercent ?? 0}%</Text>
                           </View>
                           <View style={[styles.quickDivider, { backgroundColor: colors.border }]} />
                           <View style={styles.quickStatCol}>

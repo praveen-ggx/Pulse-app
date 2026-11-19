@@ -113,6 +113,7 @@ import Animated, {
     withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { resolveAgreedPayTerms } from '@/features/drivers/utils/driverPayTerms.util';
 
 const isAndroid = Platform.OS === 'android';
 
@@ -502,11 +503,10 @@ export default function DriverWalletScreen() {
           (i.status || '').toLowerCase() === 'accepted' &&
           String(i.from_organization_id ?? '') === String(d.organization_id ?? ''),
       );
-      map.set(`${String(d.id ?? '')}:${String(d.organization_id ?? '')}`, {
-        commissionPercent: inv?.commission_percent ?? d.commission_percent ?? null,
-        commissionPerKm: inv?.commission_per_km ?? d.commission_per_km ?? null,
-        payableAmount: inv?.payable_amount ?? d.payable_amount ?? null,
-      });
+      map.set(
+        `${String(d.id ?? '')}:${String(d.organization_id ?? '')}`,
+        resolveAgreedPayTerms(d, inv ?? null),
+      );
     }
     return map;
   }, [linkedDrivers, invites]);

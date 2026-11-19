@@ -17,7 +17,6 @@ import {
     STEPS,
     useTripControl
 } from "@/features/drivers/hooks/useTripControl";
-import { computeDriverTripEstEarningsInr } from "@/features/finance/selectors/assetTripProvisionSelectors";
 import { DriverSelfAvatar } from "@/components/driver/DriverSelfAvatar";
 import { useDriverAvatarUri } from "@/lib/avatarUpload";
 import {
@@ -25,6 +24,7 @@ import {
     getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
 import {
+  computeDriverTripPayInr,
   isAggregateTrip,
   resolveDriverTripPayoutTerms,
   tripEarningsDetailForDriver,
@@ -61,6 +61,7 @@ import {
 } from "react-native";
 import { Pressable as HoldPressable } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { resolveAgreedPayTerms } from "@/features/drivers/utils/driverPayTerms.util";
 
 function formatTripDistanceForControl(
   distance: string | number | null | undefined,
@@ -534,13 +535,16 @@ export default function DriverControlScreen() {
   // Without this check, an org that has never configured any driver pay ends up
   // shown as this driver's "employer" with a fabricated earnings estimate.
   const tripIsAggregate = isAggregateTrip(trip) || tripDriver?.tracking_only === true;
-  const payoutOffer = {
-    payableAmount: acceptedOffer?.payableAmount ?? tripDriver?.payable_amount ?? null,
-    commissionPercent:
-      acceptedOffer?.commissionPercent ?? tripDriver?.commission_percent ?? null,
-    commissionPerKm:
-      acceptedOffer?.commissionPerKm ?? tripDriver?.commission_per_km ?? null,
-  };
+  const payoutOffer = resolveAgreedPayTerms(
+    tripDriver,
+    acceptedOffer
+      ? {
+          payable_amount: acceptedOffer.payableAmount,
+          commission_percent: acceptedOffer.commissionPercent,
+          commission_per_km: acceptedOffer.commissionPerKm,
+        }
+      : null,
+  );
   // A drivers row existing is not enough on its own (same rule as the
   // tracking_only fix above) — an org that never configured pay must not produce
   // a number that looks payable just because the legacy 10% fallback returns one.
@@ -548,7 +552,7 @@ export default function DriverControlScreen() {
   const commission =
     tripIsAggregate || !hasAgreedPayoutTerms
       ? 0
-      : computeDriverTripEstEarningsInr(trip, payoutOffer);
+      : computeDriverTripPayInr(trip, payoutOffer);
   const effectiveEta =
     trip.estimated_duration?.trim() || routeMetricsFallback?.estimated_duration || null;
   const effectiveDistance = trip.distance ?? routeMetricsFallback?.distance ?? null;

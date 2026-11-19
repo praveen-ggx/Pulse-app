@@ -355,6 +355,7 @@ function NetworkScreenInner() {
     receivedItems: receivedInviteItems,
     sentItems: sentInviteItems,
     pendingCount,
+    driverChangesAskedCount,
   } = useProtocolInvitesWithDriverSent(orgId);
   const { inviteActionId, handleInviteAction } =
     useInboundProtocolInviteActions(orgId);
@@ -1587,8 +1588,10 @@ function NetworkScreenInner() {
       {showHomePageHeader && !showDesktopHub ? (
         <HomePageHeader
           title={orgDisplayName}
-          invitationBadgeCount={pendingCount}
+          invitationBadgeCount={pendingCount + driverChangesAskedCount}
           onInvitationsPress={() => {
+            // Only a driver's change request is waiting → open on Sent.
+            if (pendingCount === 0 && driverChangesAskedCount > 0) setInviteTab("sent");
             if (showDesktopHub) setInvitationsOpen(true);
             else setViewMode("requests");
           }}

@@ -6,6 +6,7 @@ import {
 import {
   applyFleetTripMarkToNotes,
   parseFleetTripMarkFromNotes,
+  stripFleetTripMarkFromNotes,
 } from "@/features/drivers/utils/driverFleetTripMark.util";
 import { supabase } from "@/lib/supabase";
 
@@ -128,7 +129,9 @@ export async function tagTripWithDcoClient(
   const existing = await readDriverTripNotes(id);
   if (existing.error) return existing;
 
-  const nextNotes = applyDcoPartyTagToNotes(existing.notes, {
+  // A party tag means the driver's own offline trip: drop any fleet marker
+  // so the trip goes back to the Offline lane.
+  const nextNotes = applyDcoPartyTagToNotes(stripFleetTripMarkFromNotes(existing.notes), {
     id: client.id,
     name,
     ...(billed > 0 ? { billed } : {}),
@@ -141,23 +144,29 @@ export async function tagTripWithDcoClient(
   return { error: null };
 }
 
-/** Mark an offline trip as fleet work for the assigning business. Notes only — no client book write. */
+/**
+ * A fleet-connected driver marks an offline trip as their own fleet's work.
+ * `fleetOrgId` must be the driver's connected fleet; only such marks move the
+ * trip to the Fleet lane. Notes only — no client book write.
+ */
 export async function markTripAsFleetTrip(
   tripId: string,
-  fleet: { name: string; orgId?: string | null },
+  fleet: { name: string; fleetOrgId: string },
 ): Promise<{ error: Error | null }> {
   const id = tripId.trim();
   const name = fleet.name.trim();
+  const fleetOrgId = String(fleet.fleetOrgId ?? "").trim();
   if (!id) return { error: new Error("Missing trip.") };
-  if (!name) return { error: new Error("Missing fleet.") };
+  if (!name || !fleetOrgId) {
+    return { error: new Error("You are not connected to a fleet.") };
+  }
 
   const existing = await readDriverTripNotes(id);
   if (existing.error) return existing;
 
-  const orgId = String(fleet.orgId ?? "").trim();
   const nextNotes = applyFleetTripMarkToNotes(stripDcoPartyTagFromNotes(existing.notes), {
     name,
-    ...(orgId ? { orgId } : {}),
+    fleetOrgId,
   });
   const noted = await writeDriverTripNotes(id, nextNotes);
   if (noted.error) return noted;

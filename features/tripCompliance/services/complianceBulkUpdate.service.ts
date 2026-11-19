@@ -2,6 +2,7 @@ import { interpretLedgerRowStructured } from "@/features/finance/ledger/ledgerEn
 import { supabase } from "@/lib/supabase";
 import { mapWithConcurrency } from "@/lib/pagination";
 import { getTripOperationalDisplayCode } from "@/features/operations/display/operationalDisplay";
+import { lrNumberFromStoredDocumentNumber, normalizeOrgLrNumber } from "@/features/trips/services/orgLrNumber.util";
 import { isCashPaymentMode, readLedgerRequestId } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
 import { toComplianceTransactionDateInput } from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import {
@@ -54,6 +55,7 @@ async function readTripChunks(
       .from("trips")
       .select(TRIP_COLUMNS)
       .eq("organization_id", organizationId)
+      .is("deleted_at", null)
       .in(column, chunk);
     if (error) throw new Error(error.message);
     hits.push(...((data ?? []) as TripHit[]));
@@ -67,12 +69,82 @@ function tripKeys(trip: TripHit): string[] {
     .filter(Boolean);
 }
 
+type LrDoc = { trip_id: string | null; document_number: string | null };
+
+/** LR numbers already stored on these trips, normalized the same way as a file cell. */
+export async function lrNumbersByTrip(tripIds: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  for (let index = 0; index < tripIds.length; index += CHUNK) {
+    const chunk = tripIds.slice(index, index + CHUNK);
+    const { data, error } = await supabase()
+      .from("trip_documents")
+      .select("trip_id, document_number")
+      .eq("document_type", "lr")
+      .in("trip_id", chunk);
+    if (error) throw new Error(error.message);
+    for (const row of (data ?? []) as LrDoc[]) {
+      const tripId = (row.trip_id ?? "").trim();
+      const lr = lrNumberFromStoredDocumentNumber(row.document_number);
+      if (!tripId || !lr) continue;
+      const list = out.get(tripId) ?? [];
+      if (!list.includes(lr)) list.push(lr);
+      out.set(tripId, list);
+    }
+  }
+  return out;
+}
+
+/**
+ * Trips in this workspace whose LR document stores one of these numbers.
+ * The match is the parsed LR, not a substring of the stored JSON.
+ */
+export async function tripIdsByLrNumber(organizationId: string, lrNumbers: string[]): Promise<Map<string, string[]>> {
+  const wanted = [...new Set(lrNumbers.map((value) => normalizeOrgLrNumber(value)).filter(Boolean))];
+  const out = new Map<string, string[]>();
+  for (let index = 0; index < wanted.length; index += 20) {
+    const chunk = wanted.slice(index, index + 20);
+    const filter = chunk
+      .map((lr) => `document_number.ilike.%${lr.replace(/[%_,.()]/g, "")}%`)
+      .filter((clause) => clause !== "document_number.ilike.%%")
+      .join(",");
+    if (!filter) continue;
+    const { data, error } = await supabase()
+      .from("trip_documents")
+      .select("trip_id, document_number")
+      .eq("document_type", "lr")
+      .or(filter);
+    if (error) throw new Error(error.message);
+    const candidateIds = [...new Set(((data ?? []) as LrDoc[]).map((row) => (row.trip_id ?? "").trim()).filter(Boolean))];
+    const localIds = new Set<string>();
+    for (let tripIndex = 0; tripIndex < candidateIds.length; tripIndex += CHUNK) {
+      const tripChunk = candidateIds.slice(tripIndex, tripIndex + CHUNK);
+      const { data: localTrips, error: tripError } = await supabase()
+        .from("trips")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .is("deleted_at", null)
+        .in("id", tripChunk);
+      if (tripError) throw new Error(tripError.message);
+      for (const trip of localTrips ?? []) localIds.add(String(trip.id));
+    }
+    for (const row of (data ?? []) as LrDoc[]) {
+      const tripId = (row.trip_id ?? "").trim();
+      const lr = lrNumberFromStoredDocumentNumber(row.document_number);
+      if (!tripId || !localIds.has(tripId) || !lr || !chunk.includes(lr)) continue;
+      const list = out.get(lr) ?? [];
+      if (!list.includes(tripId)) list.push(tripId);
+      out.set(lr, list);
+    }
+  }
+  return out;
+}
+
 export async function previewComplianceBulkUpdate(params: {
   organizationId: string;
   category: ComplianceLedgerCategory;
   rows: BulkSheetRow[];
 }): Promise<BulkUpdatePreviewRow[]> {
-  const keys = [...new Set(params.rows.map((row) => row.tripKey.trim()).filter(Boolean))];
+  const keys = [...new Set(params.rows.flatMap((row) => [row.tripKey.trim(), (row.lrKey ?? "").trim()]).filter(Boolean))];
   const uuids = keys.filter(isUuid);
   const codes = keys.filter((key) => !isUuid(key));
   const hits = (
@@ -94,6 +166,41 @@ export async function previewComplianceBulkUpdate(params: {
     }
   }
 
+  const matchedCodes = new Set([...trips.values()].flatMap((trip) => trip.keys.map((key) => key.toUpperCase())));
+  const unmatchedLr = [...new Set(params.rows.map((row) => normalizeOrgLrNumber(row.lrKey)).filter((lr) => lr && !matchedCodes.has(lr)))];
+  if (unmatchedLr.length > 0) {
+    const byLr = await tripIdsByLrNumber(params.organizationId, unmatchedLr);
+    const missingIds = [...new Set([...byLr.values()].flat())].filter((id) => !trips.has(id));
+    if (missingIds.length > 0) {
+      for (const hit of await readTripChunks(params.organizationId, "id", missingIds)) {
+        if (!trips.has(hit.id)) {
+          trips.set(hit.id, {
+            id: hit.id,
+            label: getTripOperationalDisplayCode(hit),
+            keys: tripKeys(hit),
+            clientPrice: hit.client_price == null || hit.client_price === "" ? null : Number(hit.client_price),
+          });
+        }
+      }
+    }
+    for (const [lr, ids] of byLr) {
+      for (const id of ids) {
+        const trip = trips.get(id);
+        if (!trip) continue;
+        if (!trip.keys.some((key) => key.toUpperCase() === lr)) trip.keys.push(lr);
+      }
+    }
+  }
+  const lrByTrip = await lrNumbersByTrip([...trips.keys()]);
+  for (const [id, numbers] of lrByTrip) {
+    const trip = trips.get(id);
+    if (!trip) continue;
+    trip.lrKeys = numbers;
+    for (const lr of numbers) {
+      if (!trip.keys.some((key) => key.toUpperCase() === lr)) trip.keys.push(lr);
+    }
+  }
+
   const tripIds = [...trips.keys()];
   const payments: BulkUpdatePaymentMatch[] = [];
   for (let index = 0; index < tripIds.length; index += CHUNK) {
@@ -101,6 +208,7 @@ export async function previewComplianceBulkUpdate(params: {
     const { data, error } = await supabase()
       .from("transactions")
       .select("id, trip_id, description, transaction_date, ledger_category, payment_reference, amount_out, amount_in")
+      .eq("organization_id", params.organizationId)
       .in("trip_id", chunk)
       .eq("ledger_category", params.category);
     if (error) throw new Error(error.message);

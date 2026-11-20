@@ -29,6 +29,7 @@ Branched from V1 `617de36a` on 2026-11-20. Fixes the app-side prod Postgres erro
 - Jest: updateTripStatus completed_at stamp / keep / clear; features/trips, driver, drivers (227 suites pass).
 - Jest: tripDocumentDeleteOrder (approved document: no delete, no audit).
 - Jest: debit-control (repeat save updates, no duplicate insert).
+- After merging V1 fad5ba26: added the session exports to the vehicleDocumentReuse test mock; tripCompliance, trips, debit-control, drivers, compliance suites pass; typecheck 344/344.
 
 ## Not tested
 - Click-through on a device with an expired session.

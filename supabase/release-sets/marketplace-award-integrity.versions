@@ -17,5 +17,5 @@
 #
 # Verify before applying:
 #   npx jest supabase/migrations/__tests__/marketplaceAwardIntegrityReleaseSet.test.ts
-# sha256 3092490ab8557c8327277256d606dbbc1be3254063ad5456257f5ff1b2ef9f61  20271118213000_marketplace_award_state_integrity.sql
+# sha256 671d3b4c6eb1ea3a3f351be9f017b8ba92f857591ecf742cb6b7232c90f26cd0  20271118213000_marketplace_award_state_integrity.sql
 20271118213000

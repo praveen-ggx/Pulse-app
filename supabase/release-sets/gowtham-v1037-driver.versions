@@ -1,0 +1,32 @@
+# Gowtham V1.0.37 driver app (PR #134). Applied to preprod 2026-11-20 (some objects had been run by hand
+# there earlier without history; every file is re-runnable: CREATE OR REPLACE / IF NOT EXISTS /
+# DROP ... IF EXISTS guards, ON CONFLICT upserts, no top-level data writes).
+# Order matters; apply as listed.
+# - 20271118120100 replaces accept_driver_invite: compare prod's live definition before applying.
+# - 20271118120000 changes driver pay at completion (% + per km both added) for trips completed after it.
+#
+# Apply only via: npm run db:push-set -- gowtham-v1037-driver   (dry-run first; prod apply needs Vasanth's GO)
+# Verify before applying:
+#   npx jest supabase/migrations/__tests__/gowthamV1037DriverReleaseSet.test.ts
+# sha256 a80832e17b6de633a43b09a1a24c98a6986abae18327547bc8950c334862d26a  20271113100000_booking_ref_skip_taken_refs.sql
+20271113100000
+# sha256 86e5c741b565cf1f79dc18d03a4b37663fb7f1bfd6aea74347688889bd7fe5b9  20271113101500_dco_allow_offline_market_hire_trip.sql
+20271113101500
+# sha256 ce6fcdb118bd3ad2785560113c523ad254ee36b9f8e1087d4b05ccc4087c1d4f  20271113103000_fleet_disconnect_notify_and_dco_request_gate.sql
+20271113103000
+# sha256 29dbee79431a80683deebffe8948f96cbdb032384a55ef6e10f15dd6b620c70b  20271113104500_dco_require_verified_kyc.sql
+20271113104500
+# sha256 d229933871dda1217ce8e9306cd742710c154c2344d7c5a066ac0800131ebea9  20271113110000_ocr_jobs_insert_allow_trip_access.sql
+20271113110000
+# sha256 bc01e5086ed30e2a9e8439b963fe7f6ea4cf765d604d099c8b5093f0321ebf56  20271117120100_ocr_jobs_completed_uidx_allow_duplicates.sql
+20271117120100
+# sha256 6b55e978b508a8dfeda5741eaefade0bc78d07bb7752be531b380cc41c8dbcda  20271117120200_driver_reject_trip_only_before_start.sql
+20271117120200
+# sha256 06392e996dd9b52c2c531f428e024145a48914dca33c3c37d5500bd5039c7ca4  20271117120300_driver_withdraw_salary_request.sql
+20271117120300
+# sha256 2554fef22ab0346fe069d8ba735feeed25337e15d5caf486f08fb259302e8862  20271117120400_trip_other_expenses_idempotency.sql
+20271117120400
+# sha256 fb043b0afe6f7ac6de2001410beeff8dabd70140f26e77ee60d3ecf7c1fbefc8  20271118120000_driver_commission_percent_plus_per_km.sql
+20271118120000
+# sha256 e2ffd6d0d8bb614701b854b33b63b5e54f75f4583190b67d10e73e1221de9d2d  20271118120100_driver_invite_terms_and_revisions.sql
+20271118120100

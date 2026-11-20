@@ -311,7 +311,7 @@ describe("tripNeedsPartyTag", () => {
           notes: '<!--pulse-fleet-trip:{"name":"Godrej India"}-->',
         }),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -366,6 +366,23 @@ describe("partyAvatarLookup", () => {
     expect(
       partyAvatarLookup(`shipper:${clientId}`, [
         trip({ id: "s1", client_id: clientId, organization_id: orgId }),
+      ]),
+    ).toEqual({ clientId, orgId: null });
+  });
+
+  it("never uses the trip's organization logo for an offline Self party", () => {
+    const offlinePartyId = "eeeeeeee-3333-4333-8333-ffffffffffff";
+    expect(
+      partyAvatarLookup(`shipper:${offlinePartyId}`, [
+        trip({ id: "s2", organization_id: orgId }),
+      ]),
+    ).toEqual({ clientId: offlinePartyId, orgId: null });
+  });
+
+  it("keeps the listing shipper org as fallback for Marketplace trips", () => {
+    expect(
+      partyAvatarLookup(`shipper:${clientId}`, [
+        trip({ id: "s3", client_id: clientId, organization_id: orgId, source: "market_bid" }),
       ]),
     ).toEqual({ clientId, orgId });
   });

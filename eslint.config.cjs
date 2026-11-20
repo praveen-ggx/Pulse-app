@@ -82,6 +82,8 @@ module.exports = [
       '**/build/**',
       'dist-test-bundle/**',
       '.expo/**',
+      // Local Android SDK / JDK for scripts/build-release-apk.sh (gitignored).
+      '.tools/**',
       '.metro-cache/**',
       'playwright-report/**',
       'data-analytics/**',

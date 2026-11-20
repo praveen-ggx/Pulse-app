@@ -176,6 +176,32 @@ export async function getExchangeTripSummary(
   return { error: null, summary: (data as ExchangeTripSummary | null) ?? null };
 }
 
+/**
+ * Confirmed Exchange payments the signed-in DCO received, keyed by trip.
+ * An individual DCO has no Finance ledger (confirm_exchange_payment posts only
+ * the shipper's row), so the confirmed Exchange record is its receipt.
+ */
+export async function confirmedDcoExchangeReceivedByTrip(): Promise<Record<string, number>> {
+  const {
+    data: { user },
+  } = await supabase().auth.getUser();
+  if (!user?.id) return {};
+  const { data, error } = await supabase()
+    .from("exchange_payments")
+    .select("trip_id, amount, dco_payees!inner(user_id)")
+    .eq("status", "confirmed")
+    .eq("dco_payees.user_id", user.id);
+  if (error) return {};
+  const out: Record<string, number> = {};
+  for (const row of (data ?? []) as { trip_id: string | null; amount: number | null }[]) {
+    const id = String(row.trip_id ?? "").trim();
+    const n = Math.max(0, Math.round(Number(row.amount) || 0));
+    if (!id || n <= 0) continue;
+    out[id] = (out[id] ?? 0) + n;
+  }
+  return out;
+}
+
 export async function listExchangeTrips(
   orgId: string,
 ): Promise<{ error: Error | null; trips: ExchangeLaneTrip[] }> {

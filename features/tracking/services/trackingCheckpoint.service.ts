@@ -14,10 +14,13 @@ export async function recordTrackingCheckpoint(params: {
   tripId: string;
   driverId: string;
   organizationId: string;
-  sessionId: string;
+  /** trip_tracking_sessions.id (uuid) or null — column is nullable FK. */
+  sessionId: string | null;
   latitude: number;
   longitude: number;
   accuracy?: number | null;
+  heading?: number | null;
+  speedKmh?: number | null;
   source?: string;
   recordedAt?: string;
 }): Promise<TrackingCheckpointResult> {
@@ -25,10 +28,13 @@ export async function recordTrackingCheckpoint(params: {
     p_trip_id: params.tripId,
     p_driver_id: params.driverId,
     p_org_id: params.organizationId,
-    p_session_id: params.sessionId,
+    // SQL: p_session_id uuid (nullable FK); generated types mark it non-null.
+    p_session_id: params.sessionId as string,
     p_latitude: params.latitude,
     p_longitude: params.longitude,
-    p_accuracy: params.accuracy ?? null,
+    p_accuracy: params.accuracy ?? undefined,
+    p_heading: params.heading ?? undefined,
+    p_speed_kmh: params.speedKmh ?? undefined,
     p_source: params.source ?? 'live',
     p_recorded_at: params.recordedAt ?? new Date().toISOString(),
   });

@@ -6,7 +6,10 @@ const {
   PREPROD_REF,
   PRODUCTION_REF,
   applySupabaseProject,
+  devServerProductionBlock,
+  devServerSupabaseOverride,
   resolveSupabaseProject,
+  serviceRoleKeyForTarget,
   syncClientEnvOverride,
 } = require("../supabaseProject.cjs");
 
@@ -280,5 +283,86 @@ describe("resolveSupabaseProject: Netlify site lock", () => {
         processEnv: preprodEnv,
       }),
     ).toThrow(/PULSE_SUPABASE_TARGET is required/);
+  });
+});
+
+describe("devServerProductionBlock", () => {
+  function projectDir(dotenv: string, local = ""): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pulse-devblock-"));
+    fs.writeFileSync(path.join(dir, ".env"), dotenv);
+    if (local) fs.writeFileSync(path.join(dir, ".env.local"), local);
+    return dir;
+  }
+
+  const prodEnvFile =
+    `EXPO_PUBLIC_SUPABASE_URL=${PROD_URL}\nEXPO_PUBLIC_SUPABASE_ANON_KEY=${jwt(PRODUCTION_REF)}\n`;
+  const localEnvFile =
+    `EXPO_PUBLIC_SUPABASE_URL=${LOCAL_URL}\nEXPO_PUBLIC_SUPABASE_ANON_KEY=${jwt("local-stack")}\n`;
+
+  it("blocks a dev server whose target is production", () => {
+    const dir = projectDir(prodEnvFile);
+    const message = devServerProductionBlock(dir, { PULSE_SUPABASE_TARGET: "production" });
+    expect(message).toContain(PRODUCTION_REF);
+  });
+
+  it("lets preprod and local dev servers start", () => {
+    const dir = projectDir(prodEnvFile, localEnvFile);
+    expect(devServerProductionBlock(dir, { PULSE_SUPABASE_TARGET: "preprod" })).toBeNull();
+    expect(devServerProductionBlock(dir, {})).toBeNull();
+  });
+
+  it("leaves resolution errors to loadSupabaseProject and does not edit .env.local", () => {
+    const dir = projectDir(prodEnvFile, localEnvFile);
+    const before = fs.readFileSync(path.join(dir, ".env.local"), "utf8");
+    expect(devServerProductionBlock(dir, { PULSE_SUPABASE_TARGET: "bogus" })).toBeNull();
+    devServerProductionBlock(dir, { PULSE_SUPABASE_TARGET: "preprod" });
+    expect(fs.readFileSync(path.join(dir, ".env.local"), "utf8")).toBe(before);
+  });
+});
+
+describe("devServerSupabaseOverride", () => {
+  function projectDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pulse-devoverride-"));
+    fs.writeFileSync(
+      path.join(dir, ".env"),
+      `EXPO_PUBLIC_SUPABASE_URL=${PROD_URL}\nEXPO_PUBLIC_SUPABASE_ANON_KEY=${jwt(PRODUCTION_REF)}\n`,
+    );
+    return dir;
+  }
+
+  it("follows the preprod target even when .env names production", () => {
+    const resolved = devServerSupabaseOverride(projectDir(), { PULSE_SUPABASE_TARGET: "preprod" });
+    expect(resolved.target).toBe("preprod");
+    expect(resolved.url).toBe(PREPROD_URL);
+  });
+
+  it("refuses a production target for a dev server", () => {
+    expect(() =>
+      devServerSupabaseOverride(projectDir(), { PULSE_SUPABASE_TARGET: "production" }),
+    ).toThrow(/Refusing to start a local dev server against production/);
+  });
+
+  it("fails explicitly when no target is selected", () => {
+    expect(() => devServerSupabaseOverride(projectDir(), {})).toThrow(/No Supabase target/);
+  });
+});
+
+describe("serviceRoleKeyForTarget", () => {
+  const preprod = { target: "preprod", projectRef: PREPROD_REF };
+  const local = { target: "local", projectRef: "local" };
+
+  it("keeps a key that belongs to the resolved project", () => {
+    expect(serviceRoleKeyForTarget(jwt(PREPROD_REF), preprod)).toBe(jwt(PREPROD_REF));
+  });
+
+  it("drops another project's key, an unreadable key, and an empty key", () => {
+    expect(serviceRoleKeyForTarget(jwt(PRODUCTION_REF), preprod)).toBe("");
+    expect(serviceRoleKeyForTarget("not-a-jwt", preprod)).toBe("");
+    expect(serviceRoleKeyForTarget("", preprod)).toBe("");
+  });
+
+  it("keeps a local stack key but never a cloud key on the local target", () => {
+    expect(serviceRoleKeyForTarget(jwt("local-stack"), local)).toBe(jwt("local-stack"));
+    expect(serviceRoleKeyForTarget(jwt(PRODUCTION_REF), local)).toBe("");
   });
 });

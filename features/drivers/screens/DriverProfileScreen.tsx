@@ -30,6 +30,8 @@ import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
 import * as driversService from '@/features/drivers/services/drivers.service';
 import { getVehicleById } from '@/features/vehicles/services/vehicles.service';
 import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
+import { VerifiedDcoBadge } from '@/components/driver/VerifiedDcoBadge';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import {
@@ -141,6 +143,7 @@ export default function DriverProfileScreen() {
   const colors = useDriverThemeColors();
   const { user, profile, signOut, refreshSession, patchProfile } = useAuth();
   const { status: dcoStatus } = useDcoStatusQuery(profile?.uid);
+  const { canSeeMarketplace, canManageOwnerVehicles } = useDriverOperatingModeQuery(profile?.uid);
   const { locale, localeOptions } = useLanguage();
   const languageLabel =
     localeOptions.find((o) => o.value === locale)?.label ?? 'English';
@@ -413,7 +416,7 @@ export default function DriverProfileScreen() {
       return;
     }
     if (kind === 'find_work') {
-      router.push(ROUTES.driverAvailableLoads());
+      router.push(canSeeMarketplace ? ROUTES.driverAvailableLoads() : ROUTES.driverDcoStatus());
     }
   };
 
@@ -768,7 +771,13 @@ export default function DriverProfileScreen() {
                     </View>
                   </TouchableOpacity>
                   <Text style={styles.profileNameHero}>{displayName}</Text>
-                  <Text style={styles.tierSmall}>{currentLevelConfig.tier} rank · {currentLevelConfig.name}</Text>
+                  {dcoStatus === 'APPROVED' ? (
+                    <VerifiedDcoBadge tone="onDark" size="sm" style={styles.heroDcoBadge} />
+                  ) : null}
+                  {/* "level" suffix: a level named "Verified" must not read as a second verified badge. */}
+                  <Text style={styles.tierSmall}>
+                    {currentLevelConfig.tier} rank · {currentLevelConfig.name} level
+                  </Text>
 
                   <TouchableOpacity style={styles.xpCard} onPress={() => setProfileView('levels')} activeOpacity={0.88}>
                     <View style={styles.xpTop}>
@@ -831,8 +840,9 @@ export default function DriverProfileScreen() {
                       <Gavel size={20} color={colors.emerald} />
                     </View>
                     <View style={styles.rowCardText}>
+                      {/* The hero already carries the Verified DCO badge; one is enough. */}
                       <Text style={[styles.rowEyebrow, { color: muted }]}>
-                        {dcoStatus === 'APPROVED' ? 'DCO' : 'INDEPENDENT OWNER-OPERATOR'}
+                        INDEPENDENT OWNER-OPERATOR
                       </Text>
                       <Text style={[styles.rowTitle, { color: colors.text }]}>
                         {dcoStatus === 'NONE'
@@ -840,14 +850,14 @@ export default function DriverProfileScreen() {
                           : dcoStatus === 'PENDING'
                             ? 'DCO — Under review'
                             : dcoStatus === 'APPROVED'
-                              ? 'DCO status'
+                              ? 'DCO account'
                               : dcoStatus === 'REJECTED'
                                 ? 'DCO — Request again'
                                 : 'DCO — Suspended'}
                       </Text>
                       <Text style={[styles.rowSub, { color: muted }]} numberOfLines={2}>
                         {dcoStatus === 'APPROVED'
-                          ? 'Your vehicle · Marketplace bids & awards'
+                          ? 'Status · Marketplace bids & awards'
                           : 'Become an independent owner-operator'}
                       </Text>
                     </View>
@@ -857,54 +867,34 @@ export default function DriverProfileScreen() {
                   </View>
                 </TouchableOpacity>
 
+                {/* A DCO is never a fleet employee: their trucks live in My Fleet, not a fleet assignment. */}
                 <TouchableOpacity
                   style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]}
                   onPress={() =>
-                    router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0])
+                    canManageOwnerVehicles
+                      ? router.push(ROUTES.driverMyFleet() as Parameters<typeof router.push>[0])
+                      : setProfileView('vehicle')
                   }
                   activeOpacity={0.88}
                   accessibilityRole="button"
-                  accessibilityLabel="DCO status"
+                  accessibilityLabel={canManageOwnerVehicles ? 'My vehicles' : 'Assigned vehicle'}
                 >
-                  <View style={styles.rowCardLeft}>
-                    <View style={[styles.blueIcon, { backgroundColor: isDark ? colors.emeraldMuted : 'rgba(167,243,208,0.45)' }]}>
-                      <Gavel size={20} color={colors.emerald} />
-                    </View>
-                    <View style={styles.rowCardText}>
-                      <Text style={[styles.rowEyebrow, { color: muted }]}>
-                        {dcoStatus === 'APPROVED' ? 'DCO' : 'INDEPENDENT OWNER-OPERATOR'}
-                      </Text>
-                      <Text style={[styles.rowTitle, { color: colors.text }]}>
-                        {dcoStatus === 'NONE'
-                          ? 'Become a DCO'
-                          : dcoStatus === 'PENDING'
-                            ? 'DCO — Under review'
-                            : dcoStatus === 'APPROVED'
-                              ? 'DCO status'
-                              : dcoStatus === 'REJECTED'
-                                ? 'DCO — Request again'
-                                : 'DCO — Suspended'}
-                      </Text>
-                      <Text style={[styles.rowSub, { color: muted }]} numberOfLines={2}>
-                        {dcoStatus === 'APPROVED'
-                          ? 'Bid in the marketplace as an independent owner-operator'
-                          : 'Admin-approved independent owner-operator status'}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
-                    <ChevronRight size={18} color={muted} />
-                  </View>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]} onPress={() => setProfileView('vehicle')} activeOpacity={0.88}>
                   <View style={styles.rowCardLeft}>
                     <View style={styles.blueIcon}>
                       <Truck size={20} color="#3b82f6" />
                     </View>
                     <View style={styles.rowCardText}>
-                      <Text style={[styles.rowEyebrow, { color: muted }]}>FLEET ASSIGNED</Text>
-                      <Text style={[styles.rowTitle, { color: colors.text }]}>{vehicleDisplay.model}</Text>
+                      <Text style={[styles.rowEyebrow, { color: muted }]}>
+                        {canManageOwnerVehicles ? 'MY VEHICLES' : 'FLEET ASSIGNED'}
+                      </Text>
+                      <Text style={[styles.rowTitle, { color: colors.text }]}>
+                        {canManageOwnerVehicles ? 'Manage my trucks' : vehicleDisplay.model}
+                      </Text>
+                      {canManageOwnerVehicles ? (
+                        <Text style={[styles.rowSub, { color: muted }]} numberOfLines={1}>
+                          Add or update the vehicles you bid with
+                        </Text>
+                      ) : null}
                     </View>
                   </View>
                   <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
@@ -1167,6 +1157,7 @@ const styles = StyleSheet.create({
     borderColor: SLATE_900,
   },
   levelBadgeText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  heroDcoBadge: { alignSelf: 'center', marginTop: 6 },
   profileNameHero: { fontSize: 18, fontWeight: '800', color: '#fff', letterSpacing: -0.3 },
   tierSmall: { marginTop: 4, fontSize: 10, fontWeight: '700', color: Theme.driverPrimary, letterSpacing: 1 },
   xpCard: {

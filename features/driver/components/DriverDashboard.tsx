@@ -1,82 +1,84 @@
-import { DriverMapAvatarMarker } from '@/components/driver/DriverMapAvatarMarker';
 import { DriverHeader } from '@/components/driver/DriverHeader';
-import { DriverJobCard } from '@/features/driver/job-card/DriverJobCard';
-import type { DriverRoutePlanMap } from '@/features/driver/job-card/driverRoutePlanMap';
-import {
-  buildDriverRoutePlanMap,
-  buildTripRowRoutePlanMap,
-  routePlanPolyline,
-  routePlanStopCaption,
-} from '@/features/driver/job-card/driverRoutePlanMap';
-import { RoutePlanMapPin } from '@/features/driver/job-card/parts/RoutePlanMapPin';
-import { fetchDriverStopExecution } from '@/features/driver/execution/fetchDriverStopExecution';
+import { DriverMapAvatarMarker } from '@/components/driver/DriverMapAvatarMarker';
+import { driverTabBarBottomPad } from '@/components/driver/driverTabBarInsets';
 import { JobRequestCard } from '@/components/JobRequestCard';
 import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDriverAvatar } from '@/contexts/DriverAvatarContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
-import { computeDriverCommissionForTrip } from '@/features/finance/aggregation/aggregateDrivers';
 import {
-  useDriverCommunication,
-  useDriverLocationStream,
+    useDriverCommunication,
+    useDriverLocationStream,
 } from '@/features/driver/communication';
+import { fetchDriverStopExecution } from '@/features/driver/execution/fetchDriverStopExecution';
 import { useDriverMapLivePositionWatch } from '@/features/driver/hooks/useDriverMapLivePositionWatch';
-import { claimTripByOtp, getPendingOtpTrips } from '@/features/trips/services/tripOtp.service';
-import { useDriverAvatarUri } from '@/lib/avatarUpload';
+import { DriverJobCard } from '@/features/driver/job-card/DriverJobCard';
+import type { DriverRoutePlanMap } from '@/features/driver/job-card/driverRoutePlanMap';
+import {
+    buildDriverRoutePlanMap,
+    buildTripRowRoutePlanMap,
+    routePlanPolyline,
+    routePlanStopCaption,
+} from '@/features/driver/job-card/driverRoutePlanMap';
+import { RoutePlanMapPin } from '@/features/driver/job-card/parts/RoutePlanMapPin';
+import * as driverLocationService from '@/features/driver/services/driverLocation.service';
+import * as driversService from '@/features/drivers/services/drivers.service';
 import { isAggregateTrip, isRosterTrip } from '@/features/drivers/utils/driverUtils.util';
+import { computeDriverCommissionForTrip } from '@/features/finance/aggregation/aggregateDrivers';
 import { isCommerceDriverTrip } from '@/features/trips/domain/driverTripExperience';
+import { fetchRouteExtraStopsForTrips } from '@/features/trips/services/routeExtraStops.service';
+import { claimTripByOtp, getPendingOtpTrips } from '@/features/trips/services/tripOtp.service';
+import * as tripsService from '@/features/trips/services/trips.service';
+import { useDriverAvatarUri } from '@/lib/avatarUpload';
 import { formatINR } from '@/lib/format';
 import { formatEstimatedDuration } from '@/lib/formatEstimatedDuration';
 import { darkMapStyle } from '@/lib/mapStyles';
-import * as driverLocationService from '@/features/driver/services/driverLocation.service';
-import * as driversService from '@/features/drivers/services/drivers.service';
-import { getOptimalRoute, RouteResult } from '@/lib/routingService';
-import * as tripsService from '@/features/trips/services/trips.service';
 import {
-  reverseGeocodeCityStateLabel,
+    reverseGeocodeCityStateLabel,
 } from '@/lib/reverseGeocodePlace.util';
+import { getOptimalRoute, RouteResult } from '@/lib/routingService';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentProps,
-  type ComponentType,
-  type ReactNode,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ComponentProps,
+    type ComponentType,
+    type ReactNode,
 } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  AppState,
-  Dimensions,
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View
+    ActivityIndicator,
+    Alert,
+    Animated,
+    AppState,
+    Dimensions,
+    Keyboard,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View
 } from 'react-native';
 import MapView, { Callout, Marker, Polyline } from 'react-native-maps';
 import Reanimated, {
-  useAnimatedProps,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
+    useAnimatedProps,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchRouteExtraStopsForTrips } from '@/features/trips/services/routeExtraStops.service';
+import { pickDriverRowForTrip, resolveAgreedPayTerms } from '@/features/drivers/utils/driverPayTerms.util';
 
 type BottomSheetComponentProps = {
   children?: ReactNode;
@@ -340,7 +342,7 @@ export default function DriverDashboard() {
   const { isDark, mapTheme } = useDriverTheme();
   const colors = useDriverThemeColors();
   const footerPadTop = 6;
-  const footerPadBottom = Math.max(Math.round(insets.bottom * 0.35), 10);
+  const footerPadBottom = driverTabBarBottomPad(insets.bottom);
   const driverTabBarClearance =
     Layout.tabBarDockHeight + footerPadTop + footerPadBottom;
   /** Same clearance as the dock wrap — CTA must not sit under the glass pill. */
@@ -1002,11 +1004,10 @@ export default function DriverDashboard() {
           String(i.status ?? '').toLowerCase() === 'accepted'
       ) ?? null)
     : null;
-  const offerForCommission = acceptedInviteForOrg
-    ? {
-        commissionPercent: acceptedInviteForOrg.commission_percent ?? null,
-        commissionPerKm: acceptedInviteForOrg.commission_per_km ?? null,
-      }
+  // Current terms: the driver row for that fleet first, old invite only as fallback.
+  const commissionTrip = activeMission ?? effectiveFirstIncoming ?? null;
+  const offerForCommission = commissionTrip
+    ? resolveAgreedPayTerms(pickDriverRowForTrip(commissionTrip, [driver]), acceptedInviteForOrg)
     : null;
   const newAssignmentCommission =
     effectiveFirstIncoming != null && !isAggregateTrip(effectiveFirstIncoming)

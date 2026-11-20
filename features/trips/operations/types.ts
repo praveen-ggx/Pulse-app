@@ -216,6 +216,8 @@ export interface SaveOtherExpenseInput {
   operatingMode?: string | null;
   receiptLocalUri?: string | null;
   ocrJobId?: string | null;
+  /** Same value on a retry of the same save, so a network retry can't add it twice. */
+  idempotencyKey?: string | null;
 }
 
 export type UpdateOtherExpenseInput = Omit<SaveOtherExpenseInput, "actorRole"> & {

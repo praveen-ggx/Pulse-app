@@ -82,6 +82,9 @@ export type LeafletMapRef = {
     sw: LeafletLatLng,
     paddingPx?: number,
     maxZoom?: number,
+    /** Per-side padding (e.g. keep the route above a bottom sheet). Overrides
+     *  `paddingPx` where set; implementations without support ignore it. */
+    insets?: { top?: number; right?: number; bottom?: number; left?: number },
   ) => void;
   zoomIn: () => void;
   zoomOut: () => void;

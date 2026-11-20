@@ -138,7 +138,13 @@ export function OwnerVehicleDocumentsSection({
 
   const pickAndUpload = async (type: OwnerVehicleDocType) => {
     if (!editorType) return;
-    Alert.alert('Upload document', 'Choose a source', [
+    // Web: Alert.alert is a no-op there, so the button did nothing. The file
+    // picker accepts images and PDFs, so open it directly.
+    if (Platform.OS === 'web') {
+      void pickFile(type);
+      return;
+    }
+    const sources: { text: string; onPress?: () => void; style?: 'cancel' }[] = [
       {
         text: 'Photo library',
         onPress: () => void pickImage(type, 'library'),
@@ -151,8 +157,11 @@ export function OwnerVehicleDocumentsSection({
         text: 'PDF / file',
         onPress: () => void pickFile(type),
       },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    ];
+    // Android shows at most 3 buttons; a 4th "Cancel" was silently dropped.
+    // There, tapping outside / Back cancels instead.
+    if (Platform.OS !== 'android') sources.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert('Upload document', 'Choose a source', sources, { cancelable: true });
   };
 
   const pickImage = async (

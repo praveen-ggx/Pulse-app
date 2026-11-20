@@ -190,9 +190,13 @@ describe("F1 DriverTripHistoryDetailScreen fetch / spinner", () => {
       expect(mockGetDriverTripById).toHaveBeenCalledTimes(1);
     });
 
-    await waitFor(() => {
-      expect(queryByText("Loading trip…")).toBeNull();
-    });
+    // Generous timeout: the first load is slow when the whole suite runs in parallel.
+    await waitFor(
+      () => {
+        expect(queryByText("Loading trip…")).toBeNull();
+      },
+      { timeout: 5000 },
+    );
   });
 
   it("does not geocode or load the timeline map when opened on Settlement", async () => {
@@ -200,9 +204,13 @@ describe("F1 DriverTripHistoryDetailScreen fetch / spinner", () => {
       <DriverTripHistoryDetailScreen tripId="trip-1" initialTab="settlement" />,
     );
 
-    await waitFor(() => {
-      expect(queryByText("Loading trip…")).toBeNull();
-    });
+    // Generous timeout: the first load is slow when the whole suite runs in parallel.
+    await waitFor(
+      () => {
+        expect(queryByText("Loading trip…")).toBeNull();
+      },
+      { timeout: 5000 },
+    );
 
     expect(getTripAppLocationsForTimeline).not.toHaveBeenCalled();
     expect(reverseGeocodeCityStateLabel).not.toHaveBeenCalled();
@@ -213,9 +221,13 @@ describe("F1 DriverTripHistoryDetailScreen fetch / spinner", () => {
       <DriverTripHistoryDetailScreen tripId="trip-1" />,
     );
 
-    await waitFor(() => {
-      expect(queryByText("Loading trip…")).toBeNull();
-    });
+    // Generous timeout: the first load is slow when the whole suite runs in parallel.
+    await waitFor(
+      () => {
+        expect(queryByText("Loading trip…")).toBeNull();
+      },
+      { timeout: 5000 },
+    );
     expect(mockGetDriverTripById).toHaveBeenCalledTimes(1);
 
     await act(async () => {

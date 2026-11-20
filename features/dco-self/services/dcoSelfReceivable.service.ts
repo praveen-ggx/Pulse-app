@@ -6,7 +6,7 @@ import {
   rejectDcoSelfOutbox,
   rememberDcoSelfOutbox,
 } from "@/features/dco-self/offline/dcoSelfOutbox";
-import { isDcoSelfTransportError } from "@/features/dco-self/offline/dcoSelfOffline.util";
+import { dcoSelfPartyKey, isDcoSelfTransportError } from "@/features/dco-self/offline/dcoSelfOffline.util";
 import {
   cancelLocalDcoSelfTripTag,
   listLocalDcoSelfTripTags,
@@ -82,6 +82,9 @@ export async function upsertDcoSelfParty(input: {
   const { data, error } = await supabase().rpc("upsert_dco_self_party" as never, {
     p_name: name,
     p_phone: input.phone ?? null,
+    // Always sent: it also pins PostgREST to the 3-arg overload when an
+    // older (name, phone, notes, party_id) overload exists (PGRST203).
+    p_idempotency_key: dcoSelfPartyKey(local.localId),
   } as never);
   if (error) {
     if (isDcoSelfTransportError(error)) {

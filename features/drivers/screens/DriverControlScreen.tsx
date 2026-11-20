@@ -10,12 +10,13 @@ import {
     useDriverLocation,
 } from "@/features/drivers/hooks/useDriverLocation";
 import { useHoldButton } from "@/features/drivers/hooks/useHoldButton";
+import { showDriverTripCompleted } from "@/features/driver/components/DriverTripCompletedModal";
+import { getTripDisplayLabel } from "@/lib/globalId";
 import { useLrDocuments, usePodDocuments } from "@/features/drivers/hooks/useTripDocumentsByType";
 import {
     STEPS,
     useTripControl
 } from "@/features/drivers/hooks/useTripControl";
-import { computeDriverTripEstEarningsInr } from "@/features/finance/selectors/assetTripProvisionSelectors";
 import { DriverSelfAvatar } from "@/components/driver/DriverSelfAvatar";
 import { useDriverAvatarUri } from "@/lib/avatarUpload";
 import {
@@ -23,10 +24,12 @@ import {
     getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
 import {
+  computeDriverTripPayInr,
   isAggregateTrip,
   resolveDriverTripPayoutTerms,
   tripEarningsDetailForDriver,
 } from "@/features/drivers/utils/driverUtils.util";
+import { isClientSupplierTaggedTrip } from "@/features/drivers/domain/driverOperatingMode";
 import { formatINR } from "@/lib/format";
 import { formatEstimatedDuration } from "@/lib/formatEstimatedDuration";
 import { ROUTES } from "@/lib/routes";
@@ -58,6 +61,7 @@ import {
 } from "react-native";
 import { Pressable as HoldPressable } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { resolveAgreedPayTerms } from "@/features/drivers/utils/driverPayTerms.util";
 
 function formatTripDistanceForControl(
   distance: string | number | null | undefined,
@@ -127,9 +131,21 @@ export default function DriverControlScreen() {
     completeTrip,
   } = useTripControl(tripId);
 
+  const completeTripWithSuccess = async () => {
+    if (!(await completeTrip()) || !trip) return;
+    showDriverTripCompleted({
+      tripLabel: getTripDisplayLabel(trip),
+      pickupLabel: trip.pickup_area ?? null,
+      dropLabel: trip.drop_location ?? null,
+      // `commission` is computed below the loading returns; the hold button only exists once it is.
+      earnings: commission > 0 ? formatINR(commission) : null,
+      completedAt: new Date().toISOString(),
+    });
+  };
+
   // 2. Hold Button Hook (Hold-to-complete logic)
   const { holdProgress, isHolding, startHold, cancelHold } =
-    useHoldButton(completeTrip);
+    useHoldButton(completeTripWithSuccess);
 
   // 3. POD Documents Hook (Upload, View, Skip)
   const {
@@ -519,13 +535,16 @@ export default function DriverControlScreen() {
   // Without this check, an org that has never configured any driver pay ends up
   // shown as this driver's "employer" with a fabricated earnings estimate.
   const tripIsAggregate = isAggregateTrip(trip) || tripDriver?.tracking_only === true;
-  const payoutOffer = {
-    payableAmount: acceptedOffer?.payableAmount ?? tripDriver?.payable_amount ?? null,
-    commissionPercent:
-      acceptedOffer?.commissionPercent ?? tripDriver?.commission_percent ?? null,
-    commissionPerKm:
-      acceptedOffer?.commissionPerKm ?? tripDriver?.commission_per_km ?? null,
-  };
+  const payoutOffer = resolveAgreedPayTerms(
+    tripDriver,
+    acceptedOffer
+      ? {
+          payable_amount: acceptedOffer.payableAmount,
+          commission_percent: acceptedOffer.commissionPercent,
+          commission_per_km: acceptedOffer.commissionPerKm,
+        }
+      : null,
+  );
   // A drivers row existing is not enough on its own (same rule as the
   // tracking_only fix above) — an org that never configured pay must not produce
   // a number that looks payable just because the legacy 10% fallback returns one.
@@ -533,7 +552,7 @@ export default function DriverControlScreen() {
   const commission =
     tripIsAggregate || !hasAgreedPayoutTerms
       ? 0
-      : computeDriverTripEstEarningsInr(trip, payoutOffer);
+      : computeDriverTripPayInr(trip, payoutOffer);
   const effectiveEta =
     trip.estimated_duration?.trim() || routeMetricsFallback?.estimated_duration || null;
   const effectiveDistance = trip.distance ?? routeMetricsFallback?.distance ?? null;
@@ -555,10 +574,11 @@ export default function DriverControlScreen() {
 
   // Employer-based attribution: employerOrgIdSet / controlCurrentEmployer are
   // computed above, before the loading + authorization guards.
-  // Fleet trip: employer dispatched directly OR employer is supplier on a cross-org trip.
+  // Fleet trip: employer dispatched directly. A client trip that tags the
+  // employer as supplier is an offline trip (isClientSupplierTaggedTrip).
   const isControlTripFleet = controlCurrentEmployer
-    ? (employerOrgIdSet.has(String(trip.organization_id ?? '')) ||
-        (!!trip.supplier_id && employerOrgIdSet.has(String(trip.supplier_id ?? ''))))
+    ? employerOrgIdSet.has(String(trip.organization_id ?? '')) &&
+      !isClientSupplierTaggedTrip(trip)
     : false;
 
 

@@ -93,4 +93,24 @@ describe("registry feed — network lane", () => {
     expect(entryMatchesRegistryFilter(entry, "payment")).toBe(false);
     expect(entryMatchesRegistryFilter(entry, "received")).toBe(false);
   });
+
+  it("shows driver_disconnected under Driver, not Trip or Indent", () => {
+    const entry = buildRegistryFeed({
+      ...EMPTY,
+      tab: "active",
+      activeNetwork: [
+        netRow({
+          id: "n-disconnect",
+          event_type: "driver_disconnected",
+          indent_id: null,
+          title: "Ravi disconnected from your fleet",
+        }),
+      ],
+    })[0] as RegistryFeedEntry;
+
+    expect(entryMatchesRegistryFilter(entry, "all")).toBe(true);
+    expect(entryMatchesRegistryFilter(entry, "driver")).toBe(true);
+    expect(entryMatchesRegistryFilter(entry, "trip")).toBe(false);
+    expect(entryMatchesRegistryFilter(entry, "indent")).toBe(false);
+  });
 });

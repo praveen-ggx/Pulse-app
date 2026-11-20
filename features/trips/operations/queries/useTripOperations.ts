@@ -839,6 +839,7 @@ export function useSaveTripOtherExpense() {
         operatingMode: input.operatingMode ?? null,
         receiptStoragePath,
         ocrJobId: input.ocrJobId ?? null,
+        idempotencyKey: input.idempotencyKey ?? null,
       });
       if (save.error) throw save.error;
       return { queued: false };

@@ -112,3 +112,7 @@ e2e/.qa/
 
 # MIR data files (xlsx reports, not part of the app)
 MIR/
+
+# Local Android SDK / JDK used by scripts/build-release-apk.sh, and APK builds
+.tools/
+*.apk

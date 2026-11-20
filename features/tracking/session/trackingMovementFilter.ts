@@ -12,6 +12,8 @@ export type MovementFix = {
 export type MovementFilterConfig = {
   minDisplacementM: number;
   minIntervalMs: number;
+  /** Hard floor between publishes, even when displacement qualifies. Default 0 (off). */
+  minGapMs?: number;
 };
 
 export class TrackingMovementFilter {
@@ -33,6 +35,7 @@ export class TrackingMovementFilter {
     if (!this.last) {
       return true;
     }
+    if (elapsed < (this.config.minGapMs ?? 0)) return false;
     const dist = haversineM(
       this.last.latitude,
       this.last.longitude,

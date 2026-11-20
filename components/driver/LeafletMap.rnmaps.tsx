@@ -8,7 +8,6 @@ import { LeafletMapZoomControls } from '@/components/driver/LeafletMapZoomContro
 import { isExpoGo } from '@/lib/expoGoMaps';
 import { kindIndexFromMarkerId, tripMapMarkerRoleFromId } from '@/lib/mapMarkerIcons.util';
 import { RoutePlanMapPin } from '@/features/driver/job-card/parts/RoutePlanMapPin';
-import { withAlpha } from '@/lib/color';
 import React, { useCallback, useImperativeHandle, useMemo, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { withWebSafeShadows } from '@/lib/platformViewStyle.util';
@@ -20,8 +19,8 @@ import {
 } from './LeafletMap.expoWebView';
 import type { LeafletLatLng, LeafletMapProps, LeafletMapRef, LeafletPolylineLayer } from './LeafletMap.types';
 
-/** Route outline (glow) opacity — was the "40" in the old `${color}40` hex-alpha-suffix concatenation (0x40/255 ≈ 0.25). Same constant as LeafletMap.web.tsx. */
-const ROUTE_OUTLINE_ALPHA = 0.25;
+/** Short dash + round cap reads as round dots — Google-style "approx" path. */
+const ROUTE_DOTTED_PATTERN = [1, 9];
 
 function resolvePolylineLayers(
   polylines: LeafletPolylineLayer[] | undefined,
@@ -264,21 +263,23 @@ export const LeafletMapRnMaps = React.forwardRef<
             const glowWidth = layer.glowWidth ?? mainWidth + 5;
             return (
               <React.Fragment key={layer.id}>
-                <Polyline
-                  coordinates={layer.coordinates}
-                  strokeColor={withAlpha(color, ROUTE_OUTLINE_ALPHA)}
-                  strokeWidth={glowWidth}
-                  lineCap="round"
-                  lineJoin="round"
-                  lineDashPattern={layer.dashed ? [6, 8] : undefined}
-                />
+                {layer.dashed ? null : (
+                  // White casing under solid routes; dotted routes have none.
+                  <Polyline
+                    coordinates={layer.coordinates}
+                    strokeColor={Theme.cardWhite}
+                    strokeWidth={glowWidth}
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                )}
                 <Polyline
                   coordinates={layer.coordinates}
                   strokeColor={color}
                   strokeWidth={mainWidth}
                   lineCap="round"
                   lineJoin="round"
-                  lineDashPattern={layer.dashed ? [6, 8] : undefined}
+                  lineDashPattern={layer.dashed ? ROUTE_DOTTED_PATTERN : undefined}
                 />
               </React.Fragment>
             );

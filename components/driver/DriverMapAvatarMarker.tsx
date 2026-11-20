@@ -3,6 +3,7 @@ import {
   resolveDriverAvatarImageSource,
 } from '@/constants/DriverLevels';
 import { withWebSafeShadows } from '@/lib/platformViewStyle.util';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
@@ -22,6 +23,8 @@ export type DriverMapAvatarMarkerProps = {
   size?: number;
   /** Tap the online status chip to focus / view this location. */
   onPressStatus?: () => void;
+  /** 'avatar' (default): profile photo. 'truck': vehicle icon for trip maps. */
+  variant?: 'avatar' | 'truck';
 };
 
 function resolveAvatarSource(
@@ -43,6 +46,7 @@ export function DriverMapAvatarMarker({
   isOnline = false,
   size = 48,
   onPressStatus,
+  variant = 'avatar',
 }: DriverMapAvatarMarkerProps) {
   const ringColor = isOnline ? Theme.darkGreen : Theme.teslaRed;
   const pulse = useSharedValue(0.35);
@@ -106,15 +110,30 @@ export function DriverMapAvatarMarker({
           ]}
           pointerEvents="none"
         >
-          <Image
-            source={resolveAvatarSource(avatarUri, avatarSeed)}
-            style={{
-              width: inner,
-              height: inner,
-              borderRadius: inner / 2,
-            }}
-            resizeMode="cover"
-          />
+          {variant === 'truck' ? (
+            <View
+              style={[
+                styles.truckFace,
+                { width: inner, height: inner, borderRadius: inner / 2 },
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="truck"
+                size={Math.round(inner * 0.58)}
+                color={Theme.driverEmeraldDark}
+              />
+            </View>
+          ) : (
+            <Image
+              source={resolveAvatarSource(avatarUri, avatarSeed)}
+              style={{
+                width: inner,
+                height: inner,
+                borderRadius: inner / 2,
+              }}
+              resizeMode="cover"
+            />
+          )}
         </View>
         <Pressable
           onPress={onPressStatus}
@@ -178,6 +197,11 @@ const styles = withWebSafeShadows(
       shadowRadius: 8,
       elevation: 8,
       overflow: 'hidden',
+    },
+    truckFace: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: Theme.cardWhite,
     },
     statusChip: {
       position: 'absolute',

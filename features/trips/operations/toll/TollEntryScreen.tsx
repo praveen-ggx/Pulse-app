@@ -1,4 +1,5 @@
 import { SmartInput } from "@/components/mobile-input";
+import { showAppAlert } from "@/lib/appAlert";
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
 import {
   OperationalBottomActionBar,
@@ -189,6 +190,11 @@ export function TollEntryScreen({
   const saving = saveToll.isPending || updateToll.isPending;
 
   const handleSave = async () => {
+    // A ₹0 entry adds a useless expense row (other expenses already block this).
+    if (!(amountInr > 0)) {
+      showAppAlert("Enter the amount", "Enter the toll amount before saving.");
+      return;
+    }
     const payload = {
       tripId: trip.id,
       amountInr,
@@ -279,6 +285,7 @@ export function TollEntryScreen({
             onOtherCategoryChange={() => {}}
             onCategoryNavChange={onCategoryNavChange}
             lockCategorySwitch={lockCategorySwitch}
+            lockKindSwitch={isEditing}
           />
           <DriverExpenseFieldDivider />
           <DriverExpenseChipSelect

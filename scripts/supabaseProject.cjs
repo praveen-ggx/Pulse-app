@@ -274,8 +274,8 @@ function syncClientEnvOverride(projectRoot, resolved) {
   if (text !== raw) fs.writeFileSync(localPath, text);
 }
 
-function loadSupabaseProject(projectRoot, env = process.env) {
-  const resolved = resolveSupabaseProject({
+function resolveProjectRoot(projectRoot, env) {
+  return resolveSupabaseProject({
     explicitTarget: env.PULSE_SUPABASE_TARGET || readTargetFile(projectRoot),
     dotenv: parseEnvFile(path.join(projectRoot, ".env")),
     local: parseEnvFile(path.join(projectRoot, ".env.local")),
@@ -284,6 +284,10 @@ function loadSupabaseProject(projectRoot, env = process.env) {
     netlifyContext: env.CONTEXT || env.EXPO_PUBLIC_NETLIFY_CONTEXT || "",
     netlifySiteName: env.SITE_NAME || "",
   });
+}
+
+function loadSupabaseProject(projectRoot, env = process.env) {
+  const resolved = resolveProjectRoot(projectRoot, env);
   if (env.CONTEXT) {
     console.log(
       `[pulse][config] Netlify context ${env.CONTEXT}, SITE_NAME ${env.SITE_NAME || "unset"} -> Supabase ${resolved.target} (${resolved.projectRef})`,
@@ -294,6 +298,57 @@ function loadSupabaseProject(projectRoot, env = process.env) {
   return resolved;
 }
 
+/**
+ * Local dev servers must never talk to the production database. Returns the
+ * refusal message when the selected project is production, otherwise null.
+ * Resolution errors are left to `loadSupabaseProject`, which reports them.
+ * Read-only: does not touch `env` or `.env.local`.
+ */
+function devServerProductionBlock(projectRoot, env = process.env) {
+  let resolved;
+  try {
+    resolved = resolveProjectRoot(projectRoot, env);
+  } catch {
+    return null;
+  }
+  return productionBlockMessage(resolved);
+}
+
+function productionBlockMessage(resolved) {
+  if (resolved.target !== "production") return null;
+  return (
+    `Refusing to start a local dev server against production Supabase (${PRODUCTION_REF}). ` +
+    `Select preprod (${PREPROD_REF}) or local instead.`
+  );
+}
+
+/**
+ * Supabase project for a Vite dev server (oms, analytics). `.env` may still
+ * name production; this follows `.pulse-supabase-target` instead. Throws on
+ * an unresolvable target or a production target. Read-only.
+ */
+function devServerSupabaseOverride(projectRoot, env = process.env) {
+  const resolved = resolveProjectRoot(projectRoot, env);
+  const block = productionBlockMessage(resolved);
+  if (block) throw new Error(block);
+  return resolved;
+}
+
+/**
+ * Keeps a service-role key only when it belongs to the resolved project, so a
+ * dev bundle never carries another project's key. Cloud targets need a JWT
+ * whose `ref` matches; keys without a readable ref are dropped.
+ */
+function serviceRoleKeyForTarget(serviceRoleKey, resolved) {
+  const key = String(serviceRoleKey || "");
+  if (!key || !resolved) return "";
+  const keyRef = anonKeyProjectRef(key);
+  if (resolved.target === "local") {
+    return keyRef === PREPROD_REF || keyRef === PRODUCTION_REF ? "" : key;
+  }
+  return keyRef === resolved.projectRef ? key : "";
+}
+
 module.exports = {
   PREPROD_NETLIFY_SITE,
   PREPROD_REF,
@@ -301,7 +356,10 @@ module.exports = {
   classifySupabaseUrl,
   resolveSupabaseProject,
   applySupabaseProject,
+  devServerProductionBlock,
+  devServerSupabaseOverride,
   loadSupabaseProject,
   readTargetFile,
+  serviceRoleKeyForTarget,
   syncClientEnvOverride,
 };

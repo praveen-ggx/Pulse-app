@@ -8,8 +8,8 @@
  * parses that answer and derives display/routing decisions from it — it must
  * not recompute DCO status from dco_profiles, owner_vehicles or drivers rows.
  */
-import { isFleetTripMarked } from '../utils/driverFleetTripMark.util';
 import { isDcoOperatingTrip } from '../../trips/domain/tripDcoOperating';
+import { isConnectedFleetTripMark } from '../utils/driverFleetTripMark.util';
 
 export type DriverOperatingModeKind =
   | 'DRIVER'
@@ -81,6 +81,15 @@ export function isDcoOperatingMode(m: DriverOperatingMode): boolean {
  * employed. Vehicle is deliberately not required so the first one can be added.
  */
 export function canManageOwnerVehicles(m: DriverOperatingMode): boolean {
+  return m.mode === 'DCO' || m.mode === 'DCO_VEHICLE_REQUIRED';
+}
+
+/**
+ * Market tab, Find Work and Market deep links. Approved DCO not employed by a
+ * fleet; a DCO still adding the first vehicle sees Market's add-vehicle prompt.
+ * Plain drivers, fleet employees and suspended DCOs never see Market.
+ */
+export function canSeeMarketplace(m: DriverOperatingMode): boolean {
   return m.mode === 'DCO' || m.mode === 'DCO_VEHICLE_REQUIRED';
 }
 
@@ -184,6 +193,22 @@ export function driverJobSource(trip: {
   return 'business_assigned';
 }
 
+/**
+ * A client trip that tags a supplier (e.g. nihas → GK as supplier → GK's driver)
+ * is OFFLINE work for an employee driver, never a fleet trip — even when the
+ * client holds pay terms on its own drivers row. The driver works it through
+ * the supplier, not for the dispatching org. DCO trips never carry supplier_id
+ * and keep their own lanes; an explicit fleet mark (notes) still wins in
+ * driverHistoryLane.
+ */
+export function isClientSupplierTaggedTrip(trip: {
+  supplier_id?: string | null;
+  operating_mode?: string | null;
+}): boolean {
+  if (isDcoOperatingTrip(trip)) return false;
+  return String(trip.supplier_id ?? '').trim().length > 0;
+}
+
 /** History chips: DCO = Offline + Marketplace; connected employee = Fleet + Offline. */
 export type DriverHistoryLane = 'marketplace' | 'offline' | 'fleet';
 export type DriverHistoryTabId = 'offline' | 'marketplace' | 'fleet';
@@ -197,7 +222,10 @@ export function driverHistoryLane(
   isFleetDispatched: boolean,
 ): DriverHistoryLane {
   if (driverJobSource(trip) === 'marketplace_award') return 'marketplace';
-  if (isFleetDispatched || isFleetTripMarked(trip.notes)) return 'fleet';
+  // Fleet = the connected fleet dispatched it, or a fleet-connected driver
+  // marked it as their own fleet's work (mark carries fleetOrgId). Older
+  // marks without fleetOrgId came from any driver, so they stay offline.
+  if (isFleetDispatched || isConnectedFleetTripMark(trip.notes)) return 'fleet';
   return 'offline';
 }
 

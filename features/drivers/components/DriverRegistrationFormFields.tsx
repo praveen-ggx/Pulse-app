@@ -74,6 +74,10 @@ export type DriverRegistrationFormValues = {
   payableAmount: number | null;
   commissionPercent: number | null;
   commissionPerKm: number | null;
+  /** Invite only: vehicle, route, shift / hours, duties. */
+  jobDescription?: string;
+  /** Invite only: terms & conditions the driver must agree to. */
+  termsText?: string;
 };
 
 type Props = {
@@ -90,6 +94,10 @@ type Props = {
   onChangePayableAmount: (v: number | null) => void;
   onChangeCommissionPercent: (v: number | null) => void;
   onChangeCommissionPerKm: (v: number | null) => void;
+  /** When given (invite mode), shows the Job description field. */
+  onChangeJobDescription?: (v: string) => void;
+  /** When given (invite mode), shows the Terms & conditions field. */
+  onChangeTermsText?: (v: string) => void;
   phoneLookupLoading?: boolean;
   phoneLookupError?: string | null;
   existingMatches?: ExistingDriverMatch[];
@@ -116,6 +124,8 @@ export function DriverRegistrationFormFields({
   onChangePayableAmount,
   onChangeCommissionPercent,
   onChangeCommissionPerKm,
+  onChangeJobDescription,
+  onChangeTermsText,
   phoneLookupLoading = false,
   phoneLookupError = null,
   existingMatches = [],
@@ -314,6 +324,33 @@ export function DriverRegistrationFormFields({
           </Field>
         </View>
       </View>
+
+      {inviteMode && onChangeJobDescription ? (
+        <Field label="Job description" optionalHint="optional">
+          <TextInput
+            style={[styles.input, { minHeight: 72, textAlignVertical: 'top' }]}
+            placeholder="Vehicle, route, shift / working hours, duties"
+            placeholderTextColor={Theme.textMuted}
+            multiline
+            value={values.jobDescription ?? ''}
+            onChangeText={onChangeJobDescription}
+            editable={!submitting}
+          />
+        </Field>
+      ) : null}
+      {inviteMode && onChangeTermsText ? (
+        <Field label="Terms & conditions" optionalHint="driver must agree">
+          <TextInput
+            style={[styles.input, { minHeight: 72, textAlignVertical: 'top' }]}
+            placeholder="e.g. Notice period, leave, fuel / toll rules, payment day"
+            placeholderTextColor={Theme.textMuted}
+            multiline
+            value={values.termsText ?? ''}
+            onChangeText={onChangeTermsText}
+            editable={!submitting}
+          />
+        </Field>
+      ) : null}
 
       {inviteMode ? (
         <>

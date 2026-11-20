@@ -11,7 +11,7 @@ import { resolveDocumentMime } from '@/lib/kycDocuments';
 const DRIVER_DOCUMENTS_BUCKET = 'driver-documents';
 const SIGNED_URL_TTL_SEC = 60 * 60; // 1 hour
 
-export type DriverKycDocType = 'license' | 'aadhaar' | 'pan' | 'selfie' | 'other';
+export type DriverKycDocType = 'license' | 'aadhaar' | 'pan' | 'selfie' | 'bank_proof' | 'other';
 export type DriverKycStatus = 'pending' | 'verified' | 'rejected' | 'expired';
 
 export interface DriverKycQueueRow {
@@ -168,7 +168,15 @@ export interface DriverKycSubmissionRow {
   pending_count: number;
   verified_count: number;
   rejected_count: number;
+  /**
+   * DCO-only documents (PAN, bank proof) at 'pending' while the driver has an
+   * open DCO request. > 0 puts an already-verified driver back in "Awaiting".
+   */
+  dco_docs_pending: number;
 }
+
+const SUBMISSION_COLUMNS =
+  'driver_user_id,driver_id,driver_name,driver_phone,organization_name,submitted_at,review_status,reviewed_at,review_notes,attempt_count,optional_not_provided,document_count,pending_count,verified_count,rejected_count';
 
 /**
  * Drivers who have pressed "submit for verification", newest first. Reads the
@@ -176,15 +184,46 @@ export interface DriverKycSubmissionRow {
  * submission row — the documents table only carries driver_user_id.
  */
 export async function fetchDriverKycSubmissions(): Promise<DriverKycSubmissionRow[]> {
-  const { data, error } = await supabase
+  const withDco = await supabase
     .from('driver_kyc_review_queue')
-    .select(
-      'driver_user_id,driver_id,driver_name,driver_phone,organization_name,submitted_at,review_status,reviewed_at,review_notes,attempt_count,optional_not_provided,document_count,pending_count,verified_count,rejected_count',
-    )
+    .select(`${SUBMISSION_COLUMNS},dco_docs_pending`)
     .order('submitted_at', { ascending: false });
 
+  // Older schema without dco_docs_pending: fall back rather than empty the queue.
+  const { data, error } = withDco.error
+    ? await supabase
+        .from('driver_kyc_review_queue')
+        .select(SUBMISSION_COLUMNS)
+        .order('submitted_at', { ascending: false })
+    : withDco;
+
   if (error || !data?.length) return [];
-  return data as DriverKycSubmissionRow[];
+  const rows = (data as Partial<DriverKycSubmissionRow>[]).map((r) => ({
+    ...(r as DriverKycSubmissionRow),
+    dco_docs_pending: Number(r.dco_docs_pending ?? 0),
+  }));
+
+  // The view takes name/phone from the fleet `drivers` row. A driver with no
+  // fleet (e.g. a DCO) has none, so fill from their own profile via the
+  // reviewer-scoped RPC (profiles RLS does not let reviewers read it directly).
+  const missing = rows.filter((r) => !r.driver_name || !r.driver_phone).map((r) => r.driver_user_id);
+  if (missing.length) {
+    const { data: profiles } = await supabase.rpc('get_driver_kyc_reviewer_profiles', {
+      p_driver_user_ids: [...new Set(missing)],
+    });
+    const byId = new Map(
+      ((profiles ?? []) as { id: string; full_name: string | null; phone: string | null }[]).map(
+        (p) => [p.id, p],
+      ),
+    );
+    for (const r of rows) {
+      const p = byId.get(r.driver_user_id);
+      if (!p) continue;
+      r.driver_name = r.driver_name || p.full_name;
+      r.driver_phone = r.driver_phone || p.phone;
+    }
+  }
+  return rows;
 }
 
 /** Documents belonging to one driver, with signed URLs for inline viewing. */

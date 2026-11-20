@@ -32,6 +32,7 @@ import {
   type MilestoneGuideActionKind,
 } from '@/features/experience/experienceProgress';
 import { MilestoneHowToModal } from '@/features/experience/components/MilestoneHowToModal';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { ROUTES } from '@/lib/routes';
 import { supabase } from '@/lib/supabase';
 
@@ -58,6 +59,7 @@ export default function LevelProgressionScreen() {
     else router.replace('/(driver)/profile');
   };
   const { profile, user } = useAuth();
+  const { canSeeMarketplace } = useDriverOperatingModeQuery(profile?.uid);
   const [tripsCount, setTripsCount] = useState(0);
   const [ratings, setRatings] = useState<RatingRow[]>([]);
   const [isVerified, setIsVerified] = useState(false);
@@ -306,7 +308,9 @@ export default function LevelProgressionScreen() {
         onAction={(kind: MilestoneGuideActionKind) => {
           setGuideLevel(null);
           if (kind === 'documents') router.push('/(driver)/documents');
-          if (kind === 'find_work') router.push(ROUTES.driverAvailableLoads());
+          if (kind === 'find_work') {
+            router.push(canSeeMarketplace ? ROUTES.driverAvailableLoads() : ROUTES.driverDcoStatus());
+          }
         }}
       />
     </View>

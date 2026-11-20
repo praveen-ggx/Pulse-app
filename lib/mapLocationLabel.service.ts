@@ -1,4 +1,5 @@
 import { TRACKING_LOCATION_GEOCODE_MAX } from '@/lib/trackingLocation.constants';
+import { cleanOsmAreaName } from '@/lib/maps/placeSearch.util';
 
 /**
  * Reverse geocode coordinates → human-readable place labels (tracking UI).
@@ -92,16 +93,17 @@ function formatNominatimAddress(
   mode: MapLocationLabelMode,
 ): string | null {
   if (!address) return null;
+  // OSM ward numbers ("Ward 30", "Zone 3 Madhavaram") are cleaned/skipped.
   const road =
     address.road?.trim() ||
     address.pedestrian?.trim() ||
-    address.neighbourhood?.trim() ||
+    cleanOsmAreaName(address.neighbourhood) ||
     '';
   const city =
     address.city?.trim() ||
-    address.town?.trim() ||
+    cleanOsmAreaName(address.town) ||
     address.village?.trim() ||
-    address.suburb?.trim() ||
+    cleanOsmAreaName(address.suburb) ||
     '';
   const state = address.state?.trim() || '';
   if (mode === 'city') {

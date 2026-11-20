@@ -71,3 +71,44 @@ export async function fetchUsableRouteForKey(
   const res = await getOptimalRoute(parsed.from, parsed.to);
   return isUsableRouteResult(res) ? res : null;
 }
+
+/** Stops closer than this are treated as the same point (no leg to route). */
+const MULTI_STOP_MIN_LEG_M = 40;
+
+/**
+ * Road geometry through every stop in order (Pickup 1 → … → Drop N), one leg per
+ * pair via `getOptimalRoute` (cached). Returns null when any leg cannot be routed,
+ * so callers can fall back to the straight "approx" line instead of a half-road path.
+ */
+export async function fetchUsableMultiStopRoute(
+  stops: LatLon[],
+): Promise<RouteResult | null> {
+  const legs: Array<[LatLon, LatLon]> = [];
+  for (let i = 1; i < stops.length; i += 1) {
+    const from = stops[i - 1];
+    const to = stops[i];
+    if (
+      distanceMeters(from.latitude, from.longitude, to.latitude, to.longitude) >
+      MULTI_STOP_MIN_LEG_M
+    ) {
+      legs.push([from, to]);
+    }
+  }
+  if (legs.length === 0) return null;
+
+  const routed = await Promise.all(
+    legs.map(([from, to]) => getOptimalRoute(from, to).catch(() => null)),
+  );
+  if (routed.some((leg) => !isUsableRouteResult(leg))) return null;
+
+  const coordinates: LatLon[] = [];
+  let distance = 0;
+  let duration = 0;
+  for (const leg of routed as RouteResult[]) {
+    // Drop each leg's first point after the first leg so joins don't double up.
+    coordinates.push(...(coordinates.length ? leg.coordinates.slice(1) : leg.coordinates));
+    distance += leg.distance;
+    duration += leg.duration;
+  }
+  return { coordinates, distance, duration };
+}

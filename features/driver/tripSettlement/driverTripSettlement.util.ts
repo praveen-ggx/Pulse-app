@@ -2,6 +2,7 @@ import type { LedgerEntryReceiptDetailRow } from "@/components/ledger/LedgerEntr
 import {
   isAggregateTrip,
   tripEarningsDetailForDriver,
+  type DriverTripEarningsParts,
   type DriverTripPayoutTerms,
 } from "@/features/drivers/utils/driverUtils.util";
 import { getDriverTripDisplayNumber } from "@/features/driver/utils/driverTripSequence.util";
@@ -42,6 +43,8 @@ export type DriverTripSettlementView = {
   otherIncomeAmount: number;
   /** Deduction ledger total for this trip (absolute INR). */
   deductionsAmount: number;
+  /** Agreed pay breakdown (commission % part + per-km part), when known. */
+  payParts: DriverTripEarningsParts | null;
   /** Fleet-marked amount before driver verifies (if any) */
   fleetMarkedAmount: number | null;
   /** Verified settlement amount (if settled) */
@@ -81,6 +84,17 @@ export function sumTripOtherIncome(
     if (String(entry.trip_id ?? "").trim() !== tid) continue;
     const type = String(entry.type ?? "").toLowerCase();
     if (type !== "bonus" && type !== "adjustment") continue;
+    // A fleet payout is mirrored into the driver ledger as an `adjustment`
+    // tagged "Sync: FLEET_PAID_PENDING" (sync_driver_ledger_from_transaction).
+    // That is the trip payment itself — already shown in the payment row — not
+    // extra income, so counting it here would show the same money twice.
+    if (
+      type === "adjustment" &&
+      (hasFleetPaidPendingToken(entry.description) ||
+        isLegacyFleetPendingEvidence(entry.description))
+    ) {
+      continue;
+    }
     const amt = Math.round(Number(entry.amount) || 0);
     if (amt > 0) total += amt;
   }
@@ -341,6 +355,7 @@ export function buildDriverTripSettlementView(input: {
     showEstimatedEarning,
     otherIncomeAmount,
     deductionsAmount,
+    payParts: isSalary || isEstimated ? null : (earningsDetail.parts ?? null),
   };
 
   if (isSalary) {

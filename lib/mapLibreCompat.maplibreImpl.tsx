@@ -11,6 +11,8 @@ import React, {
 } from "react";
 import { StyleSheet, View, type ViewProps } from "react-native";
 
+import { NATIVE_BASEMAP_STYLE } from "./maps/nativeBasemapStyle";
+
 type Coordinate = { latitude: number; longitude: number };
 
 type Region = Coordinate & {
@@ -86,8 +88,7 @@ type CameraRefLike = React.ElementRef<typeof MapLibreGL.Camera>;
 
 const MARKER_TAG = "map-compat-marker";
 const POLYLINE_TAG = "map-compat-polyline";
-const MAP_STYLE =
-  "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const MAP_STYLE = NATIVE_BASEMAP_STYLE;
 
 function toLngLat(c: Coordinate): [number, number] {
   return [c.longitude, c.latitude];

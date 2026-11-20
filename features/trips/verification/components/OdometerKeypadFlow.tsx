@@ -1,9 +1,10 @@
 /**
  * Odometer entry — tappable readings strip, centered amount, docked keypad.
  */
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -50,6 +51,8 @@ export type OdometerKeypadFlowProps = {
   startPhotoUri?: string | null;
   endPhotoUri?: string | null;
   onFieldPhotoPress?: (fieldId: OdometerFieldId) => void;
+  /** Trip cell is a result. When set, tapping it opens the combined reading. */
+  onTripPress?: () => void;
 };
 
 /** Same pay keypad as FullscreenNumericEntry amount entry (equal cells, KEY_H_PAY). */
@@ -59,6 +62,7 @@ function KeypadDock({ onKey }: { onKey: (key: KeypadKey) => void }) {
       onKey={onKey}
       showDecimal={false}
       variant="pay"
+      canvasColor={Theme.driverEmeraldWash}
     />
   );
 }
@@ -101,6 +105,49 @@ function FieldPhotoThumb({
   );
 }
 
+function formatCapturedClock(date: Date): string {
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function CaptureMeta({
+  caption,
+  raw,
+  capturedAt,
+}: {
+  caption: string;
+  raw: string;
+  capturedAt: string | null;
+}) {
+  const digits = raw.trim();
+  return (
+    <View style={local.metaCard}>
+      <View style={local.metaCol}>
+        <View style={local.metaLabelRow}>
+          <Feather name="crosshair" size={12} color={Theme.driverEmerald} />
+          <Text style={local.metaLabel}>{caption}</Text>
+        </View>
+        {digits.length > 0 ? (
+          <Text style={local.metaValue} numberOfLines={1}>
+            {digits}
+          </Text>
+        ) : (
+          <Feather name="play" size={22} color={Theme.driverEmerald} />
+        )}
+      </View>
+      <View style={local.metaDivider} />
+      <View style={local.metaCol}>
+        <View style={local.metaLabelRow}>
+          <Feather name="clock" size={12} color={Theme.textMuted} />
+          <Text style={local.metaLabel}>Time Captured</Text>
+        </View>
+        <Text style={[local.metaValue, !capturedAt && local.metaValueEmpty]} numberOfLines={1}>
+          {capturedAt ?? " "}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function ReadingsStrip({
   startRaw,
   endRaw,
@@ -114,6 +161,8 @@ function ReadingsStrip({
   startPhotoUri,
   endPhotoUri,
   onFieldPhotoPress,
+  onTripPress,
+  timeline = false,
 }: {
   startRaw: string;
   endRaw: string;
@@ -127,6 +176,8 @@ function ReadingsStrip({
   startPhotoUri?: string | null;
   endPhotoUri?: string | null;
   onFieldPhotoPress?: (fieldId: OdometerFieldId) => void;
+  onTripPress?: () => void;
+  timeline?: boolean;
 }) {
   const cells = [
     {
@@ -154,13 +205,13 @@ function ReadingsStrip({
           : "—",
       active: false,
       hasPhoto: false,
-      selectable: false,
+      selectable: onTripPress != null,
     },
   ];
 
   return (
     <View style={local.readingsBlock}>
-      {startPhotoUri?.trim() || endPhotoUri?.trim() ? (
+      {!timeline && (startPhotoUri?.trim() || endPhotoUri?.trim()) ? (
         <View style={local.fieldThumbRow}>
           {startPhotoUri?.trim() ? (
             <FieldPhotoThumb
@@ -187,7 +238,7 @@ function ReadingsStrip({
         </View>
       ) : null}
 
-      <View style={local.readingsStrip}>
+      <View style={[local.readingsStrip, timeline && local.timelineStrip]}>
       {cells.map((cell, index) => {
         const Wrapper = cell.selectable ? Pressable : View;
         return (
@@ -195,19 +246,23 @@ function ReadingsStrip({
             key={cell.id}
             style={[
               local.readingsCell,
-              cell.active && local.readingsCellActive,
-              index < cells.length - 1 && local.readingsCellBorder,
+              timeline && local.timelineCell,
+              cell.active && (timeline ? local.timelineCellActive : local.readingsCellActive),
+              !timeline && index < cells.length - 1 && local.readingsCellBorder,
             ]}
             {...(cell.selectable
               ? {
-                  onPress: () => onActiveFieldChange?.(cell.id as OdometerFieldId),
+                  onPress: () =>
+                    cell.id === "trip"
+                      ? onTripPress?.()
+                      : onActiveFieldChange?.(cell.id as OdometerFieldId),
                   accessibilityRole: "button" as const,
                   accessibilityState: { selected: cell.active },
                 }
               : {})}
           >
             <View style={local.readingsLabelRow}>
-              <Text style={[local.readingsLabel, cell.active && local.readingsLabelActive]}>
+              <Text style={[local.readingsLabel, cell.active && (timeline ? local.timelineLabelActive : local.readingsLabelActive)]}>
                 {cell.label}
               </Text>
               {cell.hasPhoto ? (
@@ -226,6 +281,7 @@ function ReadingsStrip({
             >
               {cell.value}
             </Text>
+            {timeline && cell.active ? <View style={local.timelineArrow} /> : null}
           </Wrapper>
         );
       })}
@@ -251,6 +307,7 @@ export const OdometerKeypadFlow = memo(function OdometerKeypadFlow({
   startPhotoUri,
   endPhotoUri,
   onFieldPhotoPress,
+  onTripPress,
 }: OdometerKeypadFlowProps) {
   const { width } = useWindowDimensions();
   const isDesktopKeypad = width >= Layout.wizardSteppedMaxWidth;
@@ -258,6 +315,21 @@ export const OdometerKeypadFlow = memo(function OdometerKeypadFlow({
   const stripSelectsField = onActiveFieldChange != null;
   const activeRaw = activeFieldId === "start" ? startRawValue : endRawValue;
   const activeLabel = activeFieldId === "start" ? "Start KM" : "End KM";
+  const activePhotoUri = activeFieldId === "start" ? startPhotoUri : endPhotoUri;
+  const [capturedAt, setCapturedAt] = useState<string | null>(null);
+  const seenPhoto = useRef<string | null>(null);
+
+  useEffect(() => {
+    const uri = activePhotoUri?.trim() || null;
+    if (!uri) {
+      seenPhoto.current = null;
+      setCapturedAt(null);
+      return;
+    }
+    if (seenPhoto.current === uri) return;
+    seenPhoto.current = uri;
+    setCapturedAt(formatCapturedClock(new Date()));
+  }, [activePhotoUri]);
 
   const startKm = useMemo(() => rawToKm(startRawValue), [startRawValue]);
   const endKm = useMemo(() => rawToKm(endRawValue), [endRawValue]);
@@ -287,6 +359,8 @@ export const OdometerKeypadFlow = memo(function OdometerKeypadFlow({
         startPhotoUri={startPhotoUri}
         endPhotoUri={endPhotoUri}
         onFieldPhotoPress={onFieldPhotoPress}
+        onTripPress={onTripPress}
+        timeline={shellMode}
       />
 
       {!stripSelectsField || !shellMode ? (
@@ -300,16 +374,18 @@ export const OdometerKeypadFlow = memo(function OdometerKeypadFlow({
         </View>
       ) : null}
 
-      <View style={local.displayWrap}>
-        <NumericDisplay
-          rawValue={activeRaw}
-          type="distance"
-          prefix=""
-          suffix=" KM"
-          placeholder="0"
-          variant={shellMode ? "wizardCompact" : "wizard"}
-        />
-      </View>
+      {shellMode ? null : (
+        <View style={local.displayWrap}>
+          <NumericDisplay
+            rawValue={activeRaw}
+            type="distance"
+            prefix=""
+            suffix=" KM"
+            placeholder="0"
+            variant="wizard"
+          />
+        </View>
+      )}
 
       {extras ? <View style={local.extrasWrap}>{extras}</View> : null}
     </View>
@@ -319,7 +395,16 @@ export const OdometerKeypadFlow = memo(function OdometerKeypadFlow({
     return (
       <View style={local.root}>
         <View style={wizard.wizardKeypadDesktopRow}>
-          <View style={[wizard.wizardKeypadAmountPane, local.desktopPane]}>{amountPane}</View>
+          <View style={[wizard.wizardKeypadAmountPane, local.desktopPane]}>
+            {shellMode ? (
+              <CaptureMeta
+                caption={activeFieldId === "start" ? "Start Value" : "End Value"}
+                raw={activeRaw}
+                capturedAt={capturedAt}
+              />
+            ) : null}
+            {amountPane}
+          </View>
           <View style={wizard.wizardKeypadKeysPane}>
             <View style={local.keypadDockPay}>
               <KeypadDock onKey={handleKey} />
@@ -332,6 +417,15 @@ export const OdometerKeypadFlow = memo(function OdometerKeypadFlow({
 
   return (
     <View style={local.root}>
+      {shellMode ? (
+        <View style={local.metaDock}>
+          <CaptureMeta
+            caption={activeFieldId === "start" ? "Start Value" : "End Value"}
+            raw={activeRaw}
+            capturedAt={capturedAt}
+          />
+        </View>
+      ) : null}
       <ScrollView
         style={local.scroll}
         contentContainerStyle={[local.scrollContent, shellMode && local.scrollContentShell]}
@@ -352,6 +446,7 @@ const local = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     width: "100%",
+    backgroundColor: Theme.driverEmeraldWash,
   },
   scroll: {
     flex: 1,
@@ -428,6 +523,99 @@ const local = StyleSheet.create({
   desktopPane: {
     justifyContent: "flex-start",
     paddingTop: 8,
+  },
+  metaDock: {
+    marginTop: -18,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    zIndex: 3,
+  },
+  metaCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    zIndex: 2,
+    ...Platform.select({
+      web: { boxShadow: "0 8px 20px rgba(15, 23, 42, 0.06)" } as object,
+      ios: {
+        shadowColor: "#0f172a",
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+      },
+      android: { elevation: 2 },
+      default: {},
+    }),
+  },
+  metaCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  metaLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  metaLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  metaValue: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: Theme.driverEmerald,
+    fontVariant: ["tabular-nums"],
+    minHeight: 24,
+  },
+  metaValueEmpty: {
+    color: "transparent",
+  },
+  metaDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: "stretch",
+    backgroundColor: Theme.borderLight,
+    marginHorizontal: 12,
+  },
+  timelineStrip: {
+    backgroundColor: Theme.surfaceGray,
+    borderColor: Theme.borderLight,
+    overflow: "visible",
+    padding: 4,
+    gap: 0,
+  },
+  timelineCell: {
+    position: "relative",
+    backgroundColor: "transparent",
+    borderRadius: 10,
+    overflow: "visible",
+  },
+  timelineCellActive: {
+    backgroundColor: Theme.odometerStepActive,
+  },
+  timelineLabelActive: {
+    color: Theme.textPrimaryDark,
+  },
+  timelineArrow: {
+    position: "absolute",
+    right: -8,
+    top: "50%",
+    marginTop: -8,
+    width: 0,
+    height: 0,
+    borderTopWidth: 8,
+    borderBottomWidth: 8,
+    borderLeftWidth: 8,
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    borderLeftColor: Theme.odometerStepActive,
   },
   readingsStrip: {
     flexDirection: "row",

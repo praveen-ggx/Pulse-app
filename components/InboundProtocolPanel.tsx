@@ -11,6 +11,10 @@ import { PartyAvatar } from "@/components/PartyAvatar";
 import { TinyEmptyLottie } from "@/components/TinyEmptyLottie";
 import Theme from "@/constants/Theme";
 import { OrgVerificationBadges } from "@/features/network/components/OrgVerificationBadges";
+import {
+  DriverInviteSentReview,
+  driverInviteSentStatusLabel,
+} from "@/features/drivers/components/DriverInviteSentReview";
 import { resolveInboundInviteAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.util";
 import { EMPTY_STATE_LOTTIE } from "@/lib/emptyStateLottieAssets";
 import type { InboundProtocolInviteItem } from "@/lib/globalSync/inboundProtocol.types";
@@ -145,57 +149,85 @@ function InviteSignalRow({
   const avatar = resolveInboundInviteAvatar(item);
   const { actionText, highlightText, trailingText } = inviteHeadlineParts(tab, item);
 
+  // Driver change request / decline: shown full width UNDER the card (the
+  // card footer is a right-aligned button row and would clip it).
+  const listDriverReview =
+    tab === "sent" &&
+    item.kind === "driver" &&
+    (item.driverInviteStatus === "countered" || item.driverInviteStatus === "rejected")
+      ? item.driverInviteStatus
+      : null;
+
   return (
-    <AlertRegistrySignalCard
-      avatar={avatar}
-      actorName={item.name}
-      actionText={actionText}
-      highlightText={highlightText}
-      trailingText={trailingText}
-      detailTitle={item.type}
-      detailSubtitle={item.subtitle}
-      timeLabel={formatRelativeTime(item.createdAt)}
-      contextLabel={inviteContextLabel(item)}
-      statusPill={{
-        label: tab === "sent" ? "Pending" : item.kind === "driver" ? "Driver" : "Invite",
-        tone: tab === "sent" ? "warning" : "neutral",
-      }}
-      isUnread={tab === "received"}
-      onPress={canOpenDetail ? () => onOpenInviteDetail?.(item) : undefined}
-      headerEnd={
-        item.kind !== "driver" ? (
-          <OrgVerificationBadges
-            verification={{ verificationStatus: item.verificationStatus }}
-            compact
-            style={{ justifyContent: "flex-end" }}
+    <View>
+      <AlertRegistrySignalCard
+        avatar={avatar}
+        actorName={item.name}
+        actionText={actionText}
+        highlightText={highlightText}
+        trailingText={trailingText}
+        detailTitle={item.type}
+        detailSubtitle={item.subtitle}
+        timeLabel={formatRelativeTime(item.createdAt)}
+        contextLabel={inviteContextLabel(item)}
+        statusPill={{
+          label:
+            tab === "sent"
+              ? item.kind === "driver"
+                ? driverInviteSentStatusLabel(item.driverInviteStatus)
+                : "Pending"
+              : item.kind === "driver"
+                ? "Driver"
+                : "Invite",
+          tone: tab === "sent" ? "warning" : "neutral",
+        }}
+        isUnread={tab === "received"}
+        onPress={canOpenDetail ? () => onOpenInviteDetail?.(item) : undefined}
+        headerEnd={
+          item.kind !== "driver" ? (
+            <OrgVerificationBadges
+              verification={{ verificationStatus: item.verificationStatus }}
+              compact
+              style={{ justifyContent: "flex-end" }}
+            />
+          ) : undefined
+        }
+        footer={
+          tab === "received" ? (
+            <RegistryCardActions>
+              <RegistryGhostButton
+                label="Decline"
+                onPress={() => onReject(item)}
+                disabled={busy}
+              />
+              <RegistryPrimaryButton
+                label="Accept"
+                onPress={() => onApprove(item)}
+                disabled={busy}
+              />
+            </RegistryCardActions>
+          ) : listDriverReview ? undefined : (
+            <RegistryCardActions>
+              <RegistryGhostButton
+                label="Recall"
+                onPress={() => onCancel(item)}
+                disabled={busy}
+              />
+            </RegistryCardActions>
+          )
+        }
+      />
+      {listDriverReview ? (
+        <View style={styles.driverReviewBelow}>
+          <DriverInviteSentReview
+            inviteId={item.id}
+            driverName={item.name}
+            status={listDriverReview}
+            orgId={item.fromOrgId}
           />
-        ) : undefined
-      }
-      footer={
-        tab === "received" ? (
-          <RegistryCardActions>
-            <RegistryGhostButton
-              label="Decline"
-              onPress={() => onReject(item)}
-              disabled={busy}
-            />
-            <RegistryPrimaryButton
-              label="Accept"
-              onPress={() => onApprove(item)}
-              disabled={busy}
-            />
-          </RegistryCardActions>
-        ) : (
-          <RegistryCardActions>
-            <RegistryGhostButton
-              label="Recall"
-              onPress={() => onCancel(item)}
-              disabled={busy}
-            />
-          </RegistryCardActions>
-        )
-      }
-    />
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -225,7 +257,19 @@ function InviteGridCard({
     Boolean(onOpenInviteDetail);
   const avatar = resolveInboundInviteAvatar(item);
   const statusLabel =
-    tab === "sent" ? "Pending" : item.kind === "driver" ? "Driver" : "Invite";
+    tab === "sent"
+      ? item.kind === "driver"
+        ? driverInviteSentStatusLabel(item.driverInviteStatus)
+        : "Pending"
+      : item.kind === "driver"
+        ? "Driver"
+        : "Invite";
+  const driverReview =
+    tab === "sent" &&
+    item.kind === "driver" &&
+    (item.driverInviteStatus === "countered" || item.driverInviteStatus === "rejected")
+      ? item.driverInviteStatus
+      : null;
   const statusTone = tab === "sent" ? "warning" : ("neutral" as const);
   const { actionText, highlightText, trailingText } = inviteHeadlineParts(tab, item);
 
@@ -311,7 +355,7 @@ function InviteGridCard({
                 disabled={busy}
               />
             </>
-          ) : (
+          ) : driverReview ? null : (
             <RegistryGhostButton
               label="Recall"
               onPress={() => onCancel(item)}
@@ -320,6 +364,14 @@ function InviteGridCard({
           )}
         </View>
       </View>
+      {driverReview ? (
+        <DriverInviteSentReview
+          inviteId={item.id}
+          driverName={item.name}
+          status={driverReview}
+          orgId={item.fromOrgId}
+        />
+      ) : null}
     </Pressable>
   );
 }
@@ -577,6 +629,10 @@ export function InboundProtocolPanel({
 }
 
 const styles = StyleSheet.create({
+  driverReviewBelow: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
   shell: {
     width: METRONIC.panelWidth,
     maxWidth: Platform.OS === "web" ? ("96vw" as unknown as number) : "100%",

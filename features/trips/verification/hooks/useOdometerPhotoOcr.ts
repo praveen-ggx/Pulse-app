@@ -140,22 +140,13 @@ export function useOdometerPhotoOcr({
         const reviewAction = ocrReviewActionForConfidence(confidence);
         const lowConfidence = reviewAction !== "auto_accept";
 
-        if (!currentNorm && reviewAction === "auto_accept") {
+        // Empty field: always put OCR KM into the keypad so Trip (End − Start) can calculate.
+        // Confirm only when the field already has a different value.
+        if (!currentNorm) {
           onKmAppliedRef.current(formatted);
           pendingKmRef.current = null;
           setScanState({
             ...buildOdometerScanCompleteState(formatted, true, processingSec),
-            detectedKm: formatted,
-          });
-          return;
-        }
-
-        if (!currentNorm && reviewAction !== "auto_accept") {
-          pendingKmRef.current = formatted;
-          setScanState({
-            ...buildOdometerScanConfirmState(formatted, "", processingSec, {
-              lowConfidence: reviewAction === "manual_confirm",
-            }),
             detectedKm: formatted,
           });
           return;

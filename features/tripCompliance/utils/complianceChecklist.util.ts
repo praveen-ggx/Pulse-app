@@ -14,6 +14,12 @@ import {
   type ComplianceDocumentRow,
 } from "@/features/tripCompliance/tripCompliance.types";
 import { classifyTripDocument } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
+import {
+  canonicalEntityDocsByType,
+  pickCanonicalEntityDoc,
+} from "@/features/compliance/utils/currentDocument.util";
+
+export { pickCanonicalEntityDoc };
 
 export function checklistTone(verified: number, total: number): ComplianceChecklistTone {
   if (total > 0 && verified >= total) return "success";
@@ -50,6 +56,7 @@ type EntityDocLike = {
   status: string;
   expiry_date?: string | null;
   storage_path?: string | null;
+  created_at?: string | null;
 };
 
 function hasOnFileEntityDoc(doc: EntityDocLike | undefined): boolean {
@@ -66,10 +73,7 @@ export function listExpiredRequiredVehicleDocTypes(
   vehicleDocuments: EntityDocLike[],
   now = new Date(),
 ): string[] {
-  const byType = new Map<string, EntityDocLike>();
-  for (const doc of vehicleDocuments) {
-    if (!byType.has(doc.doc_type)) byType.set(doc.doc_type, doc);
-  }
+  const byType = canonicalEntityDocsByType(vehicleDocuments);
   const expired: string[] = [];
   for (const type of REQUIRED_VEHICLE_DOCUMENT_TYPES) {
     const doc = byType.get(type);
@@ -86,10 +90,7 @@ export function listExpiringSoonRequiredVehicleDocTypes(
   now = new Date(),
   withinDays = 30,
 ): string[] {
-  const byType = new Map<string, EntityDocLike>();
-  for (const doc of vehicleDocuments) {
-    if (!byType.has(doc.doc_type)) byType.set(doc.doc_type, doc);
-  }
+  const byType = canonicalEntityDocsByType(vehicleDocuments);
   const soon: string[] = [];
   for (const type of REQUIRED_VEHICLE_DOCUMENT_TYPES) {
     const doc = byType.get(type);
@@ -150,24 +151,24 @@ function buildGroup(
 
 export function buildComplianceChecklist(input: {
   tripDocuments: ComplianceDocumentRow[];
-  vehicleDocuments: Array<{ doc_type: string; status: string; expiry_date?: string | null; storage_path?: string | null }>;
-  driverDocuments: Array<{ doc_type: string; status: string; expiry_date?: string | null; storage_path?: string | null }>;
+  vehicleDocuments: EntityDocLike[];
+  driverDocuments: EntityDocLike[];
   now?: Date;
 }): ComplianceChecklist {
   const now = input.now ?? new Date();
   const tripVerified = new Set(
     input.tripDocuments.filter((doc) => isTripVaultDocumentOnFile(doc)).map((doc) => doc.document_type as string),
   );
-  const vehicleVerified = new Set(
-    input.vehicleDocuments
-      .filter((doc) => isEntityDocumentSlotVerified(doc, now, doc.doc_type))
-      .map((doc) => doc.doc_type),
-  );
-  const driverVerified = new Set(
-    input.driverDocuments
-      .filter((doc) => isEntityDocumentSlotVerified(doc, now, doc.doc_type))
-      .map((doc) => doc.doc_type),
-  );
+  // Judge each slot by its current copy only — an older valid copy must not
+  // mask a newer expired one, and an older expired copy must not mask a newer valid one.
+  const verifiedSlots = (docs: EntityDocLike[]) =>
+    new Set(
+      [...canonicalEntityDocsByType(docs).values()]
+        .filter((doc) => isEntityDocumentSlotVerified(doc, now, doc.doc_type))
+        .map((doc) => doc.doc_type),
+    );
+  const vehicleVerified = verifiedSlots(input.vehicleDocuments);
+  const driverVerified = verifiedSlots(input.driverDocuments);
 
   const groups: ComplianceChecklist["groups"] = [
     buildGroup("trip", "Trip", REQUIRED_COMPLIANCE_DOCUMENT_TYPES, REQUIRED_COMPLIANCE_DOCUMENT_TYPES, tripVerified),

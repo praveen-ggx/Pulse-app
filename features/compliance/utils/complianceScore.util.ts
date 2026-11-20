@@ -1,4 +1,5 @@
 import type { DocumentRow } from '../services/documents.service';
+import { isLiveEntityDoc, isSupersededEntityDoc } from './currentDocument.util';
 
 export type ComplianceLevel = 'excellent' | 'good' | 'warning' | 'critical';
 
@@ -28,15 +29,21 @@ export const REQUIRED_DOC_TYPES: Record<string, string[]> = {
 };
 
 export function computeComplianceScore(
-  documents: DocumentRow[],
+  allDocuments: DocumentRow[],
   entityType: string,
 ): ComplianceScore {
+  // Same rows as SQL compute_compliance_score: replaced and superseded copies
+  // (an older file of a slot that has a newer, differently dated file) are history.
+  const documents = allDocuments.filter(
+    (d) => d.status !== 'replaced' && !isSupersededEntityDoc(d, allDocuments),
+  );
   const today = new Date();
   const in7days = new Date(today.getTime() + 7 * 86400000);
   const in30days = new Date(today.getTime() + 30 * 86400000);
 
   const active = documents.filter(d => d.status === 'active' || d.status === 'verified');
   const expired = documents.filter(d => {
+    if (!isLiveEntityDoc(d)) return false;
     if (d.status === 'expired') return true;
     if (d.expiry_date && new Date(d.expiry_date) < today) return true;
     return false;
@@ -55,7 +62,7 @@ export function computeComplianceScore(
   const pending = documents.filter(d => d.status === 'pending');
 
   const requiredTypes = REQUIRED_DOC_TYPES[entityType] ?? [];
-  const presentTypes = new Set(documents.map(d => d.doc_type));
+  const presentTypes = new Set(documents.filter(isLiveEntityDoc).map(d => d.doc_type));
   const missing = requiredTypes.filter(t => !presentTypes.has(t)).length;
 
   const total = documents.length;

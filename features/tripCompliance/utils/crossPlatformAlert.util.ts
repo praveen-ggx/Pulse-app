@@ -35,3 +35,35 @@ export async function confirmAction(
     ]);
   });
 }
+
+export type SlotUploadChoice = "replace" | "add_page";
+
+/**
+ * A vehicle / driver slot already has a file. Ask whether the new file
+ * replaces it (a renewed document — the old copy is kept as history) or is
+ * another page of the same document. Null = cancelled.
+ * Web has no three-button dialog, so it asks two yes/no questions.
+ */
+export async function chooseReplaceOrAddPage(label: string): Promise<SlotUploadChoice | null> {
+  const title = `${label} is already on file`;
+  if (Platform.OS === "web") {
+    if (window.confirm(`${title}\n\nReplace it with the new file? The current file is kept as history.\n\nOK = Replace · Cancel = more options`)) {
+      return "replace";
+    }
+    return window.confirm(`Add the new file as another page of the current ${label}?\n\nOK = Add page · Cancel = stop`)
+      ? "add_page"
+      : null;
+  }
+  return new Promise((resolve) => {
+    Alert.alert(
+      title,
+      "Replace it with a renewed document, or add another page of the same document?",
+      [
+        { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
+        { text: "Add page", onPress: () => resolve("add_page") },
+        { text: "Replace", onPress: () => resolve("replace") },
+      ],
+      { cancelable: true, onDismiss: () => resolve(null) },
+    );
+  });
+}

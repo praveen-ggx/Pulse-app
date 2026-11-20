@@ -27,6 +27,9 @@ const ENTITY: ComplianceEntityDocument = {
   source: "entity",
 };
 
+const SLOT_ROW_ID = `${ENTITY.entity_id}-insurance`;
+const HIDDEN = new Error("Could not approve this vehicle document. The vehicle record was not found.");
+
 describe("approveComplianceVehicleDocument", () => {
   beforeEach(() => {
     mockMarkVehicle.mockReset();
@@ -34,47 +37,112 @@ describe("approveComplianceVehicleDocument", () => {
     mockGetDocumentsByEntity.mockReset();
   });
 
-  it("writes the owned vault when the vehicle row is visible", async () => {
+  it("writes the owned vault when the displayed file is the slot's main file", async () => {
     mockMarkVehicle.mockResolvedValue({ documents: {}, error: null });
     const result = await approveComplianceVehicleDocument({
       orgId: "org-trip",
       vehicleId: ENTITY.entity_id,
       docType: "insurance",
       actorId: "user-1",
+      displayedDocumentId: SLOT_ROW_ID,
+      displayedStoragePath: "owner/ins.jpeg",
       vehicleDocuments: [ENTITY],
     });
     expect(result.error).toBeNull();
+    expect(mockMarkVehicle).toHaveBeenCalledWith("org-trip", ENTITY.entity_id, "insurance");
     expect(mockVerifyDocument).not.toHaveBeenCalled();
   });
 
-  it("approves the viewer-org entity copy when the partner vehicle row is hidden", async () => {
-    mockMarkVehicle.mockResolvedValue({
-      documents: null,
-      error: new Error("Could not approve this vehicle document. The vehicle record was not found."),
-    });
+  it("partner truck: approves the viewer-org row holding the displayed file (dated)", async () => {
+    mockMarkVehicle.mockResolvedValue({ documents: null, error: HIDDEN });
     mockVerifyDocument.mockResolvedValue({ error: null });
     const result = await approveComplianceVehicleDocument({
       orgId: "org-trip",
       vehicleId: ENTITY.entity_id,
       docType: "insurance",
       actorId: "user-1",
+      displayedDocumentId: SLOT_ROW_ID,
+      displayedStoragePath: ENTITY.storage_path,
       vehicleDocuments: [ENTITY],
     });
     expect(result.error).toBeNull();
     expect(mockVerifyDocument).toHaveBeenCalledWith(ENTITY.id, "user-1");
   });
 
-  it("keeps the vault error when there is no viewer-org entity copy", async () => {
-    const vaultError = new Error("Could not approve this vehicle document. The vehicle record was not found.");
-    mockMarkVehicle.mockResolvedValue({ documents: null, error: vaultError });
+  it("partner truck: approves the matching file even when it is undated", async () => {
+    mockMarkVehicle.mockResolvedValue({ documents: null, error: HIDDEN });
+    mockVerifyDocument.mockResolvedValue({ error: null });
+    const undated = { ...ENTITY, expiry_date: null };
+    const result = await approveComplianceVehicleDocument({
+      orgId: "org-trip",
+      vehicleId: ENTITY.entity_id,
+      docType: "insurance",
+      actorId: "user-1",
+      displayedDocumentId: SLOT_ROW_ID,
+      displayedStoragePath: undated.storage_path,
+      vehicleDocuments: [undated],
+    });
+    expect(result.error).toBeNull();
+    expect(mockVerifyDocument).toHaveBeenCalledWith(ENTITY.id, "user-1");
+  });
+
+  it("never approves a different copy of the slot (older dated or newer undated)", async () => {
+    mockMarkVehicle.mockResolvedValue({ documents: null, error: HIDDEN });
+    mockGetDocumentsByEntity.mockResolvedValue({ error: null, documents: [] });
+    const olderDated = { ...ENTITY, storage_path: "viewer/ins-2025.jpeg", expiry_date: "2025-01-01" };
+    const newerUndated = {
+      ...ENTITY,
+      id: "c1d2e3f4-14b6-4948-a167-a6126203c992",
+      storage_path: "viewer/ins-new.jpeg",
+      expiry_date: null,
+      created_at: "2026-11-19T00:00:00.000Z",
+    };
+    const result = await approveComplianceVehicleDocument({
+      orgId: "org-trip",
+      vehicleId: ENTITY.entity_id,
+      docType: "insurance",
+      actorId: "user-1",
+      displayedDocumentId: SLOT_ROW_ID,
+      displayedStoragePath: "owner/ins.jpeg",
+      vehicleDocuments: [olderDated, newerUndated],
+    });
+    expect(result.error?.message).toMatch(/truck owner's records/);
+    expect(mockVerifyDocument).not.toHaveBeenCalled();
+  });
+
+  it("an extra page on the vault does not mark the slot's main file", async () => {
     mockGetDocumentsByEntity.mockResolvedValue({ error: null, documents: [] });
     const result = await approveComplianceVehicleDocument({
       orgId: "org-trip",
       vehicleId: ENTITY.entity_id,
-      docType: "rc",
+      docType: "insurance",
       actorId: "user-1",
+      displayedDocumentId: "extra-123",
+      displayedStoragePath: "owner/extras/extra-123.jpeg",
       vehicleDocuments: [],
     });
-    expect(result.error).toBe(vaultError);
+    expect(mockMarkVehicle).not.toHaveBeenCalled();
+    expect(mockVerifyDocument).not.toHaveBeenCalled();
+    expect(result.error).not.toBeNull();
+  });
+
+  it("finds the matching viewer-org row from the database when not in the summary", async () => {
+    mockMarkVehicle.mockResolvedValue({ documents: null, error: HIDDEN });
+    mockVerifyDocument.mockResolvedValue({ error: null });
+    mockGetDocumentsByEntity.mockResolvedValue({
+      error: null,
+      documents: [{ ...ENTITY, entity_type: "vehicle", storage_path: "viewer/ins.jpeg" }],
+    });
+    const result = await approveComplianceVehicleDocument({
+      orgId: "org-trip",
+      vehicleId: ENTITY.entity_id,
+      docType: "insurance",
+      actorId: "user-1",
+      displayedDocumentId: SLOT_ROW_ID,
+      displayedStoragePath: "viewer/ins.jpeg",
+      vehicleDocuments: [],
+    });
+    expect(result.error).toBeNull();
+    expect(mockVerifyDocument).toHaveBeenCalledWith(ENTITY.id, "user-1");
   });
 });

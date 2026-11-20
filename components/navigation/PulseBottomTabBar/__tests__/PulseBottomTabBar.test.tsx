@@ -3,7 +3,7 @@
  * trip_compliance.tab, no sales.chat) get Compliance instead of a dead Chat slot.
  */
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import { PulseBottomTabBar, type PulseBottomTabBarProps } from '../PulseBottomTabBar';
 
 jest.mock('react-native', () => jest.requireActual('react-native'));
@@ -11,6 +11,13 @@ jest.mock('@/lib/preloadRoutes', () => ({
   preloadPulseLoadsRoute: jest.fn(),
   preloadTabScreen: jest.fn(),
 }));
+
+async function settlePress(node: Parameters<typeof fireEvent.press>[0]) {
+  await act(async () => {
+    fireEvent.press(node);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+}
 
 function renderBar(overrides: Partial<PulseBottomTabBarProps> = {}) {
   const onTabChange = jest.fn();
@@ -31,7 +38,7 @@ function renderBar(overrides: Partial<PulseBottomTabBarProps> = {}) {
 }
 
 describe('PulseBottomTabBar', () => {
-  it('Ground Ops: Trips and Compliance only — no Chat or Profile', () => {
+  it('Ground Ops: Trips and Compliance only — no Chat or Profile', async () => {
     const { queryByLabelText, getByLabelText, onTabChange } = renderBar({
       visibility: { finance: false, trips: true, network: false, loadCenter: false, compliance: true },
       showChat: false,
@@ -42,7 +49,7 @@ describe('PulseBottomTabBar', () => {
     expect(queryByLabelText('Home')).toBeNull();
     expect(queryByLabelText('Cash')).toBeNull();
 
-    fireEvent.press(getByLabelText('Comply'));
+    await settlePress(getByLabelText('Comply'));
     expect(onTabChange).toHaveBeenCalledWith('compliance');
   });
 
@@ -54,7 +61,7 @@ describe('PulseBottomTabBar', () => {
     expect(queryByLabelText('Chat')).toBeTruthy();
   });
 
-  it('on a chat route only Chat is selected and badges show capped counts', () => {
+  it('on a chat route only Chat is selected and badges show capped counts', async () => {
     const onOpenChat = jest.fn();
     const { getByLabelText, getByText } = renderBar({
       isChatRoute: true,
@@ -66,16 +73,16 @@ describe('PulseBottomTabBar', () => {
     expect(getByLabelText('Trips').props.accessibilityState).toEqual({ selected: false });
     expect(getByText('9+')).toBeTruthy();
     expect(getByText('3')).toBeTruthy();
-    fireEvent.press(getByLabelText('Chat'));
+    await settlePress(getByLabelText('Chat'));
     expect(onOpenChat).toHaveBeenCalled();
   });
 
-  it('Marketplace replaces Loads and opens the load center from its own pill', () => {
+  it('Marketplace replaces Loads and opens the load center from its own pill', async () => {
     const { getByLabelText, queryByLabelText, onTabChange } = renderBar({ activeTab: 'loadCenter' });
     expect(queryByLabelText('Loads')).toBeNull();
     expect(getByLabelText('Marketplace').props.accessibilityState).toEqual({ selected: true });
     expect(getByLabelText('Trips').props.accessibilityState).toEqual({ selected: false });
-    fireEvent.press(getByLabelText('Marketplace'));
+    await settlePress(getByLabelText('Marketplace'));
     expect(onTabChange).toHaveBeenCalledWith('loadCenter');
   });
 

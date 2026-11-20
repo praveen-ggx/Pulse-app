@@ -1,6 +1,7 @@
 import {
   COMPLIANCE_DEFAULT_ADVANCE_PERCENT,
   COMPLIANCE_PAYMENT_DOC_CHARGES_PLACEHOLDER,
+  advancePostAmount,
   canonicalSupplierRateBasis,
   computeCompliancePaymentAmount,
   computeComplianceTdsAmount,
@@ -8,6 +9,55 @@ import {
   resolveComplianceDocumentationCharge,
   resolveComplianceTdsRate,
 } from "@/features/tripCompliance/utils/compliancePaymentAmount.util";
+
+describe("advancePostAmount", () => {
+  it("keeps the file amount and updates the percent when it differs from the current advance", () => {
+    const result = advancePostAmount({
+      fileAmount: 9000,
+      payable: 8000,
+      advancePercent: 40,
+      baseFreight: 20000,
+      documentationCharges: 0,
+      tdsAmount: 0,
+    });
+    expect(result.amount).toBe(9000);
+    expect(result.advancePercent).toBe(45);
+    expect(result.tone).toBe("alert");
+    expect(result.error).toBeNull();
+    expect(result.notice).toContain("from 40%");
+    expect(result.notice).toContain("to 45%");
+    expect(result.notice).toContain("₹9,000 will be posted");
+  });
+
+  it("uses the current payable when the file amount is blank", () => {
+    const result = advancePostAmount({ fileAmount: null, payable: 8300, advancePercent: 90 });
+    expect(result.amount).toBe(8300);
+    expect(result.advancePercent).toBe(90);
+    expect(result.error).toBeNull();
+    expect(result.tone).toBe("preview");
+  });
+
+  it("previews a matching amount without changing it", () => {
+    const result = advancePostAmount({ fileAmount: 8300, payable: 8300, advancePercent: 90 });
+    expect(result.amount).toBe(8300);
+    expect(result.tone).toBe("preview");
+    expect(result.notice).toBe("Advance 90% · ₹8,300");
+  });
+
+  it("refuses a file amount the percent cannot reach, and does not substitute another value", () => {
+    const result = advancePostAmount({
+      fileAmount: 25000,
+      payable: 8000,
+      advancePercent: 40,
+      baseFreight: 20000,
+      documentationCharges: 0,
+      tdsAmount: 0,
+    });
+    expect(result.amount).toBe(25000);
+    expect(result.advancePercent).toBeNull();
+    expect(result.error).toContain("was not changed");
+  });
+});
 
 describe("computeCompliancePaymentAmount", () => {
   it("applies base freight × advance % minus charges", () => {

@@ -270,6 +270,80 @@ function payableFromVaultTerms(
   });
 }
 
+type AdvanceVaultQuote = {
+  payable: number;
+  percent: number;
+  baseFreight: number;
+  tdsAmount: number;
+  documentationCharges: number;
+};
+
+function quoteFromVaultTerms(
+  input: {
+    supplierRate: number | null | undefined;
+    supplierRateBasis: string | null | undefined;
+    loadTons: number | null | undefined;
+  },
+  profile: VendorOnboardingProfile | null,
+  rates: SupplierTdsRate[],
+  docCharge: Awaited<ReturnType<typeof getDocumentChargeConfig>>["data"],
+): AdvanceVaultQuote | null {
+  const baseFreight = supplierBaseFreight(input);
+  if (baseFreight == null || baseFreight <= 0) return null;
+  const resolvedTds = resolveComplianceTdsRate(rates);
+  const tdsAmount = computeComplianceTdsAmount(baseFreight, resolvedTds?.ratePercent ?? null);
+  const adv = profile?.advance_percentage;
+  const vendorPct = adv != null && Number.isFinite(Number(adv)) ? Number(adv) : null;
+  const percent =
+    vendorPct != null
+      ? Math.min(100, Math.max(0, vendorPct))
+      : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
+  const documentationCharges = resolveComplianceDocumentationCharge(docCharge, baseFreight).amount;
+  const payable = computeCompliancePaymentAmount({
+    baseFreight,
+    advancePercent: percent,
+    documentationCharges,
+    tdsAmount,
+  });
+  if (payable <= 0) return null;
+  return { payable, percent, baseFreight, tdsAmount, documentationCharges };
+}
+
+/** Supplier advance percent, or 90 when the supplier has none, with the payable it produces. */
+export async function quoteAdvancePayablesForTrips(
+  organizationId: string,
+  trips: Array<{ id: string; supplierId: string | null }>,
+): Promise<Map<string, AdvanceVaultQuote>> {
+  const out = new Map<string, AdvanceVaultQuote>();
+  const rows = trips.filter((trip) => trip.id.trim());
+  if (!organizationId.trim() || rows.length === 0) return out;
+  const freightByTrip = await readTripSupplierFreightByIds(rows.map((trip) => trip.id));
+  const doc = await getDocumentChargeConfig(organizationId);
+  const supplierIds = [...new Set(rows.map((trip) => (trip.supplierId ?? "").trim()).filter(Boolean))];
+  const terms = new Map<string, { profile: VendorOnboardingProfile | null; rates: SupplierTdsRate[] }>();
+  await mapWithConcurrency(supplierIds, TERMS_FETCH_CONCURRENCY, async (supplierId) => {
+    const [tdsResult, profileResult] = await Promise.all([
+      listSupplierTdsRates(organizationId, supplierId),
+      getVendorOnboardingProfile(organizationId, supplierId),
+    ]);
+    terms.set(supplierId, { profile: profileResult.profile, rates: tdsResult.rates });
+  });
+  for (const trip of rows) {
+    const freight = freightByTrip.get(trip.id);
+    if (!freight) continue;
+    const supplierId = (trip.supplierId ?? "").trim();
+    const vault = supplierId ? terms.get(supplierId) : undefined;
+    const quote = quoteFromVaultTerms(
+      freight,
+      vault?.profile ?? null,
+      vault?.rates ?? [],
+      doc.data,
+    );
+    if (quote) out.set(trip.id, quote);
+  }
+  return out;
+}
+
 /**
  * Computed advance payable for many pending trips. One vault read per unique
  * supplier (not 4 requests per trip) and no ledger — export only needs the amount.

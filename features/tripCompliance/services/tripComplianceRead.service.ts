@@ -54,7 +54,7 @@ import {
   isOperationsDeliveredTrip,
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import { chunkIdsForRead, readAllPages, readByIdChunks } from "@/lib/pagination";
+import { chunkIdsForRead, mapWithConcurrency, readAllPages, readByIdChunks } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 
 /**
@@ -111,23 +111,6 @@ async function readTripDocumentsSelect(
     },
   );
   return { data, error };
-}
-
-async function mapWithConcurrency<T>(
-  items: readonly T[],
-  limit: number,
-  run: (item: T) => Promise<void>,
-): Promise<void> {
-  if (items.length === 0) return;
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const item = items[next];
-      next += 1;
-      await run(item);
-    }
-  });
-  await Promise.all(workers);
 }
 
 /** Set once the RPC is known to be missing on this backend (not yet migrated). */
@@ -234,9 +217,10 @@ export async function fetchComplianceTripFlags(
 ): Promise<Map<string, ComplianceTripFlags>> {
   const byTrip = new Map<string, ComplianceTripFlags>();
   // One read per id chunk: the whole org's trip ids in one `.in(...)` is HTTP 400.
-  for (const chunk of chunkIdsForRead(tripIds)) {
+  // Chunks do not share ids, so a few can run together instead of a serial chain.
+  await mapWithConcurrency(chunkIdsForRead(tripIds), 4, async (chunk) => {
     await readComplianceTripFlagsChunk(chunk, byTrip);
-  }
+  });
   return byTrip;
 }
 
@@ -1205,7 +1189,7 @@ export async function fetchTripAdvanceLedger(tripId: string): Promise<{
     .eq("trip_id", tripId)
     // Client receipts are money in; compliance advance / balance are supplier
     // payouts (money out) — match both, not only amount_in.
-    .or("amount_in.gt.0,ledger_category.in.(compliance_advance,compliance_balance)")
+    .or("amount_in.gt.0,ledger_category.eq.compliance_advance,ledger_category.eq.compliance_balance")
     .order("transaction_date", { ascending: true });
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as RawTxnRow[];
@@ -1216,6 +1200,127 @@ export async function fetchTripAdvanceLedger(tripId: string): Promise<{
   return {
     complianceAdvance: toPaymentSummary(rows.filter((row) => row.ledger_category === "compliance_advance")),
     receipts,
+  };
+}
+
+export type PostedCompliancePaymentRow = {
+  id: string;
+  tripLabel: string;
+  supplierName: string;
+  supplierAvatarUrl: string;
+  supplierAvatarSeed: string;
+  supplierOrganizationImageUrl: string;
+  supplierOrganizationAvatarSeed: string;
+  amount: number;
+  mode: string;
+  utr: string;
+  date: string;
+  createdAt: string;
+  createdBy: string | null;
+};
+
+async function linkedOrgAvatars(orgIds: string[]): Promise<Map<string, { image: string; seed: string }>> {
+  const marks = new Map<string, { image: string; seed: string }>();
+  if (orgIds.length === 0) return marks;
+  const { data, error } = await supabase().rpc("get_connection_partner_display_batch", {
+    p_linked_organization_ids: orgIds,
+  });
+  if (error || data == null || typeof data !== "object") return marks;
+  for (const [id, entry] of Object.entries(data as Record<string, { logoUrl?: string; avatarUrl?: string; ownerAvatarUrl?: string; avatarSeed?: string; orgAvatarSeed?: string }>)) {
+    const image = (entry?.logoUrl || entry?.avatarUrl || entry?.ownerAvatarUrl || "").trim();
+    const seed = (entry?.avatarSeed || entry?.orgAvatarSeed || "").trim();
+    if (image || seed) marks.set(id, { image, seed });
+  }
+  return marks;
+}
+
+/** Posted advance or balance payments for this workspace, newest first. */
+export async function listPostedCompliancePayments(params: {
+  organizationId: string;
+  category: "compliance_advance" | "compliance_balance";
+  limit?: number;
+  before?: { createdAt: string; id: string } | null;
+}): Promise<{ payments: PostedCompliancePaymentRow[]; hasMore: boolean; error: Error | null }> {
+  const pageSize = params.limit ?? 40;
+  let query = supabase()
+    .from("transactions")
+    .select("id, trip_id, amount_out, description, transaction_date, created_at, created_by, payment_reference, party_name, contact_id, contact_type")
+    .eq("organization_id", params.organizationId)
+    .eq("ledger_category", params.category)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(pageSize + 1);
+  if (params.before) {
+    const stamp = params.before.createdAt;
+    query = query.or(`created_at.lt.${stamp},and(created_at.eq.${stamp},id.lt.${params.before.id})`);
+  }
+  const { data, error } = await query;
+  if (error) return { payments: [], hasMore: false, error: new Error(error.message) };
+  const page = (data ?? []).slice(0, pageSize) as Array<RawTxnRow & { party_name?: string | null; contact_id?: string | null; contact_type?: string | null }>;
+  const tripIds = [...new Set(page.map((row) => row.trip_id).filter((id): id is string => Boolean(id)))];
+  const labels = new Map<string, string>();
+  const supplierByTrip = new Map<string, string>();
+  const supplierMarks = new Map<string, { url: string; seed: string; organizationImage: string; organizationSeed: string }>();
+  if (tripIds.length > 0) {
+    const trips = await supabase()
+      .from("trips")
+      .select("id, trip_operational_code, display_trip_id, trip_number, supplier_id")
+      .eq("organization_id", params.organizationId)
+      .in("id", tripIds);
+    for (const trip of trips.data ?? []) {
+      const label = trip.trip_operational_code || trip.display_trip_id || trip.trip_number;
+      if (label) labels.set(trip.id, label);
+      if (trip.supplier_id) supplierByTrip.set(trip.id, trip.supplier_id);
+    }
+    const supplierIds = [...new Set([
+      ...supplierByTrip.values(),
+      ...page
+        .filter((row) => row.contact_type === "supplier" && row.contact_id)
+        .map((row) => row.contact_id as string),
+    ])];
+    if (supplierIds.length > 0) {
+      const suppliers = await supabase()
+        .from("suppliers")
+        .select("id, avatar_url, avatar_seed, linked_organization_id")
+        .in("id", supplierIds);
+      const orgIds = [...new Set((suppliers.data ?? []).map((supplier) => supplier.linked_organization_id).filter((id): id is string => Boolean(id)))];
+      const branding = await linkedOrgAvatars(orgIds);
+      for (const supplier of suppliers.data ?? []) {
+        const linked = branding.get(supplier.linked_organization_id ?? "");
+        supplierMarks.set(supplier.id, {
+          url: supplier.avatar_url?.trim() || "",
+          seed: supplier.avatar_seed?.trim() || "",
+          organizationImage: linked?.image || "",
+          organizationSeed: linked?.seed || "",
+        });
+      }
+    }
+  }
+  return {
+    payments: page.map((row) => {
+      const structured = interpretLedgerRowStructured(row);
+      const amount = Number(row.amount_out ?? 0);
+      const supplierId = (row.trip_id && supplierByTrip.get(row.trip_id))
+        || (row.contact_type === "supplier" ? row.contact_id ?? "" : "");
+      const mark = supplierMarks.get(supplierId) ?? { url: "", seed: "", organizationImage: "", organizationSeed: "" };
+      return {
+        id: row.id,
+        tripLabel: (row.trip_id && labels.get(row.trip_id)) || row.party_name?.trim() || "Payment",
+        supplierName: row.party_name?.trim() || "",
+        supplierAvatarUrl: mark.url,
+        supplierAvatarSeed: mark.seed,
+        supplierOrganizationImageUrl: mark.organizationImage,
+        supplierOrganizationAvatarSeed: mark.organizationSeed,
+        amount: Number.isFinite(amount) ? amount : 0,
+        mode: stripLedgerMetaTag(structured.payment_mode) || "",
+        utr: stripLedgerMetaTag(row.payment_reference) || stripLedgerMetaTag(structured.reference_number) || "",
+        date: row.transaction_date,
+        createdAt: row.created_at || row.transaction_date,
+        createdBy: row.created_by,
+      };
+    }),
+    hasMore: (data ?? []).length > pageSize,
+    error: null,
   };
 }
 

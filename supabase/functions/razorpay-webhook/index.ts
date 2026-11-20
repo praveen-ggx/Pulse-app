@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
   let payload: Record<string, unknown>;
   try {
     payload = JSON.parse(rawBody);
-  } catch (e) {
+  } catch {
     return jsonResponse({ error: 'invalid_payload' }, 400);
   }
 

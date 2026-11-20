@@ -14,11 +14,13 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type TextStyle,
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
-import { Eye } from "lucide-react-native";
+import { Calendar, Eye } from "lucide-react-native";
+import { PartyAvatar } from "@/components/PartyAvatar";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import type { ComplianceLedgerCategory } from "@/features/tripCompliance/services/tripComplianceWrite.service";
@@ -40,19 +42,39 @@ import {
   templateCsv,
   unmappedHeaders,
 } from "@/features/bulkOperations/utils/bulkOperation.engine.util";
+import { spreadsheetToCsv } from "@/features/bulkOperations/utils/bulkSpreadsheet.util";
 import type { BulkPreviewRow, ColumnMapping } from "@/features/bulkOperations/utils/bulkOperation.model";
 import { resolveComplianceActorNames } from "@/features/tripCompliance/services/complianceDocumentView.service";
+import { listPostedCompliancePayments } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import {
   confirmPaymentFieldBatch,
   correctPaymentField,
   listBulkBatches,
+  listBulkBatchMatchRows,
   loadBulkBatchDetail,
   type StoredBatch,
 } from "@/features/bulkOperations/services/bulkHistory.service";
+import {
+  batchMatchesLogFilters,
+  fieldUpdateLogEntry,
+  findBulkFileForPayments,
+  groupPostedPayments,
+  mergePaymentLogs,
+  mergeStoredPaymentLogs,
+  PAYMENT_POST_ADAPTER_ID,
+  previewRowMatchesFilters,
+  readPendingPaymentLogs,
+  type PaymentLogFilters,
+  type PendingPaymentLog,
+} from "@/features/bulkOperations/utils/bulkPaymentLog.util";
 
-async function readUri(uri: string): Promise<string> {
-  if (Platform.OS === "web") return (await fetch(uri)).text();
-  return FileSystem.readAsStringAsync(uri, { encoding: "utf8" });
+async function readUri(uri: string, name: string): Promise<string> {
+  if (Platform.OS === "web") {
+    const bytes = new Uint8Array(await (await fetch(uri)).arrayBuffer());
+    return spreadsheetToCsv(name, bytes, "array");
+  }
+  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  return spreadsheetToCsv(name, base64, "base64");
 }
 
 async function downloadTemplate(name: string, text: string): Promise<void> {
@@ -94,7 +116,7 @@ function Tag({ label, tone }: { label: string; tone: string }) {
 
 const STEP_COPY = [
   "Choose Advance or Balance, then the fields to change.",
-  "Upload the CSV. Use the template for the fields you selected.",
+  "Upload the CSV or Excel file. Use the template for the fields you selected.",
   "Open the preview. We check the Trip ID and the fields you selected.",
   "Confirm. Only rows that pass are updated.",
 ] as const;
@@ -142,7 +164,7 @@ export function BulkOperationWorkspace({
   organizationId: string;
   category: ComplianceLedgerCategory;
   grantedSurfaces: readonly string[];
-  onBatchSaved?: () => void;
+  onBatchSaved?: (entry: PendingPaymentLog) => void;
   onProgress?: (progress: { activeStep: number; nextLine: string }) => void;
 }) {
   const granted = useMemo(() => new Set(grantedSurfaces), [grantedSurfaces]);
@@ -183,9 +205,16 @@ export function BulkOperationWorkspace({
       return next;
     });
   }, [headers, template]);
-  const issues = useMemo(() => mappingIssues(template, mapping), [template, mapping]);
+  const issues = useMemo(() => {
+    const found = mappingIssues(template, mapping);
+    if (headers.length > 0 && !mapping.tripId && !mapping.lrNumber) {
+      found.push({ field: "reference", message: "Map a column to Trip ID or LR number." });
+    }
+    return found;
+  }, [template, mapping, headers.length]);
   const ignored = useMemo(() => unmappedHeaders(headers, mapping), [headers, mapping]);
   const readyCount = includedReadyCount(rows);
+  const blockedCount = rows.filter((row) => row.status !== "ready").length;
   const hasInvalid = rows.some((row) => row.status === "invalid");
 
   const loadSheet = useCallback((name: string, text: string) => {
@@ -221,14 +250,20 @@ export function BulkOperationWorkspace({
     setError(null);
     setResult(null);
     const picked = await DocumentPicker.getDocumentAsync({
-      type: ["text/csv", "text/comma-separated-values", "*/*"],
+      type: [
+        "text/csv",
+        "text/comma-separated-values",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "*/*",
+      ],
       copyToCacheDirectory: true,
     });
     if (picked.canceled || !picked.assets[0]) return;
     const asset = picked.assets[0];
     setBusy("Reading the file…");
     try {
-      const text = await readUri(asset.uri);
+      const text = await readUri(asset.uri, asset.name ?? "payments.csv");
       loadSheet(asset.name ?? "payments.csv", text);
     } catch (cause) {
       setError((cause as Error).message);
@@ -269,7 +304,12 @@ export function BulkOperationWorkspace({
 
   const confirm = useCallback(async () => {
     if (rows.some((row) => row.status === "invalid")) {
-      setError("Nothing was updated. An invalid Trip ID blocks the whole file.");
+      setError("Nothing was updated. An invalid Trip ID or LR number blocks the whole file.");
+      setConfirmOpen(false);
+      return;
+    }
+    if (includedReadyCount(rows) === 0) {
+      setError(rows.find((row) => row.status !== "unchanged")?.message ?? "Nothing will be updated.");
       setConfirmOpen(false);
       return;
     }
@@ -308,7 +348,22 @@ export function BulkOperationWorkspace({
     );
     setRows([]);
     setPreviewOpen(false);
-    onBatchSaved?.();
+    onBatchSaved?.(fieldUpdateLogEntry({
+      fileName,
+      category,
+      selection,
+      status,
+      batchId: outcome.batchId,
+      rows: rows.filter((row) => row.included).map((row) => ({
+        rowIndex: row.rowIndex,
+        matchKey: row.matchKey,
+        recordId: row.recordId,
+        status: row.status,
+        message: row.message,
+        before: row.before,
+        proposed: row.proposed,
+      })),
+    }));
   }, [canExecute, organizationId, category, fileName, fileText, mapping, selection, rows, onBatchSaved]);
 
   const fieldLabel = (field: PaymentUpdateField) =>
@@ -320,11 +375,11 @@ export function BulkOperationWorkspace({
   const activeStep = confirmOpen ? 4 : rows.length > 0 ? 3 : headers.length > 0 ? 2 : 1;
   const nextLine =
     headers.length === 0
-      ? "Next: select the CSV. Nothing is checked until you open the preview."
+      ? "Next: select the CSV or Excel file. Nothing is checked until you open the preview."
       : rows.length === 0
         ? "Next: open the file. Preview shows every cell, then checks each Trip ID."
           : hasInvalid
-          ? "Nothing will be updated. An invalid Trip ID blocks the whole file."
+          ? "Nothing will be updated. An invalid Trip ID or LR number blocks the whole file."
           : confirmOpen
             ? `Next: confirm. Only ready rows are written. ${keptNote}`
             : `Next: confirm ${readyCount} ready ${readyCount === 1 ? "row" : "rows"}. You will see each change before it is written.`;
@@ -337,7 +392,10 @@ export function BulkOperationWorkspace({
     <View style={styles.stack}>
       <View style={styles.mainPane}>
       <View style={styles.panel}>
-        <Text style={styles.sectionLabel}>Fields to update</Text>
+        <View style={styles.panelHead}>
+          <Text style={styles.sectionLabel}>Fields to update</Text>
+          <Text style={styles.fieldCount}>{selection.length} selected</Text>
+        </View>
         <View style={styles.fieldGrid}>
           {PAYMENT_UPDATE_FIELDS.map((field) => {
             const on = selection.includes(field);
@@ -352,6 +410,9 @@ export function BulkOperationWorkspace({
                   })
                 }
               >
+                <View style={[styles.fieldDot, on && styles.fieldDotOn]}>
+                  {on ? <Text style={styles.fieldDotText}>✓</Text> : null}
+                </View>
                 <Text style={styles.fieldName}>{fieldLabel(field)}</Text>
                 <Text style={styles.fieldHint}>{fieldHint(field)}</Text>
               </Pressable>
@@ -360,7 +421,8 @@ export function BulkOperationWorkspace({
         </View>
         <View style={styles.templateRow}>
           <Pressable style={styles.templateCard} onPress={() => void downloadTemplate("compliance-payment-update.csv", templateCsv(template))}>
-            <Text style={styles.link}>CSV template v{template.version}</Text>
+            <Text style={styles.templateKicker}>CSV</Text>
+            <Text style={styles.templateTitle}>Template v{template.version}</Text>
           </Pressable>
           <Pressable
             style={styles.templateCard}
@@ -385,14 +447,14 @@ export function BulkOperationWorkspace({
               if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(path);
             }}
           >
-            <Text style={styles.link}>Excel template v{template.version}</Text>
+            <Text style={styles.templateKicker}>Excel</Text>
+            <Text style={styles.templateTitle}>Template v{template.version}</Text>
           </Pressable>
         </View>
-      </View>
-
-      <View style={styles.dropWrap}>
+        <View style={styles.fileRow}>
+        <View style={[styles.dropWrap, styles.dropFlex]}>
         <Pressable style={styles.drop} onPress={() => void pick()} disabled={!canReview}>
-          <Text style={styles.dropTitle}>{fileName || (canReview ? "Select CSV" : "View access required")}</Text>
+          <Text style={styles.dropTitle}>{fileName || (canReview ? "Select CSV or Excel" : "View access required")}</Text>
           <Text style={styles.dropHint}>
             {fileName ? `${matrix.length} data ${matrix.length === 1 ? "row" : "rows"}` : "One header row, then one row per payment."}
           </Text>
@@ -408,15 +470,18 @@ export function BulkOperationWorkspace({
             <Text style={styles.removeFileMark}>×</Text>
           </Pressable>
         ) : null}
+        </View>
+        <Pressable
+          style={styles.pasteCard}
+          onPress={() => { setPasteText(""); setPasteOpen(true); }}
+          disabled={!canReview}
+          accessibilityRole="button"
+        >
+          <Text style={styles.templateKicker}>Or</Text>
+          <Text style={styles.templateTitle}>Paste CSV</Text>
+        </Pressable>
+        </View>
       </View>
-      <Pressable
-        style={styles.pasteLink}
-        onPress={() => { setPasteText(""); setPasteOpen(true); }}
-        disabled={!canReview}
-        accessibilityRole="button"
-      >
-        <Text style={styles.link}>Paste CSV</Text>
-      </Pressable>
       <Modal visible={removeOpen} transparent animationType="fade" onRequestClose={() => setRemoveOpen(false)}>
         <View style={styles.confirmBackdrop}>
           <View style={styles.confirmCard}>
@@ -472,7 +537,7 @@ export function BulkOperationWorkspace({
                 multiline
                 autoCapitalize="none"
                 autoCorrect={false}
-                style={[styles.pasteInput, styles.pasteMono, Platform.OS === "web" ? ({ tabSize: 4 } as object) : null]}
+                style={[styles.pasteInput, styles.pasteMono, Platform.OS === "web" ? ({ tabSize: 4 } as unknown as TextStyle) : null]}
               />
               {pasteText.trim() && pasted.rows.length === 0 ? (
                 <Text style={styles.error}>Add a header row and at least one data row.</Text>
@@ -636,7 +701,7 @@ export function BulkOperationWorkspace({
             </View>
             <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetBody}>
               <Text style={styles.muted}>
-                Check the Trip ID against this workspace, then the fields you selected.
+                Match each row by Trip ID or LR number, then check the fields you selected.
               </Text>
               <ScrollView horizontal>
                 <View>
@@ -658,11 +723,13 @@ export function BulkOperationWorkspace({
 
               {rows.length > 0 ? (
                 <View style={styles.stack}>
-                  <Text style={styles.sectionLabel}>{hasInvalid ? "Nothing will be updated" : "This will be updated"}</Text>
+                  <Text style={styles.sectionLabel}>{hasInvalid || readyCount === 0 ? "Nothing will be updated" : "This will be updated"}</Text>
                   <Text style={styles.muted}>
                     {hasInvalid
-                      ? "An invalid Trip ID blocks the whole file. Fix the file and preview it again."
-                      : `${readyCount} matching ${readyCount === 1 ? "payment" : "payments"}. ${keptNote}`}
+                      ? "An invalid Trip ID or LR number blocks the whole file. Fix the file and preview it again."
+                      : readyCount === 0
+                        ? "No posted payment matched these rows. Close this preview, or use Post payments to record a new UTR."
+                        : `${readyCount} matching ${readyCount === 1 ? "payment" : "payments"}. ${keptNote}`}
                   </Text>
                   {rows.map((row) => {
                     const tone = TONE[row.status] ?? TONE.unchanged;
@@ -698,7 +765,8 @@ export function BulkOperationWorkspace({
                   })}
                 </View>
               ) : null}
-              {confirmOpen && !hasInvalid ? (
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              {confirmOpen && !hasInvalid && readyCount > 0 ? (
                 <Text style={styles.muted}>Proceed writes only these changes. Back returns to this preview. Close leaves the file unchanged.</Text>
               ) : null}
             </ScrollView>
@@ -712,6 +780,10 @@ export function BulkOperationWorkspace({
                   <Text style={styles.primaryText}>Validate rows</Text>
                 </Pressable>
               ) : hasInvalid ? (
+                <Pressable style={styles.secondaryAction} onPress={() => { setPreviewOpen(false); setConfirmOpen(false); }}>
+                  <Text style={styles.link}>Close</Text>
+                </Pressable>
+              ) : readyCount === 0 ? (
                 <Pressable style={styles.secondaryAction} onPress={() => { setPreviewOpen(false); setConfirmOpen(false); }}>
                   <Text style={styles.link}>Close</Text>
                 </Pressable>
@@ -771,10 +843,124 @@ function asCsv(text: string): string {
     .join("\n");
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2);
-  const letters = parts.map((part) => part[0]?.toUpperCase() ?? "").join("");
-  return letters || "?";
+function proposedOf(row: Record<string, unknown>): Record<string, string> {
+  return (row.proposed_values ?? {}) as Record<string, string>;
+}
+
+function supplierNames(batch: StoredBatch, rows: Array<Record<string, unknown>>): string[] {
+  const names: string[] = [];
+  const summaryName = String((batch.summary as { supplier?: string }).supplier ?? "").trim();
+  if (summaryName) names.push(summaryName);
+  for (const row of rows) {
+    const name = String(proposedOf(row).supplier ?? "").trim();
+    if (name && !names.some((item) => item.toLowerCase() === name.toLowerCase())) names.push(name);
+  }
+  return names;
+}
+
+function supplierHeadline(names: string[]): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  return `${names[0]} +${names.length - 1}`;
+}
+
+function uniqueSupplierNames(names: string[]): string[] {
+  const kept: string[] = [];
+  for (const name of names) {
+    const trimmed = name.trim();
+    if (trimmed && !kept.some((item) => item.toLowerCase() === trimmed.toLowerCase())) kept.push(trimmed);
+  }
+  return kept.sort((left, right) => left.localeCompare(right, "en"));
+}
+
+function PaymentPartyMark({
+  name,
+  size = 36,
+  avatarUrl,
+  avatarSeed,
+  organizationImageUrl,
+  organizationAvatarSeed,
+}: {
+  name: string;
+  size?: number;
+  avatarUrl?: string;
+  avatarSeed?: string;
+  organizationImageUrl?: string;
+  organizationAvatarSeed?: string;
+}) {
+  const label = name.trim() || "Supplier";
+  return (
+    <PartyAvatar
+      name={label}
+      avatarUrl={avatarUrl}
+      avatarSeed={avatarSeed}
+      organizationImageUrl={organizationImageUrl}
+      organizationAvatarSeed={organizationAvatarSeed}
+      initialsColorSeed={organizationAvatarSeed || avatarSeed || label}
+      entityType="supplier"
+      isIntegrated={(organizationImageUrl ?? "").trim() || (organizationAvatarSeed ?? "").trim() ? true : undefined}
+      size={size}
+      shape="circle"
+    />
+  );
+}
+
+function SinglePaymentPreview({
+  supplier,
+  amount,
+  facts,
+  postedBy,
+  when,
+  statusLabel,
+  avatarUrl,
+  avatarSeed,
+  organizationImageUrl,
+  organizationAvatarSeed,
+  onClose,
+}: {
+  supplier: string;
+  amount: string;
+  facts: Array<{ label: string; value: string }>;
+  postedBy: string;
+  when: string;
+  statusLabel: string;
+  avatarUrl?: string;
+  avatarSeed?: string;
+  organizationImageUrl?: string;
+  organizationAvatarSeed?: string;
+  onClose: () => void;
+}) {
+  const name = supplier || "Payment";
+  return (
+    <View style={styles.payCard}>
+      <View style={styles.payHero}>
+        <PaymentPartyMark name={name} size={56} avatarUrl={avatarUrl} avatarSeed={avatarSeed} organizationImageUrl={organizationImageUrl} organizationAvatarSeed={organizationAvatarSeed} />
+        <View style={styles.fileCopy}>
+          <Text style={styles.payKicker}>Supplier</Text>
+          <Text style={styles.payName} numberOfLines={2}>{name}</Text>
+          <Text style={styles.payMeta} numberOfLines={2}>Posted by {postedBy} · {when}</Text>
+        </View>
+        <Pressable onPress={onClose} style={styles.sheetClose} accessibilityRole="button" accessibilityLabel="Close preview">
+          <Text style={styles.sheetCloseText}>Close</Text>
+        </Pressable>
+      </View>
+      <View style={styles.payAmountRow}>
+        <View style={styles.fileCopy}>
+          <Text style={styles.payKicker}>Amount</Text>
+          <Text style={styles.payAmount} numberOfLines={1}>{amount || "—"}</Text>
+        </View>
+        <Tag label={statusLabel} tone={statusLabel === "Posted" ? "applied" : "failed"} />
+      </View>
+      <View style={styles.payFacts}>
+        {facts.map((fact) => (
+          <View key={fact.label} style={styles.payFact}>
+            <Text style={styles.payKicker}>{fact.label}</Text>
+            <Text style={styles.payFactValue} numberOfLines={2}>{fact.value}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
 }
 
 function categoryOf(batch: StoredBatch): ComplianceLedgerCategory {
@@ -788,47 +974,284 @@ function stamp(iso: string): string {
   return date.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 }
 
+function isoDay(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+}
+
+function dayLabel(value: string, fallback: string): string {
+  const iso = isoDay(value);
+  if (!iso) return fallback;
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+const CALENDAR_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const CALENDAR_DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+function monthCells(year: number, month: number): Array<string | null> {
+  const first = new Date(year, month, 1).getDay();
+  const count = new Date(year, month + 1, 0).getDate();
+  const cells: Array<string | null> = [];
+  for (let index = 0; index < first; index += 1) cells.push(null);
+  for (let day = 1; day <= count; day += 1) {
+    cells.push(`${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+  }
+  return cells;
+}
+
+function LogCalendar({
+  year,
+  month,
+  from,
+  to,
+  onPrev,
+  onNext,
+  onPick,
+}: {
+  year: number;
+  month: number;
+  from: string;
+  to: string;
+  onPrev: () => void;
+  onNext: () => void;
+  onPick: (iso: string) => void;
+}) {
+  const start = from && to && from > to ? to : from;
+  const end = from && to && from > to ? from : to;
+  return (
+    <View style={styles.calendar}>
+      <View style={styles.calendarHead}>
+        <Pressable onPress={onPrev} style={styles.calendarNav} accessibilityRole="button" accessibilityLabel="Previous month">
+          <Text style={styles.calendarNavText}>‹</Text>
+        </Pressable>
+        <Text style={styles.calendarTitle}>{CALENDAR_MONTHS[month]} {year}</Text>
+        <Pressable onPress={onNext} style={styles.calendarNav} accessibilityRole="button" accessibilityLabel="Next month">
+          <Text style={styles.calendarNavText}>›</Text>
+        </Pressable>
+      </View>
+      <View style={styles.calendarWeek}>
+        {CALENDAR_DAYS.map((day) => (
+          <Text key={day} style={styles.calendarWeekday}>{day}</Text>
+        ))}
+      </View>
+      <View style={styles.calendarGrid}>
+        {monthCells(year, month).map((iso, index) => {
+          if (!iso) return <View key={`empty-${index}`} style={styles.calendarDay} />;
+          const selected = iso === from || iso === to;
+          const inside = Boolean(start && end && iso > start && iso < end);
+          return (
+            <Pressable
+              key={iso}
+              onPress={() => onPick(iso)}
+              style={[styles.calendarDay, inside && styles.calendarDayInside, selected && styles.calendarDayOn]}
+              accessibilityRole="button"
+              accessibilityLabel={dayLabel(iso, iso)}
+            >
+              <Text style={[styles.calendarDayText, selected && styles.calendarDayTextOn]}>{Number(iso.slice(8))}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function LogFilters({
+  filters,
+  suppliers,
+  onChange,
+}: {
+  filters: PaymentLogFilters;
+  suppliers: string[];
+  onChange: (next: PaymentLogFilters) => void;
+}) {
+  const [picking, setPicking] = useState<"from" | "to" | null>(null);
+  const openOn = isoDay(picking === "to" ? filters.to : filters.from) || isoDay(filters.from) || isoDay(filters.to);
+  const opened = openOn ? new Date(`${openOn}T12:00:00`) : new Date();
+  const [cursor, setCursor] = useState({ year: opened.getFullYear(), month: opened.getMonth() });
+  const showMonth = (key: "from" | "to") => {
+    const iso = isoDay(filters[key]) || isoDay(filters.from) || isoDay(filters.to);
+    const date = iso ? new Date(`${iso}T12:00:00`) : new Date();
+    setCursor({ year: date.getFullYear(), month: date.getMonth() });
+    setPicking((current) => (current === key ? null : key));
+  };
+  const setDay = (key: "from" | "to", value: string) => {
+    const next = { ...filters, [key]: isoDay(value) };
+    if (next.from && next.to && next.from > next.to) {
+      if (key === "from") next.to = next.from;
+      else next.from = next.to;
+    }
+    onChange(next);
+    setPicking(null);
+  };
+  const shiftMonth = (step: number) => {
+    const date = new Date(cursor.year, cursor.month + step, 1);
+    setCursor({ year: date.getFullYear(), month: date.getMonth() });
+  };
+  const active = Boolean(filters.from || filters.to || filters.supplier);
+  return (
+    <View style={styles.filterBlock}>
+      <View style={styles.filterRow}>
+        {(["from", "to"] as const).map((key) => {
+          const label = key === "from" ? "From" : "To";
+          const value = filters[key];
+          return (
+            <Pressable
+              key={key}
+              style={[styles.filterInput, styles.dateShell, styles.dateField, picking === key && styles.dateShellOn]}
+              onPress={() => showMonth(key)}
+              accessibilityRole="button"
+              accessibilityLabel={label}
+            >
+              <Text style={[styles.dateValue, !value && styles.datePlaceholder]} numberOfLines={1}>{dayLabel(value, label)}</Text>
+              <Calendar size={14} color={Theme.textMuted} strokeWidth={2.2} />
+            </Pressable>
+          );
+        })}
+      </View>
+      {picking ? (
+        <LogCalendar
+          year={cursor.year}
+          month={cursor.month}
+          from={isoDay(filters.from)}
+          to={isoDay(filters.to)}
+          onPrev={() => shiftMonth(-1)}
+          onNext={() => shiftMonth(1)}
+          onPick={(iso) => setDay(picking, iso)}
+        />
+      ) : null}
+      {suppliers.length > 0 ? (
+        <View style={styles.chipWrap}>
+          {["", ...suppliers].map((name) => {
+            const selected = (filters.supplier || "") === name;
+            return (
+              <Pressable
+                key={name || "all"}
+                onPress={() => onChange({ ...filters, supplier: name })}
+                style={[styles.chip, selected && styles.chipOn]}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                accessibilityLabel={name ? `Supplier ${name}` : "All suppliers"}
+              >
+                <Text style={[styles.chipText, selected && styles.chipTextOn]} numberOfLines={1}>{name || "All"}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+      {active ? (
+        <Pressable onPress={() => onChange({ from: "", to: "", supplier: "" })} accessibilityRole="button" accessibilityLabel="Clear filters">
+          <Text style={styles.link}>Clear filters</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 export function BulkPaymentAuditLog({
   organizationId,
   category,
   refreshKey,
   canCorrect,
+  pending = [],
+  variant,
 }: {
   organizationId: string;
   category: ComplianceLedgerCategory;
   refreshKey: number;
   canCorrect: boolean;
+  pending?: PendingPaymentLog[];
+  variant: "bulk" | "manual";
 }) {
   const [batches, setBatches] = useState<StoredBatch[]>([]);
+  const [postedLogs, setPostedLogs] = useState<PendingPaymentLog[]>([]);
+  const [bulkFiles, setBulkFiles] = useState<PendingPaymentLog[]>([]);
+  const [hasMorePosts, setHasMorePosts] = useState(false);
+  const [postCursor, setPostCursor] = useState<{ createdAt: string; id: string } | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
   const [previewBatch, setPreviewBatch] = useState<StoredBatch | null>(null);
+  const [previewReturn, setPreviewReturn] = useState<PendingPaymentLog | null>(null);
   const [detail, setDetail] = useState<{ rows: Array<Record<string, unknown>>; events: Array<Record<string, unknown>> } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [correction, setCorrection] = useState("");
+  const [filters, setFilters] = useState<PaymentLogFilters>({ from: "", to: "", supplier: "" });
   const { width, height } = useWindowDimensions();
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const server = await listBulkBatches({ organizationId, adapterId: "compliance-payment-field-update", limit: 40 });
+      const [updates, posts, posted] = await Promise.all([
+        variant === "bulk" ? listBulkBatches({ organizationId, adapterId: "compliance-payment-field-update", limit: 40 }) : Promise.resolve({ batches: [], error: null }),
+        variant === "bulk" ? listBulkBatches({ organizationId, adapterId: PAYMENT_POST_ADAPTER_ID, limit: 40 }) : Promise.resolve({ batches: [], error: null }),
+        variant === "manual" ? listPostedCompliancePayments({ organizationId, category, limit: 40 }) : Promise.resolve({ payments: [], hasMore: false, error: null }),
+      ]);
       if (cancelled) return;
-      if (server.error) setNote(server.error.message);
+      const error = updates.error ?? posts.error ?? posted.error;
+      if (error) setNote(error.message);
       else setNote(null);
-      setBatches(server.batches.filter((batch) => categoryOf(batch) === category));
-      const ids = server.batches.flatMap((batch) => [batch.uploaded_by, batch.confirmed_by]);
+      const server = [...updates.batches, ...posts.batches].filter((batch) => categoryOf(batch) === category);
+      const grouped = groupPostedPayments(posted.payments, category);
+      setBatches(server);
+      setPostedLogs(grouped);
+      setHasMorePosts(posted.hasMore);
+      if (variant === "manual") {
+        const [fileUpdates, filePosts] = await Promise.all([
+          listBulkBatches({ organizationId, adapterId: "compliance-payment-field-update", limit: 40 }),
+          listBulkBatches({ organizationId, adapterId: PAYMENT_POST_ADAPTER_ID, limit: 40 }),
+        ]);
+        if (cancelled) return;
+        const files = [...fileUpdates.batches, ...filePosts.batches].filter((batch) => categoryOf(batch) === category);
+        const matched = await listBulkBatchMatchRows(files.map((batch) => batch.id));
+        if (cancelled) return;
+        const withRows = mergePaymentLogs(files, pending).map((item) => {
+          if (item.rows.length > 0) return item;
+          const rows = matched.rows.filter((row) => String(row.batch_id ?? "") === item.batch.id);
+          return rows.length > 0 ? { ...item, rows } : item;
+        });
+        setBulkFiles(withRows);
+      } else {
+        setBulkFiles([]);
+      }
+      const last = posted.payments[posted.payments.length - 1];
+      setPostCursor(last ? { createdAt: last.createdAt, id: last.id } : null);
+      const ids = [...server, ...grouped.map((item) => item.batch)].flatMap((batch) => [batch.uploaded_by, batch.confirmed_by]);
       const resolved = await resolveComplianceActorNames(ids, organizationId);
       if (!cancelled) setNames(resolved);
     })();
     return () => {
       cancelled = true;
     };
-  }, [organizationId, category, refreshKey]);
+  }, [organizationId, category, refreshKey, pending, variant]);
+
+  const openFile = async (file: PendingPaymentLog, returnTo: PendingPaymentLog | null) => {
+    setPreviewReturn(returnTo);
+    setPreviewBatch(file.batch);
+    setCorrection("");
+    if (file.rows.length > 0) {
+      setDetail({ rows: file.rows, events: [] });
+      setPreviewBusy(false);
+      return;
+    }
+    setDetail(null);
+    setPreviewBusy(true);
+    const loaded = await loadBulkBatchDetail(file.batch.id);
+    setPreviewBusy(false);
+    if (loaded.error) setNote(loaded.error.message);
+    else setDetail({ rows: loaded.rows, events: loaded.events });
+  };
 
   const openPreview = async (batch: StoredBatch) => {
+    setPreviewReturn(null);
     setPreviewBatch(batch);
     setDetail(null);
     setCorrection("");
+    const local = [...pending, ...postedLogs, ...bulkFiles].find((item) => item.batch.id === batch.id && item.rows.length > 0);
+    if (local) {
+      setDetail({ rows: local.rows, events: [] });
+      setPreviewBusy(false);
+      return;
+    }
     setPreviewBusy(true);
     const loaded = await loadBulkBatchDetail(batch.id);
     setPreviewBusy(false);
@@ -838,6 +1261,16 @@ export function BulkPaymentAuditLog({
 
   const categoryLabel = category === "compliance_advance" ? "Advance" : "Balance";
   const actionLabel = (batch: StoredBatch) => {
+    const summary = batch.summary as { kind?: string; posted?: number; failed?: number; reason?: string; amount?: number };
+    if (batch.adapter_id === PAYMENT_POST_ADAPTER_ID || summary.kind === "post") {
+      const posted = Number(summary.posted ?? 0);
+      const failed = Number(summary.failed ?? 0);
+      const money = Number(summary.amount ?? 0) > 0 ? ` · ₹${Number(summary.amount).toLocaleString("en-IN")}` : "";
+      if (posted > 0 && failed === 0) return `Posted ${posted} ${posted === 1 ? "payment" : "payments"}${money}`;
+      if (posted === 0 && failed === 1) return summary.reason ? `Not posted. ${summary.reason}` : "Payment was not posted";
+      if (posted === 0) return `${failed} payments were not posted`;
+      return `Posted ${posted}. Not posted ${failed}.`;
+    }
     const fields = batch.field_selection?.length ? batch.field_selection.join(", ") : "selected fields";
     if (batch.status === "completed") return `Updated ${fields}`;
     if (batch.status === "partial") return `Partly updated ${fields}`;
@@ -845,25 +1278,74 @@ export function BulkPaymentAuditLog({
     return `Confirmed ${fields}`;
   };
 
+  const storedFiles = variant === "bulk" ? readPendingPaymentLogs(organizationId, category) : [];
+  const sourceLogs = variant === "manual" ? postedLogs : mergePaymentLogs(batches, mergeStoredPaymentLogs(pending, storedFiles));
+  const shownLogs = sourceLogs.filter((item) => batchMatchesLogFilters(item.batch, item.rows, filters));
+  const shown = shownLogs.map((item) => item.batch);
+  const loadOlder = async () => {
+    if (!postCursor || loadingMore) return;
+    setLoadingMore(true);
+    const older = await listPostedCompliancePayments({ organizationId, category, limit: 40, before: postCursor });
+    setLoadingMore(false);
+    if (older.error) {
+      setNote(older.error.message);
+      return;
+    }
+    setPostedLogs((current) => [...current, ...groupPostedPayments(older.payments, category)]);
+    setHasMorePosts(older.hasMore);
+    const last = older.payments[older.payments.length - 1];
+    setPostCursor(last ? { createdAt: last.createdAt, id: last.id } : null);
+  };
+
+  const previewSourceRows = detail?.rows ?? [];
+  const showPreviewFilters = previewSourceRows.length > 1;
+  const previewRows = showPreviewFilters
+    ? previewSourceRows.filter((row) => previewRowMatchesFilters(row, filters))
+    : previewSourceRows;
+  const singleBatchFile = !showPreviewFilters && previewReturn == null && previewBatch && variant === "manual"
+    ? findBulkFileForPayments({ batch: previewBatch, rows: previewSourceRows }, bulkFiles)
+    : null;
+  const postedPreview = Boolean(
+    previewBatch && (previewBatch.adapter_id === PAYMENT_POST_ADAPTER_ID || (previewBatch.summary as { kind?: string }).kind === "post"),
+  );
+  const singlePayment = postedPreview && !showPreviewFilters && !previewBusy && previewRows.length === 1 ? previewRows[0] : null;
+
   return (
     <View style={styles.stack}>
+      <LogFilters
+        filters={filters}
+        suppliers={uniqueSupplierNames(sourceLogs.flatMap((item) => supplierNames(item.batch, item.rows)))}
+        onChange={setFilters}
+      />
       {note ? <Text style={styles.muted}>{note}</Text> : null}
-      {batches.length === 0 ? (
-        <Text style={styles.muted}>No {categoryLabel.toLowerCase()} files confirmed yet.</Text>
+      {shown.length === 0 ? (
+        <Text style={styles.muted}>
+          {variant === "bulk"
+            ? (sourceLogs.length === 0 ? "No saved bulk file yet. Earlier payments stay in the payment log." : "No bulk file in this date or supplier.")
+            : `No one-by-one ${categoryLabel.toLowerCase()} payments in this range.`}
+        </Text>
       ) : null}
-      {batches.map((batch) => {
-        const who = names[batch.confirmed_by ?? ""] || names[batch.uploaded_by ?? ""] || "Unknown user";
+      {shownLogs.map((item) => {
+        const batch = item.batch;
+        const summary = batch.summary as { actorName?: string };
+        const who = names[batch.confirmed_by ?? ""] || names[batch.uploaded_by ?? ""] || summary.actorName || "You";
+        const suppliers = supplierNames(batch, item.rows);
+        const supplier = supplierHeadline(suppliers);
+        const headline = variant === "manual" && supplier ? supplier : who;
+        const mark = proposedOf(item.rows[0] ?? {});
+        const bulkFile = variant === "manual" ? findBulkFileForPayments(item, bulkFiles) : null;
         return (
           <View key={batch.id} style={styles.logItem}>
             <View style={styles.logHead}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{initials(who)}</Text>
-              </View>
+              <PaymentPartyMark name={headline} avatarUrl={mark.supplierAvatarUrl} avatarSeed={mark.supplierAvatarSeed} organizationImageUrl={mark.supplierOrganizationImageUrl} organizationAvatarSeed={mark.supplierOrganizationAvatarSeed} />
               <View style={styles.fileCopy}>
-                <Text style={styles.logName} numberOfLines={1}>{who}</Text>
+                <Text style={styles.logName} numberOfLines={1}>{headline}</Text>
                 <Text style={styles.logAction} numberOfLines={2}>{actionLabel(batch)}</Text>
                 <Text style={styles.logFile} numberOfLines={1}>{batch.file_name}</Text>
-                <Text style={styles.logTime}>{stamp(batch.created_at)} · {categoryLabel}</Text>
+                <Text style={styles.logTime} numberOfLines={2}>
+                  {variant === "manual" && supplier ? `Posted by ${who} · ` : ""}
+                  {stamp(batch.created_at)} · {categoryLabel}
+                </Text>
               </View>
               <Pressable
                 style={styles.eyeButton}
@@ -875,54 +1357,152 @@ export function BulkPaymentAuditLog({
                 <Eye size={15} color={Theme.complianceStageBalanceFg} strokeWidth={2.2} />
               </Pressable>
             </View>
+            {bulkFile ? (
+              <Pressable
+                style={[styles.batchLink, styles.batchLinkIndent]}
+                onPress={() => void openFile(bulkFile, item)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open batch file ${bulkFile.batch.file_name}`}
+              >
+                <Text style={styles.batchLinkText} numberOfLines={1}>Batch payment · {bulkFile.batch.file_name}</Text>
+              </Pressable>
+            ) : null}
           </View>
         );
       })}
-      <Modal visible={previewBatch != null} transparent animationType="fade" onRequestClose={() => setPreviewBatch(null)}>
+      {hasMorePosts ? (
+        <Pressable onPress={() => void loadOlder()} accessibilityRole="button" accessibilityLabel="Show older payments">
+          <Text style={styles.link}>{loadingMore ? "Loading…" : "Show older payments"}</Text>
+        </Pressable>
+      ) : null}
+      <Modal visible={previewBatch != null} transparent animationType="none" onRequestClose={() => { setPreviewBatch(null); setPreviewReturn(null); }}>
         <View style={styles.backdrop}>
-          <View style={[styles.sheet, { width: Math.min(760, Math.max(320, width - 48)), maxHeight: Math.min(720, Math.max(420, height - 80)) }]}>
+          <View style={[styles.sheet, { width: Math.min(singlePayment ? 460 : 760, Math.max(320, width - 48)), maxHeight: Math.min(720, Math.max(420, height - 80)) }]}>
+            {previewBatch == null ? null : singlePayment ? (
+              <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.payBody}>
+                <SinglePaymentPreview
+                  supplier={String(((singlePayment.proposed_values ?? {}) as Record<string, string>).supplier ?? "").trim()}
+                  amount={String(((singlePayment.proposed_values ?? {}) as Record<string, string>).amount ?? "")}
+                  postedBy={names[previewBatch?.confirmed_by ?? ""] || names[previewBatch?.uploaded_by ?? ""] || (previewBatch?.summary as { actorName?: string }).actorName || "You"}
+                  when={previewBatch ? stamp(previewBatch.created_at) : ""}
+                  statusLabel={singlePayment.status === "failed" ? "Not posted" : "Posted"}
+                  avatarUrl={String(((singlePayment.proposed_values ?? {}) as Record<string, string>).supplierAvatarUrl ?? "")}
+                  avatarSeed={String(((singlePayment.proposed_values ?? {}) as Record<string, string>).supplierAvatarSeed ?? "")}
+                  organizationImageUrl={String(((singlePayment.proposed_values ?? {}) as Record<string, string>).supplierOrganizationImageUrl ?? "")}
+                  organizationAvatarSeed={String(((singlePayment.proposed_values ?? {}) as Record<string, string>).supplierOrganizationAvatarSeed ?? "")}
+                  onClose={() => { setPreviewBatch(null); setPreviewReturn(null); }}
+                  facts={[
+                    { label: "Trip", value: String(singlePayment.match_key ?? "") },
+                    { label: "UTR", value: String(((singlePayment.proposed_values ?? {}) as Record<string, string>).utr ?? "") },
+                    { label: "Paid on", value: String(((singlePayment.proposed_values ?? {}) as Record<string, string>).transactionDate ?? "") },
+                    { label: "Mode", value: String(((singlePayment.proposed_values ?? {}) as Record<string, string>).mode ?? "") },
+                  ].filter((fact) => fact.value.trim())}
+                />
+                {singlePayment.status === "failed" && singlePayment.message ? <Text style={styles.muted}>{String(singlePayment.message)}</Text> : null}
+                {singleBatchFile ? (
+                  <Pressable
+                    style={styles.batchLink}
+                    onPress={() => previewBatch && void openFile(singleBatchFile, { batch: previewBatch, rows: previewSourceRows })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open batch file ${singleBatchFile.batch.file_name}`}
+                  >
+                    <Text style={styles.batchLinkText} numberOfLines={1}>Batch payment · {singleBatchFile.batch.file_name}</Text>
+                  </Pressable>
+                ) : null}
+              </ScrollView>
+            ) : (
+            <>
             <View style={styles.sheetHead}>
               <View style={styles.fileCopy}>
-                <Text style={styles.kicker}>Updated fields</Text>
+                <Text style={styles.kicker}>{previewBatch && (previewBatch.adapter_id === PAYMENT_POST_ADAPTER_ID || (previewBatch.summary as { kind?: string }).kind === "post") ? (showPreviewFilters ? "Posted payments" : "Posted payment") : "Updated fields"}</Text>
                 <Text style={styles.sheetTitle} numberOfLines={1}>{previewBatch?.file_name || "Payment file"}</Text>
                 <Text style={styles.muted}>
-                  {previewBatch ? `${names[previewBatch.confirmed_by ?? ""] || names[previewBatch.uploaded_by ?? ""] || "Unknown user"} · ${stamp(previewBatch.created_at)} · ${previewBatch.status}` : ""}
+                  {previewBatch ? `Posted by ${names[previewBatch.confirmed_by ?? ""] || names[previewBatch.uploaded_by ?? ""] || (previewBatch.summary as { actorName?: string }).actorName || "You"} · ${stamp(previewBatch.created_at)}` : ""}
                 </Text>
               </View>
-              <Pressable onPress={() => setPreviewBatch(null)} style={styles.sheetClose} accessibilityRole="button" accessibilityLabel="Close preview">
+              <Pressable onPress={() => { setPreviewBatch(null); setPreviewReturn(null); }} style={styles.sheetClose} accessibilityRole="button" accessibilityLabel="Close preview">
                 <Text style={styles.sheetCloseText}>Close</Text>
               </Pressable>
             </View>
             <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetBody}>
+              {previewReturn ? (
+                <Pressable
+                  onPress={() => void openPreview(previewReturn.batch)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to payment"
+                  style={styles.batchLink}
+                >
+                  <Text style={styles.batchLinkText}>Back to payment</Text>
+                </Pressable>
+              ) : null}
+              {showPreviewFilters ? (
+                <LogFilters
+                  filters={filters}
+                  suppliers={uniqueSupplierNames(previewSourceRows.map((row) => String(proposedOf(row).supplier ?? "")))}
+                  onChange={setFilters}
+                />
+              ) : null}
+              {singleBatchFile ? (
+                <Pressable
+                  style={styles.batchLink}
+                  onPress={() => previewBatch && void openFile(singleBatchFile, { batch: previewBatch, rows: previewSourceRows })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open batch file ${singleBatchFile.batch.file_name}`}
+                >
+                  <Text style={styles.batchLinkText} numberOfLines={1}>Batch payment · {singleBatchFile.batch.file_name}</Text>
+                </Pressable>
+              ) : null}
               {previewBusy ? (
                 <View style={styles.inline}>
                   <ActivityIndicator color={Theme.textMuted} />
-                  <Text style={styles.muted}>Opening the saved update…</Text>
+                  <Text style={styles.muted}>Opening this confirmation…</Text>
                 </View>
               ) : null}
-              {detail?.rows.map((row) => {
+              {previewRows.map((row) => {
                 const before = (row.before_values ?? {}) as Record<string, string>;
                 const proposed = (row.proposed_values ?? {}) as Record<string, string>;
                 const changed = LOG_FIELDS.filter((field) => proposed[field.key]);
-                const linked = [...(detail.events ?? [])].reverse().find((event) => String(event.row_id ?? "") === String(row.id));
+                const linked = [...(detail?.events ?? [])].reverse().find((event) => String(event.row_id ?? "") === String(row.id));
+                const postedRow = previewBatch?.adapter_id === PAYMENT_POST_ADAPTER_ID || (previewBatch?.summary as { kind?: string } | undefined)?.kind === "post";
+                const statusLabel = postedRow && row.status === "applied" ? "Posted" : postedRow && row.status === "failed" ? "Not posted" : String(row.status);
+                const supplier = String(proposed.supplier ?? "").trim();
                 return (
                   <View key={String(row.id)} style={styles.previewRow}>
-                    <View style={styles.rowTop}>
-                      <Text style={styles.title}>{String(row.match_key ?? "Row")}</Text>
-                      <Tag label={String(row.status)} tone={String(row.status)} />
-                    </View>
-                    {changed.length === 0 ? <Text style={styles.muted}>{String(row.message ?? "No field changed on this row.")}</Text> : null}
-                    {changed.map((field) => (
-                      <View key={field.key} style={styles.diffCols}>
-                        <View style={styles.diffCol}>
-                          <Text style={styles.diffKicker}>Was · {field.label}</Text>
-                          <Text style={styles.diffValue}>{before[field.key] || "—"}</Text>
-                        </View>
-                        <View style={styles.diffCol}>
-                          <Text style={styles.diffKicker}>Now</Text>
-                          <Text style={styles.diffValue}>{proposed[field.key]}</Text>
+                    {supplier ? (
+                      <View style={styles.supplierRow}>
+                        <PaymentPartyMark name={supplier} avatarUrl={proposed.supplierAvatarUrl} avatarSeed={proposed.supplierAvatarSeed} organizationImageUrl={proposed.supplierOrganizationImageUrl} organizationAvatarSeed={proposed.supplierOrganizationAvatarSeed} />
+                        <View style={styles.fileCopy}>
+                          <Text style={styles.logName} numberOfLines={1}>{supplier}</Text>
+                          <Text style={styles.muted}>Supplier</Text>
                         </View>
                       </View>
+                    ) : null}
+                    <View style={styles.rowTop}>
+                      <Text style={styles.title}>{String(row.match_key ?? "Row")}</Text>
+                      <Tag label={statusLabel} tone={String(row.status)} />
+                    </View>
+                    {row.status === "failed" && row.message ? <Text style={styles.muted}>{String(row.message)}</Text> : null}
+                    {changed.length === 0 && row.status !== "failed" ? <Text style={styles.muted}>{String(row.message ?? "No field changed on this row.")}</Text> : null}
+                    {changed.map((field) => (
+                      before[field.key] ? (
+                        <View key={field.key} style={styles.diffCols}>
+                          <View style={styles.diffCol}>
+                            <Text style={styles.diffKicker}>Was · {field.label}</Text>
+                            <Text style={styles.diffValue}>{before[field.key]}</Text>
+                          </View>
+                          <View style={styles.diffCol}>
+                            <Text style={styles.diffKicker}>Now</Text>
+                            <Text style={styles.diffValue}>{proposed[field.key]}</Text>
+                          </View>
+                        </View>
+                      ) : (
+                        <View key={field.key} style={styles.diffCols}>
+                          <View style={styles.diffCol}>
+                            <Text style={styles.diffKicker}>{field.label}</Text>
+                            <Text style={styles.diffValue}>{proposed[field.key] || "—"}</Text>
+                          </View>
+                        </View>
+                      )
                     ))}
                     {before.mode ? <Text style={styles.kept}>Kept · mode {before.mode}</Text> : null}
                     {canCorrect && row.record_id && changed.some((field) => field.key === "utr") ? (
@@ -963,8 +1543,10 @@ export function BulkPaymentAuditLog({
                   </View>
                 );
               })}
-              {detail && detail.rows.length === 0 ? <Text style={styles.muted}>This file has no saved rows.</Text> : null}
+              {detail && previewRows.length === 0 ? <Text style={styles.muted}>{detail.rows.length === 0 ? "This file has no saved rows." : "Nothing in this preview matches the date or supplier."}</Text> : null}
             </ScrollView>
+            </>
+            )}
           </View>
         </View>
       </Modal>
@@ -999,23 +1581,45 @@ function keptAfter(selection: readonly PaymentUpdateField[]): string {
 }
 
 const styles = StyleSheet.create({
-  sectionLabel: { fontSize: 12, fontWeight: "700", color: Theme.textPrimary, letterSpacing: 0.2 },
+  sectionLabel: { fontSize: 12, fontWeight: "600", color: Theme.textPrimary, letterSpacing: 0.2 },
   logItem: {
     gap: 8,
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: Theme.surfaceBorder,
   },
-  logHead: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  avatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
+  logHead: { flexDirection: "row", alignItems: "center", gap: 10 },
+  supplierRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 6 },
+  payBody: { padding: 20, gap: 16 },
+  payCard: { gap: 16 },
+  payHero: { flexDirection: "row", alignItems: "center", gap: 12 },
+  payKicker: { fontSize: 11, fontWeight: "700", letterSpacing: 0.4, textTransform: "uppercase", color: Theme.textMuted },
+  payName: { fontSize: 20, fontWeight: "800", color: Theme.textPrimaryDark, lineHeight: 26 },
+  payMeta: { fontSize: 12, lineHeight: 17, color: Theme.textMuted, marginTop: 2 },
+  payAmountRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  payAmount: { fontSize: 28, fontWeight: "800", color: Theme.textPrimaryDark, letterSpacing: -0.4 },
+  payFacts: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  payFact: {
+    flexGrow: 1,
+    flexBasis: "46%",
+    minWidth: 140,
+    backgroundColor: Theme.complianceSelectedWash,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  payFactValue: { fontSize: 14, fontWeight: "700", color: Theme.textPrimaryDark },
+  batchLink: {
+    alignSelf: "stretch",
+    minHeight: 44,
     justifyContent: "center",
+    paddingHorizontal: 12,
+    borderRadius: 10,
     backgroundColor: Theme.complianceIconWash,
   },
-  avatarText: { fontSize: 10, fontWeight: "700", color: Theme.complianceStageBalanceFg, letterSpacing: 0.2 },
+  batchLinkText: { fontSize: 12, fontWeight: "700", color: Theme.complianceStageBalanceFg },
+  batchLinkIndent: { marginLeft: 46 },
   logName: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
   logAction: { fontSize: 11, lineHeight: 15, color: Theme.textPrimary },
   logFile: { fontSize: 11, color: Theme.textMuted },
@@ -1029,6 +1633,54 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.complianceIconWash,
   },
   stack: { gap: 12 },
+  filterBlock: { gap: 10 },
+  filterRow: { flexDirection: "row", gap: 8 },
+  filterLabel: { fontSize: 11, fontWeight: "700", color: Theme.textMuted },
+  dateField: { flex: 1, minWidth: 0, gap: 4 },
+  dateShell: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 },
+  dateShellOn: { borderColor: Theme.complianceStageBalanceFg },
+  calendar: { gap: 8, paddingTop: 2 },
+  calendarHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  calendarNav: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  calendarNavText: { fontSize: 20, fontWeight: "700", color: Theme.textPrimary },
+  calendarTitle: { fontSize: 13, fontWeight: "800", color: Theme.textPrimaryDark },
+  calendarWeek: { flexDirection: "row" },
+  calendarWeekday: { flex: 1, textAlign: "center", fontSize: 10, fontWeight: "700", color: Theme.textMuted },
+  calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
+  calendarDay: { width: "14.28%", height: 34, alignItems: "center", justifyContent: "center", borderRadius: 8 },
+  calendarDayInside: { backgroundColor: Theme.complianceIconWash },
+  calendarDayOn: { backgroundColor: Theme.buttonDark },
+  calendarDayText: { fontSize: 12, fontWeight: "700", color: Theme.textPrimary },
+  calendarDayTextOn: { color: Theme.buttonDarkText },
+  dateValue: { flex: 1, fontSize: 13, fontWeight: "600", color: Theme.textPrimary },
+  datePlaceholder: { color: Theme.textMuted, fontWeight: "500" },
+  dateSheet: { backgroundColor: Theme.cardWhite, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16 },
+  dateSheetHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44 },
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    minHeight: 36,
+    maxWidth: "100%",
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.complianceIconWash,
+  },
+  chipOn: { backgroundColor: Theme.buttonDark },
+  chipText: { fontSize: 12, fontWeight: "700", color: Theme.textPrimary },
+  chipTextOn: { color: Theme.buttonDarkText },
+  filterInput: {
+    minHeight: 40,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    color: Theme.textPrimary,
+    backgroundColor: Theme.cardWhite,
+    fontSize: 13,
+  },
+  filterInputHalf: { flex: 1, minWidth: 0 },
+  filterInputFull: { width: "100%" },
   mainPane: { width: "100%", minWidth: 0, gap: 12 },
   summaryPane: {
     width: "100%",
@@ -1089,42 +1741,74 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 12,
   },
-  fieldGrid: { flexDirection: "row", flexWrap: "wrap", alignItems: "stretch", gap: 8 },
+  panelHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  fieldCount: { fontSize: 11, fontWeight: "600", color: Theme.complianceStageBalanceFg },
+  fieldGrid: { flexDirection: "row", alignItems: "stretch", gap: 8 },
   fieldTile: {
-    flexGrow: 1,
-    flexBasis: 140,
-    minWidth: 120,
-    minHeight: 40,
-    borderRadius: 10,
+    position: "relative",
+    flex: 1,
+    minWidth: 0,
+    minHeight: 58,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
     backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 10,
+    paddingLeft: 10,
+    paddingRight: 22,
     paddingVertical: 8,
     justifyContent: "center",
-    gap: 1,
+    gap: 2,
   },
   fieldTileOn: { borderColor: Theme.buttonDark, backgroundColor: Theme.complianceSelectedWash },
-  fieldName: { fontSize: 13, fontWeight: "700", color: Theme.textPrimaryDark },
+  fieldName: { fontSize: 12, fontWeight: "600", lineHeight: 16, color: Theme.textPrimaryDark },
   fieldNameOn: { color: Theme.textPrimaryDark },
-  fieldHint: { fontSize: 11, color: Theme.textMuted },
+  fieldHint: { fontSize: 10, lineHeight: 13, color: Theme.textMuted },
+  fieldDot: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fieldDotOn: { backgroundColor: Theme.buttonDark, borderColor: Theme.buttonDark },
+  fieldDotText: { fontSize: 8, fontWeight: "600", color: Theme.buttonDarkText, lineHeight: 10 },
   templateRow: { flexDirection: "row", alignItems: "stretch", gap: 8 },
   templateCard: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 0,
+    flex: 1,
     minWidth: 0,
     minHeight: Layout.minTouchTargetSize,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.complianceSelectedWash,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
+    alignItems: "center",
     justifyContent: "center",
-    gap: 2,
+    gap: 1,
   },
-  templateKicker: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5, color: Theme.complianceStageBalanceFg },
+  templateKicker: { fontSize: 10, fontWeight: "600", letterSpacing: 0.3, color: Theme.complianceStageBalanceFg },
+  templateTitle: { fontSize: 12, fontWeight: "600", color: Theme.textPrimary, textAlign: "center" },
+  fileRow: { flexDirection: "row", alignItems: "stretch", gap: 8 },
+  dropFlex: { flex: 1, minWidth: 0 },
   dropWrap: { position: "relative" },
+  pasteCard: {
+    width: 112,
+    minHeight: 64,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.complianceSelectedWash,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    gap: 1,
+  },
   removeFile: {
     position: "absolute",
     top: 10,
@@ -1198,12 +1882,12 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 44,
-    paddingVertical: 16,
-    gap: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 2,
   },
-  dropTitle: { fontSize: 15, fontWeight: "800", color: Theme.textPrimaryDark },
-  dropHint: { fontSize: 12, color: Theme.textMuted, textAlign: "center", lineHeight: 17 },
+  dropTitle: { fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark, textAlign: "center" },
+  dropHint: { fontSize: 11, color: Theme.textMuted, textAlign: "center", lineHeight: 15 },
   fileMark: {
     width: 40,
     height: 40,

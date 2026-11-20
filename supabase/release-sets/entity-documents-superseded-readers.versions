@@ -1,0 +1,25 @@
+# Vehicle / driver document readers ignore superseded copies (nihas V1.0.58).
+# get_compliance_summary, get_expiring_documents, compute_compliance_score and
+# is_compliance_blocking skip a live row when a newer live row of the same slot
+# (org, entity, doc_type) has a different expiry — the same rule as
+# features/compliance/utils/currentDocument.util.ts. Adds
+# private.entity_document_is_superseded (closed to anon/authenticated).
+# Function bodies start from the live prod definitions (adr010 20270915103200 for
+# summary/expiring; 20260828010000 for score/blocking). No data, table or policy change.
+#
+# Not in this set:
+#   supabase/release-manual/20261120055411_entity_documents_superseded_readers.rollback.sql
+#     (manual rollback only, owner-run if the migration must be undone)
+#   scripts/entity-documents-dedupe/ (read-only report; generated apply.sql is a
+#     separate data change that needs review and the owner's GO)
+#
+# This version sorts before the repo's 2027-dated migrations; db-push-set uses
+# --include-all on a snapshot, so the order is handled there.
+#
+# Apply only via: npm run db:push-set -- entity-documents-superseded-readers   (dry-run first; prod apply needs Vasanth's GO)
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Verify before applying:
+#   npx jest supabase/migrations/__tests__/entityDocumentsSupersededReadersReleaseSet.test.ts
+# sha256 590382b7de24f33eb0a218877426a0082a48082f49c4cfd8e11fcf9eb3a07899  20261120055411_entity_documents_superseded_readers.sql
+20261120055411

@@ -190,6 +190,7 @@ import {
   uploadComplianceVaultFile,
 } from "@/features/tripCompliance/services/complianceVaultUpload.service";
 import {
+  deleteEwayBillDocument,
   deleteTripDocument,
   uploadTripDocument,
   type TripDocumentRow,
@@ -5567,7 +5568,11 @@ export function ComplianceDocumentWorkspace({
     if (!ok) return;
     setFileActionKey(row.key);
     try {
-      const { error } = await deleteTripDocument(old);
+      // E-way numbers can live on the file being removed; keep them first.
+      const { error } =
+        old.document_type === "eway_bill"
+          ? await deleteEwayBillDocument(old, actorId)
+          : await deleteTripDocument(old);
       if (error) {
         alertMessage("Couldn't remove file", error.message);
         return;

@@ -1,6 +1,6 @@
 import {
   complianceStoragePathCandidates,
-  findViewerVehicleEntityDoc,
+  findViewerEntityCopyOfFile,
   mergeComplianceEntityDocs,
   normalizeTripDocumentType,
   normalizeVaultVehicleNumber,
@@ -215,7 +215,7 @@ describe("mergeComplianceEntityDocs", () => {
   });
 });
 
-describe("findViewerVehicleEntityDoc", () => {
+describe("findViewerEntityCopyOfFile", () => {
   const vaultRc: ComplianceEntityDocument = {
     id: "deae4a65-ee57-4222-9adf-e36796558f4b-rc",
     entity_type: "vehicle",
@@ -243,18 +243,32 @@ describe("findViewerVehicleEntityDoc", () => {
     source: "entity",
   };
 
-  it("skips synthetic vault ids and returns the viewer-org entity copy", () => {
-    expect(findViewerVehicleEntityDoc([vaultRc, entityIns], "insurance")?.id).toBe(entityIns.id);
-    expect(findViewerVehicleEntityDoc([vaultRc, entityIns], "rc")).toBeNull();
+  it("returns only the viewer-org row holding the same file, never a synthetic vault id", () => {
+    expect(findViewerEntityCopyOfFile([vaultRc, entityIns], "insurance", entityIns.storage_path)?.id).toBe(entityIns.id);
+    expect(findViewerEntityCopyOfFile([vaultRc, entityIns], "rc", vaultRc.storage_path)).toBeNull();
   });
 
-  it("prefers a pending copy over an already-verified one", () => {
-    const verified: ComplianceEntityDocument = {
+  it("does not return a different copy of the slot (dated or undated)", () => {
+    const otherDated: ComplianceEntityDocument = {
       ...entityIns,
       id: "b8f2a4f5-14b6-4948-a167-a6126203c992",
-      status: "verified",
-      created_at: "2026-10-28T00:00:00.000Z",
+      storage_path: "viewer/vehicle/v1/insurance-older.jpeg",
+      expiry_date: "2025-01-01",
     };
-    expect(findViewerVehicleEntityDoc([verified, entityIns], "insurance")?.id).toBe(entityIns.id);
+    const otherUndated: ComplianceEntityDocument = {
+      ...entityIns,
+      id: "c1d2e3f4-14b6-4948-a167-a6126203c992",
+      storage_path: "viewer/vehicle/v1/insurance-newer.jpeg",
+      expiry_date: null,
+      created_at: "2026-11-19T00:00:00.000Z",
+    };
+    expect(findViewerEntityCopyOfFile([otherDated, otherUndated], "insurance", "owner/v1/insurance.jpeg")).toBeNull();
+    expect(findViewerEntityCopyOfFile([otherDated, otherUndated, entityIns], "insurance", entityIns.storage_path)?.id).toBe(entityIns.id);
+  });
+
+  it("ignores replaced and rejected copies of the same file, and a missing path", () => {
+    expect(findViewerEntityCopyOfFile([{ ...entityIns, status: "replaced" }], "insurance", entityIns.storage_path)).toBeNull();
+    expect(findViewerEntityCopyOfFile([{ ...entityIns, status: "rejected" }], "insurance", entityIns.storage_path)).toBeNull();
+    expect(findViewerEntityCopyOfFile([entityIns], "insurance", null)).toBeNull();
   });
 });

@@ -189,28 +189,33 @@ const ENTITY_DOC_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Viewer-org `entity_documents` copy for a partner truck slot.
- * Vault rows use synthetic ids (`{vehicleId}-rc`) and cannot be approved
- * with `verifyDocument`.
+ * The viewer-org `entity_documents` row holding the SAME file as a displayed
+ * vault row (matched by storage path). Vault rows use synthetic ids
+ * (`{vehicleId}-rc`) and cannot be approved with `verifyDocument`, so Approve
+ * on a partner truck verifies this row — never a different copy of the slot.
+ * Null when no viewer-org row holds that file.
  */
-export function findViewerVehicleEntityDoc(
+export function findViewerEntityCopyOfFile(
   docs: readonly Pick<
     ComplianceEntityDocument,
-    "id" | "entity_type" | "doc_type" | "source" | "status" | "created_at"
+    "id" | "entity_type" | "doc_type" | "source" | "status" | "storage_path"
   >[],
   docType: string,
+  storagePath: string | null | undefined,
 ): (typeof docs)[number] | null {
   const type = docType.trim().toLowerCase();
-  const matches = docs.filter(
-    (doc) =>
-      doc.entity_type === "vehicle" &&
-      doc.doc_type === type &&
-      (doc.source ?? "entity") === "entity" &&
-      ENTITY_DOC_UUID_RE.test(doc.id) &&
-      doc.status !== "replaced",
+  const path = storagePath?.trim() ?? "";
+  if (!path) return null;
+  return (
+    docs.find(
+      (doc) =>
+        doc.entity_type === "vehicle" &&
+        doc.doc_type === type &&
+        (doc.source ?? "entity") === "entity" &&
+        ENTITY_DOC_UUID_RE.test(doc.id) &&
+        doc.status !== "replaced" &&
+        doc.status !== "rejected" &&
+        doc.storage_path?.trim() === path,
+    ) ?? null
   );
-  if (matches.length === 0) return null;
-  const unverified = matches.filter((doc) => doc.status !== "verified");
-  const pool = unverified.length > 0 ? unverified : matches;
-  return [...pool].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] ?? null;
 }

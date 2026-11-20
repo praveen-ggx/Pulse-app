@@ -14,7 +14,8 @@ export type NetworkNotificationEventType =
   | "bid_received"
   | "awarded"
   | "quote_requested"
-  | "counter_offered";
+  | "counter_offered"
+  | "driver_disconnected";
 
 export type NetworkNotificationStatus = "open" | "read" | "handled" | "resolved";
 

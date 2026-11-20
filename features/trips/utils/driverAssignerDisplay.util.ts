@@ -103,7 +103,7 @@ export function resolveJobCardAssignmentSourceKind(
     String(acceptedInviteForOrg.status ?? "").toLowerCase() === "accepted";
 
   if (flags.requiresOtp || flags.isAggregate) {
-    return { kind: "direct", kindLabel: "DIRECT TRIP" };
+    return { kind: "direct", kindLabel: "OFFLINE TRIP" };
   }
   if (isOwnFleet) {
     return { kind: "your_fleet", kindLabel: "YOUR FLEET" };

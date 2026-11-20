@@ -40,7 +40,10 @@ import {
 import { companyNameForInitials } from "@/lib/alertRegistry/networkNotificationParty.util";
 import { useTripMoneyById } from "@/lib/alertRegistry/useTripMoneyById";
 import {
+  networkDisconnectDriverName,
+  networkNotificationActionLabel,
   networkNotificationActionText,
+  networkNotificationHighlightText,
   networkNotificationTagLabel,
 } from "@/features/network/utils/networkNotificationLabels.util";
 import { networkLaneDetail } from "@/lib/globalSync/networkLaneNotifications.util";
@@ -422,6 +425,64 @@ function RegistryFeedList({
                     />
                   ) : null}
                 </RegistryCardActions>
+              }
+            />
+          );
+        }
+
+        // Driver left the fleet: a driver signal, not a load lane — no indent, no bid actions.
+        if (entry.kind === "network" && entry.network?.event_type === "driver_disconnected") {
+          const item = entry.network;
+          const avatar = resolveNetworkRegistryAvatar(item, {
+            partnerDisplay: partyCtx.partnerDisplay,
+            partnerAvatarUri: partyCtx.partnerAvatarUri,
+            linkedOrgs,
+            partiesByLinkedOrg,
+          });
+          const dismiss = () => {
+            void markNetworkRead.mutateAsync(item.id).catch(() => {});
+          };
+          const openDrivers = () => {
+            dismiss();
+            router.push(ROUTES.TABS.RESOURCES);
+          };
+          return (
+            <AlertRegistrySignalCard
+              key={entry.id}
+              mode={isActiveView ? "active" : "completed"}
+              onPress={openDrivers}
+              avatar={avatar}
+              actorName={networkDisconnectDriverName(item)}
+              actionText={networkNotificationActionText(item.event_type)}
+              highlightText={networkNotificationHighlightText(item) ?? item.title}
+              detailTitle={item.title}
+              detailSubtitle={item.subtitle ?? undefined}
+              timeLabel={formatRelativeTime(item.created_at)}
+              contextLabel={item.subtitle ?? undefined}
+              tags={
+                isActiveView
+                  ? [{ label: networkNotificationTagLabel(item.event_type), variant: "warning" }]
+                  : undefined
+              }
+              isUnread={isActiveView && item.status === "open"}
+              statusPill={
+                !isActiveView
+                  ? {
+                      label: String(item.status ?? "read"),
+                      tone: sharedNotificationStatusTone(item.status),
+                    }
+                  : undefined
+              }
+              footer={
+                isActiveView ? (
+                  <RegistryCardActions>
+                    <RegistryGhostButton label="Dismiss" onPress={dismiss} />
+                    <RegistryPrimaryButton
+                      label={networkNotificationActionLabel(item.event_type)}
+                      onPress={openDrivers}
+                    />
+                  </RegistryCardActions>
+                ) : undefined
               }
             />
           );

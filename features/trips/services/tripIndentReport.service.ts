@@ -10,7 +10,12 @@ import {
   loadHubTripKeysetRange,
   type TripRow,
 } from "@/features/trips/services/trips.service";
+import { getOrganizationMembers } from "@/features/organization/services/members.service";
 import { indentMatchesHubDateFilter } from "@/features/trips/utils/indentHubToolbarFilter";
+import {
+  salesReportDayBounds,
+  salesReportIndentOrFilter,
+} from "@/features/trips/utils/salesReportWindow.util";
 import { HUB_ALL_TIME_BOUNDS } from "@/features/trips/utils/tripOrgFetch.util";
 import {
   buildTripIndentReportRows,
@@ -22,6 +27,7 @@ import {
   tripDayMatchesHubDateFilter,
   type TripHubDateFilter,
 } from "@/lib/dateRangePresets";
+import { readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 
 const CHUNK = 200;
@@ -71,27 +77,6 @@ function tripMatchesReportDate(
  * - Indents from paged owner-org scan, then the same hub date matcher.
  * Export is not limited to the current table page.
  */
-async function loadMissingIndents(
-  orgId: string,
-  indentById: Map<string, IndentRow>,
-): Promise<{ error: Error | null; truncated: boolean }> {
-  let truncated = false;
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    const offset = page * INDENT_PAGE;
-    const { error, indents, hasMore } = await getIndentsByOrganization(orgId, {
-      limit: INDENT_PAGE,
-      offset,
-    });
-    if (error) return { error, truncated };
-    for (const indent of indents) {
-      if (!indentById.has(indent.id)) indentById.set(indent.id, indent);
-    }
-    if (!hasMore || indents.length === 0) return { error: null, truncated };
-    if (page === MAX_PAGES - 1 && hasMore) truncated = true;
-  }
-  return { error: null, truncated };
-}
-
 export async function loadTripIndentReportCatalog(
   orgId: string,
   seedTrips: readonly TripRow[],
@@ -238,14 +223,21 @@ async function loadConfirmedAtByIndentId(
 
 async function loadVehiclesById(
   vehicleIds: string[],
-): Promise<LoadMapResult<Record<string, { vehicleType: string; capacity: string }>>> {
-  const out: Record<string, { vehicleType: string; capacity: string }> = {};
+): Promise<
+  LoadMapResult<
+    Record<string, { vehicleType: string; capacity: string; vehicleNumber: string }>
+  >
+> {
+  const out: Record<
+    string,
+    { vehicleType: string; capacity: string; vehicleNumber: string }
+  > = {};
   if (vehicleIds.length === 0) return { data: out, failed: false };
   let failed = false;
   await forEachChunk(vehicleIds, async (part) => {
     const { data, error } = await supabase()
       .from("vehicles")
-      .select("id, vehicle_type, capacity")
+      .select("id, vehicle_type, capacity, vehicle_number")
       .in("id", part);
     if (error) {
       failed = true;
@@ -257,6 +249,9 @@ async function loadVehiclesById(
       out[id] = {
         vehicleType: String((row as { vehicle_type?: string | null }).vehicle_type ?? "").trim(),
         capacity: String((row as { capacity?: string | null }).capacity ?? "").trim(),
+        vehicleNumber: String(
+          (row as { vehicle_number?: string | null }).vehicle_number ?? "",
+        ).trim(),
       };
     }
   });
@@ -264,12 +259,31 @@ async function loadVehiclesById(
 }
 
 async function loadCreatorNamesByUserId(
+  orgId: string,
   userIds: string[],
 ): Promise<LoadMapResult<Record<string, string>>> {
   const out: Record<string, string> = {};
   if (userIds.length === 0) return { data: out, failed: false };
   let failed = false;
-  await forEachChunk(userIds, async (part) => {
+  const wanted = new Set(userIds);
+  // profiles SELECT is own-row only, so a teammate's name is blank there.
+  // The org roster returns each member's own full_name.
+  const trimmedOrgId = orgId.trim();
+  if (trimmedOrgId) {
+    const { members, error } = await getOrganizationMembers(trimmedOrgId);
+    if (error) {
+      failed = true;
+    } else {
+      for (const member of members) {
+        const id = String(member.user_id ?? "").trim();
+        if (!id || !wanted.has(id)) continue;
+        const name = String(member.full_name ?? "").trim();
+        if (name) out[id] = name;
+      }
+    }
+  }
+  const missing = userIds.filter((id) => !out[id]);
+  await forEachChunk(missing, async (part) => {
     const { data, error } = await supabase()
       .from("profiles")
       .select("id, full_name")
@@ -282,6 +296,286 @@ async function loadCreatorNamesByUserId(
       const id = String((row as { id?: string }).id ?? "").trim();
       const name = String((row as { full_name?: string | null }).full_name ?? "").trim();
       if (id && name) out[id] = name;
+    }
+  });
+  return { data: out, failed };
+}
+
+/** Direct-quote awards have no accepted_at. updated_at is set when the quote is accepted. */
+async function loadAcceptedQuoteAtByIndentId(
+  indentIds: string[],
+): Promise<LoadMapResult<Record<string, string>>> {
+  const out: Record<string, string> = {};
+  if (indentIds.length === 0) return { data: out, failed: false };
+  let failed = false;
+  await forEachChunk(indentIds, async (part) => {
+    const { data, error } = await supabase()
+      .from("direct_quotes")
+      .select("indent_id, updated_at")
+      .in("indent_id", part)
+      .eq("status", "accepted")
+      .not("updated_at", "is", null);
+    if (error) {
+      failed = true;
+      return;
+    }
+    for (const row of data ?? []) {
+      const id = String((row as { indent_id?: string }).indent_id ?? "").trim();
+      const at = String((row as { updated_at?: string }).updated_at ?? "").trim();
+      if (!id || !at) continue;
+      const prev = out[id];
+      if (!prev || at > prev) out[id] = at;
+    }
+  });
+  return { data: out, failed };
+}
+
+type TripSheetFact = { laneId: string; cancelReason: string; cancelNote: string };
+
+/** Lane and cancel category. get_trips_for_org does not return either. */
+async function loadTripSheetFacts(
+  tripIds: string[],
+): Promise<LoadMapResult<Record<string, TripSheetFact>>> {
+  const out: Record<string, TripSheetFact> = {};
+  if (tripIds.length === 0) return { data: out, failed: false };
+  let failed = false;
+  await forEachChunk(tripIds, async (part) => {
+    const { data, error } = await supabase()
+      .from("trips")
+      .select("id, lane_id, cancel_reason, cancel_reason_note")
+      .in("id", part);
+    if (error) {
+      failed = true;
+      return;
+    }
+    for (const row of data ?? []) {
+      const id = String((row as { id?: string }).id ?? "").trim();
+      if (!id) continue;
+      out[id] = {
+        laneId: String((row as { lane_id?: string | null }).lane_id ?? "").trim(),
+        cancelReason: String(
+          (row as { cancel_reason?: string | null }).cancel_reason ?? "",
+        ).trim(),
+        cancelNote: String(
+          (row as { cancel_reason_note?: string | null }).cancel_reason_note ?? "",
+        ).trim(),
+      };
+    }
+  });
+  return { data: out, failed };
+}
+
+async function loadSupplierNamesById(
+  supplierIds: string[],
+): Promise<LoadMapResult<Record<string, string>>> {
+  const out: Record<string, string> = {};
+  if (supplierIds.length === 0) return { data: out, failed: false };
+  let failed = false;
+  await forEachChunk(supplierIds, async (part) => {
+    const { data, error } = await supabase()
+      .from("suppliers")
+      .select("id, name, company_name, contact_person")
+      .in("id", part);
+    if (error) {
+      failed = true;
+      return;
+    }
+    for (const row of data ?? []) {
+      const id = String((row as { id?: string }).id ?? "").trim();
+      const name =
+        String((row as { name?: string | null }).name ?? "").trim() ||
+        String((row as { company_name?: string | null }).company_name ?? "").trim() ||
+        String((row as { contact_person?: string | null }).contact_person ?? "").trim();
+      if (id && name) out[id] = name;
+    }
+  });
+  return { data: out, failed };
+}
+
+async function loadDriverNamesById(
+  driverIds: string[],
+): Promise<LoadMapResult<Record<string, string>>> {
+  const out: Record<string, string> = {};
+  if (driverIds.length === 0) return { data: out, failed: false };
+  let failed = false;
+  await forEachChunk(driverIds, async (part) => {
+    const { data, error } = await supabase()
+      .from("drivers")
+      .select("id, name")
+      .in("id", part);
+    if (error) {
+      failed = true;
+      return;
+    }
+    for (const row of data ?? []) {
+      const id = String((row as { id?: string }).id ?? "").trim();
+      const name = String((row as { name?: string | null }).name ?? "").trim();
+      if (id && name) out[id] = name;
+    }
+  });
+  return { data: out, failed };
+}
+
+/**
+ * Indents in the date window whose trip pickup/created day is outside that window
+ * still belong in the report. Load the org's trip so the row keeps the Trip ID.
+ */
+async function loadOrgTripsForIndents(
+  orgId: string,
+  indentIds: string[],
+): Promise<{ trips: TripRow[]; failed: boolean }> {
+  const trips: TripRow[] = [];
+  const seen = new Set<string>();
+  if (indentIds.length === 0) return { trips, failed: false };
+  let failed = false;
+  const absorb = (rows: TripRow[] | null) => {
+    for (const row of rows ?? []) {
+      const id = String(row.id ?? "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      trips.push(row);
+    }
+  };
+  await forEachChunk(indentIds, async (part) => {
+    const byIndent = await supabase()
+      .from("trips")
+      .select("*")
+      .eq("organization_id", orgId)
+      .is("deleted_at", null)
+      .in("indent_id", part);
+    const bySource = await supabase()
+      .from("trips")
+      .select("*")
+      .eq("organization_id", orgId)
+      .is("deleted_at", null)
+      .in("source_indent_id", part);
+    if (byIndent.error || bySource.error) {
+      failed = true;
+      return;
+    }
+    absorb((byIndent.data ?? null) as TripRow[] | null);
+    absorb((bySource.data ?? null) as TripRow[] | null);
+  });
+  return { trips, failed };
+}
+
+/**
+ * Sales report only. Includes an indent when its own created_at day
+ * (Asia/Kolkata) is inside the selected range. Award, assignment, pickup,
+ * and cancel dates are not used for inclusion. Linked trips are loaded only
+ * so the row can show that indent's trip id and assignment facts.
+ */
+export async function loadSalesReportWindow(
+  orgId: string,
+  from: string,
+  to: string,
+): Promise<{
+  error: Error | null;
+  indents: IndentRow[];
+  trips: TripRow[];
+  notes: string[];
+}> {
+  const bounds = salesReportDayBounds(from, to);
+  if (!bounds) {
+    return {
+      error: new Error("Select a valid date range before downloading the report."),
+      indents: [],
+      trips: [],
+      notes: [],
+    };
+  }
+  const notes: string[] = [];
+  const indentById = new Map<string, IndentRow>();
+
+  const { data, error } = await readAllPages<IndentRow, { message: string }>(async (afterId, limit) => {
+    let query = supabase()
+      .from("indents")
+      .select("*")
+      .eq("organization_id", orgId)
+      .is("deleted_at", null)
+      .or(salesReportIndentOrFilter(bounds));
+    if (afterId) query = query.gt("id", afterId);
+    const page = await query.order("id", { ascending: true }).limit(limit);
+    return { data: (page.data ?? null) as IndentRow[] | null, error: page.error };
+  });
+  if (error) {
+    return {
+      error: new Error(error.message || "Could not load indents for the selected date range."),
+      indents: [],
+      trips: [],
+      notes,
+    };
+  }
+  for (const indent of data) {
+    if (indent.id) indentById.set(indent.id, indent);
+  }
+
+  const linked = await loadOrgTripsForIndents(orgId, [...indentById.keys()]);
+  if (linked.failed) {
+    notes.push(
+      "Some trips linked to indents in this date range could not be loaded. Their Trip ID may be blank.",
+    );
+  }
+
+  const tripById = new Map<string, TripRow>();
+  for (const trip of linked.trips) {
+    if (trip.id) tripById.set(trip.id, trip);
+  }
+
+  return {
+    error: null,
+    indents: [...indentById.values()],
+    trips: [...tripById.values()],
+    notes,
+  };
+}
+
+async function loadIndentLaneIds(
+  ids: string[],
+): Promise<LoadMapResult<Record<string, string>>> {
+  const out: Record<string, string> = {};
+  if (ids.length === 0) return { data: out, failed: false };
+  let failed = false;
+  await forEachChunk(ids, async (part) => {
+    const { data, error } = await supabase()
+      .from("indents")
+      .select("id, lane_id")
+      .in("id", part);
+    if (error) {
+      failed = true;
+      return;
+    }
+    for (const row of data ?? []) {
+      const id = String((row as { id?: string }).id ?? "").trim();
+      const laneId = String((row as { lane_id?: string | null }).lane_id ?? "").trim();
+      if (id && laneId) out[id] = laneId;
+    }
+  });
+  return { data: out, failed };
+}
+
+/** Indent facts the trip RPC does not return, used only to fill trip rows. */
+async function loadIndentFacts(
+  indentIds: string[],
+): Promise<LoadMapResult<Record<string, IndentRow>>> {
+  const out: Record<string, IndentRow> = {};
+  if (indentIds.length === 0) return { data: out, failed: false };
+  let failed = false;
+  await forEachChunk(indentIds, async (part) => {
+    const { data, error } = await supabase()
+      .from("indents")
+      .select(
+        "id, lane_id, created_at, cancel_reason, status, created_by_user_id, indent_operational_code, indent_code, indent_number, display_indent_id, vehicle_type, weight, client_name, pickup_area, drop_location, client_price, assigned_supplier_rate, assigned_supplier_id, organization_id, supplier_target, circulation_target",
+      )
+      .in("id", part);
+    if (error) {
+      failed = true;
+      return;
+    }
+    for (const row of data ?? []) {
+      const indent = row as IndentRow;
+      const id = String(indent.id ?? "").trim();
+      if (id) out[id] = indent;
     }
   });
   return { data: out, failed };
@@ -345,44 +639,95 @@ export async function buildTripIndentReport(
       ...trips.map((t) => t.source_indent_id),
       ...indents.map((i) => i.id),
     ]);
+    const tripIds = uniqueIds(trips.map((t) => t.id));
     const vehicleIds = uniqueIds(trips.map((t) => t.vehicle_id));
-    const creatorIds = uniqueIds([
-      ...trips.map((t) => t.created_by_user_id ?? t.created_by),
-      ...indents.map((i) => i.created_by_user_id),
-    ]);
+    const supplierIds = uniqueIds(trips.map((t) => t.supplier_id));
+    const driverIds = uniqueIds(trips.map((t) => t.driver_id));
+    const creatorIds = uniqueIds(indents.map((i) => i.created_by_user_id));
     const awardedSupplierOrgIds = uniqueIds(indents.map((i) => i.assigned_supplier_id));
 
-    const [confirmedAt, vehicles, creators, orgs, driverPhoneByTripId] =
-      await Promise.all([
-        loadConfirmedAtByIndentId(indentIds),
-        loadVehiclesById(vehicleIds),
-        loadCreatorNamesByUserId(creatorIds),
-        loadOrgNamesById(awardedSupplierOrgIds),
-        Promise.resolve(input.driverPhoneByTripId ?? {}),
-      ]);
+    const [
+      confirmedAt,
+      acceptedQuotes,
+      vehicles,
+      creators,
+      orgs,
+      suppliers,
+      drivers,
+      driverPhoneByTripId,
+      tripFacts,
+      indentLanes,
+      indentFacts,
+    ] = await Promise.all([
+      loadConfirmedAtByIndentId(indentIds),
+      loadAcceptedQuoteAtByIndentId(indentIds),
+      loadVehiclesById(vehicleIds),
+      loadCreatorNamesByUserId(orgId, creatorIds),
+      loadOrgNamesById(awardedSupplierOrgIds),
+      loadSupplierNamesById(supplierIds),
+      loadDriverNamesById(driverIds),
+      Promise.resolve(input.driverPhoneByTripId ?? {}),
+      loadTripSheetFacts(tripIds),
+      loadIndentLaneIds(indentIds),
+      loadIndentFacts(indentIds.filter((id) => !indentById[id])),
+    ]);
+
+    for (const [id, indent] of Object.entries(indentFacts.data)) {
+      if (!indentById[id]) indentById[id] = indent;
+    }
+    const extraCreatorIds = uniqueIds(
+      Object.values(indentById).map((indent) => indent.created_by_user_id),
+    ).filter((id) => !creators.data[id]);
+    if (extraCreatorIds.length > 0) {
+      const extraCreators = await loadCreatorNamesByUserId(orgId, extraCreatorIds);
+      Object.assign(creators.data, extraCreators.data);
+      if (extraCreators.failed) creators.failed = true;
+    }
 
     const warnings: string[] = [];
-    if (confirmedAt.failed) {
-      warnings.push("Some Confirmed Date values could not be loaded (accepted-bid lookup failed).");
+    if (confirmedAt.failed || acceptedQuotes.failed) {
+      warnings.push("Some Indent Awarded Date values could not be loaded (award lookup failed).");
     }
     if (vehicles.failed) {
-      warnings.push("Some Truck Type / Tonnage values could not be loaded (vehicle lookup failed).");
+      warnings.push("Some Truck Type / Ton / Truck Number values could not be loaded (vehicle lookup failed).");
     }
     if (creators.failed) {
       warnings.push("Some Created By names could not be loaded (profile lookup failed).");
     }
-    if (orgs.failed) {
-      warnings.push("Some Supplier Name values could not be loaded (organization lookup failed).");
+    if (orgs.failed || suppliers.failed) {
+      warnings.push("Some Supplier Name values could not be loaded (supplier lookup failed).");
+    }
+    if (drivers.failed) {
+      warnings.push("Some Driver Name values could not be loaded (driver lookup failed).");
+    }
+    if (tripFacts.failed || indentLanes.failed || indentFacts.failed) {
+      warnings.push("Some Adhoc / Contract values could not be loaded (lane lookup failed).");
+    }
+
+    const awardedAt: Record<string, string> = { ...acceptedQuotes.data };
+    for (const [id, at] of Object.entries(confirmedAt.data)) awardedAt[id] = at;
+    const laneIdByTripId: Record<string, string> = {};
+    const tripCancelByTripId: Record<string, { reason: string; note: string }> = {};
+    for (const [id, fact] of Object.entries(tripFacts.data)) {
+      if (fact.laneId) laneIdByTripId[id] = fact.laneId;
+      if (fact.cancelReason || fact.cancelNote) {
+        tripCancelByTripId[id] = { reason: fact.cancelReason, note: fact.cancelNote };
+      }
     }
 
     const enrichment: TripIndentReportEnrichment = {
-      confirmedAtByIndentId: confirmedAt.data,
+      confirmedAtByIndentId: awardedAt,
       vehicleById: vehicles.data,
       creatorNameByUserId: creators.data,
       orgNameById: orgs.data,
+      supplierNameBySupplierId: suppliers.data,
+      driverNameByDriverId: drivers.data,
       driverPhoneByTripId,
+      tripCancelByTripId,
       partyMetaByTripId: input.partyMetaByTripId,
       indentById,
+      laneIdByTripId,
+      laneIdByIndentId: indentLanes.data,
       stageLabelForTrip: input.stageLabelForTrip,
     };
 

@@ -37,9 +37,16 @@ export async function checkOcrScanQuota(organizationId: string): Promise<OcrQuot
   };
 }
 
+/**
+ * Soft gate for Pulse Scan enqueue.
+ * Enforcement is off for now so scans are not blocked by the monthly limit SCAN NOTICE.
+ * Flip to true to restore hard quota blocking without other call-site changes.
+ */
+const OCR_QUOTA_ENFORCEMENT_ENABLED = false;
+
 export async function assertOcrScanQuota(organizationId: string): Promise<OcrQuotaStatus> {
   const quota = await checkOcrScanQuota(organizationId);
-  if (!quota.allowed) {
+  if (OCR_QUOTA_ENFORCEMENT_ENABLED && !quota.allowed) {
     throw new OcrQuotaExceededError(quota);
   }
   return quota;

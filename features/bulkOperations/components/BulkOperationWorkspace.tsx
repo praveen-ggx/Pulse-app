@@ -14,6 +14,7 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type TextStyle,
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -536,7 +537,7 @@ export function BulkOperationWorkspace({
                 multiline
                 autoCapitalize="none"
                 autoCorrect={false}
-                style={[styles.pasteInput, styles.pasteMono, Platform.OS === "web" ? { tabSize: 4 } : null]}
+                style={[styles.pasteInput, styles.pasteMono, Platform.OS === "web" ? ({ tabSize: 4 } as unknown as TextStyle) : null]}
               />
               {pasteText.trim() && pasted.rows.length === 0 ? (
                 <Text style={styles.error}>Add a header row and at least one data row.</Text>
@@ -1461,7 +1462,7 @@ export function BulkPaymentAuditLog({
                 const before = (row.before_values ?? {}) as Record<string, string>;
                 const proposed = (row.proposed_values ?? {}) as Record<string, string>;
                 const changed = LOG_FIELDS.filter((field) => proposed[field.key]);
-                const linked = [...(detail.events ?? [])].reverse().find((event) => String(event.row_id ?? "") === String(row.id));
+                const linked = [...(detail?.events ?? [])].reverse().find((event) => String(event.row_id ?? "") === String(row.id));
                 const postedRow = previewBatch?.adapter_id === PAYMENT_POST_ADAPTER_ID || (previewBatch?.summary as { kind?: string } | undefined)?.kind === "post";
                 const statusLabel = postedRow && row.status === "applied" ? "Posted" : postedRow && row.status === "failed" ? "Not posted" : String(row.status);
                 const supplier = String(proposed.supplier ?? "").trim();

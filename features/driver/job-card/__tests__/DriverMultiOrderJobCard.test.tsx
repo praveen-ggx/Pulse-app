@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { DriverMultiOrderJobCard } from '@/features/driver/job-card/DriverMultiOrderJobCard';
+import { DriverTripCompletedHost } from '@/features/driver/components/DriverTripCompletedModal';
 import { persistStopDeliveryProof } from '@/features/driver/job-card/persistStopDeliveryProof';
 import { updateTripStatus } from '@/features/trips/services/trips.service';
 import type { DriverStopExecutionStop } from '@/features/driver/execution/driverStopExecution.types';
@@ -399,6 +400,52 @@ describe('DriverMultiOrderJobCard', () => {
     await waitFor(() => expect(onTripCompleted).toHaveBeenCalledTimes(1));
     expect(getByText('Delivery completed')).toBeTruthy();
     expect(updateTripStatus).not.toHaveBeenCalled();
+  });
+
+  it('shows the trip completed success modal once the summary closes', async () => {
+    const done = [pickup, dropA, dropB].map((s) => ({ ...s, status: 'completed' as const }));
+    const { getByLabelText, findByTestId, queryByTestId, getByText, getAllByText } = render(
+      <>
+        <DriverMultiOrderJobCard
+          trip={trip()}
+          stopExecution={execution({ stops: done, currentStop: null, nextStop: null })}
+        />
+        <DriverTripCompletedHost />
+      </>,
+    );
+    fireEvent.press(getByLabelText('Mark delivery completed'));
+    await waitFor(() => expect(getByText('Delivery completed')).toBeTruthy());
+    expect(queryByTestId('driver-trip-completed-modal')).toBeNull();
+    const doneButtons = getAllByText('Done');
+    fireEvent.press(doneButtons[doneButtons.length - 1]);
+    expect(await findByTestId('driver-trip-completed-modal')).toBeTruthy();
+    fireEvent.press(getByLabelText('Close'));
+    await waitFor(() => expect(queryByTestId('driver-trip-completed-modal')).toBeNull());
+  });
+
+  it('still shows the success modal when the parent drops the completed trip', async () => {
+    const done = [pickup, dropA, dropB].map((s) => ({ ...s, status: 'completed' as const }));
+    function Parent() {
+      const [active, setActive] = React.useState(true);
+      return (
+        <>
+          {active ? (
+            <DriverMultiOrderJobCard
+              trip={trip()}
+              onTripUpdated={(next) => {
+                if (next.status === 'completed') setActive(false);
+              }}
+              stopExecution={execution({ stops: done, currentStop: null, nextStop: null })}
+            />
+          ) : null}
+          <DriverTripCompletedHost />
+        </>
+      );
+    }
+    const { getByLabelText, findByTestId, queryByTestId } = render(<Parent />);
+    fireEvent.press(getByLabelText('Mark delivery completed'));
+    expect(await findByTestId('driver-trip-completed-modal')).toBeTruthy();
+    expect(queryByTestId('driver-multi-order-job-card')).toBeNull();
   });
 
   it('shows the server rejection when Mark delivery completed is refused', async () => {

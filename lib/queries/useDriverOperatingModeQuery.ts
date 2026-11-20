@@ -1,20 +1,21 @@
 import { useAuth } from '@/contexts/AuthContext';
-import {
-  DEFAULT_DRIVER_OPERATING_MODE,
-  canAddDcoShippers,
-  canAttributeToEmployer,
-  canManageDcoSelfBook,
-  canManageIndieBook,
-  canTagOfflineParty,
-  canManageOwnerVehicles,
-  isDcoOperatingMode,
-  type DriverOperatingMode,
-} from '@/features/drivers/domain/driverOperatingMode';
 import { getMyDriverOperatingMode } from '@/features/driver/services/driverOperatingMode.service';
+import {
+    DEFAULT_DRIVER_OPERATING_MODE,
+    canAddDcoShippers,
+    canAttributeToEmployer,
+    canManageDcoSelfBook,
+    canManageIndieBook,
+    canManageOwnerVehicles,
+    canSeeMarketplace,
+    canTagOfflineParty,
+    isDcoOperatingMode,
+    type DriverOperatingMode,
+} from '@/features/drivers/domain/driverOperatingMode';
 import { queryKeys } from '@/lib/queryKeys';
 import {
-  infrastructureRetryDelay,
-  infrastructureShouldRetry,
+    infrastructureRetryDelay,
+    infrastructureShouldRetry,
 } from '@/lib/queryRetry';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
@@ -82,6 +83,8 @@ export function useDriverOperatingModeQuery(userId?: string | null) {
     canAttributeToEmployer: ready && canAttributeToEmployer(operatingMode),
     canTagOfflineParty: ready && canTagOfflineParty(operatingMode),
     marketplaceAllowed: ready && operatingMode.marketplaceAllowed,
+    /** Market tab / Find Work / Market routes. False until the mode has loaded. */
+    canSeeMarketplace: ready && canSeeMarketplace(operatingMode),
     invalidate,
   };
 }

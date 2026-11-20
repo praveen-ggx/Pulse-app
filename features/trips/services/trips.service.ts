@@ -665,7 +665,7 @@ export async function getComplianceOpsPipelinePage(
   hasMore: boolean;
   total: number | null;
 }> {
-  const empty = { trips: [] as TripRow[], hasMore: false, total: null, missing: false };
+  const empty = { error: null, trips: [] as TripRow[], hasMore: false, total: null, missing: false };
   if (compliancePipelineRpcMissing) return { ...empty, missing: true };
   const limit = Math.min(250, Math.max(1, opts?.limit ?? 250));
   const { data, error } = await supabase().rpc("list_compliance_ops_pipeline_keyset", {
@@ -1224,18 +1224,30 @@ export async function getTripByIndentId(
 /**
  * Driver rejects/declines an assigned trip.
  *
- * Backend contract: RPC `driver_reject_trip(p_trip_id uuid)` that:
+ * Backend contract: RPC `driver_reject_trip(p_trip_id uuid, p_reason text)` that:
  * - verifies current user owns the assigned driver row
+ * - only allows it before the trip starts (draft / pending_acceptance / assigned)
  * - sets trips.driver_id = null (unassign)
- * - records an assignment-audit row so the fleet can see the decline
+ * - records an assignment-audit row (with the reason) so the fleet can see the decline
  */
 export async function driverRejectTrip(
   tripId: string,
+  reason: string | null = null,
 ): Promise<{ error: Error | null; trip: TripRow | null }> {
-  const { error } = await supabase().rpc("driver_reject_trip", {
+  let { error } = await supabase().rpc("driver_reject_trip" as never, {
     p_trip_id: tripId,
-  });
-  if (error) return { error: new Error(error.message), trip: null };
+    p_reason: reason,
+  } as never);
+  // Database not migrated yet (old 1-argument function): decline without the reason.
+  if (error && /could not find the function|schema cache|PGRST202/i.test(`${error.code ?? ""} ${error.message ?? ""}`)) {
+    ({ error } = await supabase().rpc("driver_reject_trip", { p_trip_id: tripId }));
+  }
+  if (error) {
+    const message = /already started|trip_already_started/i.test(error.message ?? "")
+      ? "This trip has already started, so it can't be declined. Call your fleet if you can't continue."
+      : error.message;
+    return { error: new Error(message), trip: null };
+  }
   // Fetch updated row for local UI consistency (RPC may not return the trip row).
   const refreshed = await getDriverTripById(tripId);
   return {
@@ -3421,27 +3433,32 @@ export async function stampTripDriverPayFromTerms(
 
   const { data: driver, error: driverErr } = await supabase()
     .from("drivers")
-    .select("commission_percent, commission_per_km")
+    .select("payable_amount, commission_percent, commission_per_km")
     .eq("id", driverId)
     .maybeSingle();
   if (driverErr) return { error: new Error(driverErr.message), amount: null };
 
-  // Accepted invite terms win over the driver row (same precedence the wallet
-  // uses); fall back to the driver record when no invite is present.
-  const { data: invite } = await supabase()
-    .from("driver_invites")
-    .select("commission_percent, commission_per_km")
-    .eq("driver_id", driverId)
-    .eq("from_organization_id", orgId)
-    .eq("status", "accepted")
-    .maybeSingle();
-
-  const terms = {
-    commissionPercent:
-      invite?.commission_percent ?? driver?.commission_percent ?? null,
-    commissionPerKm:
-      invite?.commission_per_km ?? driver?.commission_per_km ?? null,
-  };
+  // Driver row = current agreed terms (the fleet edits it; the DB trigger
+  // pays from it). The accepted invite is only a fallback for rows that carry
+  // no terms at all — see resolveAgreedPayTerms.
+  const { resolveAgreedPayTerms, hasAnyPayTerm } = await import(
+    "@/features/drivers/utils/driverPayTerms.util"
+  );
+  const fromRow = resolveAgreedPayTerms(driver, null);
+  let invite: Record<string, unknown> | null = null;
+  if (!hasAnyPayTerm(fromRow)) {
+    const { data } = await supabase()
+      .from("driver_invites")
+      .select("payable_amount, commission_percent, commission_per_km")
+      .eq("driver_id", driverId)
+      .eq("from_organization_id", orgId)
+      .eq("status", "accepted")
+      .order("responded_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    invite = (data as Record<string, unknown> | null) ?? null;
+  }
+  const terms = resolveAgreedPayTerms(driver, invite);
 
   const detail = tripEarningsDetailForDriver(trip as never, terms);
   if (detail.isEstimated || detail.amount <= 0) {

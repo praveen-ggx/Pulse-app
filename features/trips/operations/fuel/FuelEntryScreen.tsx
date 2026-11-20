@@ -1,4 +1,5 @@
 import { SmartInput } from "@/components/mobile-input";
+import { showAppAlert } from "@/lib/appAlert";
 import type { NumericEntryPartyPreview } from "@/components/mobile-input/NumericEntryPartyBanner";
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
 import {
@@ -318,6 +319,11 @@ export function FuelEntryScreen({
   const saving = saveFuel.isPending || updateFuel.isPending;
 
   const handleSave = async () => {
+    // A ₹0 entry adds a useless expense row (other expenses already block this).
+    if (!(amountInr > 0)) {
+      showAppAlert("Enter the amount", "Enter the fuel amount before saving.");
+      return;
+    }
     const payload = {
       tripId: trip.id,
       amountInr,
@@ -404,6 +410,7 @@ export function FuelEntryScreen({
             onOtherCategoryChange={() => {}}
             onCategoryNavChange={onCategoryNavChange}
             lockCategorySwitch={lockCategorySwitch}
+            lockKindSwitch={isEditing}
           />
           <DriverExpenseFieldDivider />
           <DriverExpenseChipSelect

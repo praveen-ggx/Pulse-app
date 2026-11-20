@@ -26,7 +26,10 @@ import {
   toExchangePaymentMode,
   type DriverCaptureLane,
 } from "@/features/drivers/utils/driverCapturePayment.util";
-import { claimExchangePayment } from "@/features/marketplace/services/exchangePayments.service";
+import {
+  claimExchangePayment,
+  confirmedDcoExchangeReceivedByTrip,
+} from "@/features/marketplace/services/exchangePayments.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 const inFlight = new Map<string, Promise<{ error: Error | null }>>();
@@ -46,11 +49,17 @@ export async function captureDriverTripPayment(input: {
   driverId: string;
   createdBy: string | null;
   tripDisplay: string;
+  /**
+   * One id per capture attempt on the screen. Retrying the same attempt reuses
+   * it (no double save); a genuinely new instalment gets a new id, so two equal
+   * cash payments on the same day are not merged into one.
+   */
+  attemptId?: string | null;
 }): Promise<{ error: Error | null }> {
   const amount = Math.round(Number(input.amount) || 0);
   if (amount <= 0) return { error: new Error("Enter an amount to capture.") };
 
-  const key = stableDriverCaptureKey({
+  const baseKey = stableDriverCaptureKey({
     lane: input.lane,
     tripId: input.trip.id,
     amount,
@@ -58,6 +67,8 @@ export async function captureDriverTripPayment(input: {
     reference: input.reference,
     paidOn: input.paidOn,
   });
+  const attemptId = String(input.attemptId ?? "").trim();
+  const key = attemptId ? `${baseKey}:${attemptId}` : baseKey;
   const pending = inFlight.get(key);
   if (pending) return pending;
 
@@ -267,11 +278,12 @@ async function collectSelfOnce(
   return { error: collected.error };
 }
 
-/** Collected amounts on the DCO Self and independent books, keyed by trip. */
+/** Collected amounts on the DCO Self, independent, and Marketplace (Exchange) books, keyed by trip. */
 export async function receivedByTripFromDriverBooks(): Promise<Record<string, number>> {
-  const [selfBook, indieBook] = await Promise.all([
+  const [selfBook, indieBook, exchangeReceived] = await Promise.all([
     listDcoSelfReceivableBook().catch(() => ({ error: new Error("unavailable"), rows: [] })),
     listDriverIndieReceivableBook().catch(() => ({ error: new Error("unavailable"), rows: [] })),
+    confirmedDcoExchangeReceivedByTrip().catch(() => ({}) as Record<string, number>),
   ]);
   const out: Record<string, number> = {};
   const add = (tripId: string | null | undefined, amount: number) => {
@@ -282,6 +294,7 @@ export async function receivedByTripFromDriverBooks(): Promise<Record<string, nu
   };
   for (const row of selfBook.rows) add(row.receivable.operational_trip_id, row.collected);
   for (const row of indieBook.rows) add(row.receivable.operational_trip_id, row.collected);
+  for (const [tripId, amount] of Object.entries(exchangeReceived)) add(tripId, amount);
   return out;
 }
 

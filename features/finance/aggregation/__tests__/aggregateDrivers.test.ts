@@ -160,3 +160,30 @@ describe('aggregateDrivers', () => {
     ).toBe(0);
   });
 });
+
+describe('fleet sees the same trip pay as the driver', () => {
+  const trip = {
+    id: 't1',
+    driver_id: 'd1',
+    client_price: 1000,
+    distance: 72,
+    driver_commission: 0,
+  } as unknown as TripForDriver;
+
+  it('adds commission % and per km: 3% of ₹1,000 + 72 km × ₹10 = ₹750', () => {
+    expect(
+      computeDriverCommissionForTrip(trip, { commissionPercent: 3, commissionPerKm: 10 }),
+    ).toBe(750);
+  });
+
+  it('keeps the amount saved on an old trip even if terms change later', () => {
+    const saved = { ...trip, driver_commission: 750 } as unknown as TripForDriver;
+    expect(
+      computeDriverCommissionForTrip(saved, { commissionPercent: 7, commissionPerKm: 20 }),
+    ).toBe(750);
+  });
+
+  it('no agreed terms and nothing saved → 0, never a guess', () => {
+    expect(computeDriverCommissionForTrip(trip, null)).toBe(0);
+  });
+});

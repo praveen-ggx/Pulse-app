@@ -35,7 +35,7 @@ export function OdometerNotesField({ value, onChange, contextLine }: Props) {
         accessibilityLabel={hasNote ? "Edit notes" : "Add note"}
       >
         <View style={styles.copy}>
-          <Text style={styles.label}>Notes</Text>
+          <Text style={styles.label}>NOTES</Text>
           <Text
             style={[styles.preview, !hasNote && styles.previewEmpty]}
             numberOfLines={2}

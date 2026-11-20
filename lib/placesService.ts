@@ -1,6 +1,6 @@
 /**
  * Place search for India with lat/lon.
- * Primary: Mapbox (100k free/mo, fast) → Google Places (if key) → Nominatim (1 req/s).
+ * Primary: Google Places API (New) if key → Mapbox (100k free/mo) → Nominatim (1 req/s).
  * Fallback: cached places (AsyncStorage, selected only, max 500) + popular list.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,6 +9,7 @@ import {
   NOMINATIM_SEARCH_URL,
   NOMINATIM_USER_AGENT,
   buildNominatimReverseUrl,
+  cleanOsmAreaName,
   isUsablePlaceCoordinate,
   shouldCachePlaceSearchResults,
 } from '@/lib/maps/placeSearch.util';
@@ -343,10 +344,11 @@ async function searchNominatim(query: string, opts?: SearchOpts): Promise<PlaceR
     const address = item.address;
     // state_district is the revenue district — excluded from `city` on purpose.
     const city = address?.city || address?.town || address?.village || null;
+    // Skip OSM ward numbers ("Ward 30") so they never become the label.
     const locality =
-      address?.neighbourhood?.trim() ||
-      address?.suburb?.trim() ||
-      address?.city_district?.trim() ||
+      cleanOsmAreaName(address?.neighbourhood) ||
+      cleanOsmAreaName(address?.suburb) ||
+      cleanOsmAreaName(address?.city_district) ||
       null;
     const pincode =
       normalizeIndianPincode(address?.postcode) ||
@@ -366,69 +368,178 @@ async function searchNominatim(query: string, opts?: SearchOpts): Promise<PlaceR
   });
 }
 
-/** Google Places Autocomplete + Details (optional). Requires EXPO_PUBLIC_GOOGLE_PLACES_API_KEY. */
+/** Prefix for Google suggestions whose coordinates are fetched only when picked. */
+const GOOGLE_PENDING_PREFIX = 'google:';
+const GOOGLE_PLACES_BASE = 'https://places.googleapis.com/v1';
+
+function googlePlacesKey(): string {
+  return (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY?.trim()) || '';
+}
+
+/**
+ * One Google "session" = the keystrokes of one search + the Place Details call
+ * for the picked result, so Google bills it as a single search.
+ */
+let googleSessionToken: string | null = null;
+function googleSession(): string {
+  if (!googleSessionToken) {
+    googleSessionToken = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  }
+  return googleSessionToken;
+}
+
+/** True for a Google suggestion that still needs `resolvePlaceSelection` to get lat/lon. */
+export function isPendingGooglePlace(place: PlaceResult | null | undefined): boolean {
+  return !!place?.placeId?.startsWith(GOOGLE_PENDING_PREFIX) &&
+    !isUsablePlaceCoordinate(place.lat, place.lon);
+}
+
+/**
+ * Google Places API (New) autocomplete — same suggestions as Google Maps.
+ * Returns suggestions without coordinates (lat/lon 0); the picked one is
+ * resolved by `resolvePlaceSelection` (one Place Details call), so typing
+ * never fans out into per-result detail calls.
+ */
 async function searchGooglePlaces(query: string, opts?: SearchOpts): Promise<PlaceResult[]> {
-  const apiKey = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY?.trim();
+  const apiKey = googlePlacesKey();
   if (!apiKey) return [];
 
   const trimmed = query.trim();
   if (!trimmed) return [];
   if (!canCallProvider('google')) return [];
 
-  const autocompleteUrl = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(trimmed)}&components=country:in&key=${apiKey}`;
-  const acRes = await fetch(autocompleteUrl, { signal: opts?.signal });
-  if (!acRes.ok) return [];
-  const acData = (await acRes.json()) as { predictions?: Array<{ place_id: string; description: string }> };
-  const predictions = acData.predictions ?? [];
-  if (predictions.length === 0) return [];
-
-  const results: PlaceResult[] = [];
-  for (const p of predictions.slice(0, 10)) {
-    const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(p.place_id)}&fields=geometry,name,formatted_address,address_components&key=${apiKey}`;
-    const detRes = await fetch(detailsUrl, { signal: opts?.signal });
-    if (!detRes.ok) continue;
-    const detData = (await detRes.json()) as {
-      result?: {
-        geometry?: { location?: { lat: number; lng: number } };
-        formatted_address?: string;
-        name?: string;
-        address_components?: Array<{ long_name: string; short_name: string; types: string[] }>;
+  const res = await fetch(`${GOOGLE_PLACES_BASE}/places:autocomplete`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': apiKey,
+    },
+    body: JSON.stringify({
+      input: trimmed,
+      includedRegionCodes: ['in'],
+      languageCode: 'en',
+      sessionToken: googleSession(),
+    }),
+    signal: opts?.signal,
+  });
+  if (!res.ok) {
+    if (PLACES_DEBUG) console.warn('[places] google autocomplete failed', res.status);
+    return [];
+  }
+  const data = (await res.json()) as {
+    suggestions?: Array<{
+      placePrediction?: {
+        placeId?: string;
+        text?: { text?: string };
+        structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } };
       };
-    };
-    const loc = detData.result?.geometry?.location;
-    if (!loc) continue;
-    const formatted = detData.result?.formatted_address ?? p.description ?? '';
-    const postal = detData.result?.address_components?.find((c) =>
-      c.types.includes('postal_code'),
-    );
-    // `locality` is the city; admin_area_2 is the district and is kept separate.
-    const cityComponent = detData.result?.address_components?.find((c) =>
-      c.types.includes('locality'),
-    );
-    const districtComponent = detData.result?.address_components?.find((c) =>
-      c.types.includes('administrative_area_level_2'),
-    );
-    const localityComponent = detData.result?.address_components?.find((c) =>
-      c.types.some((t) => t === 'sublocality_level_1' || t === 'sublocality' || t === 'neighborhood'),
-    );
-    const stateComponent = detData.result?.address_components?.find((c) =>
-      c.types.includes('administrative_area_level_1'),
-    );
-    results.push({
-      placeId: p.place_id,
-      displayName: formatted,
-      lat: loc.lat,
-      lon: loc.lng,
-      pincode:
-        normalizeIndianPincode(postal?.long_name ?? postal?.short_name) ||
-        extractPincodeFromPlaceText(formatted),
-      city: cityComponent?.long_name ?? null,
-      state: stateComponent?.long_name ?? null,
-      locality: localityComponent?.long_name ?? null,
-      district: districtComponent?.long_name ?? null,
+    }>;
+  };
+
+  const out: PlaceResult[] = [];
+  for (const s of data.suggestions ?? []) {
+    const p = s.placePrediction;
+    if (!p?.placeId) continue;
+    const main = p.structuredFormat?.mainText?.text?.trim() || '';
+    const secondary = p.structuredFormat?.secondaryText?.text?.trim() || '';
+    const displayName =
+      p.text?.text?.trim() || [main, secondary].filter(Boolean).join(', ');
+    if (!displayName) continue;
+    out.push({
+      placeId: `${GOOGLE_PENDING_PREFIX}${p.placeId}`,
+      displayName,
+      lat: 0,
+      lon: 0,
+      pincode: extractPincodeFromPlaceText(displayName),
+      city: null,
+      state: null,
+      locality: null,
+      district: null,
     });
   }
-  return results;
+  return out;
+}
+
+type GoogleAddressComponent = { longText?: string; shortText?: string; types?: string[] };
+
+async function googlePlaceDetails(place: PlaceResult): Promise<PlaceResult | null> {
+  const apiKey = googlePlacesKey();
+  if (!apiKey) return null;
+  const id = place.placeId.slice(GOOGLE_PENDING_PREFIX.length);
+  if (!id) return null;
+  const token = googleSessionToken;
+  const url =
+    `${GOOGLE_PLACES_BASE}/places/${encodeURIComponent(id)}` +
+    (token ? `?sessionToken=${encodeURIComponent(token)}` : '');
+  const res = await fetch(url, {
+    headers: {
+      'X-Goog-Api-Key': apiKey,
+      'X-Goog-FieldMask': 'id,formattedAddress,location,addressComponents',
+    },
+  });
+  // The session ends with this Details call, used or not.
+  googleSessionToken = null;
+  if (!res.ok) {
+    if (PLACES_DEBUG) console.warn('[places] google details failed', res.status);
+    return null;
+  }
+  const d = (await res.json()) as {
+    formattedAddress?: string;
+    location?: { latitude?: number; longitude?: number };
+    addressComponents?: GoogleAddressComponent[];
+  };
+  const lat = d.location?.latitude;
+  const lon = d.location?.longitude;
+  if (!isUsablePlaceCoordinate(lat, lon)) return null;
+
+  const comps = d.addressComponents ?? [];
+  const find = (...types: string[]) =>
+    comps.find((c) => c.types?.some((t) => types.includes(t)))?.longText?.trim() || null;
+  const postal = comps.find((c) => c.types?.includes('postal_code'));
+
+  return {
+    // Keep the suggestion text the user tapped — that is what Google Maps shows.
+    placeId: `google-${id}`,
+    displayName: place.displayName || d.formattedAddress || '',
+    lat: lat as number,
+    lon: lon as number,
+    pincode:
+      normalizeIndianPincode(postal?.longText ?? postal?.shortText) ||
+      extractPincodeFromPlaceText(d.formattedAddress ?? place.displayName),
+    // `locality` is the city; admin_area_2/3 is the district and is kept separate.
+    city: find('locality') || find('postal_town'),
+    state: find('administrative_area_level_1'),
+    locality: find('sublocality_level_1', 'sublocality', 'neighborhood'),
+    district: find('administrative_area_level_2', 'administrative_area_level_3'),
+  };
+}
+
+/**
+ * Finish a picked search result. Non-Google results (Mapbox / OSM / cached /
+ * popular) are returned unchanged. A Google suggestion gets its coordinates
+ * from Place Details; if Google fails, the text is looked up via Mapbox →
+ * OSM; if that fails too, the text is kept without coordinates (same as a
+ * custom typed place).
+ */
+export async function resolvePlaceSelection(place: PlaceResult): Promise<PlaceResult> {
+  if (!isPendingGooglePlace(place)) return place;
+  try {
+    const details = await googlePlaceDetails(place);
+    if (details) return details;
+  } catch {
+    googleSessionToken = null;
+  }
+  try {
+    const fallback =
+      (await searchMapbox(place.displayName))[0] ??
+      (await searchNominatim(place.displayName))[0];
+    if (fallback && isUsablePlaceCoordinate(fallback.lat, fallback.lon)) {
+      return { ...fallback, displayName: place.displayName };
+    }
+  } catch {
+    // ignore — keep the text without coordinates
+  }
+  return { ...place, placeId: `custom-${normalizeKey(place.displayName)}` };
 }
 
 /**
@@ -569,7 +680,7 @@ export async function addToPlacesCache(place: PlaceResult): Promise<void> {
 }
 
 /**
- * Search places in India: Mapbox (primary) → Google → Nominatim, then cache + popular fallback.
+ * Search places in India: Google (if key) → Mapbox → Nominatim, then cache + popular fallback.
  */
 export async function searchPlacesInIndia(query: string, opts?: SearchOpts): Promise<PlaceResult[]> {
   const trimmed = query.trim();
@@ -615,11 +726,13 @@ export async function searchPlacesInIndia(query: string, opts?: SearchOpts): Pro
   const p = (async () => {
     let apiResults: PlaceResult[] = [];
     try {
-      if (hasMapbox) {
-        apiResults = await searchMapbox(trimmed, opts);
-      }
-      if (apiResults.length === 0 && hasGoogle) {
+      // Google first when a key is set (same suggestions as Google Maps);
+      // without a key the order is unchanged: Mapbox → Nominatim.
+      if (hasGoogle) {
         apiResults = await searchGooglePlaces(trimmed, opts);
+      }
+      if (apiResults.length === 0 && hasMapbox) {
+        apiResults = await searchMapbox(trimmed, opts);
       }
       if (apiResults.length === 0) {
         apiResults = await searchNominatim(trimmed, opts);
@@ -784,7 +897,8 @@ async function reverseNominatim(lat: number, lon: number): Promise<ReverseGeocod
       address.county ||
       address.state_district ||
       null;
-    const locality = address.suburb || address.neighbourhood || null;
+    const locality =
+      cleanOsmAreaName(address.suburb) || cleanOsmAreaName(address.neighbourhood) || null;
     const pincode =
       normalizeIndianPincode(address.postcode) ||
       extractPincodeFromPlaceText(data.display_name);

@@ -11,6 +11,8 @@ import {
   useDriverTrackingSessionLifecycle,
   usePublishTrackingOnCheckpoint,
 } from '@/features/tracking/hooks/useDriverTrackingPublisher';
+import { useDriverLiveTracking } from '@/features/tracking/hooks/useDriverLiveTracking';
+import { isDriverLiveTrackingEnabled } from '@/features/tracking/trackingFeatureFlags';
 import { isCompletedStatus } from '@/features/drivers/utils/driverUtils.util';
 import { supabase } from '@/lib/supabase';
 
@@ -22,6 +24,13 @@ export type UseDriverLocationStreamArgs = {
   /** Foreground guard from DriverCommunicationProvider — pauses loop in background. */
   communicationActive: boolean;
   shouldPersistCheckpoint: boolean;
+  /**
+   * Live lane (background GPS + broadcast) gate. Defaults to true so callers
+   * that don't pass it keep the old behaviour. DriverHome passes false while
+   * the trip is only accepted, so high-accuracy background GPS and the
+   * "trip in progress" notification start when the driver actually starts.
+   */
+  liveLaneAllowed?: boolean;
   minDisplacementM: number | null;
   source: DriverLocationSource;
   onLocationFix: (args: {
@@ -38,6 +47,7 @@ export function useDriverLocationStream({
   enabled,
   communicationActive,
   shouldPersistCheckpoint,
+  liveLaneAllowed = true,
   minDisplacementM,
   source,
   onLocationFix,
@@ -127,11 +137,25 @@ export function useDriverLocationStream({
       !isCompletedStatus(trip.status),
   );
 
+  const liveTrackingEnabled = isDriverLiveTrackingEnabled();
+
+  // Live lane (broadcast every ~15 s + checkpoint every 2 min), foreground AND background.
+  // Owns the broadcast session; intentionally NOT gated on communicationActive so it keeps
+  // running with the screen off (background GPS task feeds it).
+  useDriverLiveTracking({
+    tripId: trip?.id ?? null,
+    driverId: driver?.id ?? null,
+    orgId: driver?.organization_id ?? null,
+    active: tripActive && liveLaneAllowed && sessionOwnsDriver,
+  });
+
+  // Legacy flag-gated session lifecycle — only when the live lane is switched off
+  // (EXPO_PUBLIC_DRIVER_LIVE_TRACKING=0), so the two never fight over the session.
   useDriverTrackingSessionLifecycle({
     tripId: trip?.id ?? null,
     driverId: driver?.id ?? null,
     orgId: driver?.organization_id ?? null,
-    tripActive: tripActive && communicationActive && sessionOwnsDriver,
+    tripActive: !liveTrackingEnabled && tripActive && communicationActive && sessionOwnsDriver,
   });
 
   useAdaptiveTripLocationPingLoop({

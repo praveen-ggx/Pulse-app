@@ -37,6 +37,8 @@ export interface TripMapProps {
   driverAvatarSeed?: string | null;
   /** Green online ring when driver is broadcasting. */
   driverOnline?: boolean;
+  /** Completed trip: bold driven route + legend (web map; native ignores). */
+  completedTrip?: boolean;
 }
 
 export function TripMap({ height }: TripMapProps) {

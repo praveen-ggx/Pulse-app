@@ -107,23 +107,47 @@ export async function completeOcrJob(
   },
 ): Promise<OcrJobRow> {
   const now = new Date().toISOString();
+  const completedPatch = {
+    status: "completed" as const,
+    ocr_model: patch.ocr_model,
+    confidence_score: patch.confidence_score,
+    result_json: patch.result_json,
+    raw_model_json: patch.raw_model_json ?? null,
+    processing_duration_ms: patch.processing_duration_ms,
+    processing_completed_at: now,
+    error_message: null,
+  };
   const { data, error } = await supabase()
     .from("ocr_jobs")
-    .update({
-      status: "completed",
-      ocr_model: patch.ocr_model,
-      confidence_score: patch.confidence_score,
-      result_json: patch.result_json,
-      raw_model_json: patch.raw_model_json ?? null,
-      processing_duration_ms: patch.processing_duration_ms,
-      processing_completed_at: now,
-      error_message: null,
-    })
+    .update(completedPatch)
     .eq("id", jobId)
     .select("*")
     .single();
+  if (error && isOcrCompletedFingerprintConflict(error)) {
+    // The same photo already has a completed scan that this user can't see
+    // (or two scans finished together). The unique index allows one completed
+    // row per photo, so the scan "failed" with "duplicate key value violates
+    // ocr_jobs_fingerprint_engine_completed_uidx" and the reading was lost.
+    // Keep this scan's result: save it outside the dedupe slot.
+    const retry = await supabase()
+      .from("ocr_jobs")
+      .update({ ...completedPatch, force_rescan: true })
+      .eq("id", jobId)
+      .select("*")
+      .single();
+    if (retry.error) throw new Error(retry.error.message);
+    return mapJob(retry.data);
+  }
   if (error) throw new Error(error.message);
   return mapJob(data);
+}
+
+/** Unique violation on the "one completed scan per photo" index. */
+function isOcrCompletedFingerprintConflict(error: { code?: string; message?: string }): boolean {
+  return (
+    error.code === "23505" ||
+    /ocr_jobs_fingerprint_engine_completed_uidx|duplicate key value/i.test(error.message ?? "")
+  );
 }
 
 export async function failOcrJob(jobId: string, message: string): Promise<OcrJobRow> {
@@ -193,6 +217,22 @@ export async function createDuplicateOcrJob(
     storage_path?: string | null;
     created_by?: string | null;
   },
+): Promise<OcrJobRow> {
+  try {
+    return await insertDuplicateOcrJobRow(source, input);
+  } catch (e) {
+    // The source scan already holds the single "completed" slot for this photo
+    // (ocr_jobs_fingerprint_engine_completed_uidx), so a completed duplicate
+    // row can never be inserted. Reuse the source scan's result instead of
+    // showing the driver a "duplicate key" error.
+    if (e instanceof Error && isOcrCompletedFingerprintConflict(e)) return source;
+    throw e;
+  }
+}
+
+async function insertDuplicateOcrJobRow(
+  source: OcrJobRow,
+  input: Parameters<typeof createDuplicateOcrJob>[1],
 ): Promise<OcrJobRow> {
   return createOcrJobRow({
     organization_id: input.organization_id,

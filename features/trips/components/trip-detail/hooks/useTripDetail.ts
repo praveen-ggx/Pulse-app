@@ -91,6 +91,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { invalidateTripFinanceNoteQueries } from "@/lib/queries/useTripFinanceAdjustmentsQuery";
 import { isServiceUnavailableError } from "@/lib/supabaseHttp.util";
 import * as driverLocationService from "@/features/driver/services/driverLocation.service";
+import { useCompletedTripPath } from "@/features/trips/hooks/useCompletedTripPath";
 import { getMoverAssetClientPaid } from "@/features/trips/services/moverAssetPayment.service";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
@@ -790,10 +791,25 @@ export function useTripDetail({
   const trackingBroadcastEnabled =
     trackingQueriesEnabled && trackingBroadcastEligible;
 
+  /**
+   * Listen for driver live-lane broadcasts whenever the trip map has driver data, regardless of
+   * EXPO_PUBLIC_TRACKING_BROADCAST_V1. That flag still decides whether the legacy driver_locations
+   * realtime path is turned off; here broadcast is purely additive (no DB cost, no WAL fan-out).
+   */
+  const liveBroadcastListening = trackingBroadcastEnabled || driverMapDataEnabled;
+
   const liveTracking = useTripLiveTracking({
     tripId: trip?.id ?? null,
     driverId: effectiveDriverIdForLocation,
     trackingEnabled: driverMapDataEnabled,
+  });
+
+  /** Completed trips: driven path read once for the map (live lanes stay off). */
+  const completedTripPath = useCompletedTripPath({
+    tripId: trip?.id,
+    startedAt: trip?.created_at,
+    completedAt: trip?.completed_at,
+    enabled: tripCompleted && trackingQueriesEnabled,
   });
 
   const driverPing = useRequestDriverPing({
@@ -878,9 +894,17 @@ export function useTripDetail({
   useEffect(() => {
     if (!trip?.id || !driverMapDataEnabled || trackingBroadcastEnabled) return;
     const seed = liveTracking.seedPoint;
-    const lat = driverLocation?.latitude ?? seed?.latitude;
-    const lng = driverLocation?.longitude ?? seed?.longitude;
-    const recordedAt = driverLocation?.recorded_at ?? seed?.recorded_at;
+    // Prefer whichever DB source is newer: driver_locations (12-ping lane) or
+    // driver_presence (live checkpoint lane, every ~2 min).
+    const dlMs = driverLocation?.recorded_at ? Date.parse(driverLocation.recorded_at) : NaN;
+    const seedMs = seed?.recorded_at ? Date.parse(seed.recorded_at) : NaN;
+    const useSeed =
+      seed != null &&
+      Number.isFinite(seedMs) &&
+      (!driverLocation || !Number.isFinite(dlMs) || seedMs > dlMs);
+    const lat = useSeed ? seed?.latitude : (driverLocation?.latitude ?? seed?.latitude);
+    const lng = useSeed ? seed?.longitude : (driverLocation?.longitude ?? seed?.longitude);
+    const recordedAt = useSeed ? seed?.recorded_at : (driverLocation?.recorded_at ?? seed?.recorded_at);
     if (lat == null || lng == null || !recordedAt) return;
     getTripTrackingMapStore(trip.id).applySeed(lat, lng, recordedAt);
     setLastSeenAt((prev) => {
@@ -3745,7 +3769,7 @@ export function useTripDetail({
 
   useTrackingTripBroadcast({
     tripId: trip?.id ?? null,
-    enabled: trackingBroadcastEnabled,
+    enabled: liveBroadcastListening,
     // Only the ISO timestamp escapes into React — coordinates go exclusively to TripTrackingMapStore.
     onTimestamp: (ts) => {
       lastBroadcastTimestampRef.current = ts;
@@ -3757,17 +3781,22 @@ export function useTripDetail({
 
   // Flush broadcast timestamp ref → React state at 1s cadence (drives "Updated X min ago" label).
   useEffect(() => {
-    if (!trackingBroadcastEnabled) return;
+    if (!liveBroadcastListening) return;
     const id = globalThis.setInterval(() => {
       const ts = lastBroadcastTimestampRef.current;
-      if (ts) setLastSeenAt(ts);
+      if (ts) {
+        // Never move "last seen" backwards (DB seed path may already hold a newer value).
+        setLastSeenAt((prev) =>
+          !prev || Date.parse(ts) >= Date.parse(prev) ? ts : prev,
+        );
+      }
     }, 1000);
     return () => globalThis.clearInterval(id);
-  }, [trackingBroadcastEnabled]);
+  }, [liveBroadcastListening]);
 
-  // Geocode live position from store (broadcast path) — no driverLocation state dependency.
+  // Geocode live position from store (broadcast + DB seed both land in the store).
   useEffect(() => {
-    if (!trackingBroadcastEnabled || !trip?.id) return;
+    if (!liveBroadcastListening || !trip?.id) return;
     const store = getTripTrackingMapStore(trip.id);
     const unsub = store.subscribe((point) => {
       if (!point) return;
@@ -3781,7 +3810,7 @@ export function useTripDetail({
       });
     });
     return unsub;
-  }, [trackingBroadcastEnabled, trip?.id]);
+  }, [liveBroadcastListening, trip?.id]);
 
   /**
    * Legacy WAL path — disabled when EXPO_PUBLIC_TRACKING_BROADCAST_V1=1.
@@ -3851,7 +3880,7 @@ export function useTripDetail({
   // Driver location — Mapbox/Nominatim label (no raw lat/lon in UI).
   // When broadcast is active, the store subscriber above handles geocoding instead.
   useEffect(() => {
-    if (trackingBroadcastEnabled) return;
+    if (liveBroadcastListening) return;
     if (!driverLocation) {
       setDriverLocationAddress(null);
       return;
@@ -3874,7 +3903,7 @@ export function useTripDetail({
     return () => {
       isActive = false;
     };
-  }, [driverLocation?.latitude, driverLocation?.longitude, trackingBroadcastEnabled]);
+  }, [driverLocation?.latitude, driverLocation?.longitude, liveBroadcastListening]);
 
   // Past location labels (last 2 checkpoints) for map stage markers
   useEffect(() => {
@@ -4105,6 +4134,7 @@ export function useTripDetail({
     /** @deprecated Use useTrackingState(tripId, tripStatus).broadcastActive instead. */
     trackingActive: trackingBroadcastEnabled,
     trackingTrail: liveTracking.trail,
+    completedTripPath,
     lastSeenAt,
     requestDriverPing: driverPing.requestPing,
     /** @deprecated Use useTrackingState(tripId, tripStatus, overrides).isPinging instead. */

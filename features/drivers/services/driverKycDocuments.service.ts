@@ -11,7 +11,7 @@
  */
 import { supabase } from '@/lib/supabase';
 
-export type DriverKycDocType = 'license' | 'aadhaar' | 'pan' | 'selfie' | 'other';
+export type DriverKycDocType = 'license' | 'aadhaar' | 'pan' | 'selfie' | 'bank_proof' | 'other';
 export type DriverKycStatus = 'pending' | 'verified' | 'rejected' | 'expired';
 
 export interface DriverKycDocument {
@@ -156,6 +156,12 @@ export const MANDATORY_DRIVER_KYC_DOC_TYPES: readonly DriverKycDocType[] = [
 ];
 
 /** Identity slots shared with trip / compliance vaults (not PAN / selfie). */
+/**
+ * DCO-only extras (a DCO is paid directly). Fallback only — the live set is
+ * driver_kyc_doc_requirements.required_for_dco. Optional for normal drivers.
+ */
+export const DCO_REQUIRED_KYC_DOC_TYPES: readonly DriverKycDocType[] = ['pan', 'bank_proof'];
+
 export const DRIVER_VAULT_KYC_DOC_TYPES: readonly DriverKycDocType[] = ['license', 'aadhaar'];
 
 export async function listDriverVaultKycDocuments(
@@ -212,6 +218,8 @@ export interface DriverKycDocRequirement {
   label: string;
   is_mandatory: boolean;
   sort_order: number;
+  /** Extra document required only on the DCO path (PAN, bank proof). */
+  required_for_dco?: boolean;
 }
 
 /**
@@ -233,7 +241,9 @@ export async function withdrawDriverKycDocument(
 export async function listDriverKycDocRequirements(): Promise<DriverKycDocRequirement[]> {
   const { data, error } = await supabase()
     .from('driver_kyc_doc_requirements')
-    .select('doc_type,label,is_mandatory,sort_order')
+    // '*' rather than naming required_for_dco: a database without the DCO
+    // migration yet returns the old columns instead of a 400.
+    .select('*')
     .order('sort_order', { ascending: true });
 
   if (error || !data?.length) return [];

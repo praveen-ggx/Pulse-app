@@ -17,7 +17,6 @@ import {
 import { splitLocationParts } from '@/features/network/utils/storyDisplay';
 import { calculateMarketplacePlatformFee } from '@/features/network/services/marketBids.service';
 import { formatTargetBand, targetBand, targetBandIsRange } from '@/components/mobile-input/bidVsTarget';
-import { formatINR } from '@/lib/format';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export type MarketLoadBidSheetProps = {

@@ -120,8 +120,9 @@ async function exportComplianceWorkbook(workbook: XLSX.WorkBook, fileName: strin
 export async function downloadComplianceTableExport(
   summaries: ComplianceTripSummary[],
   compliancePendingLayout: boolean,
+  supplierNameByTripId: Record<string, string> = {},
 ): Promise<void> {
-  const workbook = buildComplianceTableWorkbook(summaries, compliancePendingLayout);
+  const workbook = buildComplianceTableWorkbook(summaries, compliancePendingLayout, supplierNameByTripId);
   const name = compliancePendingLayout ? "compliance-pending" : "compliance-table";
   await exportComplianceWorkbook(workbook, `${name}-${exportFileStamp()}.xlsx`);
 }

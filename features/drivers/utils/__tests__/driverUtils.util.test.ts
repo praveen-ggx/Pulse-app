@@ -5,6 +5,7 @@ import {
   resolveDriverTripPayoutTerms,
   shouldShowAggregateTripKindPill,
   tripEarningsDetailForDriver,
+  tripEarningsForDriver,
   type TripWithSupplier,
 } from '../driverUtils.util';
 
@@ -248,5 +249,56 @@ describe("getHubTripKind — DCO indent awards are not Asset", () => {
         source: "manual",
       }),
     ).toBe(true);
+  });
+});
+
+describe('agreed trip pay: commission % + per km add up', () => {
+  const trip1000: TripWithSupplier = {
+    client_price: 1000,
+    supplier_rate: null,
+    supplier_id: null,
+    driver_commission: 0,
+    distance: 72,
+  } as TripWithSupplier;
+
+  it('₹1,000 trip, 72 km, 3% + ₹10/km = ₹30 + ₹720 = ₹750', () => {
+    const d = tripEarningsDetailForDriver(trip1000, { commissionPercent: 3, commissionPerKm: 10 });
+    expect(d.amount).toBe(750);
+    expect(d.isEstimated).toBe(false);
+    expect(d.parts).toMatchObject({ commission: 30, perKm: 720, km: 72 });
+  });
+
+  it('commission % only', () => {
+    const d = tripEarningsDetailForDriver(trip1000, { commissionPercent: 3 });
+    expect(d.amount).toBe(30);
+    expect(d.basis).toBe('commission_percent');
+  });
+
+  it('per km only', () => {
+    const d = tripEarningsDetailForDriver(trip1000, { commissionPerKm: 10 });
+    expect(d.amount).toBe(720);
+    expect(d.basis).toBe('per_km');
+  });
+
+  it('% is on the trip amount (client price), never the supplier cost — same as the DB', () => {
+    const withSupplierCost = { ...trip1000, supplier_rate: 800 } as TripWithSupplier;
+    expect(tripEarningsDetailForDriver(withSupplierCost, { commissionPercent: 7 }).amount).toBe(70);
+    const noClientPrice = { ...trip1000, client_price: 0, supplier_rate: 800 } as TripWithSupplier;
+    expect(tripEarningsForDriver(noClientPrice, { commissionPercent: 7 })).toBe(0);
+  });
+
+  it('a stored trip figure wins; breakdown only when the terms explain it', () => {
+    const stored = { ...trip1000, driver_commission: 750 } as TripWithSupplier;
+    const d = tripEarningsDetailForDriver(stored, { commissionPercent: 3, commissionPerKm: 10 });
+    expect(d.amount).toBe(750);
+    expect(d.basis).toBe('trip_commission');
+    expect(d.parts?.commission).toBe(30);
+    const other = { ...trip1000, driver_commission: 500 } as TripWithSupplier;
+    expect(tripEarningsDetailForDriver(other, { commissionPercent: 3 }).parts).toBeUndefined();
+  });
+
+  it('no agreed terms: never counted as money owed', () => {
+    expect(tripEarningsForDriver(trip1000, null)).toBe(0);
+    expect(tripEarningsDetailForDriver(trip1000, null).isEstimated).toBe(true);
   });
 });

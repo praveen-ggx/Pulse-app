@@ -1,6 +1,24 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const PARTIES_KEY = "pulse.driver_offline_parties.v1";
+import { supabase } from "@/lib/supabase";
+
+/**
+ * Old single key shared by every account on the phone — another driver who
+ * signed in on the same phone saw the previous driver's parties. Now stored
+ * per user; the old list is handed over once to the first user who reads it.
+ */
+const LEGACY_PARTIES_KEY = "pulse.driver_offline_parties.v1";
+
+async function partiesKey(): Promise<string> {
+  try {
+    const { data } = await supabase().auth.getSession();
+    const uid = data.session?.user?.id;
+    if (uid) return `pulse.driver_offline_parties.v2:${uid}`;
+  } catch {
+    // no session available — fall through
+  }
+  return "pulse.driver_offline_parties.v2:anonymous";
+}
 
 export type DriverOfflineParty = {
   id: string;
@@ -13,8 +31,7 @@ function newLocalId(): string {
   return `local:${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
-async function readAll(): Promise<DriverOfflineParty[]> {
-  const raw = await AsyncStorage.getItem(PARTIES_KEY);
+function parseRows(raw: string | null): DriverOfflineParty[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as DriverOfflineParty[];
@@ -24,8 +41,21 @@ async function readAll(): Promise<DriverOfflineParty[]> {
   }
 }
 
+async function readAll(): Promise<DriverOfflineParty[]> {
+  const key = await partiesKey();
+  const raw = await AsyncStorage.getItem(key);
+  if (raw) return parseRows(raw);
+  // One-time hand-over of the old shared list, then delete it.
+  const legacy = await AsyncStorage.getItem(LEGACY_PARTIES_KEY);
+  if (!legacy) return [];
+  const rows = parseRows(legacy);
+  await AsyncStorage.setItem(key, JSON.stringify(rows));
+  await AsyncStorage.removeItem(LEGACY_PARTIES_KEY);
+  return rows;
+}
+
 async function writeAll(rows: DriverOfflineParty[]): Promise<void> {
-  await AsyncStorage.setItem(PARTIES_KEY, JSON.stringify(rows));
+  await AsyncStorage.setItem(await partiesKey(), JSON.stringify(rows));
 }
 
 export async function listDriverOfflineParties(): Promise<DriverOfflineParty[]> {

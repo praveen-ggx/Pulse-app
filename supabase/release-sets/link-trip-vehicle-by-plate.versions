@@ -1,0 +1,15 @@
+# Link trips.vehicle_id from a typed plate (nihas V1.0.52, TRP002015).
+# 1. link_trip_vehicle_by_plate:
+#    - private.resolve_trip_vehicle_by_plate: supplier linked-org fleet first, then trip org fleet;
+#      exactly one active vehicle with the same normalized plate, else no link.
+#    - trigger trips_link_vehicle_by_plate (BEFORE insert/update of vehicle_display_number, vehicle_id).
+#    - trigger vehicles_backlink_trips_by_plate (AFTER insert/update of vehicle_number, deleted_at).
+#    - one-time backfill (prod 2026-11-14, read-only dry run: 17 trips, none ambiguous).
+#
+# Apply only via: npm run db:push-set -- link-trip-vehicle-by-plate   (dry-run first; prod apply needs Vasanth's GO)
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Verify before applying:
+#   npx jest supabase/migrations/__tests__/linkTripVehicleByPlateSet.test.ts features/trips/services/__tests__/linkTripVehicleByPlate.migration.contract.test.ts
+# sha256 0b41142750e8e96d51de9c5fde5a0b60a5600108a2a17a7731ace537944a7fa0  20261114111733_link_trip_vehicle_by_plate.sql
+20261114111733

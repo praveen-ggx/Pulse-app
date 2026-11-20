@@ -12,6 +12,9 @@
  */
 
 import type { IndentRow } from "@/features/indents/services/indents.service";
+import { indentCancelReasonLabel } from "@/features/indents/utils/indentCancelReason.util";
+import { regionForPlace } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
+import { INTEGRATED_TRIP_CANCEL_REASONS } from "@/features/trips/utils/integratedTripCancel.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 /** Who is downloading — Sales → this report; TripOps → classic ops sheet. */
@@ -30,35 +33,37 @@ export function resolveTripIndentReportAudience(access: {
   return "tripops";
 }
 
+/**
+ * Business Sales Report column order. Prices stay in this order for MIR;
+ * they are not dropped by role.
+ */
 export const TRIP_INDENT_REPORT_COLUMNS = [
-  { key: "customerName", label: "Customer Name" },
-  { key: "indentType", label: "Indent Type" },
+  { key: "serial", label: "S.No" },
+  { key: "customerName", label: "Customer (Client Name)" },
+  { key: "region", label: "Region" },
+  { key: "commercialType", label: "Adhoc / Contract" },
   { key: "source", label: "Source" },
   { key: "destination", label: "Destination" },
   { key: "supplierName", label: "Supplier Name" },
   { key: "truckNumber", label: "Truck Number" },
   { key: "truckType", label: "Truck Type" },
-  { key: "tonnageCapacity", label: "Tonnage / Vehicle Capacity" },
+  { key: "ton", label: "Ton" },
   { key: "driverName", label: "Driver Name" },
-  { key: "driverPhone", label: "Driver Phone Number" },
-  { key: "indentCreatedAt", label: "Indent Created Date & Time" },
-  { key: "confirmedAt", label: "Confirmed Date & Time" },
-  { key: "clientCost", label: "Client Cost" },
-  { key: "supplierCost", label: "Supplier Cost" },
+  { key: "driverPhone", label: "Driver Number" },
+  { key: "indentDate", label: "Indent Date" },
+  { key: "awardedDate", label: "Indent Awarded Date" },
+  { key: "customerPrice", label: "Customer Price" },
+  { key: "supplierPrice", label: "Supplier Price" },
   { key: "status", label: "Status" },
-  { key: "createdBy", label: "Created By" },
   { key: "indentId", label: "Indent ID" },
   { key: "pulseId", label: "Pulse ID" },
   { key: "tripId", label: "Trip ID" },
+  { key: "createdBy", label: "Created By" },
 ] as const;
 
-/** Money columns — finance members only. */
-const COST_COLUMN_KEYS = new Set<string>(["clientCost", "supplierCost"]);
-
-/** Drop Client/Supplier Cost unless the member has finance access. */
-export function tripIndentReportColumnsForAccess(includeCosts: boolean) {
-  if (includeCosts) return [...TRIP_INDENT_REPORT_COLUMNS];
-  return TRIP_INDENT_REPORT_COLUMNS.filter((c) => !COST_COLUMN_KEYS.has(c.key));
+/** The MIR sheet always includes Customer Price and Supplier Price. */
+export function tripIndentReportColumnsForAccess(_includeCosts?: boolean) {
+  return [...TRIP_INDENT_REPORT_COLUMNS];
 }
 
 export type TripIndentReportColumnKey =
@@ -74,14 +79,27 @@ export type TripIndentReportPartyMeta = {
 export type TripIndentReportEnrichment = {
   /** Accepted market bid timestamp by indent id. */
   confirmedAtByIndentId?: Record<string, string>;
-  /** Vehicle type / capacity by vehicle id. */
-  vehicleById?: Record<string, { vehicleType: string; capacity: string }>;
+  /** Vehicle type, capacity, and registration by vehicle id. */
+  vehicleById?: Record<
+    string,
+    { vehicleType: string; capacity: string; vehicleNumber?: string }
+  >;
+  /** Lane stored on the trip row. Present means the trip was created as Contract. */
+  laneIdByTripId?: Record<string, string>;
+  /** Lane stored on the indent row. Present means the indent was created as Contract. */
+  laneIdByIndentId?: Record<string, string>;
   /** Creator display name by auth user id. */
   creatorNameByUserId?: Record<string, string>;
   /** Organization / supplier display name by org id (indent award). */
   orgNameById?: Record<string, string>;
   /** Driver phone by trip id. */
   driverPhoneByTripId?: Record<string, string>;
+  /** Driver name by drivers.id when the trip has no display name. */
+  driverNameByDriverId?: Record<string, string>;
+  /** Supplier name by suppliers.id when the trip row has no supplier name. */
+  supplierNameBySupplierId?: Record<string, string>;
+  /** Cancel category stored on the trip when the trip list omitted it. */
+  tripCancelByTripId?: Record<string, { reason: string; note: string }>;
   /** Hub party labels by trip id. */
   partyMetaByTripId?: Map<string, TripIndentReportPartyMeta> | Record<string, TripIndentReportPartyMeta>;
   /** Indent created_at / codes by indent id (when trip rows need indent create time). */
@@ -104,15 +122,149 @@ function partyMetaFor(
   return map[tripId];
 }
 
-/** ADHOC / Contract / Spot from lane + circulation (existing app meanings). */
+/**
+ * Adhoc / Contract from the lane saved at creation.
+ * A stored lane_id is Contract. No lane is Adhoc.
+ * Marketplace circulation is not a category and must not override the lane.
+ */
 export function resolveIndentType(input: {
   laneId?: string | null;
   circulationTarget?: string | null;
+}): "Contract" | "Adhoc" {
+  void input.circulationTarget;
+  return blank(input.laneId).length > 0 ? "Contract" : "Adhoc";
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function displayCode(...values: Array<string | null | undefined>): string {
+  for (const value of values) {
+    const text = blank(value);
+    if (text && text !== "—" && !UUID_RE.test(text)) return text;
+  }
+  return "";
+}
+
+/**
+ * Indent ID is the indent's own display number (`IND…`).
+ * Pulse ID is that indent's operational code (`…IND…`), never the trip code.
+ * Trip ID is the trip's own display number (`TRP…`), blank until a trip exists.
+ * A value already used by an earlier column is left blank so the three
+ * columns never repeat the same ID.
+ */
+export function reportIdentityIds(input: {
+  indent?: {
+    display_indent_id?: string | null;
+    indent_number?: string | null;
+    indent_operational_code?: string | null;
+    indent_code?: string | null;
+  } | null;
+  trip?: {
+    display_trip_id?: string | null;
+    trip_number?: string | null;
+  } | null;
+}): { indentId: string; pulseId: string; tripId: string } {
+  const indentId = displayCode(input.indent?.display_indent_id, input.indent?.indent_number);
+  const pulseCandidate = displayCode(
+    input.indent?.indent_operational_code,
+    input.indent?.indent_code,
+  );
+  const tripId = input.trip
+    ? displayCode(input.trip.display_trip_id, input.trip.trip_number)
+    : "";
+  const pulseId = pulseCandidate && pulseCandidate !== indentId ? pulseCandidate : "";
+  return {
+    indentId,
+    pulseId,
+    tripId: tripId && tripId !== indentId && tripId !== pulseId ? tripId : "",
+  };
+}
+
+/** Calendar day in Asia/Kolkata, matching the hub date filter. */
+export function formatReportDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  return d.toLocaleDateString("en-GB", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+const ASSIGNED_TRIP_STATUSES = new Set([
+  "assigned",
+  "in_transit",
+  "in_progress",
+  "picked_up",
+  "completed",
+  "delivered",
+  "started",
+  "at_pickup",
+  "at_drop",
+  "dispatched",
+  "transit",
+  "unloading",
+]);
+
+function cancellationCategory(
+  raw: string | null | undefined,
+  note?: string | null,
+): string {
+  const fromIndent = indentCancelReasonLabel(raw);
+  if (fromIndent) return fromIndent;
+  const id = blank(raw);
+  const tripReason = INTEGRATED_TRIP_CANCEL_REASONS.find((reason) => reason.id === id);
+  if (!tripReason) return "";
+  if (tripReason.id === "other") return blank(note) || tripReason.label;
+  return tripReason.label;
+}
+
+/**
+ * Current workflow stage for the sales sheet.
+ * Created, Awarded, Assigned, or the stored cancel / expiry category.
+ */
+export function salesReportStatus(input: {
+  indentStatus?: string | null;
+  tripStatus?: string | null;
+  indentCancelReason?: string | null;
+  tripCancelReason?: string | null;
+  tripCancelNote?: string | null;
+  hasTrip: boolean;
+  hasAssignment: boolean;
 }): string {
-  if (blank(input.laneId).length > 0) return "Contract";
-  const circ = blank(input.circulationTarget).toLowerCase();
-  if (circ === "marketplace" || circ === "both") return "Spot";
-  return "ADHOC";
+  const indentStatus = blank(input.indentStatus).toLowerCase();
+  const tripStatus = blank(input.tripStatus).toLowerCase();
+  if (indentStatus === "expired") {
+    return cancellationCategory(input.indentCancelReason) || "Indent expired";
+  }
+  if (indentStatus === "cancelled" || tripStatus === "cancelled") {
+    return (
+      cancellationCategory(input.indentCancelReason) ||
+      cancellationCategory(input.tripCancelReason, input.tripCancelNote) ||
+      "Cancelled"
+    );
+  }
+  if (input.hasAssignment || ASSIGNED_TRIP_STATUSES.has(tripStatus)) return "Assigned";
+  if (input.hasTrip || indentStatus === "awarded") return "Awarded";
+  return "Created";
+}
+
+function storedLaneId(input: {
+  tripId?: string;
+  tripLaneId?: string | null;
+  indentId?: string;
+  indentLaneId?: string | null;
+  enrichment: TripIndentReportEnrichment;
+}): string {
+  return (
+    (input.tripId ? blank(input.enrichment.laneIdByTripId?.[input.tripId]) : "") ||
+    blank(input.tripLaneId) ||
+    (input.indentId ? blank(input.enrichment.laneIdByIndentId?.[input.indentId]) : "") ||
+    blank(input.indentLaneId)
+  );
 }
 
 /** Hub dates use Asia/Kolkata — keep Excel timestamps on the same calendar. */
@@ -227,52 +379,71 @@ export function buildTripReportRow(
   const meta = partyMetaFor(enrichment, trip.id);
   const vehicleId = blank(trip.vehicle_id);
   const vehicle = vehicleId ? enrichment.vehicleById?.[vehicleId] : undefined;
-  const creatorId = blank(trip.created_by_user_id) || blank(trip.created_by);
-  const confirmedIso =
-    (indentId ? enrichment.confirmedAtByIndentId?.[indentId] : undefined) ||
-    trip.converted_from_indent_at ||
-    "";
+  // Created By is the indent's original creator. The trip creator is the
+  // person who awarded or assigned it, and must not replace that name.
+  const creatorId = blank(indent?.created_by_user_id);
+  const awardedIso = indentId
+    ? enrichment.confirmedAtByIndentId?.[indentId] ?? ""
+    : "";
+  const laneId = storedLaneId({
+    tripId: trip.id,
+    tripLaneId: (trip as { lane_id?: string | null }).lane_id,
+    indentId,
+    indentLaneId: indent?.lane_id,
+    enrichment,
+  });
+  const storedCancel = enrichment.tripCancelByTripId?.[trip.id];
+  const hasAssignment = Boolean(
+    blank(trip.driver_id) ||
+      blank(trip.vehicle_id) ||
+      blank(trip.driver_display_name) ||
+      blank(trip.vehicle_display_number) ||
+      blank(vehicle?.vehicleNumber),
+  );
+  const source = blank(trip.pickup_area) || blank(indent?.pickup_area);
 
   return {
-    customerName: blank(trip.client_name),
-    indentType: resolveIndentType({
-      laneId: (trip as { lane_id?: string | null }).lane_id ?? indent?.lane_id,
-      circulationTarget: indent?.circulation_target,
-    }),
-    source: blank(trip.pickup_area),
-    destination: blank(trip.drop_location) || blank(trip.drop_area),
+    serial: 0,
+    customerName: blank(trip.client_name) || blank(indent?.client_name),
+    region: regionForPlace(source),
+    commercialType: resolveIndentType({ laneId }),
+    source,
+    destination:
+      blank(trip.drop_location) || blank(trip.drop_area) || blank(indent?.drop_location),
     supplierName:
-      blank(meta?.displaySupplierName) || blank(trip.supplier_name),
-    truckNumber: blank(trip.vehicle_display_number),
+      blank(meta?.displaySupplierName) ||
+      blank(trip.supplier_name) ||
+      blank(enrichment.supplierNameBySupplierId?.[blank(trip.supplier_id)]) ||
+      blank(enrichment.orgNameById?.[blank(indent?.assigned_supplier_id)]),
+    truckNumber: blank(trip.vehicle_display_number) || blank(vehicle?.vehicleNumber),
     truckType: blank(vehicle?.vehicleType) || blank(indent?.vehicle_type),
-    tonnageCapacity: formatTonnageCapacity({
+    ton: formatTonnageCapacity({
       vehicleCapacity: vehicle?.capacity,
       loadTons: trip.load_tons,
       weightKg: indent?.weight,
     }),
     driverName:
-      blank(meta?.displayDriverName) || blank(trip.driver_display_name),
+      blank(meta?.displayDriverName) ||
+      blank(trip.driver_display_name) ||
+      blank(enrichment.driverNameByDriverId?.[blank(trip.driver_id)]),
     driverPhone: blank(enrichment.driverPhoneByTripId?.[trip.id]),
-    indentCreatedAt: formatReportDateTime(indent?.created_at ?? trip.created_at),
-    confirmedAt: formatReportDateTime(confirmedIso || null),
-    clientCost: formatMoney(trip.client_price),
-    supplierCost: formatMoney(trip.supplier_rate),
-    status: enrichment.stageLabelForTrip?.(trip) || blank(trip.status) || "",
+    indentDate: formatReportDate(indent?.created_at),
+    awardedDate: formatReportDate(awardedIso || null),
+    customerPrice: formatMoney(trip.client_price ?? indent?.client_price),
+    supplierPrice: formatMoney(
+      trip.supplier_rate ?? indent?.assigned_supplier_rate,
+    ),
+    status: salesReportStatus({
+      indentStatus: indent?.status,
+      tripStatus: trip.status,
+      indentCancelReason: indent?.cancel_reason,
+      tripCancelReason: storedCancel?.reason || trip.cancel_reason,
+      tripCancelNote: storedCancel?.note || trip.cancel_reason_note,
+      hasTrip: true,
+      hasAssignment,
+    }),
+    ...reportIdentityIds({ indent, trip }),
     createdBy: creatorId ? blank(enrichment.creatorNameByUserId?.[creatorId]) : "",
-    indentId: resolveIndentId({
-      tripIndentNumber: trip.indent_number,
-      tripSourceIndentCode: trip.source_indent_code,
-      indentNumber: indent?.indent_number,
-      indentCode: indent?.indent_code,
-      indentOperationalCode: indent?.indent_operational_code,
-    }),
-    pulseId: resolvePulseId({
-      tripOperationalCode: trip.trip_operational_code,
-      tripCode: trip.trip_code,
-      indentOperationalCode: indent?.indent_operational_code,
-      indentCode: indent?.indent_code,
-    }),
-    tripId: blank(trip.display_trip_id) || blank(trip.trip_number) || blank(trip.id),
   };
 }
 
@@ -281,41 +452,40 @@ export function buildIndentReportRow(
   enrichment: TripIndentReportEnrichment = {},
 ): TripIndentReportRow {
   const creatorId = blank(indent.created_by_user_id);
-  const confirmedIso = enrichment.confirmedAtByIndentId?.[indent.id] ?? "";
+  const awardedIso = enrichment.confirmedAtByIndentId?.[indent.id] ?? "";
+  const laneId = storedLaneId({
+    indentId: indent.id,
+    indentLaneId: indent.lane_id,
+    enrichment,
+  });
+  const source = blank(indent.pickup_area);
   return {
+    serial: 0,
     customerName: blank(indent.client_name),
-    indentType: resolveIndentType({
-      laneId: indent.lane_id,
-      circulationTarget: indent.circulation_target,
-    }),
-    source: blank(indent.pickup_area),
+    region: regionForPlace(source),
+    commercialType: resolveIndentType({ laneId }),
+    source,
     destination: blank(indent.drop_location),
     supplierName: blank(
       enrichment.orgNameById?.[blank(indent.assigned_supplier_id)] ?? "",
     ),
     truckNumber: "",
     truckType: blank(indent.vehicle_type),
-    tonnageCapacity: formatTonnageCapacity({ weightKg: indent.weight }),
+    ton: formatTonnageCapacity({ weightKg: indent.weight }),
     driverName: "",
     driverPhone: "",
-    indentCreatedAt: formatReportDateTime(indent.created_at),
-    confirmedAt: formatReportDateTime(confirmedIso || null),
-    clientCost: formatMoney(indent.client_price),
-    supplierCost: formatMoney(
-      indent.assigned_supplier_rate ?? indent.supplier_target,
-    ),
-    status: indentLifecycleStatus(indent.status),
+    indentDate: formatReportDate(indent.created_at),
+    awardedDate: formatReportDate(awardedIso || null),
+    customerPrice: formatMoney(indent.client_price),
+    supplierPrice: formatMoney(indent.assigned_supplier_rate),
+    status: salesReportStatus({
+      indentStatus: indent.status,
+      indentCancelReason: indent.cancel_reason,
+      hasTrip: false,
+      hasAssignment: false,
+    }),
+    ...reportIdentityIds({ indent, trip: null }),
     createdBy: creatorId ? blank(enrichment.creatorNameByUserId?.[creatorId]) : "",
-    indentId: resolveIndentId({
-      indentNumber: indent.indent_number,
-      indentCode: indent.indent_code,
-      indentOperationalCode: indent.indent_operational_code,
-    }),
-    pulseId: resolvePulseId({
-      indentOperationalCode: indent.indent_operational_code,
-      indentCode: indent.indent_code,
-    }),
-    tripId: "",
   };
 }
 
@@ -329,14 +499,19 @@ export function buildTripIndentReportRows(
   enrichment: TripIndentReportEnrichment = {},
   orgId?: string | null,
 ): TripIndentReportRow[] {
+  const indentById: Record<string, IndentRow> = { ...(enrichment.indentById ?? {}) };
+  for (const indent of indents) {
+    if (indent.id && !indentById[indent.id]) indentById[indent.id] = indent;
+  }
+  const merged: TripIndentReportEnrichment = { ...enrichment, indentById };
   const covered = indentIdsCoveredByTrips(trips);
-  const rows: TripIndentReportRow[] = trips.map((t) => buildTripReportRow(t, enrichment));
+  const rows: TripIndentReportRow[] = trips.map((t) => buildTripReportRow(t, merged));
   for (const indent of indents) {
     if (orgId && blank(indent.organization_id) !== blank(orgId)) continue;
     if (covered.has(indent.id)) continue;
-    rows.push(buildIndentReportRow(indent, enrichment));
+    rows.push(buildIndentReportRow(indent, merged));
   }
-  return rows;
+  return rows.map((row, index) => ({ ...row, serial: index + 1 }));
 }
 
 export function tripIndentReportFileName(date = new Date()): string {

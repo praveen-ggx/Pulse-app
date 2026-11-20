@@ -2,6 +2,7 @@
  * Driver chat — Slack-style trip threads (aligned with business Command Hub chat).
  */
 import { AppLoadingSplash } from "@/components/AppLoadingSplash";
+import { showAppAlert } from "@/lib/appAlert";
 import { DriverChatSlackInbox } from "@/features/chat/components/driver/DriverChatSlackInbox";
 import { DriverChatSlackThread } from "@/features/chat/components/driver/DriverChatSlackThread";
 import { useDriverChat } from "@/features/chat/contexts/DriverChatContext";
@@ -18,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Text, TouchableOpacity, View } from "react-native";
 import { MessageSquare } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { driverTabBarBottomPad } from "@/components/driver/driverTabBarInsets";
 
 export default function DriverChatScreen() {
   const insets = useSafeAreaInsets();
@@ -45,7 +47,7 @@ export default function DriverChatScreen() {
   const driverTabBarClearance = useMemo(() => {
     if (isDriverChatRoute) return 0;
     const footerPadTop = 4;
-    const footerPadBottom = Math.max(Math.round(insets.bottom * 0.35), 10);
+    const footerPadBottom = driverTabBarBottomPad(insets.bottom);
     return Layout.tabBarDockHeight + footerPadTop + footerPadBottom;
   }, [insets.bottom, isDriverChatRoute]);
 
@@ -178,7 +180,12 @@ export default function DriverChatScreen() {
     const text = messageInput.trim();
     if (!text || !selectedId || !resolvedOrgId) return;
     setMessageInput("");
-    await sendMessage(selectedId, resolvedOrgId, text);
+    const sent = await sendMessage(selectedId, resolvedOrgId, text);
+    if (!sent) {
+      // Failed sends used to vanish with the typed text. Give the text back.
+      setMessageInput((current) => (current.trim() ? current : text));
+      showAppAlert("Message not sent", "Check your connection and tap send again.");
+    }
   };
 
   const openConv = (conv: TripConversation) => {
@@ -204,9 +211,10 @@ export default function DriverChatScreen() {
       messageInput={messageInput}
       setMessageInput={setMessageInput}
       onSend={() => void handleSend()}
-      onSendTripChat={(text) =>
-        sendMessage(conv.id, conv.organization_id ?? resolvedOrgId ?? "", text)
-      }
+      onSendTripChat={async (text) => {
+        const sent = await sendMessage(conv.id, conv.organization_id ?? resolvedOrgId ?? "", text);
+        if (!sent) showAppAlert("Message not sent", "Check your connection and try again.");
+      }}
       onBack={() => {
         setSelectedId(null);
         setPendingConvOrgId(null);

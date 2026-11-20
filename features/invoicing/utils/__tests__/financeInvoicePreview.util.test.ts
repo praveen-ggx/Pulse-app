@@ -6,16 +6,22 @@ import {
   financeRouteScreenOwner,
   invoicePreviewCanSaveDraft,
   invoicePreviewItemsFromDraft,
+  manualInvoiceDateFromSaved,
   manualInvoicePersistIdentity,
   resolveFinancePreviewKind,
+  resolveInvoicePaperDate,
   resolveInvoicePreviewItemSource,
+  resolveSavedManualInvoiceDate,
 } from "../financeInvoicePreview.util";
 import {
   buildSavedInvoicePreviewModel,
   parseSavedInvoiceLines,
 } from "../savedInvoicePreview.util";
 import { buildManualInvoiceLines, emptyManualInvoiceLine } from "../manualInvoice.util";
-import { buildInvoiceDraftModelFromManualLines } from "../../services/invoicePreviewModel.service";
+import {
+  buildInvoiceDraftModelFromManualLines,
+  displayInvoicePreviewDate,
+} from "../../services/invoicePreviewModel.service";
 
 const issuer = {
   orgId: "org",
@@ -436,5 +442,89 @@ describe("finance invoice preview wiring", () => {
     expect(panel).toContain('previewItemSource === "draft-lines"');
     expect(panel).toContain("invoicePreviewCanSaveDraft");
     expect(panel).toContain("invoiceNumberLabel");
+  });
+});
+
+describe("invoice date sync", () => {
+  const panelToday = "2026-11-12";
+  const edited = "2026-11-30";
+  const clock = new Date(2026, 10, 12);
+
+  it("shows the edited left-pane date on the paper immediately", () => {
+    const paper = resolveInvoicePaperDate({
+      draftPreviewDate: edited,
+      panelPreviewDate: panelToday,
+    });
+    expect(paper).toBe(edited);
+    expect(displayInvoicePreviewDate(paper)).toBe("30 Nov 2026");
+    expect(
+      resolveInvoicePaperDate({
+        draftPreviewDate: "2026-11-3",
+        panelPreviewDate: panelToday,
+      }),
+    ).toBe("2026-11-3");
+  });
+
+  it("keeps the panel date when the draft has no date", () => {
+    expect(
+      resolveInvoicePaperDate({
+        draftPreviewDate: "  ",
+        panelPreviewDate: panelToday,
+      }),
+    ).toBe(panelToday);
+    expect(
+      resolveInvoicePaperDate({
+        draftPreviewDate: null,
+        panelPreviewDate: panelToday,
+      }),
+    ).toBe(panelToday);
+  });
+
+  it("saves a valid edited day and falls back to today otherwise", () => {
+    expect(resolveSavedManualInvoiceDate(edited, clock)).toBe(edited);
+    expect(resolveSavedManualInvoiceDate("2026-11-30T18:30:00.000Z", clock)).toBe(
+      edited,
+    );
+    expect(resolveSavedManualInvoiceDate("", clock)).toBe(panelToday);
+    expect(resolveSavedManualInvoiceDate("not-a-date", clock)).toBe(panelToday);
+    expect(resolveSavedManualInvoiceDate("2026-02-31", clock)).toBe(panelToday);
+  });
+
+  it("reopens from the saved invoice date and does not invent one", () => {
+    expect(manualInvoiceDateFromSaved(edited)).toBe(edited);
+    expect(manualInvoiceDateFromSaved("2026-11-30T00:00:00+05:30")).toBe(edited);
+    expect(manualInvoiceDateFromSaved(null)).toBeNull();
+    expect(manualInvoiceDateFromSaved("")).toBeNull();
+    expect(
+      resolveInvoicePaperDate({
+        draftPreviewDate: manualInvoiceDateFromSaved(edited),
+        panelPreviewDate: panelToday,
+      }),
+    ).toBe(edited);
+  });
+
+  it("wires the paper, the save, and reopen to the same date", () => {
+    const panel = readFileSync(
+      join(__dirname, "../../components/InvoicePreviewPanel.tsx"),
+      "utf8",
+    );
+    const service = readFileSync(
+      join(__dirname, "../../services/manualInvoice.service.ts"),
+      "utf8",
+    );
+    const screen = readFileSync(
+      join(__dirname, "../../InvoicingExecuteScreen.tsx"),
+      "utf8",
+    );
+    expect(panel).toContain("resolveInvoicePaperDate");
+    expect(panel).toContain("displayInvoicePreviewDate(invoiceDateIso)");
+    expect(panel).not.toContain("displayInvoicePreviewDate(previewDate)");
+    expect(service).toContain("resolveSavedManualInvoiceDate(args.invoiceDate)");
+    expect(service).toContain("invoice_date: invoiceDate");
+    expect(service).toContain("p_invoice_date: invoiceDate");
+    expect(service).not.toContain("toISOString().slice(0, 10)");
+    expect(screen).toContain("invoiceDate: manualInvoiceDate");
+    expect(screen).toContain("manualInvoiceDateFromSaved(draft.invoice_date)");
+    expect(screen).toContain("manualInvoiceDateFromSaved(saved.invoice_date)");
   });
 });

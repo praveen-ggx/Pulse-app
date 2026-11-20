@@ -153,6 +153,17 @@ const config = {
       ],
       '@maplibre/maplibre-react-native',
       [
+        // Driver live tracking: background GPS via an Android foreground service
+        // (adds ACCESS_BACKGROUND_LOCATION, FOREGROUND_SERVICE, FOREGROUND_SERVICE_LOCATION).
+        'expo-location',
+        {
+          isAndroidBackgroundLocationEnabled: true,
+          isAndroidForegroundServiceEnabled: true,
+          isIosBackgroundLocationEnabled: true,
+          // iOS usage strings: keep the existing ios.infoPlist texts (plugin falls back to them).
+        },
+      ],
+      [
         'expo-image-picker',
         {
           cameraPermission:

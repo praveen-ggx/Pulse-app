@@ -4,9 +4,8 @@ import { PAYMENT_MODES } from "@/lib/paymentModes";
 import {
   parseBulkCsv,
   suggestMapping,
-  type BulkField,
 } from "@/features/bulkOperations/utils/bulkOperation.engine.util";
-import type { ColumnMapping } from "@/features/bulkOperations/utils/bulkOperation.model";
+import type { BulkField, ColumnMapping } from "@/features/bulkOperations/utils/bulkOperation.model";
 import { interpretLedgerRowStructured } from "@/features/finance/ledger/ledgerEntryModel";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import {

@@ -175,7 +175,12 @@ export async function executeDriverCommand(
     p_payload: input.payload ?? {},
   });
   if (error) {
-    return { error: new DriverCommandError("rpc_error", error.message, null), result: null };
+    // Drivers lose signal on highways: show a plain message, not "TypeError: Network request failed".
+    const raw = String(error.message ?? "");
+    const message = /network request failed|failed to fetch|networkerror|load failed|timed? ?out|aborted/i.test(raw)
+      ? "No internet connection. Check your signal and try again."
+      : raw;
+    return { error: new DriverCommandError("rpc_error", message, null), result: null };
   }
   const result = (data ?? null) as DriverCommandResult | null;
   if (!result) {

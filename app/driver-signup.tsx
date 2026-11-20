@@ -924,13 +924,20 @@ export default function DriverSignUpScreen() {
     if (!hasAnyPending && !hasAnyUploaded) return { error: null };
 
     const uploaded: Partial<Record<DriverSignupDocKey, string>> = { ...uploadedDocPaths };
+    // Try every document. Stopping at the first failure dropped the rest
+    // (licence fails → Aadhaar and PAN never sent). Keep the ones that worked
+    // so a retry only re-sends the failed ones, and name them in the message.
+    const failed: string[] = [];
+    let firstError: Error | null = null;
     for (const docType of ['license', 'aadhaar', 'pan'] as const) {
       if (uploaded[docType]) continue;
       const doc = pendingDocs[docType];
       if (!doc) continue;
       const singleUpload = await uploadSingleDriverDocument(uid, docType, doc);
       if (singleUpload.error || !singleUpload.path) {
-        return { error: singleUpload.error ?? new Error(`Failed to upload ${docType}`) };
+        failed.push(docType === 'license' ? 'Driving licence' : docType === 'aadhaar' ? 'Aadhaar' : 'PAN');
+        firstError ??= singleUpload.error ?? new Error(`Failed to upload ${docType}`);
+        continue;
       }
       uploaded[docType] = singleUpload.path;
     }
@@ -938,6 +945,13 @@ export default function DriverSignUpScreen() {
     const metadataResult = await syncDriverDocumentMetadata(uid, uploaded);
     if (metadataResult.error) return { error: metadataResult.error };
     setUploadedDocPaths(uploaded);
+    if (failed.length > 0) {
+      return {
+        error: new Error(
+          `Could not upload: ${failed.join(', ')}. ${firstError?.message ?? ''}`.trim(),
+        ),
+      };
+    }
     return { error: null };
   };
 

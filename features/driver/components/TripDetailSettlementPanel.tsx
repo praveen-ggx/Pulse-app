@@ -236,6 +236,19 @@ export function TripDetailSettlementPanel({
       : settlementView.isEstimated
         ? "Estimate — confirm rate offline with fleet"
         : "Amount to settle offline with fleet";
+  const payParts = settlementView.payParts;
+  const payBreakdown = payParts
+    ? [
+        payParts.commission > 0
+          ? `Commission ${payParts.commissionPercent}% ${inr(payParts.commission)}`
+          : null,
+        payParts.perKm > 0
+          ? `Per km ${Math.round(payParts.km)} km × ${inr(payParts.perKmRate)} ${inr(payParts.perKm)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" + ")
+    : "";
   const earningValue = settlementView.isSalary
     ? "SALARY"
     : inr(settlementView.expectedAmount);
@@ -370,6 +383,11 @@ export function TripDetailSettlementPanel({
               <Text style={[panelStyles.fleetLine, { color: colors.textMuted }]}>
                 Revenue from {revenueFrom}
               </Text>
+              {payBreakdown ? (
+                <Text style={[panelStyles.fleetLine, { color: colors.textMuted }]}>
+                  {payBreakdown}
+                </Text>
+              ) : null}
             </View>
 
             <View style={{ marginTop: 12 }}>

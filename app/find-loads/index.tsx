@@ -411,7 +411,7 @@ export default function FindLoadsScreen() {
     () => (showHotLanesOnly && !searchActive ? hotMarketplaceLanes(openLanes) : pools),
     [showHotLanesOnly, searchActive, openLanes, pools],
   );
-  const bidPools = useMemo(() => {
+  const _bidPools = useMemo(() => {
     const keys = new Set(myBids.map((bid) => bidderLaneKey(bid.pickup_area, bid.drop_location)));
     return filterPoolLanes(lanes, null).filter((lane) =>
       keys.has(bidderLaneKey(lane.pickup_area, lane.drop_location)),

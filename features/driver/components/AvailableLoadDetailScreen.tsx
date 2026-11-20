@@ -357,10 +357,12 @@ export default function AvailableLoadDetailScreen() {
         setSubmitError('This load could not be found. Go back and try again.');
         return false;
       }
+      // Only attach a vehicle that fits this load. Falling back to the first
+      // vehicle sent the shipper a truck type they didn't ask for.
       const preferredVehicle =
         activeVehicles.find((v) =>
           load ? isLoadCompatibleWithFleet(load, [v.vehicle_type]) : false,
-        ) ?? activeVehicles[0];
+        ) ?? null;
       const { error: bidError } = await submitMarketBid({
         indentId,
         amount: amountInr,

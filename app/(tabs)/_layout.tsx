@@ -22,7 +22,7 @@ import {
   scheduleDispatcherTabPreloads,
 } from '@/lib/preloadRoutes';
 import { preloadChatRoute } from '@/lib/preloadChatWarmup';
-import { preloadStoryStrip } from '@/lib/preloadStoryWarmup';
+import { preloadStoryStrip } from '@/features/network/utils/preloadStoryWarmup.util';
 import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
 import { DEFAULT_DRIVER_ROUTE, ROUTES } from '@/lib/routes';
 import { shouldMountAuthenticatedDataPlane } from '@/lib/bootGate';

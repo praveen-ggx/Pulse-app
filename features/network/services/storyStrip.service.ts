@@ -28,7 +28,9 @@ export async function listPublishedStoriesForOrgs(
   const { getLinkedOrgProfilesBatch } = await import(
     "@/features/clients/services/clients.service"
   );
-  const profilesPromise = getLinkedOrgProfilesBatch(ids).catch(() => ({}));
+  const profilesPromise = getLinkedOrgProfilesBatch(ids).catch(
+    () => ({}) as Awaited<ReturnType<typeof getLinkedOrgProfilesBatch>>,
+  );
   let rows: Array<Record<string, unknown>> = [];
   try {
     const chunks = await Promise.all(

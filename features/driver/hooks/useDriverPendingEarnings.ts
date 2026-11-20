@@ -10,7 +10,10 @@ import * as salaryRequestsService from '@/features/drivers/services/salaryReques
 import * as tripsService from '@/features/trips/services/trips.service';
 import { useAuth } from '@/contexts/AuthContext';
 import { groupTripsByDateSection } from '@/features/driver/utils/pendingEarningsSections.util';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { showAppAlert } from '@/lib/appAlert';
+import { resolveAgreedPayTerms } from '@/features/drivers/utils/driverPayTerms.util';
 
 function isCompleted(status: string) {
   const s = (status || '').toLowerCase();
@@ -89,9 +92,15 @@ export function useDriverPendingEarnings() {
           driversService.getDriverLedgerByDriverIds(driverIds),
           salaryRequestsService.getSalaryRequestsByDriverIds(driverIds),
         ]).then(([tRes, ledgerRes, salaryRes]) => {
-          setTrips(tRes.trips ?? []);
-          setLedgerEntries(ledgerRes.entries ?? []);
-          setSalaryRequests(salaryRes.requests ?? []);
+          // A failed load used to show ₹0 / no trips. Keep the last good data
+          // and tell the driver instead.
+          if (tRes.error || ledgerRes.error || salaryRes.error) {
+            showAppAlert("Couldn't refresh earnings", 'Check your connection and pull down to try again.');
+          } else {
+            setTrips(tRes.trips ?? []);
+            setLedgerEntries(ledgerRes.entries ?? []);
+            setSalaryRequests(salaryRes.requests ?? []);
+          }
           setLoading(false);
           initialLoadDoneRef.current = true;
           isRefreshingRef.current = false;
@@ -106,9 +115,13 @@ export function useDriverPendingEarnings() {
       });
   }, [profile?.uid]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Reload every time the screen is shown — coming back from sending a
+  // payment request used to still list those trips as unclaimed.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
 
   const refresh = useCallback(() => {
     isRefreshingRef.current = true;
@@ -242,16 +255,10 @@ export function useDriverPendingEarnings() {
           String(d.organization_id ?? '') === String(trip.organization_id ?? '') &&
           String(d.id ?? '') === String(trip.driver_id ?? ''),
       );
-      const payoutTerms = {
-        commissionPercent:
-          acceptedInviteForTripOrg?.commission_percent ??
-          linkedDriverForTrip?.commission_percent ??
-          null,
-        commissionPerKm:
-          acceptedInviteForTripOrg?.commission_per_km ??
-          linkedDriverForTrip?.commission_per_km ??
-          null,
-      };
+      const payoutTerms = resolveAgreedPayTerms(
+        linkedDriverForTrip,
+        acceptedInviteForTripOrg ?? null,
+      );
 
       const view = buildDriverTripSettlementView({
         trip,
@@ -278,10 +285,10 @@ export function useDriverPendingEarnings() {
         from: view.from,
         to: view.to,
         provider,
-        // Trust view.amount as-is — buildDriverTripSettlementView already
-        // correctly zeroes this for aggregate/salary trips with no agreed
-        // payout terms. Do not fall back to the raw (ungated) calculator.
-        amount: view.amount,
+        // A trip with no agreed payout terms only has a 10% *estimate* — the
+        // view does not zero it, so do it here (same as the wallet's gated
+        // earnings). Otherwise "Pending earnings" is higher than the wallet.
+        amount: view.isEstimated ? 0 : view.amount,
         expectedAmount: view.expectedAmount,
         statusLabel: view.statusLabel || 'To collect',
         isFleetOwnerTrip,

@@ -18,6 +18,33 @@ import {
   liveTrailSignature,
   tripMapStructureKey,
 } from '@/features/trips/utils/tripMapLiveTrail.util';
+import {
+  detectTrackingGaps,
+  detectTripHalts,
+  haltIndexSet,
+  summarizeTripHalts,
+  type TripHalt,
+} from '@/features/trips/utils/tripHalts.util';
+import { resolveMapLocationLabel } from '@/lib/mapLocationLabel.service';
+import {
+  endMarkerHtml,
+  formatStatDuration,
+  formatStopDuration,
+  formatTrailDate,
+  formatTrailTime,
+  gapTagHtml,
+  haltCardHtml,
+  haltPillHtml,
+  setHaltPillSelected,
+  shortPlaceName,
+  startMarkerHtml,
+  TRAIL_COLORS,
+  TRAIL_PING_MIN_SPACING_PX,
+  trailCardHtml,
+  tripCardHtml,
+  trailSpansDays,
+  type TripCardRow,
+} from './tripMapTrailMarkers.web';
 import type { Map as LeafletMap, LatLngTuple } from 'leaflet';
 import React, { useEffect, useRef, useState } from 'react';
 
@@ -135,6 +162,106 @@ function etaFromLatLng(
   return { distanceKm: dist, etaMinutes: Math.round((dist / avgSpeedKmh) * 60) };
 }
 
+// ── Completed trip: connect saved driven points along roads ────────────────
+const DRIVEN_SNAP_MAX_POINTS = 12;
+const DRIVEN_SNAP_CONCURRENCY = 3;
+/** Points closer than this are joined straight (no routing call). */
+const DRIVEN_SNAP_MIN_GAP_KM = 0.15;
+
+function downsampleIndices(n: number, max: number): number[] {
+  if (n <= max) return Array.from({ length: n }, (_, i) => i);
+  const out = new Set<number>();
+  for (let i = 0; i < max; i++) out.add(Math.round((i * (n - 1)) / (max - 1)));
+  return [...out].sort((a, b) => a - b);
+}
+
+/** Road-snapped driven path; `gapLines` are the no-signal stretches (drawn dashed). */
+type SnappedDrivenPath = { latlngs: [number, number][]; gapLines: [number, number][][] };
+
+/**
+ * Road geometry through the driven points (one cached routing call per step,
+ * ~11 at most, 3 at a time) — like a maps app, every step follows the roads,
+ * including "no signal" stretches. A step whose road route fails, or detours
+ * far beyond the straight distance, stays straight. `gapAfter`: trail indices i
+ * whose step to i+1 is a no-signal gap; they are kept as sample points so the
+ * dashed stretch starts and ends exactly at those pings.
+ * Returns null when no step could be routed (caller keeps the straight line).
+ */
+async function snapDrivenPathToRoads(
+  pts: { latitude: number; longitude: number }[],
+  gapAfter: Set<number> = new Set(),
+): Promise<SnappedDrivenPath | null> {
+  const idxSet = new Set(downsampleIndices(pts.length, DRIVEN_SNAP_MAX_POINTS));
+  gapAfter.forEach((i) => {
+    if (i + 1 < pts.length) {
+      idxSet.add(i);
+      idxSet.add(i + 1);
+    }
+  });
+  const idx = [...idxSet].sort((a, b) => a - b);
+  if (idx.length < 2) return null;
+  const steps = idx.slice(0, -1).map((fi, k) => ({
+    from: pts[fi],
+    to: pts[idx[k + 1]],
+    noSignal: idx[k + 1] === fi + 1 && gapAfter.has(fi),
+  }));
+  const results: ([number, number][] | null)[] = new Array(steps.length).fill(null);
+  let routedAny = false;
+  let next = 0;
+  const worker = async () => {
+    while (next < steps.length) {
+      const i = next++;
+      const { from, to } = steps[i];
+      const straightKm = etaFromLatLng(from.latitude, from.longitude, to.latitude, to.longitude).distanceKm;
+      if (straightKm < DRIVEN_SNAP_MIN_GAP_KM) continue;
+      try {
+        const route = await getOptimalRoute(from, to);
+        const roadKm = (route?.distance ?? 0) / 1000;
+        if (route && route.coordinates.length > 1 && roadKm <= straightKm * 3 + 2) {
+          results[i] = route.coordinates.map((c) => [c.latitude, c.longitude] as [number, number]);
+          routedAny = true;
+        }
+      } catch {
+        /* straight step */
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(DRIVEN_SNAP_CONCURRENCY, steps.length) }, () => worker()),
+  );
+  if (!routedAny) return null;
+  const latlngs: [number, number][] = [];
+  const gapLines: [number, number][][] = [];
+  steps.forEach((st, i) => {
+    const seg = results[i] ?? [
+      [st.from.latitude, st.from.longitude] as [number, number],
+      [st.to.latitude, st.to.longitude] as [number, number],
+    ];
+    latlngs.push(...(latlngs.length ? seg.slice(1) : seg));
+    if (st.noSignal) gapLines.push(seg);
+  });
+  return { latlngs, gapLines };
+}
+
+/** The point halfway along a polyline, by distance. */
+function midpointAlong(seg: [number, number][]): [number, number] {
+  if (seg.length === 1) return seg[0];
+  const cum: number[] = [0];
+  for (let i = 1; i < seg.length; i++) {
+    const [a, b] = [seg[i - 1], seg[i]];
+    cum.push(cum[i - 1] + etaFromLatLng(a[0], a[1], b[0], b[1]).distanceKm);
+  }
+  const half = cum[cum.length - 1] / 2;
+  for (let i = 1; i < seg.length; i++) {
+    if (cum[i] >= half) {
+      const span = cum[i] - cum[i - 1];
+      const f = span > 0 ? (half - cum[i - 1]) / span : 0;
+      return [seg[i - 1][0] + (seg[i][0] - seg[i - 1][0]) * f, seg[i - 1][1] + (seg[i][1] - seg[i - 1][1]) * f];
+    }
+  }
+  return seg[seg.length - 1];
+}
+
 // ── Props ───────────────────────────────────────────────────────────────────
 export interface TripMapProps {
   source?: string | null;
@@ -163,6 +290,11 @@ export interface TripMapProps {
   driverAvatarSeed?: string | null;
   /** Green online ring when driver is broadcasting. */
   driverOnline?: boolean;
+  /**
+   * Completed trip: draw `dbLocationTrail` as the bold driven route (road-snapped
+   * when routing is available), fade the planned route, show a legend.
+   */
+  completedTrip?: boolean;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -180,6 +312,7 @@ export function TripMap({
   driverAvatarUri,
   driverAvatarSeed,
   driverOnline,
+  completedTrip = false,
 }: TripMapProps) {
   const resolvedHeight = height ?? 520;
   const compactMapPreview =
@@ -199,6 +332,13 @@ export function TripMap({
   >(null);
   const trailLayerRef = useRef<import('leaflet').LayerGroup | null>(null);
   const trailEtaElRef = useRef<HTMLElement | null>(null);
+  const completedTripRef = useRef(completedTrip);
+  completedTripRef.current = completedTrip;
+  /** Bumped on every trail paint so late road-snap results never draw over a newer paint. */
+  const trailPaintSeqRef = useRef(0);
+  const trailLegendElRef = useRef<HTMLElement | null>(null);
+  /** zoomend listener that shows/hides moving dots; removed on every repaint. */
+  const trailZoomHandlerRef = useRef<(() => void) | null>(null);
   // Side-channel map lifecycle refs — avoids tagging the map instance with custom props.
   const mapRafIdRef = useRef<number | null>(null);
   const mapTimeoutIdsRef = useRef<number[]>([]);
@@ -375,6 +515,414 @@ export function TripMap({
         truckMarker.addTo(map);
       }
 
+      // ── Trail markers shared by live + completed trails ──────────────────
+      /** Tap card whose place name is looked up only when it first opens. */
+      const bindTrailCard = (
+        layer: import('leaflet').Layer,
+        latitude: number,
+        longitude: number,
+        render: (place: string | null | undefined) => string,
+      ) => {
+        let looked = false;
+        layer.bindPopup(render(undefined), { closeButton: true, minWidth: 200, maxWidth: 280 });
+        layer.on('popupopen', () => {
+          if (looked) return;
+          looked = true;
+          void resolveMapLocationLabel(latitude, longitude)
+            .then((label) => {
+              if (!isRunActive()) return;
+              try { layer.setPopupContent(render(label ?? null)); } catch { /* layer gone */ }
+            })
+            .catch(() => {
+              try { layer.setPopupContent(render(null)); } catch { /* layer gone */ }
+            });
+        });
+      };
+
+      /**
+       * Halt pills with HALT cards. The pill turns route-orange while its card is
+       * open; `onSelect` lets the trip card highlight the same row.
+       */
+      const addHaltMarkers = (
+        target: import('leaflet').LayerGroup,
+        halts: TripHalt[],
+        trailLength: number,
+        withDate: boolean,
+        onSelect?: (index: number | null) => void,
+      ): import('leaflet').Marker[] =>
+        halts.map((h, i) => {
+          const lifted = h.firstIndex === 0 || h.lastIndex === trailLength - 1;
+          const marker = L.marker([h.latitude, h.longitude], {
+            icon: L.divIcon({
+              html: haltPillHtml(h, lifted),
+              className: '',
+              iconSize: [0, 0],
+              iconAnchor: [0, 0],
+              popupAnchor: [0, lifted ? -40 : -14],
+            }),
+            zIndexOffset: 400 + Math.min(200, Math.round(h.durationMs / 60_000)),
+            title: `Halt · ${formatStopDuration(h.durationMs)}`,
+          });
+          bindTrailCard(marker, h.latitude, h.longitude, (place) =>
+            haltCardHtml(h, i, halts.length, withDate, place),
+          );
+          marker.on('popupopen', () => {
+            setHaltPillSelected(marker.getElement(), true);
+            onSelect?.(i);
+          });
+          marker.on('popupclose', () => {
+            setHaltPillSelected(marker.getElement(), false);
+            onSelect?.(null);
+          });
+          marker.addTo(target);
+          return marker;
+        });
+
+      /**
+       * Keep GPS ping dots readable at every zoom: a dot closer than
+       * TRAIL_PING_MIN_SPACING_PX on screen to the last shown one is hidden;
+       * zooming in brings it back. Re-run on every zoom.
+       */
+      const thinPingDots = (
+        target: import('leaflet').FeatureGroup,
+        dots: import('leaflet').CircleMarker[],
+      ): (() => void) => {
+        const sync = () => {
+          try {
+            let lastShown: import('leaflet').Point | null = null;
+            for (const d of dots) {
+              const pt = map.latLngToLayerPoint(d.getLatLng());
+              const keep = !lastShown || pt.distanceTo(lastShown) >= TRAIL_PING_MIN_SPACING_PX;
+              if (keep) {
+                lastShown = pt;
+                if (!target.hasLayer(d)) target.addLayer(d);
+              } else if (target.hasLayer(d)) {
+                target.removeLayer(d);
+              }
+            }
+          } catch { /* map torn down */ }
+        };
+        sync();
+        return sync;
+      };
+
+      /**
+       * Top-left trip card: status, route, Moving / Stopped / GPS pings, and a
+       * collapsible timeline (start → halts → end). Tapping a halt row zooms to it
+       * and opens its card. Place names are looked up only while it is open.
+       */
+      const mountTripCard = (opts: {
+        status: 'completed' | 'tracking';
+        pts: { latitude: number; longitude: number; recorded_at?: string }[];
+        halts: TripHalt[];
+        haltMarkers: import('leaflet').Marker[];
+        withDate: boolean;
+        showGapKey: boolean;
+        defaultExpanded: boolean;
+      }): { el: HTMLElement; setSelected: (index: number | null) => void } => {
+        const { status, pts, halts, haltMarkers, withDate } = opts;
+        const first = pts[0];
+        const last = pts[pts.length - 1];
+        const { stoppedMs, movingMs } = summarizeTripHalts(pts, halts);
+        const src = shortPlaceName(source);
+        const dst = shortPlaceName(destination);
+        const rows: TripCardRow[] = [
+          { kind: 'start', title: 'Started', iso: first?.recorded_at, placeKey: 'start' },
+          ...halts.map((halt, index) => ({ kind: 'halt' as const, halt, index, placeKey: `h${index}` })),
+          ...(status === 'completed'
+            ? [{ kind: 'end' as const, title: 'Ended', iso: last?.recorded_at, placeKey: 'end' }]
+            : []),
+        ];
+        const coordsFor = (key: string): { latitude: number; longitude: number } | null => {
+          if (key === 'start') return first ?? null;
+          if (key === 'end') return last ?? null;
+          return halts[Number(key.slice(1))] ?? null;
+        };
+        const places: Record<string, string | null | undefined> = {};
+        let expanded = opts.defaultExpanded;
+        let selected: number | null = null;
+
+        const el = document.createElement('div');
+        el.style.cssText =
+          'position:absolute;top:10px;left:10px;z-index:1000;width:300px;max-width:calc(100% - 20px);' +
+          'background:#ffffff;border-radius:12px;overflow:hidden;' +
+          'box-shadow:0 4px 20px rgba(15,23,42,0.10),0 1px 3px rgba(15,23,42,0.06);';
+
+        const lookUpPlaces = () => {
+          for (const r of rows.slice(0, 15)) {
+            if (r.placeKey in places) continue;
+            const c = coordsFor(r.placeKey);
+            if (!c) continue;
+            places[r.placeKey] = undefined;
+            void resolveMapLocationLabel(c.latitude, c.longitude)
+              .then((label) => {
+                places[r.placeKey] = label ?? null;
+                if (!isRunActive()) return;
+                const node = el.querySelector(`[data-place-key="${r.placeKey}"]`);
+                if (node) node.textContent = label ?? '';
+              })
+              .catch(() => {
+                places[r.placeKey] = null;
+              });
+          }
+        };
+
+        const render = () => {
+          el.innerHTML = tripCardHtml({
+            status,
+            dateLabel: formatTrailDate(first?.recorded_at),
+            title: src && dst ? `${src} → ${dst}` : src || dst,
+            subtitle:
+              status === 'completed'
+                ? `${formatTrailTime(first?.recorded_at, withDate)} – ${formatTrailTime(last?.recorded_at, withDate)}`
+                : `Since ${formatTrailTime(first?.recorded_at, withDate)}`,
+            stats: [
+              ...(movingMs != null ? [{ label: 'Moving', value: formatStatDuration(movingMs) }] : []),
+              { label: 'Stopped', value: formatStatDuration(stoppedMs) },
+              { label: 'GPS pings', value: String(pts.length) },
+            ],
+            rows,
+            withDate,
+            expanded,
+            selectedHaltIndex: selected,
+            places,
+            showGapKey: opts.showGapKey,
+          });
+          if (expanded) lookUpPlaces();
+        };
+        render();
+
+        el.addEventListener('click', (ev) => {
+          const target = ev.target as HTMLElement | null;
+          if (!target) return;
+          if (target.closest('[data-trip-card-toggle]')) {
+            expanded = !expanded;
+            render();
+            return;
+          }
+          const row = target.closest('[data-halt-index]') as HTMLElement | null;
+          if (!row) return;
+          const idx = Number(row.getAttribute('data-halt-index'));
+          const h = halts[idx];
+          const m = haltMarkers[idx];
+          if (!h || !m || !isRunActive()) return;
+          try {
+            map.setView([h.latitude, h.longitude], Math.max(map.getZoom(), 14), { animate: false });
+            m.openPopup();
+          } catch { /* map torn down */ }
+        });
+        L.DomEvent.disableClickPropagation(el);
+        L.DomEvent.disableScrollPropagation(el);
+        map.getContainer().appendChild(el);
+        return {
+          el,
+          setSelected: (index) => {
+            if (selected === index) return;
+            selected = index;
+            render();
+          },
+        };
+      };
+
+      // ── Completed trip: driven route (+ road snap), GPS pings, halts, gaps ──
+      const paintCompletedPath = (
+        pts: { latitude: number; longitude: number; recorded_at?: string }[],
+      ) => {
+        const seq = ++trailPaintSeqRef.current;
+        const withDate = trailSpansDays(pts);
+        const halts = pts.length > 1 ? detectTripHalts(pts) : [];
+        const inHalt = haltIndexSet(halts);
+        const gaps = pts.length > 1 ? detectTrackingGaps(pts) : [];
+        const gapAfter = new Set(gaps.map((g) => g.fromIndex));
+
+        const group = L.featureGroup();
+        const lineGroup = L.featureGroup().addTo(group);
+        const pingGroup = L.featureGroup().addTo(group);
+        const pingDots: import('leaflet').CircleMarker[] = [];
+        const gapTags: import('leaflet').Marker[] = [];
+        const drawLine = (latlngs: [number, number][], gapLines: [number, number][][]) => {
+          lineGroup.clearLayers();
+          if (latlngs.length < 2) return;
+          // White casing under a solid line — readable on any basemap.
+          L.polyline(latlngs, {
+            color: '#ffffff', weight: 7, opacity: 0.95, lineCap: 'round', lineJoin: 'round',
+          }).addTo(lineGroup);
+          L.polyline(latlngs, {
+            color: TRAIL_COLORS.route, weight: 4, opacity: 1, lineCap: 'round', lineJoin: 'round',
+          }).addTo(lineGroup);
+          // No-signal stretches: same road path, drawn dashed slate (no GPS saved there).
+          gapLines.forEach((seg, i) => {
+            if (seg.length < 2) return;
+            L.polyline(seg, {
+              color: '#ffffff', weight: 8, opacity: 1, lineCap: 'round', lineJoin: 'round',
+            }).addTo(lineGroup);
+            L.polyline(seg, {
+              color: TRAIL_COLORS.slate, weight: 3, opacity: 1, dashArray: '5 6', lineCap: 'round', lineJoin: 'round',
+            }).addTo(lineGroup);
+            try { gapTags[i]?.setLatLng(midpointAlong(seg)); } catch { /* ignore */ }
+          });
+          try { pingGroup.bringToFront(); } catch { /* ignore */ }
+        };
+        const straightGapLines = (): [number, number][][] =>
+          gaps.map((g) => {
+            const a = pts[g.fromIndex];
+            const b = pts[g.fromIndex + 1];
+            return [[a.latitude, a.longitude], [b.latitude, b.longitude]];
+          });
+
+        const first = pts[0];
+        const last = pts[pts.length - 1];
+
+        // GPS pings: white beads with a dark-orange ring. Hover = time, tap = card.
+        pts.slice(1, -1).forEach((p, k) => {
+          if (inHalt.has(k + 1)) return;
+          const dot = L.circleMarker([p.latitude, p.longitude], {
+            radius: 4, color: TRAIL_COLORS.routeDark, weight: 2, fillColor: '#ffffff', fillOpacity: 1,
+          });
+          dot.bindTooltip(formatTrailTime(p.recorded_at, withDate), {
+            direction: 'top', offset: [0, -4], opacity: 0.95,
+          });
+          bindTrailCard(dot, p.latitude, p.longitude, (place) =>
+            trailCardHtml({
+              label: 'GPS ping',
+              value: formatTrailTime(p.recorded_at, withDate),
+              lines: ['Driver passed here'],
+              place,
+            }),
+          );
+          pingDots.push(dot);
+        });
+        const syncPings = thinPingDots(pingGroup, pingDots);
+
+        if (pts.length > 1) {
+          const startTime = formatTrailTime(first.recorded_at, withDate);
+          const startMarker = L.marker([first.latitude, first.longitude], {
+            icon: L.divIcon({
+              html: startMarkerHtml(startTime),
+              className: '',
+              iconSize: [0, 0],
+              iconAnchor: [0, 0],
+              popupAnchor: [0, -10],
+            }),
+            zIndexOffset: 300,
+            title: 'Tracking started',
+          });
+          bindTrailCard(startMarker, first.latitude, first.longitude, (place) =>
+            trailCardHtml({ label: 'Tracking started', value: startTime, lines: [], place }),
+          );
+          startMarker.addTo(group);
+
+          const endTime = formatTrailTime(last.recorded_at, withDate);
+          const endMarker = L.marker([last.latitude, last.longitude], {
+            icon: L.divIcon({
+              html: endMarkerHtml(endTime),
+              className: '',
+              iconSize: [0, 0],
+              iconAnchor: [0, 0],
+              popupAnchor: [0, -11],
+            }),
+            zIndexOffset: 350,
+            title: 'Trip ended',
+          });
+          bindTrailCard(endMarker, last.latitude, last.longitude, (place) =>
+            trailCardHtml({ label: 'Trip ended', value: endTime, lines: ['Last GPS fix of the trip'], place }),
+          );
+          endMarker.addTo(group);
+
+          straightGapLines().forEach((seg, i) => {
+            gapTags.push(
+              L.marker(midpointAlong(seg), {
+                icon: L.divIcon({ html: gapTagHtml(gaps[i].durationMs), className: '', iconSize: [0, 0], iconAnchor: [0, 0] }),
+                interactive: false,
+                keyboard: false,
+                zIndexOffset: 200,
+              }),
+            );
+          });
+        } else {
+          // Driver never moved: single "last location" dot (unchanged).
+          const lastDot = L.circleMarker([last.latitude, last.longitude], {
+            radius: 8, color: '#ffffff', weight: 3, fillColor: TRAIL_COLORS.routeDark, fillOpacity: 1,
+          });
+          bindTrailCard(lastDot, last.latitude, last.longitude, (place) =>
+            trailCardHtml({
+              label: 'Last location',
+              value: formatTrailTime(last.recorded_at, withDate),
+              lines: [],
+              place,
+            }),
+          );
+          lastDot.addTo(group);
+        }
+
+        let card: { el: HTMLElement; setSelected: (index: number | null) => void } | null = null;
+        const haltMarkers = addHaltMarkers(
+          group as unknown as import('leaflet').LayerGroup,
+          halts,
+          pts.length,
+          withDate,
+          (index) => card?.setSelected(index),
+        );
+        drawLine(pts.map((p) => [p.latitude, p.longitude] as [number, number]), straightGapLines());
+
+        // "No signal" tags: hidden while they would sit on the start/end tags,
+        // a halt pill or another tag (they come back as you zoom in).
+        const tagGroup = L.featureGroup().addTo(group);
+        const syncGapTags = () => {
+          try {
+            const busy: import('leaflet').Point[] = [first, last, ...halts].map((p) =>
+              map.latLngToLayerPoint([p.latitude, p.longitude]),
+            );
+            gapTags.forEach((tag) => {
+              const pt = map.latLngToLayerPoint(tag.getLatLng());
+              const clash = busy.some((b) => Math.abs(b.x - pt.x) < 110 && Math.abs(b.y - pt.y) < 26);
+              if (clash) {
+                if (tagGroup.hasLayer(tag)) tagGroup.removeLayer(tag);
+              } else {
+                if (!tagGroup.hasLayer(tag)) tagGroup.addLayer(tag);
+                busy.push(pt);
+              }
+            });
+          } catch { /* map torn down */ }
+        };
+        syncGapTags();
+        const syncTrailLabels = () => {
+          syncPings();
+          syncGapTags();
+        };
+        map.on('zoomend', syncTrailLabels);
+        trailZoomHandlerRef.current = syncTrailLabels;
+        group.addTo(map);
+        trailLayerRef.current = group as unknown as import('leaflet').LayerGroup;
+
+        if (pts.length > 1) {
+          card = mountTripCard({
+            status: 'completed',
+            pts,
+            halts,
+            haltMarkers,
+            withDate,
+            showGapKey: gaps.length > 0,
+            defaultExpanded: !compactMapPreview,
+          });
+          trailLegendElRef.current = card.el;
+        }
+
+        if (pts.length < 2) return;
+        void snapDrivenPathToRoads(pts, gapAfter)
+          .then((roadLatLngs) => {
+            if (!roadLatLngs) return;
+            if (seq !== trailPaintSeqRef.current) return;
+            if (!isRunActive()) return;
+            if (trailLayerRef.current !== (group as unknown)) return;
+            drawLine(roadLatLngs.latlngs, roadLatLngs.gapLines);
+            syncGapTags();
+          })
+          .catch(() => {
+            /* keep the straight driven line */
+          });
+      };
+
       // ── DB GPS trail — only this layer is replaced when points change ─────
       const paintGpsTrail = (
         points: { latitude: number; longitude: number; recorded_at?: string }[],
@@ -387,12 +935,28 @@ export function TripMap({
           trailEtaElRef.current.remove();
           trailEtaElRef.current = null;
         }
+        if (trailLegendElRef.current) {
+          trailLegendElRef.current.remove();
+          trailLegendElRef.current = null;
+        }
+        if (trailZoomHandlerRef.current) {
+          try { map.off('zoomend', trailZoomHandlerRef.current); } catch { /* map may be gone */ }
+          trailZoomHandlerRef.current = null;
+        }
         const validTrailPoints = (Array.isArray(points) ? points : []).filter((p) =>
           isValidCoordinatePair(p),
         );
         if (validTrailPoints.length === 0) return;
+        if (completedTripRef.current) {
+          paintCompletedPath(validTrailPoints);
+          return;
+        }
         const total = validTrailPoints.length;
         const trailGroup = L.layerGroup();
+        // Clumps of pings where the driver stayed ≥5 min become one halt pill.
+        const liveHalts = total > 1 ? detectTripHalts(validTrailPoints) : [];
+        const liveInHalt = haltIndexSet(liveHalts);
+        const liveWithDate = trailSpansDays(validTrailPoints);
 
         // Dashed polyline connecting all pings in order
         if (validTrailPoints.length > 1) {
@@ -420,6 +984,7 @@ export function TripMap({
 
         // Ping dots with enhanced popups (no raw lat/lng)
         validTrailPoints.forEach((p, idx) => {
+          if (liveInHalt.has(idx)) return;
           const timeStr = p.recorded_at
             ? new Date(p.recorded_at).toLocaleString('en-IN', {
                 timeZone: 'Asia/Kolkata',
@@ -443,12 +1008,13 @@ export function TripMap({
             return `${diffD} day${diffD !== 1 ? 's' : ''} ago`;
           })();
           L.circleMarker([p.latitude, p.longitude], {
-            radius: 6,
-            fillColor: '#fb923c',
-            color: '#c2410c',
-            weight: 2,
+            // GPS ping bead (same as completed trips): white with dark-orange ring.
+            radius: 5,
+            fillColor: '#ffffff',
+            color: TRAIL_COLORS.routeDark,
+            weight: 2.5,
             opacity: 1,
-            fillOpacity: 0.95,
+            fillOpacity: 1,
           })
             .bindPopup(
               `<div style="font-family:system-ui,sans-serif;font-size:12px;padding:4px;min-width:160px;">` +
@@ -460,8 +1026,30 @@ export function TripMap({
             .addTo(trailGroup);
         });
 
+        let liveCard: { el: HTMLElement; setSelected: (index: number | null) => void } | null = null;
+        const liveHaltMarkers = addHaltMarkers(
+          trailGroup,
+          liveHalts,
+          total,
+          liveWithDate,
+          (index) => liveCard?.setSelected(index),
+        );
+
         trailGroup.addTo(map);
         trailLayerRef.current = trailGroup;
+        // Trip card only when the driver has halted so far (collapsed by default).
+        if (liveHalts.length > 0) {
+          liveCard = mountTripCard({
+            status: 'tracking',
+            pts: validTrailPoints,
+            halts: liveHalts,
+            haltMarkers: liveHaltMarkers,
+            withDate: liveWithDate,
+            showGapKey: false,
+            defaultExpanded: false,
+          });
+          trailLegendElRef.current = liveCard.el;
+        }
 
         // ETA panel — from last trail point to destination (straight-line estimate)
         if (validTrailPoints.length > 0 && isValidCoordinatePair({ latitude: dstCoords[0], longitude: dstCoords[1] })) {
@@ -628,10 +1216,11 @@ export function TripMap({
                   try { map.removeLayer(previewRouteLine); } catch { /* ignore */ }
                   previewRouteLine = null;
                 }
+                // Completed trip: wide soft band so it stays visible under the driven line.
                 previewRouteLine = L.polyline(allLatLngs, {
                   color: '#2196F3',
-                  weight: 4,
-                  opacity: 0.85,
+                  weight: completedTripRef.current ? 14 : 4,
+                  opacity: completedTripRef.current ? 0.6 : 0.85,
                   lineCap: 'round',
                   lineJoin: 'round',
                 }).addTo(map);
@@ -732,6 +1321,11 @@ export function TripMap({
         trailEtaElRef.current.remove();
         trailEtaElRef.current = null;
       }
+      if (trailLegendElRef.current) {
+        trailLegendElRef.current.remove();
+        trailLegendElRef.current = null;
+      }
+      trailZoomHandlerRef.current = null; // listener dies with map.remove()
       trailLayerRef.current = null;
       const m = mapInstanceRef.current;
       if (m) {

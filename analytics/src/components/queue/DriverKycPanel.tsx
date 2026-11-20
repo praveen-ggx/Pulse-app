@@ -102,13 +102,17 @@ const DOC_BADGE: Record<string, 'info' | 'success' | 'destructive' | 'secondary'
 };
 
 /** Mirrors driver_kyc_doc_requirements.is_mandatory = false. */
-const OPTIONAL_DOC_TYPES = new Set(['pan', 'other']);
+const OPTIONAL_DOC_TYPES = new Set(['pan', 'bank_proof', 'other']);
+
+/** Mirrors driver_kyc_doc_requirements.required_for_dco (needed for DCO approval). */
+const DCO_DOC_TYPES = new Set(['pan', 'bank_proof']);
 
 const DOC_TYPE_LABEL: Record<string, string> = {
   license: 'Driving licence',
   aadhaar: 'Aadhaar',
   pan: 'PAN',
   selfie: 'Selfie',
+  bank_proof: 'Bank proof',
   other: 'Other',
 };
 
@@ -188,7 +192,10 @@ export function DriverKycPanel() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (filter !== 'all' && r.review_status !== filter) return false;
+      // DCO document review rides the normal "Awaiting" queue even when the
+      // driver's base KYC is already decided.
+      const awaitingDco = filter === 'submitted' && r.dco_docs_pending > 0;
+      if (filter !== 'all' && r.review_status !== filter && !awaitingDco) return false;
       if (!q) return true;
       return (
         (r.driver_name ?? '').toLowerCase().includes(q) ||
@@ -339,7 +346,17 @@ export function DriverKycPanel() {
                     <span className="truncate text-[12px] font-semibold">
                       {r.driver_name ?? 'Unknown driver'}
                     </span>
-                    <Badge variant={badge.variant} appearance="light" size="xs" className="ml-auto shrink-0">
+                    {r.dco_docs_pending > 0 ? (
+                      <Badge variant="info" appearance="light" size="xs" className="ml-auto shrink-0">
+                        DCO docs
+                      </Badge>
+                    ) : null}
+                    <Badge
+                      variant={badge.variant}
+                      appearance="light"
+                      size="xs"
+                      className={`${r.dco_docs_pending > 0 ? '' : 'ml-auto '}shrink-0`}
+                    >
                       {badge.label}
                     </Badge>
                   </div>
@@ -417,7 +434,11 @@ export function DriverKycPanel() {
                         {/* Rejecting an optional doc does not block the driver —
                             they can withdraw it — so label it to avoid a
                             reviewer chasing a doc that isn't required. */}
-                        {OPTIONAL_DOC_TYPES.has(d.doc_type) ? (
+                        {DCO_DOC_TYPES.has(d.doc_type) ? (
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            optional · required for DCO
+                          </span>
+                        ) : OPTIONAL_DOC_TYPES.has(d.doc_type) ? (
                           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                             optional
                           </span>
@@ -473,7 +494,11 @@ export function DriverKycPanel() {
                             actions would contradict it (rejecting a doc under an
                             approved driver leaves them verified with a rejected
                             document). Reopen the review to change anything. */}
-                        {isDecided ? null : (
+                        {/* Exception: DCO-only docs (PAN, bank proof) uploaded after
+                            the driver was already verified still need a decision —
+                            they don't affect base KYC, only DCO approval. */}
+                        {isDecided &&
+                        !(DCO_DOC_TYPES.has(d.doc_type) && d.status === 'pending') ? null : (
                           <div className="ml-auto flex gap-1.5">
                             <Button
                               size="sm"

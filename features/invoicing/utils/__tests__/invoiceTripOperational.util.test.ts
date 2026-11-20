@@ -17,6 +17,7 @@ import {
   resolveInvoiceTripLrNumber,
   resolveInvoiceTripSupplierName,
   invoiceTripSearchIncludesDisplayedNumber,
+  invoiceTripSearchIncludesTripId,
   tripListLrLabel,
 } from "../invoiceTripOperational.util";
 
@@ -34,6 +35,20 @@ describe("invoiceTripOperational.util", () => {
     expect(tripListLrLabel({ id: "uuid-1", lr_number: null, trip_number: null })).toBe(
       "—",
     );
+  });
+
+  it("matches the operational trip id when the row id is the booking ref", () => {
+    const trip = {
+      id: "AH268S",
+      trip_number: null,
+      trip_operational_code: null,
+      trip_code: null,
+      display_trip_id: "SAT812GOGTRIP001",
+    };
+    expect(invoiceTripSearchIncludesTripId(trip, "SAT812GOGTRIP001")).toBe(true);
+    expect(invoiceTripSearchIncludesTripId(trip, "sat812 gogtrip 001")).toBe(true);
+    expect(invoiceTripSearchIncludesTripId(trip, "AH268S")).toBe(true);
+    expect(invoiceTripSearchIncludesTripId(trip, "OTHERTRIP")).toBe(false);
   });
 
   it("matches the serial trip number shown when a trip has no LR", () => {

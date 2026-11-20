@@ -4,6 +4,8 @@
  * display strings (warehouse names, pincodes, Mapbox place_name).
  */
 
+import { cleanOsmAreaName } from "@/lib/maps/placeSearch.util";
+
 const PINCODE_RE = /^\d{6}$/;
 const NOISE_RE =
   /\b(warehouse|ware\s*house|godown|depot|hub|yard|plant|factory|office|unit|shed|wh)\b/i;
@@ -274,8 +276,10 @@ export function enrichPlaceSelectionSync(place: {
   const stateRaw = place.state?.trim() || parsed.state || "";
   const city = titleCasePlacePart(cityRaw) || null;
   const state = titleCasePlacePart(stateRaw) || null;
+  // cleanOsmAreaName drops OSM ward numbers ("Ward 30") — also covers places
+  // already saved in the on-device recent-places cache with a ward locality.
   const locality =
-    titleCasePlacePart(place.locality?.trim() ?? "") ||
+    titleCasePlacePart(cleanOsmAreaName(place.locality)) ||
     leadingPlaceName(place.displayName, city, state) ||
     null;
   const pincode =

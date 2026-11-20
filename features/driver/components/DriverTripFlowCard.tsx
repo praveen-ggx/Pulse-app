@@ -49,6 +49,11 @@ import { useRouteExtraStopRowsFor } from '@/features/trips/hooks/useRouteExtraSt
 import { useDriverStopExecution } from '@/features/driver/hooks/useDriverStopExecution';
 import { shouldShowDriverMultiStop } from '@/features/driver/execution/normalizeDriverStopExecution';
 import { DriverShipperFeedbackModal } from '@/features/chat/components/driver/DriverShipperFeedbackModal';
+import {
+  showDriverTripCompleted,
+  TRIP_COMPLETED_MODAL_HANDOFF_MS,
+} from '@/features/driver/components/DriverTripCompletedModal';
+import { getTripDisplayLabel } from '@/lib/globalId';
 import { findLatestMissionDebriefMessage } from '@/features/chat/utils/missionDebrief.util';
 import { DriverPodCompletionPage } from '@/features/driver/components/DriverPodCompletionPage';
 import { LoadingComplianceNotice } from '@/features/tripCompliance/components/LoadingComplianceNotice';
@@ -76,6 +81,7 @@ import {
   applyDriverCommandResult,
   executeDriverCommand,
 } from '@/features/driver/services/driverExecution.service';
+import { uuidv7 } from '@/lib/uuidv7';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
 import {
@@ -135,6 +141,24 @@ const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_POD_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /** RN Alert.alert is unreliable on web; use window.confirm so POD delete always prompts. */
+/**
+ * Retry a proof upload (POD / LR) up to 2 more times on a network drop, using
+ * the photo already in memory, so a brief signal loss doesn't force the driver
+ * to take the photo again. Server-side rejections are returned immediately.
+ */
+async function uploadWithNetworkRetry<T extends { error: Error | null }>(
+  run: () => Promise<T>,
+): Promise<T> {
+  const isNetwork = (e: Error | null) =>
+    !!e && /network request failed|failed to fetch|networkerror|load failed|timed? ?out|aborted/i.test(e.message ?? '');
+  let res = await run();
+  for (let attempt = 1; attempt <= 2 && isNetwork(res.error); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+    res = await run();
+  }
+  return res;
+}
+
 function confirmRemovePod(): Promise<boolean> {
   const message =
     'Delete this file? You can upload again before completing delivery.';
@@ -460,6 +484,16 @@ export function DriverTripFlowCard({
   const [vehiclePickerBusy, setVehiclePickerBusy] = useState(false);
   const [vehiclePickerError, setVehiclePickerError] = useState<string | null>(null);
   const [shipperFeedbackOpen, setShipperFeedbackOpen] = useState(false);
+  const cardMountedRef = useRef(true);
+  const feedbackHandoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    cardMountedRef.current = true;
+    return () => {
+      cardMountedRef.current = false;
+      if (feedbackHandoffTimerRef.current) clearTimeout(feedbackHandoffTimerRef.current);
+    };
+  }, []);
   const [partyTagOpen, setPartyTagOpen] = useState(false);
 
   const openVehiclePicker = useCallback(() => {
@@ -1107,6 +1141,29 @@ export function DriverTripFlowCard({
     };
   }, [podDocuments]);
 
+  // One command id per (trip, step) until the server answers. If the signal
+  // drops after the server already applied the step, the retry sends the SAME
+  // id and the server replays the original success instead of answering
+  // "trip was updated elsewhere".
+  const pendingCommandIdsRef = useRef<Record<string, string>>({});
+  const runDriverCommand = useCallback(
+    async (
+      input: Parameters<typeof executeDriverCommand>[0],
+      trip: Parameters<typeof executeDriverCommand>[1],
+    ) => {
+      const key = `${input.tripId}:${input.command}`;
+      const commandId = pendingCommandIdsRef.current[key] ?? uuidv7();
+      pendingCommandIdsRef.current[key] = commandId;
+      const res = await executeDriverCommand({ ...input, commandId }, trip);
+      // Keep the id only when we never got a server answer (network failure).
+      if (res.result || res.error?.code !== 'rpc_error') {
+        delete pendingCommandIdsRef.current[key];
+      }
+      return res;
+    },
+    [],
+  );
+
   const confirmArrival = async () => {
     const id = localTrip?.id;
     if (!id || stepLoading) return;
@@ -1122,7 +1179,7 @@ export function DriverTripFlowCard({
     };
     setLocalTrip(optimistic);
     onTripUpdated?.(optimistic);
-    const { error, result } = await executeDriverCommand(
+    const { error, result } = await runDriverCommand(
       { tripId: id, command: 'START_TRIP', expectedStatus: localTrip?.status ?? null },
       localTrip,
     );
@@ -1161,7 +1218,7 @@ export function DriverTripFlowCard({
     const optimistic = { ...localTrip, status: 'in_transit', updated_at: now };
     setLocalTrip(optimistic);
     onTripUpdated?.(optimistic);
-    const { error, result } = await executeDriverCommand(
+    const { error, result } = await runDriverCommand(
       { tripId: id, command: 'DEPART_PICKUP', expectedStatus: localTrip?.status ?? null },
       localTrip,
     );
@@ -1193,7 +1250,7 @@ export function DriverTripFlowCard({
     setStepError(null);
     setStepLoading(true);
     if (target.status) {
-      const { error, result } = await executeDriverCommand(
+      const { error, result } = await runDriverCommand(
         { tripId: id, command: 'UNDO_STEP', expectedStatus: localTrip?.status ?? null },
         localTrip,
       );
@@ -1228,7 +1285,7 @@ export function DriverTripFlowCard({
     setStep('reached');
     setLocalTrip(optimistic);
     onTripUpdated?.(optimistic);
-    const { error, result } = await executeDriverCommand(
+    const { error, result } = await runDriverCommand(
       { tripId: id, command: 'ARRIVE_DROP', expectedStatus: localTrip?.status ?? null },
       localTrip,
     );
@@ -1359,11 +1416,11 @@ export function DriverTripFlowCard({
         return;
       }
 
-      const { doc, error } = await tripDocumentsService.uploadTripDocument(id, profile.uid, {
+      const { doc, error } = await uploadWithNetworkRetry(() => tripDocumentsService.uploadTripDocument(id, profile.uid, {
         arrayBuffer,
         fileName,
         mimeType,
-      }, 'pod');
+      }, 'pod'));
       if (error) {
         setStepError(error.message);
         return;
@@ -1442,11 +1499,11 @@ export function DriverTripFlowCard({
         }
       }
 
-      const { doc, error } = await tripDocumentsService.uploadTripDocument(id, profile.uid, {
+      const { doc, error } = await uploadWithNetworkRetry(() => tripDocumentsService.uploadTripDocument(id, profile.uid, {
         arrayBuffer,
         fileName,
         mimeType,
-      }, 'lr', lrNumber);
+      }, 'lr', lrNumber));
       if (error) {
         setStepError(error.message);
         return;
@@ -1524,7 +1581,7 @@ export function DriverTripFlowCard({
     // indistinguishable from a reload. Stay on this step until the write is confirmed.
     setCompleting(true);
     setStepError(null);
-    const { error, result } = await executeDriverCommand(
+    const { error, result } = await runDriverCommand(
       { tripId: id, command: 'COMPLETE_TRIP', expectedStatus: localTrip?.status ?? null },
       localTrip,
     );
@@ -1551,7 +1608,21 @@ export function DriverTripFlowCard({
       void queryClient.invalidateQueries({ queryKey: driverUiTripsQueryKey(profile.uid) });
     }
     onTripCompleted?.();
-    setShipperFeedbackOpen(true);
+    // Success first; the shipper rating follows if this card is still mounted.
+    showDriverTripCompleted({
+      tripLabel: getTripDisplayLabel(next),
+      pickupLabel,
+      dropLabel,
+      earnings,
+      completedAt: next.completed_at ?? now,
+      onClosed: () => {
+        if (!cardMountedRef.current) return;
+        if (feedbackHandoffTimerRef.current) clearTimeout(feedbackHandoffTimerRef.current);
+        feedbackHandoffTimerRef.current = setTimeout(() => {
+          if (cardMountedRef.current) setShipperFeedbackOpen(true);
+        }, TRIP_COMPLETED_MODAL_HANDOFF_MS);
+      },
+    });
   };
 
   const peekCopy = missionStagePeekCopy(step, pickupLabel, dropLabel);

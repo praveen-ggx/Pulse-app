@@ -44,6 +44,10 @@ import { driverWalletBookTabLabel } from '@/features/drivers/domain/driverOperat
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { confirmDialog } from '@/lib/confirmDialog';
 import {
+  buildFleetDisconnectConfirmMessage,
+  fleetDisconnectConfirmTitle,
+} from '@/features/drivers/utils/fleetDisconnectWarning.util';
+import {
     buildBulkTripClaimWhatsappMessage,
     buildSettlementShareMessage,
     buildTripClaimWhatsappMessage,
@@ -109,6 +113,7 @@ import Animated, {
     withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { resolveAgreedPayTerms } from '@/features/drivers/utils/driverPayTerms.util';
 
 const isAndroid = Platform.OS === 'android';
 
@@ -498,11 +503,10 @@ export default function DriverWalletScreen() {
           (i.status || '').toLowerCase() === 'accepted' &&
           String(i.from_organization_id ?? '') === String(d.organization_id ?? ''),
       );
-      map.set(`${String(d.id ?? '')}:${String(d.organization_id ?? '')}`, {
-        commissionPercent: inv?.commission_percent ?? d.commission_percent ?? null,
-        commissionPerKm: inv?.commission_per_km ?? d.commission_per_km ?? null,
-        payableAmount: inv?.payable_amount ?? d.payable_amount ?? null,
-      });
+      map.set(
+        `${String(d.id ?? '')}:${String(d.organization_id ?? '')}`,
+        resolveAgreedPayTerms(d, inv ?? null),
+      );
     }
     return map;
   }, [linkedDrivers, invites]);
@@ -1137,6 +1141,35 @@ export default function DriverWalletScreen() {
     return map;
   }, [salaryRequests]);
 
+  /**
+   * Trips already inside a pending / approved / paid payment request.
+   * A second request for the same trip would let the fleet pay it twice, so
+   * the reminder must not create another request while one is still open.
+   */
+  const openRequestStatusByTripId = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const r of salaryRequests) {
+      const status = String(r.status ?? '').toLowerCase();
+      if (status !== 'pending' && status !== 'approved' && status !== 'paid') continue;
+      for (const tid of r.trip_ids ?? []) {
+        if (tid) map[String(tid)] = status;
+      }
+    }
+    return map;
+  }, [salaryRequests]);
+
+  const openRequestMessage = useCallback(
+    (trip: tripsService.TripRow): string | null => {
+      const status = openRequestStatusByTripId[String(trip.id)];
+      if (!status) return null;
+      const displayId = getDriverTripDisplayNumber(trip, driverTripNumberById);
+      return status === 'paid'
+        ? `${displayId} was already paid through a payment request.`
+        : `${displayId} is already in a payment request waiting for the fleet.`;
+    },
+    [openRequestStatusByTripId, driverTripNumberById],
+  );
+
   /** Earnings follow-up: create in-app salary request (Pulse alert for fleet). */
   const sendEarningsPulseReminder = useCallback(
     async (tripId: string) => {
@@ -1151,6 +1184,11 @@ export default function DriverWalletScreen() {
       // refuse outright.
       if (!hasAgreedPayoutTermsForTrip(trip)) {
         return { ok: false as const, errorMessage: 'No agreed payout terms for this trip.' };
+      }
+
+      const alreadyRequested = openRequestMessage(trip);
+      if (alreadyRequested) {
+        return { ok: false as const, errorMessage: alreadyRequested };
       }
 
       const lastAt = earningsLastReminderAtByTripId[String(trip.id)];
@@ -1175,7 +1213,9 @@ export default function DriverWalletScreen() {
         null;
       const earned = Math.round(tripEarnings(trip, payoutTermsForTrip(trip)));
       const received = Math.round(receivedByTripId[trip.id] ?? 0);
-      const reqAmount = Math.max(0, earned - received) || earned;
+      // Only the unpaid balance. (The old `|| earned` asked for the FULL amount
+      // again when the trip was already fully received.)
+      const reqAmount = Math.max(0, earned - received);
       const displayId = getDriverTripDisplayNumber(trip, driverTripNumberById);
       if (!driverId || !orgId) {
         return { ok: false as const, errorMessage: 'Missing driver or fleet for this trip.' };
@@ -1221,6 +1261,7 @@ export default function DriverWalletScreen() {
       earningsLastReminderAtByTripId,
       payoutTermsForTrip,
       hasAgreedPayoutTermsForTrip,
+      openRequestMessage,
     ],
   );
 
@@ -1292,6 +1333,13 @@ export default function DriverWalletScreen() {
       }
 
       for (const trip of trips) {
+        const alreadyRequested = openRequestMessage(trip);
+        if (alreadyRequested) {
+          return { ok: false as const, errorMessage: alreadyRequested };
+        }
+      }
+
+      for (const trip of trips) {
         const lastAt = earningsLastReminderAtByTripId[String(trip.id)];
         if (lastAt) {
           const remaining = new Date(lastAt).getTime() + 24 * 60 * 60 * 1000 - Date.now();
@@ -1315,7 +1363,7 @@ export default function DriverWalletScreen() {
       for (const trip of trips) {
         const earned = Math.round(tripEarnings(trip, payoutTermsForTrip(trip)));
         const received = Math.round(receivedByTripId[trip.id] ?? 0);
-        total += Math.max(0, earned - received) || earned;
+        total += Math.max(0, earned - received);
       }
       if (!Number.isFinite(total) || total <= 0) {
         return { ok: false as const, errorMessage: 'Nothing pending to request.' };
@@ -1358,6 +1406,7 @@ export default function DriverWalletScreen() {
       earningsLastReminderAtByTripId,
       payoutTermsForTrip,
       hasAgreedPayoutTermsForTrip,
+      openRequestMessage,
     ],
   );
 
@@ -2288,6 +2337,8 @@ export default function DriverWalletScreen() {
           item.trip.organization_id ??
           '';
         if (!orgId || !driverId) continue;
+        // Already in a pending / approved / paid request — don't claim it twice.
+        if (openRequestStatusByTripId[String(item.trip.id)]) continue;
         const key = `${orgId}:${driverId}`;
         const g =
           groups.get(key) ?? {
@@ -2318,14 +2369,27 @@ export default function DriverWalletScreen() {
         groups.set(key, g);
       }
 
+      if (Array.from(groups.values()).every((g) => g.tripIds.length === 0 || g.total <= 0)) {
+        throw new Error('These trips are already in a payment request waiting for the fleet.');
+      }
       for (const g of groups.values()) {
         if (g.tripIds.length === 0 || g.total <= 0) continue;
-        await salaryRequestsService.createSalaryRequest(g.driverId, g.orgId, 'trip_based', g.total, {
-          createdBy: profile?.uid ?? null,
-          tripIds: g.tripIds,
-          note: `Bulk claim (${g.tripIds.length} trips)`,
-        });
+        const { error: claimError } = await salaryRequestsService.createSalaryRequest(
+          g.driverId,
+          g.orgId,
+          'trip_based',
+          g.total,
+          {
+            createdBy: profile?.uid ?? null,
+            tripIds: g.tripIds,
+            note: `Bulk claim (${g.tripIds.length} trips)`,
+          },
+        );
+        // Stop before the PDF / WhatsApp: telling the fleet "claimed" when
+        // nothing reached them made the driver tap again → duplicate claim.
+        if (claimError) throw new Error(`Claim not sent to ${g.fleetName}: ${claimError.message}`);
       }
+      requestWalletRefresh({ force: true });
 
       const primaryDriver = linkedDrivers[0] ?? null;
       const generatedAt = new Date().toLocaleString('en-IN', {
@@ -2363,13 +2427,29 @@ export default function DriverWalletScreen() {
     } finally {
       if (walletAliveRef.current) setClaimAllLoading(false);
     }
-  }, [claimAllLoading, pendingTripJourneyItems, linkedDrivers, profile?.uid, shareBulkClaimPdf, openWhatsAppReminder]);
+  }, [claimAllLoading, pendingTripJourneyItems, linkedDrivers, profile?.uid, shareBulkClaimPdf, openWhatsAppReminder, openRequestStatusByTripId, requestWalletRefresh]);
 
   const handleLeaveFleet = useCallback(
     async (orgId: string, orgName: string) => {
+      const fleetPending =
+        fleetCards.find((f) => String(f.orgId ?? '') === orgId)?.pending ?? 0;
+      const openSalary = salaryRequests.filter(
+        (r) =>
+          String(r.organization_id ?? '') === orgId &&
+          String(r.status ?? '').toLowerCase() === 'pending',
+      );
+      const pendingSalaryRequestInr = openSalary.reduce(
+        (sum, r) => sum + (Number(r.amount) || 0),
+        0,
+      );
       const confirmed = await confirmDialog({
-        title: 'Disconnect from employer?',
-        message: `You will be removed from ${orgName}'s fleet. Salary flow will stop. You can reconnect by accepting a new invite.`,
+        title: fleetDisconnectConfirmTitle(orgName),
+        message: buildFleetDisconnectConfirmMessage({
+          orgName,
+          pendingTripPayInr: fleetPending,
+          pendingSalaryRequestInr,
+          openSalaryRequestCount: openSalary.length,
+        }),
         confirmLabel: 'Disconnect',
         destructive: true,
       });
@@ -2397,7 +2477,7 @@ export default function DriverWalletScreen() {
       invalidateOperatingMode();
       requestWalletRefresh({ force: true });
     },
-    [requestWalletRefresh, invalidateOperatingMode],
+    [requestWalletRefresh, invalidateOperatingMode, fleetCards, salaryRequests],
   );
 
   /**
@@ -2594,31 +2674,22 @@ export default function DriverWalletScreen() {
       const settledDescription = rawDescription.replace(/\s*\|\s*Sync\s*:\s*FLEET_PAID_PENDING\s*/i, '').trim();
 
       setMarkPaidLoadingTripId(trip.id);
-      let { error, row } = await driversService.createDriverLedgerEntry(
-        trip.organization_id,
+      const { error, row } = await driversService.confirmFleetPaidSettlement({
+        orgId: trip.organization_id,
         driverId,
-        Math.round(amount),
-        'settlement',
-        { tripId: trip.id, createdBy: profile?.uid ?? null, description: settledDescription }
-      );
-      if (error?.message?.includes("driver_ledger_created_by_fkey")) {
-        const retry = await driversService.createDriverLedgerEntry(
-          trip.organization_id,
-          driverId,
-          Math.round(amount),
-          'settlement',
-          { tripId: trip.id, createdBy: null, description: settledDescription }
-        );
-        error = retry.error;
-        if (retry.row) row = retry.row;
-      }
+        amount,
+        tripId: trip.id,
+        createdBy: profile?.uid ?? null,
+        description: settledDescription,
+        sourceLedgerId: sourceLedger?.id ?? null,
+      });
       if (!walletAliveRef.current) return;
       setMarkPaidLoadingTripId(null);
       if (error) {
         const isDriverLedgerRls =
           /row-level security policy.*driver_ledger|driver_ledger.*row-level security/i.test(error.message);
         const message = isDriverLedgerRls
-          ? "You don't have permission to record this payment. Ensure the database has the driver settlement policy applied (migration: 20250324120000_driver_ledger_driver_settlement_insert)."
+          ? "You don't have permission to record this payment yet. Please contact support."
           : error.message;
         if (Platform.OS === 'web') {
           window.alert(`Could not mark as paid: ${message}`);

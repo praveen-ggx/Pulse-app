@@ -126,7 +126,10 @@ import { throwIfCancelled } from "@/lib/supabaseAbort.util";
 import { notifyTripChatMessagesChanged } from "@/lib/tripChatInvalidate";
 import { getOptimalRoute } from "@/lib/routingService";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
-import { downloadTripDocumentFile } from "@/features/trips/utils/tripDocumentDownload.util";
+import {
+  downloadTripDocumentFile,
+  downloadTripDocumentFiles,
+} from "@/features/trips/utils/tripDocumentDownload.util";
 import {
   acceptVaultFileConfirmation,
   vaultUploadOutcome,
@@ -4437,14 +4440,17 @@ export default function TripDetailScreen({
     String(tripExtra.vehicle_number ?? "").trim() ||
     "Pending";
 
-  const mapDbLocationTrail = mergeMapLocationTrail(
-    detail.tripLocationPoints ?? [],
-    (detail.trackingTrail ?? []).map((c) => ({
-      latitude: c.latitude,
-      longitude: c.longitude,
-      recorded_at: c.recorded_at,
-    })),
-  );
+  // Completed trip: cleaned driven path (read once). Open trip: live history + checkpoints.
+  const mapDbLocationTrail = detail.tripCompleted
+    ? detail.completedTripPath ?? []
+    : mergeMapLocationTrail(
+        detail.tripLocationPoints ?? [],
+        (detail.trackingTrail ?? []).map((c) => ({
+          latitude: c.latitude,
+          longitude: c.longitude,
+          recorded_at: c.recorded_at,
+        })),
+      );
   const mapTruckLocation = resolveMapTruckLocation({
     tripCompleted: detail.tripCompleted,
     currentPosition: trackingState?.currentPosition ?? null,
@@ -5448,6 +5454,8 @@ export default function TripDetailScreen({
       } satisfies TripDocItem);
     void handleVaultUpload(doc);
   };
+  // Plain function (not useCallback): this runs after the early returns above,
+  // so a hook here changes hook order between loading and loaded renders.
   const requestRemoveEwayBill = (row: EwayBillStripRow) => {
     const storagePath = row.previewPath?.trim() ?? "";
     if (!row.documentId && !storagePath) return;
@@ -5609,7 +5617,29 @@ export default function TripDetailScreen({
                       }
                     })();
                   }
-                : undefined
+                : slot.id === "invoice" &&
+                    onFile &&
+                    files.some((file) => file.storagePath?.trim())
+                  ? () => {
+                      void (async () => {
+                        const { error } = await downloadTripDocumentFiles({
+                          files: files
+                            .filter((file) => file.storagePath?.trim())
+                            .map((file) => ({
+                              storagePath: file.storagePath!,
+                              fileName:
+                                file.fileName?.trim() ||
+                                file.label?.trim() ||
+                                "Invoice",
+                            })),
+                          archiveName: "Invoices.zip",
+                        });
+                        if (error) {
+                          showAppAlert("Download failed", error.message);
+                        }
+                      })();
+                    }
+                  : undefined
             }
             onAdd={() => uploadTripDetailsSlot(slot.id)}
             appearance="shop"
@@ -7598,6 +7628,7 @@ export default function TripDetailScreen({
                           }
                           truckLocation={mapTruckLocation}
                           dbLocationTrail={mapDbLocationTrail}
+                          completedTrip={detail.tripCompleted}
                           truckStatus={mapTruckStatus}
                           height="100%"
                           onDistanceCalculated={setMapRouteDistanceKm}
@@ -7641,7 +7672,7 @@ export default function TripDetailScreen({
                         <View style={neoStyles.radarBottomMetaRow}>
                           <View style={neoStyles.radarBottomLeft}>
                             <Text style={neoStyles.radarMetaLabel}>
-                              Driver location
+                              {detail.tripCompleted ? "Trip completed" : "Driver location"}
                             </Text>
                             <Text
                               style={neoStyles.radarMetaValue}
@@ -7651,7 +7682,13 @@ export default function TripDetailScreen({
                                 driverLastPingDisplay.cityLabel?.trim() ||
                                 (driverMapTrackingEligible
                                   ? "Waiting for first ping"
-                                  : "—")}
+                                  : detail.tripCompleted
+                                    ? mapDbLocationTrail.length > 1
+                                      ? "Driven route shown on map"
+                                      : mapDbLocationTrail.length === 1
+                                        ? "Last location shown on map"
+                                        : "No GPS saved for this trip"
+                                    : "—")}
                             </Text>
                             {detail.driverName?.trim() ? (
                               <>
@@ -8270,6 +8307,7 @@ export default function TripDetailScreen({
                     }
                     truckLocation={mapTruckLocation}
                     dbLocationTrail={mapDbLocationTrail}
+                    completedTrip={detail.tripCompleted}
                     truckStatus={mapTruckStatus}
                     height={mapHeight}
                     onDistanceCalculated={setMapRouteDistanceKm}
@@ -8711,6 +8749,7 @@ export default function TripDetailScreen({
                           }
                           truckLocation={mapTruckLocation}
                           dbLocationTrail={mapDbLocationTrail}
+                          completedTrip={detail.tripCompleted}
                           truckStatus={mapTruckStatus}
                           height={520}
                           onDistanceCalculated={setMapRouteDistanceKm}

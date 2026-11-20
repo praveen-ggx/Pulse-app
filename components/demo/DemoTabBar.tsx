@@ -34,7 +34,7 @@ import {
     preloadPulseLoadsRoute,
     preloadTabScreen,
 } from "@/lib/preloadRoutes";
-import { preloadStoryStrip } from "@/lib/preloadStoryWarmup";
+import { preloadStoryStrip } from "@/features/network/utils/preloadStoryWarmup.util";
 import { prefetchTripsList } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
 import { useQueryClient } from "@tanstack/react-query";
@@ -293,6 +293,7 @@ export function DemoTabBar({
     receivedItems: receivedInviteItems,
     sentItems: sentInviteItems,
     pendingCount: pendingInvites,
+    driverChangesAskedCount,
     refreshInboundProtocol,
     patchAfterAction: patchInviteAfterAction,
   } = useProtocolInvitesWithDriverSent(orgId);
@@ -627,7 +628,13 @@ export function DemoTabBar({
         !!networkRoot &&
         typeof networkRoot.contains === "function" &&
         networkRoot.contains(target);
-      if (inDrawer || inNotificationsBell || inInvitationsBell || inNetworkDock) return;
+      // A popup (RN Modal) opened from a panel — e.g. "Revise offer" in
+      // Invitations — renders in a portal outside the panel. A click inside it
+      // is not an outside click; closing the panel would close the popup too.
+      const inOpenModal =
+        typeof (target as Element).closest === "function" &&
+        !!(target as Element).closest('[aria-modal="true"]');
+      if (inDrawer || inNotificationsBell || inInvitationsBell || inNetworkDock || inOpenModal) return;
       setShowNotifications(false);
       setShowInvitations(false);
       collapseNetworkDock();
@@ -818,6 +825,10 @@ export function DemoTabBar({
                   activeOpacity={0.72}
                   onPress={() => {
                     setRegistryPanelsMounted(true);
+                    // Only a driver's change request is waiting → open on Sent.
+                    if (pendingInvites === 0 && driverChangesAskedCount > 0) {
+                      setInviteTab("sent");
+                    }
                     setShowInvitations((v) => !v);
                     setShowNotifications(false);
                   }}
@@ -827,7 +838,7 @@ export function DemoTabBar({
                     color={showInvitations ? WEB_TOP_NAV_ICON.active : WEB_TOP_NAV_ICON.muted}
                     strokeWidth={WEB_TOP_NAV_ICON.stroke}
                   />
-                  {pendingInvites > 0 && !showInvitations ? (
+                  {pendingInvites + driverChangesAskedCount > 0 && !showInvitations ? (
                     <View style={[styles.webHeaderIconDot, styles.webHeaderIconDotInbox]} />
                   ) : null}
                 </AnimatedPress>

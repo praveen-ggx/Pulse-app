@@ -46,7 +46,13 @@ export function entryAllowedByAccess(
   entry: RegistryFeedEntry,
   access: RegistryNotificationAccess,
 ): boolean {
-  if (entry.kind === "network") return access.indents;
+  if (entry.kind === "network") {
+    // A driver leaving the fleet is a Driver-tab signal, not a load event.
+    if (entry.network?.event_type === "driver_disconnected") {
+      return access.trips || access.driverPay;
+    }
+    return access.indents;
+  }
   if (entry.kind === "salary") return access.driverPay;
   const category = entry.ops?.category;
   if (category === "payment_received") return access.received;

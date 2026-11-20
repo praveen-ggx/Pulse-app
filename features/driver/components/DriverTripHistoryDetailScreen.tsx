@@ -30,6 +30,7 @@ import {
   tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
 import { resolveDriverTripPayoutTerms } from "@/features/drivers/utils/driverUtils.util";
+import { isClientSupplierTaggedTrip } from "@/features/drivers/domain/driverOperatingMode";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { ROUTES } from "@/lib/routes";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
@@ -93,6 +94,7 @@ import { DriverDocumentGalleryPreview } from "@/features/driver/components/Drive
 import { useTripVerificationSync } from "@/features/trips/verification";
 import { DriverTripOperationsTab } from "@/features/driver/components/DriverTripOperationsTab";
 import { useRegisterDriverContextTrip } from "@/contexts/DriverTripOpsContext";
+import { resolveAgreedPayTerms } from "@/features/drivers/utils/driverPayTerms.util";
 
 function TimelinePulseIcon({
   expanded,
@@ -547,6 +549,7 @@ export function DriverTripHistoryDetailScreen({
     const tripOrgId = String(trip.organization_id ?? "").trim();
     if (!tripOrgId) return false;
     if (String(trip.source ?? "").trim() === "market_bid") return false;
+    if (isClientSupplierTaggedTrip(trip)) return false;
     return linkedDriversFull.some((row) => {
       if (String(row.organization_id ?? "").trim() !== tripOrgId) return false;
       if (row.tracking_only === true) return false;
@@ -587,11 +590,10 @@ export function DriverTripHistoryDetailScreen({
           String(i.status ?? "").toLowerCase() === "accepted" &&
           String(i.from_organization_id ?? "") === historyCurrentEmployer.orgId,
       );
-      const { hasAgreedPayoutTerms, commissionDetail } = resolveDriverTripPayoutTerms(trip, {
-        commissionPercent: invite?.commission_percent ?? driverRow?.commission_percent ?? null,
-        commissionPerKm: invite?.commission_per_km ?? driverRow?.commission_per_km ?? null,
-        payableAmount: invite?.payable_amount ?? driverRow?.payable_amount ?? null,
-      });
+      const { hasAgreedPayoutTerms, commissionDetail } = resolveDriverTripPayoutTerms(
+        trip,
+        resolveAgreedPayTerms(driverRow, invite ?? null),
+      );
       if (!hasAgreedPayoutTerms || commissionDetail.amount <= 0) {
         Alert.alert(
           "No agreed payout terms",
@@ -665,7 +667,10 @@ export function DriverTripHistoryDetailScreen({
       ? tripReceivablePartyName(trip)
       : null;
   const showHistoryAttributionBar =
-    detailTab === "settlement" && !isTripHistoryFleet && !!historyCurrentEmployer;
+    detailTab === "settlement" &&
+    !isTripHistoryFleet &&
+    !isClientSupplierTaggedTrip(trip) &&
+    !!historyCurrentEmployer;
   const showTagPartyBar =
     detailTab === "settlement" && needsOfflinePartyTag && !showHistoryAttributionBar;
 

@@ -6,11 +6,11 @@ import { NativeHtmlWebView } from "@/components/NativeHtmlWebView";
 import { DriverCapturePaymentButton } from "@/features/drivers/components/DriverCapturePaymentButton";
 import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import {
+  driverBodyPrimary,
   driverBodySecondary,
   driverUIBold,
   driverUIExtraBold,
   driverUISemiBold,
-  DriverFontFamily,
 } from "@/constants/DriverTypography";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
@@ -2175,14 +2175,14 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   heroBadgeText: {
-    fontFamily: DriverFontFamily.semiBold,
+    ...driverUISemiBold,
     fontSize: 10,
     letterSpacing: 0.7,
     textTransform: "uppercase",
     color: "rgba(236,253,245,0.95)",
   },
   heroTripCount: {
-    fontFamily: DriverFontFamily.medium,
+    ...driverBodyPrimary,
     fontSize: 11,
     color: "rgba(167,243,208,0.85)",
   },
@@ -2192,13 +2192,13 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   heroRupee: {
-    fontFamily: DriverFontFamily.bold,
+    ...driverUIBold,
     fontSize: 22,
     color: "rgba(255,255,255,0.88)",
     marginTop: 8,
   },
   heroAmount: {
-    fontFamily: DriverFontFamily.extraBold,
+    ...driverUIExtraBold,
     fontSize: 36,
     letterSpacing: -1,
     color: "#ffffff",
@@ -2228,7 +2228,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(167,243,208,0.95)",
   },
   progressCaption: {
-    fontFamily: DriverFontFamily.medium,
+    ...driverBodyPrimary,
     fontSize: 10,
     lineHeight: 13,
     color: "rgba(167,243,208,0.85)",
@@ -2259,7 +2259,7 @@ const styles = StyleSheet.create({
     marginVertical: 2,
   },
   heroMetricLabel: {
-    fontFamily: DriverFontFamily.semiBold,
+    ...driverUISemiBold,
     fontSize: 9,
     letterSpacing: 0.2,
     textTransform: "uppercase",
@@ -2267,7 +2267,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   heroMetricValue: {
-    fontFamily: DriverFontFamily.bold,
+    ...driverUIBold,
     fontSize: 13,
     letterSpacing: -0.2,
     color: "#ffffff",

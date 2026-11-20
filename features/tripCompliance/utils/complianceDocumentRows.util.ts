@@ -16,6 +16,7 @@ import {
   type ComplianceEntityDocument,
 } from "@/features/tripCompliance/tripCompliance.types";
 import { isEntityDocumentExpired } from "@/features/tripCompliance/utils/complianceChecklist.util";
+import { pickCanonicalEntityDoc } from "@/features/compliance/utils/currentDocument.util";
 import { classifyTripDocument } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 
 export const DOC_TYPE_LABEL: Record<string, string> = {
@@ -227,21 +228,10 @@ function rowsForTripTypes(
   return rows;
 }
 
+// Rows with an expiry first (a newer upload without a date must not hide the
+// dated copy), then newest. Shared with the queue and SQL readers.
 function latestEntityDoc(documents: ComplianceEntityDocument[]): ComplianceEntityDocument | null {
-  const usable = documents.filter((doc) => doc.status !== "replaced" && doc.status !== "rejected");
-  const list = usable.length > 0 ? usable : documents;
-  if (list.length === 0) return null;
-  // Prefer verified (or active) rows that carry an expiry — a newer pending
-  // upload without expiry must not hide the verified RC/Insurance date.
-  return [...list].sort((a, b) => {
-    const aVerified = a.status === "verified" || a.status === "active" ? 1 : 0;
-    const bVerified = b.status === "verified" || b.status === "active" ? 1 : 0;
-    if (bVerified !== aVerified) return bVerified - aVerified;
-    const aExpiry = a.expiry_date?.trim() ? 1 : 0;
-    const bExpiry = b.expiry_date?.trim() ? 1 : 0;
-    if (bExpiry !== aExpiry) return bExpiry - aExpiry;
-    return b.created_at.localeCompare(a.created_at);
-  })[0] ?? null;
+  return pickCanonicalEntityDoc(documents);
 }
 
 function isEntityDocRequired(type: string): boolean {

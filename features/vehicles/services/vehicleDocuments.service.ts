@@ -12,6 +12,7 @@
 import { supabase } from '@/lib/supabase';
 import { isRetryableStorageError } from '@/lib/supabaseHttp.util';
 import { uploadComplianceDocument } from '@/features/compliance/services/documents.service';
+import { canonicalEntityDocsByType } from '@/features/compliance/utils/currentDocument.util';
 import { createStorageSignedUrlCache } from '@/lib/storageSignedUrlCache';
 import type {
   DocumentWithExpiry,
@@ -248,6 +249,17 @@ export async function mergeEntityDocumentsIntoVehicleVault(
     .order("created_at", { ascending: false });
   if (error || !data?.length) return base;
 
+  // Current copy of each slot first (shared rule), so it fills the slot and any
+  // older copies are listed after it as extra pages.
+  const canonical = canonicalEntityDocsByType(
+    data.map((row) => ({ ...row, doc_type: String(row.doc_type ?? "").trim(), status: String(row.status ?? "") })),
+  );
+  const current = new Set(Array.from(canonical.values(), (row) => row.storage_path));
+  const ordered = [
+    ...data.filter((row) => current.has(row.storage_path)),
+    ...data.filter((row) => !current.has(row.storage_path)),
+  ];
+
   const merged: VehicleDocuments = { ...(base ?? {}) };
   const usedPaths = new Set(
     [
@@ -256,7 +268,7 @@ export async function mergeEntityDocumentsIntoVehicleVault(
     ].filter(Boolean),
   );
   const extraAdds: VehicleExtraDocument[] = [];
-  for (const row of data) {
+  for (const row of ordered) {
     const type = String(row.doc_type ?? "").trim();
     const path = row.storage_path?.trim();
     if (!path || usedPaths.has(path)) continue;
@@ -627,6 +639,8 @@ export async function uploadAndSaveVehicleExtraDocumentsForTrip(
     fileName: string;
     mimeType: string;
     docType?: VehicleComplianceDocType;
+    /** Expiry the user entered for this page (YYYY-MM-DD). Never inherited from an older file. */
+    expiryDate?: string | null;
   }[],
   existingDocuments: VehicleDocuments | null,
   preferredOrgIds: Array<string | null | undefined> = [],
@@ -667,7 +681,7 @@ export async function uploadAndSaveVehicleExtraDocumentsForTrip(
           fileName: file.fileName,
         },
         uploadedBy: actorId,
-        expiryDate: null,
+        expiryDate: file.expiryDate?.trim() || null,
       });
       if (entityError || !document) {
         return {
@@ -714,6 +728,8 @@ export async function uploadAndSaveVehicleExtraDocuments(
     fileName: string;
     mimeType: string;
     docType?: VehicleComplianceDocType;
+    /** Expiry the user entered for this page (YYYY-MM-DD). Never inherited from an older file. */
+    expiryDate?: string | null;
   }[],
   existingDocuments: VehicleDocuments | null,
 ): Promise<{ documents: VehicleDocuments | null; error: Error | null }> {
@@ -754,7 +770,7 @@ export async function uploadAndSaveVehicleExtraDocuments(
     uploaded.push({
       id: extraId,
       url: path,
-      expiryDate: '',
+      expiryDate: file.expiryDate?.trim() || '',
       uploadedAt: new Date().toISOString(),
       fileName: file.fileName,
       docType: file.docType,
@@ -788,6 +804,56 @@ export async function uploadAndSaveVehicleExtraDocuments(
   return { documents: (savedRow.documents ?? updated) as VehicleDocuments, error: null };
 }
 
+/**
+ * Writes vehicles.documents for a vehicle the org owns. Errors when no row
+ * matched — e.g. a partner truck owned by another org — instead of reporting
+ * success for a write that changed nothing.
+ */
+async function saveVaultDocumentsOrFail(
+  orgId: string,
+  vehicleId: string,
+  documents: VehicleDocuments,
+): Promise<{ error: Error | null }> {
+  const { data, error } = await supabase()
+    .from("vehicles")
+    .update({ documents })
+    .eq("organization_id", orgId)
+    .eq("id", vehicleId)
+    .select("id");
+  if (error) return { error: new Error(error.message) };
+  if ((data ?? []).length === 0) {
+    return {
+      error: new Error(
+        "Nothing was removed: this vehicle's own records belong to another company. Remove the file from Compliance instead.",
+      ),
+    };
+  }
+  return { error: null };
+}
+
+/**
+ * The entity_documents row behind a file shown on a vehicle (partner-truck
+ * uploads live there, not on vehicles.documents). RLS limits this to orgs the
+ * viewer belongs to. Null when the file is a vehicles.documents file.
+ */
+export async function findVehicleEntityDocumentIdByPath(
+  vehicleId: string,
+  storagePath: string,
+): Promise<{ id: string | null; error: Error | null }> {
+  const path = storagePath.trim();
+  if (!vehicleId || !path) return { id: null, error: null };
+  const { data, error } = await supabase()
+    .from("entity_documents")
+    .select("id")
+    .eq("entity_type", "vehicle")
+    .eq("entity_id", vehicleId)
+    .eq("storage_path", path)
+    .limit(1)
+    .maybeSingle();
+  if (error) return { id: null, error: new Error(error.message) };
+  return { id: (data as { id: string } | null)?.id ?? null, error: null };
+}
+
 export async function deleteVehicleExtraDocument(
   orgId: string,
   vehicleId: string,
@@ -802,21 +868,17 @@ export async function deleteVehicleExtraDocument(
       error: new Error("That vehicle file is no longer on record."),
     };
   }
-  if (extra.url?.trim()) {
-    await deleteVehicleDocumentFile(extra.url).catch(() => {});
-  }
   const nextExtras = extras.filter((item) => item.id !== extraId);
   const updated: VehicleDocuments = { ...(existingDocuments ?? {}) };
   if (nextExtras.length > 0) updated.extras = nextExtras;
   else delete updated.extras;
 
-  const { error: dbError } = await supabase()
-    .from("vehicles")
-    .update({ documents: updated })
-    .eq("organization_id", orgId)
-    .eq("id", vehicleId);
-
-  if (dbError) return { documents: null, error: new Error(dbError.message) };
+  const saved = await saveVaultDocumentsOrFail(orgId, vehicleId, updated);
+  if (saved.error) return { documents: null, error: saved.error };
+  // Storage only after the record changed, so a refused update never orphans the row.
+  if (extra.url?.trim()) {
+    await deleteVehicleDocumentFile(extra.url).catch(() => {});
+  }
   return { documents: updated, error: null };
 }
 
@@ -834,20 +896,14 @@ export async function deleteVehicleDocument(
   const doc: DocumentWithExpiry | undefined = existingDocuments?.[docType];
   const storagePath = doc?.url;
 
-  // Remove storage file (best-effort; even if missing, clear JSONB)
-  if (storagePath?.trim()) {
-    await deleteVehicleDocumentFile(storagePath).catch(() => {});
-  }
-
   const updated: VehicleDocuments = { ...(existingDocuments ?? {}) };
   delete updated[docType];
 
-  const { error: dbError } = await supabase()
-    .from('vehicles')
-    .update({ documents: updated })
-    .eq('organization_id', orgId)
-    .eq('id', vehicleId);
-
-  if (dbError) return { documents: null, error: new Error(dbError.message) };
+  const saved = await saveVaultDocumentsOrFail(orgId, vehicleId, updated);
+  if (saved.error) return { documents: null, error: saved.error };
+  // Storage only after the record changed (best-effort; the slot is already cleared).
+  if (storagePath?.trim()) {
+    await deleteVehicleDocumentFile(storagePath).catch(() => {});
+  }
   return { documents: updated, error: null };
 }

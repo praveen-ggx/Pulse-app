@@ -1,0 +1,9 @@
+# Pool rebid: a Network quote closed only because the supplier's pool vehicle
+# commit ran out (vehicle_limit reached on another load) can be quoted again on
+# loads that are still open. Shipper rejections, counters and awards stay locked.
+# Replaces submit_network_quote and get_org_network_pool (prod bodies + marked
+# additions); adds direct_quote_closed_by_pool_exhaustion. Needs
+# 20271118213000_marketplace_award_state_integrity.sql applied first (already on prod and preprod).
+# Branch nihas/V1.0.63. Not applied anywhere yet. Path: V1 -> preprod -> prod.
+# sha256 d580d7ca1b0785e0d6496eaa5d82437f5c812d0669254ab7e5fa190e085fa162  20271120101500_pool_exhausted_quotes_can_rebid.sql
+20271120101500

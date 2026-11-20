@@ -70,7 +70,7 @@ export type DriverTripListOpts = PageOpts & {
   signal?: AbortSignal;
 };
 import { getPlatformEventBus } from "@/lib/platform/events/InProcessEventBus";
-import { getAccessToken, supabase } from "@/lib/supabase";
+import { getAccessToken, SESSION_EXPIRED_MESSAGE, supabase } from "@/lib/supabase";
 import { uuidv7 } from "@/lib/uuidv7";
 import type { DriverTripRow, SupplierTripRow } from "@/types/trip-views";
 import {
@@ -590,8 +590,12 @@ export async function getHubTripKeysetPage(
     cancelledCount: null,
     attributedCount: null,
   };
+  // No session: the call would go out as anon and fail with permission denied.
+  if (!(await getAccessToken())) {
+    return { ...empty, error: new Error(SESSION_EXPIRED_MESSAGE) };
+  }
   const rowsOnly = opts?.withCounts === false && !hubRowsRpcMissing;
-  const limit = Math.min(HUB_KEYSET_PAGE_SIZE, Math.max(1, opts?.limit ?? HUB_KEYSET_PAGE_SIZE));
+  const limit =Math.min(HUB_KEYSET_PAGE_SIZE, Math.max(1, opts?.limit ?? HUB_KEYSET_PAGE_SIZE));
   const dated = tripsForOrgRpcArgs(orgId, {
     from: opts?.from ?? undefined,
     to: opts?.to ?? undefined,
@@ -2046,6 +2050,10 @@ export async function getOrgHubMetrics(
 }> {
   if (!orgId) {
     return { error: null, metrics: EMPTY_ORG_HUB_METRICS, source: "empty" };
+  }
+  // No session: the call would go out as anon and fail with permission denied.
+  if (!(await getAccessToken())) {
+    return { error: new Error(SESSION_EXPIRED_MESSAGE), metrics: EMPTY_ORG_HUB_METRICS, source: "empty" };
   }
   const { data, error } = await supabase().rpc("count_org_hub_metrics", {
     p_org_id: orgId,

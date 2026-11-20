@@ -62,6 +62,8 @@ let mockTxnsResult: { data: unknown[]; error: null };
 let mockDocsResult: { data: unknown[]; error: null };
 
 jest.mock("@/lib/supabase", () => ({
+  getAccessToken: async () => "test-token",
+  SESSION_EXPIRED_MESSAGE: "Your session has expired. Please sign in again.",
   supabase: () => ({
     from: (table: string) => {
       if (table === "trips") return mockMakeThenable(mockTripsResult);

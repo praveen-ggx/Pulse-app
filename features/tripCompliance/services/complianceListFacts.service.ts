@@ -10,7 +10,7 @@
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
 import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
-import { supabase } from "@/lib/supabase";
+import { getAccessToken, SESSION_EXPIRED_MESSAGE, supabase } from "@/lib/supabase";
 
 /** Server-side cap per call (SQLSTATE 22023 above it). The list itself is ≤400 (get_trips_for_org). */
 export const COMPLIANCE_BATCH_MAX_TRIP_IDS = 1000;
@@ -74,6 +74,8 @@ async function callBatchRpc<Row>(
 ): Promise<Row[]> {
   const ids = uniqueIds(tripIds);
   if (!viewerOrgId || ids.length === 0) return [];
+  // No session: the call would go out as anon and fail with permission denied.
+  if (!(await getAccessToken())) throw new Error(SESSION_EXPIRED_MESSAGE);
   const rows: Row[] = [];
   for (const chunk of chunkIds(ids)) {
     const { data, error } = await supabase().rpc(rpc, { p_viewer_org_id: viewerOrgId, p_trip_ids: chunk });

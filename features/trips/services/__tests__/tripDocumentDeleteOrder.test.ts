@@ -11,6 +11,7 @@ const calls: string[] = [];
 let mockDbError: { message: string; code?: string } | null = null;
 let mockStorageError: { message: string } | null = null;
 let mockDeletedRows: { id: string }[] = [{ id: "doc-1" }];
+let mockStatus = "pending";
 const mockAuditInsert = jest.fn(async () => {
   calls.push("audit.insert");
   return { error: null };
@@ -36,6 +37,11 @@ jest.mock("@/lib/supabase", () => ({
       }
       if (table === "trip_documents") {
         return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: { status: mockStatus }, error: null }),
+            }),
+          }),
           delete: () => ({
             eq: () => ({
               select: async () => {
@@ -79,6 +85,7 @@ beforeEach(() => {
   mockDbError = null;
   mockStorageError = null;
   mockDeletedRows = [{ id: "doc-1" }];
+  mockStatus = "pending";
   mockAuditInsert.mockClear();
 });
 
@@ -102,6 +109,13 @@ describe("deleteTripDocument", () => {
         }),
       }),
     );
+  });
+
+  it("does not send an approved document for deletion or audit it", async () => {
+    mockStatus = "verified";
+    const { error } = await deleteTripDocument(DOC);
+    expect(error?.message).toMatch(/Approved documents cannot be deleted/);
+    expect(calls).toEqual([]);
   });
 
   it("keeps the file when the database refuses the delete", async () => {

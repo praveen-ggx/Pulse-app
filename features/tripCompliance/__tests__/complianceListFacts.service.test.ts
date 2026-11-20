@@ -7,6 +7,8 @@ const mockRpc = jest.fn();
 const mockFrom = jest.fn();
 
 jest.mock("@/lib/supabase", () => ({
+  getAccessToken: async () => "test-token",
+  SESSION_EXPIRED_MESSAGE: "Your session has expired. Please sign in again.",
   supabase: () => ({
     rpc: (...args: unknown[]) => mockRpc(...args),
     from: (...args: unknown[]) => mockFrom(...args),

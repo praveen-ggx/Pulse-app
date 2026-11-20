@@ -1001,6 +1001,18 @@ export async function deleteTripDocument(doc: TripDocumentRow): Promise<{ error:
   // Row first: when the database refuses (approved / locked document), the file
   // must stay, or the row would point at a file that no longer exists.
   const synthetic = doc.id.startsWith("storage-") || doc.id.startsWith("storage-meta-");
+  // The cached row can be stale: re-read the status so an approved document is
+  // never sent for deletion (and no 'deleted' audit row is written for it).
+  if (!synthetic) {
+    const { data: current } = await supabase()
+      .from("trip_documents")
+      .select("status")
+      .eq("id", doc.id)
+      .maybeSingle();
+    if (String((current as { status?: string | null } | null)?.status ?? "") === "verified") {
+      return { error: new Error("Approved documents cannot be deleted.") };
+    }
+  }
   // Snapshot audit before the row disappears so Activity keeps who deleted / when.
   await recordTripDocumentDeletedAudit(doc);
   if (!synthetic) {

@@ -1699,6 +1699,8 @@ export async function getDriverProfileDisplayBatch(
 ): Promise<Record<string, { fullName: string; avatarUrl?: string; avatarSeed?: string }>> {
   const ids = driverIds.map((id) => id.trim()).filter(Boolean);
   if (ids.length === 0) return {};
+  // No session: the call would go out as anon and fail with permission denied.
+  if (!(await getAccessToken())) return {};
 
   const { data, error } = await supabase().rpc("get_driver_profile_display_batch", {
     p_driver_ids: ids,

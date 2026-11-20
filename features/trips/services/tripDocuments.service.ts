@@ -30,7 +30,8 @@ import { expandLR } from "@/lib/utils/lr";
 import {
   EWAY_BILL_FIELDS_FILE_NAME,
   ewayBillFieldsStoragePath,
-  isEwayBillMetaPath,
+  ewayFieldsCarryOnDelete,
+  ewayFieldsWriteTarget,
   serializeEwayFieldEntries,
   type EwayFieldValues,
 } from "@/features/trips/services/ewayBillFields.util";
@@ -1126,36 +1127,21 @@ export async function upsertEwayBillFields(input: {
     if (error) return { error: new Error(error.message), saved: false };
     return { error: null, saved: (data ?? []).length > 0 };
   };
-  const { data, error: listError } = await supabase()
-    .from("trip_documents")
-    .select("id, storage_path, file_name")
-    .eq("trip_id", input.tripId)
-    .eq("document_type", "eway_bill");
-
-  if (listError) {
-    if (isTripDocumentsRestEndpointMissing(listError)) {
+  const listed = await listEwayFieldsRows(input.tripId);
+  if (listed.error) {
+    if (isTripDocumentsRestEndpointMissing(listed.error)) {
       return {
         error: new Error(
           "E-way bill details cannot be saved until trip documents are available.",
         ),
       };
     }
-    return { error: new Error(listError.message) };
+    return { error: new Error(listed.error.message) };
   }
-
-  const rows = (data ?? []) as {
-    id: string;
-    storage_path: string;
-    file_name: string;
-  }[];
-  const persisted = rows.filter((row) => !row.id.startsWith("storage-"));
-  const target =
-    persisted.find(
-      (row) => !isEwayBillMetaPath(row.storage_path, row.file_name),
-    ) ??
-    persisted.find((row) =>
-      isEwayBillMetaPath(row.storage_path, row.file_name),
-    );
+  // Write to the row the screens read (newest row holding numbers). Writing to
+  // any other file row made a save look ignored, and put the numbers on a file
+  // whose removal later erased them.
+  const target = ewayFieldsWriteTarget(listed.rows);
 
   if (target) {
     const written = await writeNumber(target.id);
@@ -1190,6 +1176,71 @@ export async function upsertEwayBillFields(input: {
     return { error: null };
   }
   return { error: new Error(insertError.message) };
+}
+
+type EwayFieldsRow = {
+  id: string;
+  storage_path: string;
+  file_name: string;
+  uploaded_at: string | null;
+  document_number: string | null;
+};
+
+async function listEwayFieldsRows(
+  tripId: string,
+): Promise<{ rows: EwayFieldsRow[]; error: { message: string; code?: string } | null }> {
+  const { data, error } = await supabase()
+    .from("trip_documents")
+    .select("id, storage_path, file_name, uploaded_at, document_number")
+    .eq("trip_id", tripId)
+    .eq("document_type", "eway_bill");
+  if (error) return { rows: [], error };
+  const rows = ((data ?? []) as EwayFieldsRow[]).filter((row) => !row.id.startsWith("storage-"));
+  return { rows, error: null };
+}
+
+const EWAY_NUMBERS_NOT_KEPT =
+  "Nothing was removed: the e-way numbers saved with this file could not be kept on another e-way row.";
+
+/**
+ * Remove one e-way bill file without losing the trip's e-way numbers.
+ * The numbers live on one e-way row; when that is the row being removed, they
+ * are first copied to the row the screens read next (or a new details row),
+ * and only then is the file deleted. If the copy fails, nothing is deleted.
+ */
+export async function deleteEwayBillDocument(
+  doc: TripDocumentRow,
+  uploadedBy: string | null | undefined,
+): Promise<{ error: Error | null }> {
+  if (doc.id.startsWith("storage-")) return deleteTripDocument(doc);
+  const listed = await listEwayFieldsRows(doc.trip_id);
+  if (listed.error) return { error: new Error(listed.error.message) };
+  const carry = ewayFieldsCarryOnDelete(listed.rows, doc.id);
+  if (carry.kind === "move") {
+    const { data, error } = await supabase()
+      .from("trip_documents")
+      .update({ document_number: carry.documentNumber })
+      .eq("id", carry.toId)
+      .select("id");
+    if (error) return { error: new Error(`${EWAY_NUMBERS_NOT_KEPT} ${error.message}`) };
+    if ((data ?? []).length === 0) return { error: new Error(EWAY_NUMBERS_NOT_KEPT) };
+  } else if (carry.kind === "create") {
+    if (!uploadedBy) return { error: new Error(EWAY_NUMBERS_NOT_KEPT) };
+    const { error } = await supabase()
+      .from("trip_documents")
+      .insert({
+        trip_id: doc.trip_id,
+        file_name: EWAY_BILL_FIELDS_FILE_NAME,
+        storage_path: ewayBillFieldsStoragePath(doc.trip_id),
+        mime_type: "application/json",
+        size_bytes: 0,
+        uploaded_by: uploadedBy,
+        document_type: "eway_bill",
+        document_number: carry.documentNumber,
+      });
+    if (error) return { error: new Error(`${EWAY_NUMBERS_NOT_KEPT} ${error.message}`) };
+  }
+  return deleteTripDocument(doc);
 }
 
 function uniqueExpandedLrNumbers(raw: string): string[] {

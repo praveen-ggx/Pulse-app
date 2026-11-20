@@ -2789,7 +2789,11 @@ export default function TripDetailScreen({
             document_type: categoryToType[target.category ?? ""] ?? "manifest",
           } satisfies tripDocumentsService.TripDocumentRow);
 
-        const { error } = await tripDocumentsService.deleteTripDocument(payload);
+        // E-way numbers can live on the file being removed; keep them first.
+        const { error } =
+          payload.document_type === "eway_bill"
+            ? await tripDocumentsService.deleteEwayBillDocument(payload, detail.currentUserId)
+            : await tripDocumentsService.deleteTripDocument(payload);
         if (error) {
           showAppAlert("Delete failed", error.message);
           return false;
@@ -2821,6 +2825,7 @@ export default function TripDetailScreen({
     detail.setDriverIdentityDocs,
     detail.setSelectedDoc,
     detail.handleRefresh,
+    detail.currentUserId,
     refreshComplianceForTrip,
     currentOrganization?.id,
     uploadingDocId,

@@ -371,3 +371,75 @@ export function buildEwayBillStripRows(params: {
     );
   });
 }
+
+/** An `eway_bill` trip_documents row, as far as choosing where the numbers live. */
+export type EwayFieldsRowLike = {
+  id: string;
+  storage_path?: string | null;
+  file_name?: string | null;
+  uploaded_at?: string | null;
+  document_number?: string | null;
+};
+
+function uploadedMs(row: EwayFieldsRowLike): number {
+  const ms = row.uploaded_at ? Date.parse(row.uploaded_at) : Number.NaN;
+  // Trip Detail loads `order by uploaded_at desc` (Postgres: nulls first).
+  return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
+}
+
+/** Newest first, the same order Trip Detail and Compliance read e-way rows in. */
+export function sortEwayRowsNewestFirst<T extends EwayFieldsRowLike>(rows: readonly T[]): T[] {
+  return [...rows].sort((a, b) => uploadedMs(b) - uploadedMs(a));
+}
+
+/**
+ * The row whose numbers the screens show: the newest row holding at least
+ * one e-way entry (useTripDetail and deriveComplianceEwayBill pick the same).
+ */
+export function ewayFieldsSourceRow<T extends EwayFieldsRowLike>(rows: readonly T[]): T | null {
+  return (
+    sortEwayRowsNewestFirst(rows).find((row) => parseEwayFieldEntries(row.document_number).length > 0) ??
+    null
+  );
+}
+
+/**
+ * Where a save writes the numbers: the row the screens read, so a save is
+ * never written somewhere it will not be shown. With no numbers yet: the
+ * newest uploaded file, else an existing details row; null = create the
+ * details row.
+ */
+export function ewayFieldsWriteTarget<T extends EwayFieldsRowLike>(rows: readonly T[]): T | null {
+  const source = ewayFieldsSourceRow(rows);
+  if (source) return source;
+  const newest = sortEwayRowsNewestFirst(rows);
+  return (
+    newest.find((row) => !isEwayBillMetaPath(row.storage_path, row.file_name)) ??
+    newest.find((row) => isEwayBillMetaPath(row.storage_path, row.file_name)) ??
+    null
+  );
+}
+
+export type EwayFieldsCarry =
+  | { kind: "none" }
+  | { kind: "move"; toId: string; documentNumber: string }
+  | { kind: "create"; documentNumber: string };
+
+/**
+ * Before deleting `documentId`: when it holds the numbers the screens show,
+ * they must move first or the delete erases every e-way number on the trip.
+ * They go to the newest remaining row (where the screens look next), or to a
+ * new details row when no other e-way row remains.
+ */
+export function ewayFieldsCarryOnDelete<T extends EwayFieldsRowLike>(
+  rows: readonly T[],
+  documentId: string,
+): EwayFieldsCarry {
+  const source = ewayFieldsSourceRow(rows);
+  if (!source || source.id !== documentId) return { kind: "none" };
+  const documentNumber = source.document_number ?? "";
+  const remaining = sortEwayRowsNewestFirst(rows.filter((row) => row.id !== documentId));
+  const next = remaining[0];
+  if (next) return { kind: "move", toId: next.id, documentNumber };
+  return { kind: "create", documentNumber };
+}

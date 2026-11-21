@@ -1,0 +1,20 @@
+# Prod release 2026-11-21. Live before: Vasanth #139 922146f4. V1 PRs #136-#141.
+# 20261120055411: vehicle/driver document readers skip superseded copies (V1 #136, set
+#   entity-documents-superseded-readers). On preprod.
+# 20261120094932: per-MT advance uses the trip total supplier_rate; a blank trip basis means
+#   per_trip (V1 #141, TRP002851). Replaces compliance_advance_calculation; needs
+#   20261118114448 (on prod).
+# 20271120101500: pool-exhausted Network quotes can be quoted again (V1 #140, set
+#   pool-exhausted-rebid). Needs 20271118213000 (on prod).
+# No data, table or policy change in any of the three.
+# Not in this set: supabase/release-manual/20261120055411_entity_documents_superseded_readers.rollback.sql
+#   (manual rollback only).
+#
+# Apply only via: npm run db:push-set -- prod-2026-11-21-release   (dry-run first; prod apply needs Vasanth's GO)
+# Never via plain `supabase db push` / `npm run db:push`.
+# sha256 590382b7de24f33eb0a218877426a0082a48082f49c4cfd8e11fcf9eb3a07899  20261120055411_entity_documents_superseded_readers.sql
+20261120055411
+# sha256 ce7c28dca2fb378e22e062255f82ae7ec22c004cffcf9eb22b8971601dd64a2d  20261120094932_per_mt_advance_uses_trip_total.sql
+20261120094932
+# sha256 d580d7ca1b0785e0d6496eaa5d82437f5c812d0669254ab7e5fa190e085fa162  20271120101500_pool_exhausted_quotes_can_rebid.sql
+20271120101500

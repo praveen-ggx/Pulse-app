@@ -63,3 +63,15 @@ describe("prod-2026-11-21-release set", () => {
     }
   });
 });
+
+describe("preprod-2026-11-21 set", () => {
+  const preprodFile = path.join(releaseSets, "preprod-2026-11-21.versions");
+
+  it("is the prod set minus the version already on preprod, with the same hashes", () => {
+    const preprod = parse(preprodFile);
+    expect(preprod.versions).toEqual(["20261120094932", "20271120101500"]);
+    const prod = parse(setFile).sums;
+    for (const [version, pin] of preprod.sums) expect(pin).toEqual(prod.get(version));
+    expect(preprod.sums.size).toBe(2);
+  });
+});

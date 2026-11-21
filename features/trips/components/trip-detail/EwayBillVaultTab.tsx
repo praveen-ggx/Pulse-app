@@ -1127,6 +1127,9 @@ const styles = StyleSheet.create({
   },
   chipRow: {
     flexDirection: "row",
+    // Wrap on narrow cards: four chips do not fit a phone-width card, and
+    // without wrapping Upload was pushed out of view (only Remove showed).
+    flexWrap: "wrap",
     alignItems: "center",
     flexShrink: 0,
     gap: 8,

@@ -583,6 +583,9 @@ export async function getAccessToken(): Promise<string | null> {
   return data.session?.access_token ?? null;
 }
 
+/** Shown when a signed-in-only call is skipped because the session is gone. */
+export const SESSION_EXPIRED_MESSAGE = "Your session has expired. Please sign in again.";
+
 export const SUPABASE_CONFIG_MISSING_MESSAGE =
   'Missing Supabase config. Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to .env in the project root, then restart: npx expo start';
 

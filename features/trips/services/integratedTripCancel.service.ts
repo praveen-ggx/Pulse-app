@@ -101,6 +101,8 @@ export async function cancelIntegratedTrip(input: {
       cancel_reason_note: note,
       cancelled_at: now,
       cancelled_by: user.data.user?.id ?? null,
+      // trips_check1: only a completed trip keeps completed_at.
+      completed_at: null,
       status_change_origin: "integrated_cancel",
       updated_at: now,
     })

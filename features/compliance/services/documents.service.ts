@@ -536,22 +536,62 @@ export async function replaceComplianceDocument(input: {
   const upload = await uploadComplianceDocument(input.upload);
   if (upload.error || !upload.document) return upload;
 
-  const { error: updateErr } = await supabase()
+  const { error: updateErr } = await supersedeEntityDocuments(
+    [input.existingDocId],
+    upload.document.id,
+  );
+  if (updateErr) {
+    return { error: updateErr, document: upload.document };
+  }
+  return upload;
+}
+
+/**
+ * Ids of the live (not replaced / rejected) rows in one document slot. Take
+ * this snapshot BEFORE uploading a replacement, then pass it to
+ * supersedeEntityDocuments once the upload succeeded — only those exact rows
+ * are retired, never the new upload and never rows added meanwhile.
+ */
+export async function listLiveEntityDocumentIds(input: {
+  orgId: string;
+  entityType: EntityType;
+  entityId: string;
+  docType: string;
+}): Promise<{ ids: string[]; error: Error | null }> {
+  const { data, error } = await supabase()
+    .from("entity_documents")
+    .select("id")
+    .eq("organization_id", input.orgId)
+    .eq("entity_type", input.entityType)
+    .eq("entity_id", input.entityId)
+    .eq("doc_type", input.docType)
+    .not("status", "in", "(replaced,rejected)");
+  if (error) return { ids: [], error: new Error(error.message) };
+  return { ids: ((data ?? []) as { id: string }[]).map((row) => row.id), error: null };
+}
+
+/**
+ * Retire rows after a replacement upload: status `replaced`, pointing at the
+ * new row when known. Rows and storage objects are kept (history, and
+ * trip_documents.source_entity_document_id references stay valid).
+ */
+export async function supersedeEntityDocuments(
+  ids: readonly string[],
+  replacedById: string | null,
+): Promise<{ error: Error | null }> {
+  const targets = ids.filter((id) => id && id !== replacedById);
+  if (targets.length === 0) return { error: null };
+  const { error } = await supabase()
     .from("entity_documents")
     .update({
       status: "replaced",
-      replaced_by_id: upload.document.id,
+      replaced_by_id: replacedById,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", input.existingDocId);
-
-  if (updateErr) {
-    return {
-      error: new Error(updateErr.message),
-      document: upload.document,
-    };
-  }
-  return upload;
+    .in("id", targets)
+    .not("status", "in", "(replaced,rejected)");
+  if (error) return { error: new Error(error.message) };
+  return { error: null };
 }
 
 /** Generate (or reuse a cached) signed URL for the doc's file. */

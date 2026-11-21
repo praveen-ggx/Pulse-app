@@ -45,7 +45,7 @@ function entityDoc(overrides: Partial<DocumentRow> & Pick<DocumentRow, "doc_type
     verified_by: null,
     verified_at: null,
     created_by: null,
-    created_at: "2026-01-01",
+    created_at: overrides.created_at ?? "2026-01-01",
     updated_at: "2026-01-01",
   };
 }
@@ -123,6 +123,17 @@ describe("buildComplianceChecklist", () => {
     const now = new Date("2026-09-01T00:00:00Z");
     expect(listExpiredRequiredVehicleDocTypes(docs, now)).toEqual(["rc"]);
     expect(listExpiringSoonRequiredVehicleDocTypes(docs, now, 30)).toEqual(["insurance"]);
+  });
+
+  it("uses the newer upload when an older expired copy of the same slot is still on file", () => {
+    // Prod shape (SAT812GOGTRIP002582): two pending insurance rows, the expired
+    // one sorts first by id. The newer, valid upload must decide the slot.
+    const docs = [
+      entityDoc({ id: "621ab8cc", entity_type: "vehicle", entity_id: "v1", doc_type: "insurance", status: "pending", storage_path: "old", expiry_date: "2025-11-17", created_at: "2026-11-17T06:51:25Z" }),
+      entityDoc({ id: "ecbc2039", entity_type: "vehicle", entity_id: "v1", doc_type: "insurance", status: "pending", storage_path: "new", expiry_date: "2027-08-09", created_at: "2026-11-19T09:57:34Z" }),
+    ];
+    const now = new Date("2026-11-20T00:00:00Z");
+    expect(listExpiredRequiredVehicleDocTypes(docs, now)).toEqual([]);
   });
 
   it("does not count insurance/FC/DL without expiry as verified", () => {

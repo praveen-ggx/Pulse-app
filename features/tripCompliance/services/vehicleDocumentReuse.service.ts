@@ -27,6 +27,7 @@ import {
   type DocumentRow,
 } from "@/features/compliance/services/documents.service";
 import { tryGetDocumentViewUrl } from "@/features/trips/services/tripDocuments.service";
+import { pickCanonicalEntityDoc } from "@/features/compliance/utils/currentDocument.util";
 
 export type ReusableVehicleDocumentType = "rc" | "insurance";
 
@@ -132,12 +133,9 @@ export async function getReusableVehicleDocuments(
 
   const slots: VehicleDocumentReuseSlot[] = [];
   for (const documentType of REUSABLE_VEHICLE_DOCUMENT_TYPES) {
-    // getDocumentsByEntity already excludes status='replaced', so at most one
-    // non-superseded row should exist per (entity, doc_type); guard with
-    // "most recently created" in case more than one somehow does.
-    const current = documents
-      .filter((d) => d.doc_type === documentType)
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+    // A slot can hold several live files (pages, or legacy copies that were
+    // never marked replaced). Use the shared current-copy rule.
+    const current = pickCanonicalEntityDoc(documents.filter((d) => d.doc_type === documentType));
     if (!current) {
       slots.push({ documentType, candidate: null });
       continue;

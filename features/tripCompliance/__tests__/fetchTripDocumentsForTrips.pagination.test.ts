@@ -1,7 +1,9 @@
 import { createFakePostgrest, fakeUuid, shuffled, type FakeRow } from "@/lib/__tests__/fakePostgrest";
 
 const mockServer = createFakePostgrest();
-jest.mock("@/lib/supabase", () => ({ supabase: () => mockServer.client }));
+jest.mock("@/lib/supabase", () => ({
+  getAccessToken: async () => "test-token",
+  SESSION_EXPIRED_MESSAGE: "Your session has expired. Please sign in again.", supabase: () => mockServer.client }));
 
 import { fetchTripDocumentsForTrips } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import { READ_ALL_ID_CHUNK } from "@/lib/pagination";

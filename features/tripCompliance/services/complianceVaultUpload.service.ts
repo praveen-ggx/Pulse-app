@@ -111,8 +111,12 @@ export type ComplianceVaultUploadInput = {
 /**
  * Writes one vault file. Throws on failure. A trip-documents storage path
  * conflict means the file already landed, so it is treated as success.
+ * Returns the new entity_documents id when the file was stored there (null for
+ * trip files and vehicles.documents slots).
  */
-export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInput): Promise<void> {
+export async function uploadComplianceVaultFile(
+  input: ComplianceVaultUploadInput,
+): Promise<{ entityDocumentId: string | null }> {
   const { scope, type, tripId, organizationId, actorId, vehicleId, entityId, existing, append, skipVehicleVault, file, expiryDate } = input;
 
   if (scope === "trip") {
@@ -133,7 +137,7 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
       );
     }
     invalidateCompliancePreviewCache([existing?.storage_path]);
-    return;
+    return { entityDocumentId: null };
   }
 
   if (!entityId) {
@@ -160,7 +164,7 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
     if (saved.error) throw saved.error;
     const slot = saved.documents?.[type as VehicleComplianceDocType];
     invalidateCompliancePreviewCache([slot?.url, existing?.storage_path]);
-    return;
+    return { entityDocumentId: null };
   }
 
   const upload = {
@@ -175,4 +179,5 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
   const { error, document } = await uploadComplianceDocument(upload);
   if (error) throw error;
   invalidateCompliancePreviewCache([document?.storage_path, existing?.storage_path]);
+  return { entityDocumentId: document?.id ?? null };
 }

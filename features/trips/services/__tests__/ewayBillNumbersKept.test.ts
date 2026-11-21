@@ -71,6 +71,11 @@ function mockTable() {
       op = "delete";
       return builder;
     },
+    // deleteTripDocument re-reads the row's status before deleting (#139).
+    maybeSingle: async () => {
+      const { data, error } = run() as { data: unknown[] | null; error: null };
+      return { data: (data ?? [])[0] ?? null, error };
+    },
     then: (resolve: (value: unknown) => void) => resolve(run()),
   };
   return builder;

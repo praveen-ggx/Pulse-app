@@ -312,3 +312,59 @@ describe("buildEwayBillStripRows", () => {
     });
   });
 });
+
+describe("per-entry save stamp", () => {
+  const doc = (documentNumber: string) => ({
+    id: "eway_bill",
+    label: "Eway Bill",
+    type: "PDF",
+    status: "Uploaded",
+    documentNumber,
+    storagePath: ewayBillFieldsStoragePath("trip-1"),
+    uploadedAt: "2026-10-22T06:58:00.000Z",
+    uploadedBy: "user-first",
+  });
+
+  it("keeps each entry's stamp through parse and save", () => {
+    const raw = serializeEwayFieldEntries([
+      { ewayNo: "112581898430", createdDate: "", validTill: "", docNo: "" },
+      {
+        ewayNo: "665585858667",
+        createdDate: "",
+        validTill: "",
+        docNo: "",
+        updatedAt: "2026-11-21T09:00:00.000Z",
+        updatedBy: "user-second",
+      },
+    ]);
+    const entries = JSON.parse(raw).entries;
+    expect(entries[0]).not.toHaveProperty("updatedAt");
+    expect(entries[1]).toMatchObject({ updatedAt: "2026-11-21T09:00:00.000Z", updatedBy: "user-second" });
+  });
+
+  it("shows the second entry's own time and person, the legacy entry keeps the row's", () => {
+    const rows = buildEwayBillStripRows({
+      ewayDoc: doc(
+        serializeEwayFieldEntries([
+          { ewayNo: "112581898430", createdDate: "", validTill: "", docNo: "" },
+          {
+            ewayNo: "665585858667",
+            createdDate: "",
+            validTill: "",
+            docNo: "",
+            updatedAt: "2026-11-21T09:00:00.000Z",
+            updatedBy: "user-second",
+          },
+        ]),
+      ),
+    });
+    expect(rows[0]).toMatchObject({ updatedAt: "2026-10-22T06:58:00.000Z", updatedById: "user-first" });
+    expect(rows[0]).not.toHaveProperty("entryUpdatedAt");
+    expect(rows[1]).toMatchObject({
+      updatedAt: "2026-11-21T09:00:00.000Z",
+      updatedById: "user-second",
+      entryUpdatedAt: "2026-11-21T09:00:00.000Z",
+      entryUpdatedBy: "user-second",
+    });
+  });
+});

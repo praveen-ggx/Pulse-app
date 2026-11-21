@@ -1,0 +1,9 @@
+# Hotfix: advance payment guard compares the resolved supplier rate basis (nihas V1.0.66).
+# Since 20271118094500 every blank-basis advance failed at "Confirm payment" with
+# "trip terms changed after approval" (prod 2026-11-21: 132 pending, none posted since 18 Nov 18:40).
+# Replaces public.tg_transactions_link_payment_request only (prod body + basis check). No data, table or policy change.
+# Tested on preprod inside BEGIN ... ROLLBACK: old guard blocks, new guard posts; changed rate and wrong amount still block.
+#
+# Apply only via: npm run db:push-set -- advance-payment-guard-basis   (dry-run first; prod apply needs Vasanth's GO)
+# sha256 56eccb74a0f5099661f1ad2ce0e973638068f19f30babe100ffff23679ff295a  20261121113052_advance_payment_guard_resolved_basis.sql
+20261121113052

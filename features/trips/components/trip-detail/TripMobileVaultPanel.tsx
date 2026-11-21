@@ -46,6 +46,8 @@ type Props = {
   onUploadEwayBill?: (rowId?: string) => void;
   canUploadEwayBill?: boolean;
   canEditEwayBill?: boolean;
+  /** Ground Ops lock note for the e-way strip. */
+  ewayLockedLabel?: string | null;
   onSaveEwayBill?: (values: EwayFieldValues[]) => Promise<boolean>;
   onRemoveEwayBill?: (row: EwayBillStripRow) => void;
   tripIdLabel: string;
@@ -93,6 +95,7 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
   onUploadEwayBill,
   canUploadEwayBill = false,
   canEditEwayBill = false,
+  ewayLockedLabel,
   onSaveEwayBill,
   onRemoveEwayBill,
   tripIdLabel,
@@ -140,6 +143,7 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
           onUpload={onUploadEwayBill ?? (() => undefined)}
           canUpload={canUploadEwayBill}
           canEdit={canEditEwayBill}
+          lockedLabel={ewayLockedLabel}
           onSave={onSaveEwayBill ?? (async () => false)}
           onRemoveDocument={onRemoveEwayBill}
           variant="feed"

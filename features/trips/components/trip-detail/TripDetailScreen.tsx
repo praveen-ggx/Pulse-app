@@ -5597,7 +5597,23 @@ export default function TripDetailScreen({
       groundOpsBlocked: isGroundOpsOnly && !groundOpsDocUploadEnabled,
     });
 
-  const canUploadThisVaultDoc = (doc: (typeof detail.computedTripDocs)[number]) =>
+  // Ground Ops: the e-way strip follows the database lock
+  // (guard_trip_document_ground_ops) instead of offering a save it will refuse.
+  const ewayGroundOpsLock = groundOpsTripDocLock(
+    detail.tripDocuments
+      .filter((doc) => doc.document_type === "eway_bill")
+      .map((doc) => doc.storage_path),
+  );
+  const canChangeEwayBill = canUploadTripDocs && !ewayGroundOpsLock;
+  const ewayLockedLabel = ewayGroundOpsLock
+    ? `${groundOpsDocumentLockLabel(ewayGroundOpsLock)}. To change the e-way bill, ${
+        ewayGroundOpsLock === "advance_approved" || ewayGroundOpsLock === "advance_processed"
+          ? "ask Finance to send the trip back"
+          : "ask Compliance to put the trip on hold"
+      }.`
+    : null;
+
+  const canUploadThisVaultDoc =(doc: (typeof detail.computedTripDocs)[number]) =>
     canMutateTripVaultDoc({
       doc,
       canUploadTripDocs,
@@ -7195,8 +7211,9 @@ export default function TripDetailScreen({
                 ewayStripRows={ewayStripRows}
                 onViewEwayBill={openEwayBillPreview}
                 onUploadEwayBill={openEwayBillUpload}
-                canUploadEwayBill={canUploadTripDocs}
-                canEditEwayBill={canUploadTripDocs}
+                canUploadEwayBill={canChangeEwayBill}
+                canEditEwayBill={canChangeEwayBill}
+                ewayLockedLabel={ewayLockedLabel}
                 onSaveEwayBill={saveEwayBillFields}
                 onRemoveEwayBill={requestRemoveEwayBill}
                 tripIdLabel={mobileTripIdLabel}
@@ -8155,8 +8172,9 @@ export default function TripDetailScreen({
                       ewayStripRows={ewayStripRows}
                       onViewEwayBill={openEwayBillPreview}
                       onUploadEwayBill={openEwayBillUpload}
-                      canUploadEwayBill={canUploadTripDocs}
-                      canEditEwayBill={canUploadTripDocs}
+                      canUploadEwayBill={canChangeEwayBill}
+                      canEditEwayBill={canChangeEwayBill}
+                      ewayLockedLabel={ewayLockedLabel}
                       onSaveEwayBill={saveEwayBillFields}
                       onRemoveEwayBill={requestRemoveEwayBill}
                       columns={4}

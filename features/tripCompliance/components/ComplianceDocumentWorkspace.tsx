@@ -17,6 +17,8 @@ import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import {
   deleteComplianceDocument,
+  listLiveEntityDocumentIds,
+  supersedeEntityDocuments,
   rejectDocument,
   updateEntityDocumentExpiry,
   verifyDocument,
@@ -133,7 +135,11 @@ import {
   isOwnRecentUpload,
   tripAwaitingResubmit,
 } from "@/features/tripCompliance/utils/groundOpsDocumentLock.util";
-import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
+import {
+  alertMessage,
+  chooseReplaceOrAddPage,
+  confirmAction,
+} from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import {
   COMPLIANCE_DECLINE_REASON_SECTIONS,
   FINANCE_FLAG_REASON_SECTIONS,
@@ -184,6 +190,7 @@ import {
   uploadComplianceVaultFile,
 } from "@/features/tripCompliance/services/complianceVaultUpload.service";
 import {
+  deleteEwayBillDocument,
   deleteTripDocument,
   uploadTripDocument,
   type TripDocumentRow,
@@ -4394,6 +4401,8 @@ export function ComplianceDocumentWorkspace({
         vehicleId,
         docType: row.type,
         actorId,
+        displayedDocumentId: row.entityDoc.id,
+        displayedStoragePath: row.entityDoc.storage_path,
         vehicleDocuments: summary.vehicleDocuments,
       });
       if (marked.error) {
@@ -5324,10 +5333,25 @@ export function ComplianceDocumentWorkspace({
           setScreenOpen(false);
         }
 
+        const addingToExisting = hasFile(row);
+        // A filled vehicle / driver slot: a renewed document replaces the
+        // current copy (kept as history); a page of the same document is added.
+        let replacing = false;
+        if (scope !== "trip" && addingToExisting) {
+          const choice = await chooseReplaceOrAddPage(rowLabel);
+          if (!choice) {
+            setCategoryPreview(null);
+            return;
+          }
+          replacing = choice === "replace";
+        }
+
         let expiryDate: string | null = null;
         if (scope !== "trip") {
+          // Only a page of the same document reuses the current expiry. A
+          // replacement always asks — it must never inherit an obsolete date.
           const current = row.entityDoc?.expiry_date?.trim() ?? "";
-          if (/^\d{4}-\d{2}-\d{2}$/.test(current)) {
+          if (addingToExisting && !replacing && /^\d{4}-\d{2}-\d{2}$/.test(current)) {
             expiryDate = current;
           } else if (documentRequiresExpiry(row.type)) {
             const entered = (await promptExpiryDate(row.type))?.trim() ?? "";
@@ -5343,10 +5367,24 @@ export function ComplianceDocumentWorkspace({
           }
         }
 
-        const addingToExisting = hasFile(row);
+        let replaceSnapshot: string[] = [];
+        if (replacing && entityId && scope !== "trip") {
+          const live = await listLiveEntityDocumentIds({
+            orgId: organizationId,
+            entityType: scope,
+            entityId,
+            docType: row.type,
+          });
+          if (live.error) {
+            alertMessage("Upload failed", live.error.message);
+            return;
+          }
+          replaceSnapshot = live.ids;
+        }
+        let replacementId: string | null = null;
         for (const [index, file] of files.entries()) {
-          const extraCopy = addingToExisting || index > 0;
-          await uploadComplianceVaultFile({
+          const extraCopy = (addingToExisting && !replacing) || index > 0;
+          const saved = await uploadComplianceVaultFile({
             scope,
             type: row.type,
             tripId: summary.trip.id,
@@ -5360,6 +5398,18 @@ export function ComplianceDocumentWorkspace({
             file,
             expiryDate,
           });
+          if (index === 0) replacementId = saved.entityDocumentId;
+        }
+        if (replaceSnapshot.length > 0) {
+          // Only after every new file saved: retire exactly the copies that
+          // were live before this upload.
+          const retired = await supersedeEntityDocuments(replaceSnapshot, replacementId);
+          if (retired.error) {
+            alertMessage(
+              "Saved, but the old file is still active",
+              `The new file was saved. Marking the previous copy as replaced failed: ${retired.error.message}`,
+            );
+          }
         }
         invalidateCompliancePreviewCache(
           listRows
@@ -5518,7 +5568,11 @@ export function ComplianceDocumentWorkspace({
     if (!ok) return;
     setFileActionKey(row.key);
     try {
-      const { error } = await deleteTripDocument(old);
+      // E-way numbers can live on the file being removed; keep them first.
+      const { error } =
+        old.document_type === "eway_bill"
+          ? await deleteEwayBillDocument(old, actorId)
+          : await deleteTripDocument(old);
       if (error) {
         alertMessage("Couldn't remove file", error.message);
         return;

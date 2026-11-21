@@ -52,6 +52,8 @@ type Props = {
   onUploadEwayBill: (rowId?: string) => void;
   canUploadEwayBill: boolean;
   canEditEwayBill: boolean;
+  /** Ground Ops lock note for the e-way strip. */
+  ewayLockedLabel?: string | null;
   onSaveEwayBill: (values: EwayFieldValues[]) => Promise<boolean>;
   onRemoveEwayBill?: (row: EwayBillStripRow) => void;
   columns?: 2 | 3 | 4;
@@ -180,6 +182,7 @@ export function TripVaultCardGrid({
   onUploadEwayBill,
   canUploadEwayBill,
   canEditEwayBill,
+  ewayLockedLabel,
   onSaveEwayBill,
   onRemoveEwayBill,
   sign,
@@ -223,6 +226,7 @@ export function TripVaultCardGrid({
           onUpload={onUploadEwayBill}
           canUpload={canUploadEwayBill}
           canEdit={canEditEwayBill}
+          lockedLabel={ewayLockedLabel}
           onSave={onSaveEwayBill}
           onRemoveDocument={onRemoveEwayBill}
         />

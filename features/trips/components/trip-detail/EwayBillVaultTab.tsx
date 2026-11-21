@@ -83,6 +83,8 @@ type Props = {
   /** Same notification card on phone and desktop. Pass `table` only for the old grid. */
   variant?: "table" | "feed";
   compact?: boolean;
+  /** Why the e-way bill cannot be changed right now (Ground Ops lock), shown under the title. */
+  lockedLabel?: string | null;
 };
 
 const EMPTY_ROW: EwayBillStripRow = {
@@ -197,12 +199,16 @@ function displayToDraft(value: string): string {
 }
 
 function rowToDraft(row: EwayBillStripRow): EwayFieldValues {
-  return {
+  const draft: EwayFieldValues = {
     ewayNo: clampEwayBillNumber(displayToDraft(row.ewayNo)),
     createdDate: displayToDraft(row.createdDate),
     validTill: displayToDraft(row.validTill),
     docNo: displayToDraft(row.docNo),
   };
+  // Keep each entry's own save stamp when another entry is saved.
+  if (row.entryUpdatedAt) draft.updatedAt = row.entryUpdatedAt;
+  if (row.entryUpdatedBy) draft.updatedBy = row.entryUpdatedBy;
+  return draft;
 }
 
 function rowsToEntries(rows: EwayBillStripRow[]): EwayFieldValues[] {
@@ -397,6 +403,7 @@ export function EwayBillLrStrip({
   onSave,
   onRemoveDocument,
   variant = "feed",
+  lockedLabel,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -492,10 +499,16 @@ export function EwayBillLrStrip({
       if (editingIndex === "new") return existingEntries;
       return existingEntries.filter((_, index) => index !== editingIndex);
     }
-    if (editingIndex === "new") return [...existingEntries, draft];
-    if (existingEntries.length === 0) return [draft];
+    // Only the added / edited entry gets a new "On … by …" stamp.
+    const stamped: EwayFieldValues = {
+      ...draft,
+      updatedAt: new Date().toISOString(),
+      ...(currentUserId ? { updatedBy: currentUserId } : {}),
+    };
+    if (editingIndex === "new") return [...existingEntries, stamped];
+    if (existingEntries.length === 0) return [stamped];
     return existingEntries.map((entry, index) =>
-      index === editingIndex ? draft : entry,
+      index === editingIndex ? stamped : entry,
     );
   };
 
@@ -520,6 +533,9 @@ export function EwayBillLrStrip({
       {feed ? (
         <>
           <Text style={[styles.sectionTitle, WEB_COPY]}>E-way Bill</Text>
+          {lockedLabel ? (
+            <Text style={[styles.lockedNote, WEB_COPY]}>{lockedLabel}</Text>
+          ) : null}
           <View style={styles.feedGrid}>
           {displayRows.map((row) => {
             const expiry = ewayExpiryLabel(row.validTill);
@@ -1026,6 +1042,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     paddingTop: 4,
   },
+  lockedNote: {
+    fontSize: 12,
+    color: Theme.textSecondary,
+    paddingHorizontal: 2,
+  },
   orderCard: {
     width: "100%",
   },
@@ -1127,6 +1148,9 @@ const styles = StyleSheet.create({
   },
   chipRow: {
     flexDirection: "row",
+    // Wrap on narrow cards: four chips do not fit a phone-width card, and
+    // without wrapping Upload was pushed out of view (only Remove showed).
+    flexWrap: "wrap",
     alignItems: "center",
     flexShrink: 0,
     gap: 8,

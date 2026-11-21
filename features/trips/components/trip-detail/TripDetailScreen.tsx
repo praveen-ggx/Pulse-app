@@ -60,7 +60,10 @@ import {
   type GroundOpsPickupTarget,
 } from "@/features/trips/services/groundOpsPickup.service";
 import { groundOpsPickupMovedTo } from "@/features/trips/utils/groundOpsPickupStale.util";
-import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
+import {
+  alertMessage,
+  chooseReplaceOrAddPage,
+} from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { loadCompliancePipelineInputs } from "@/features/tripCompliance/services/compliancePipelineSync.service";
 import { GroundOpsTransitChecklist } from "@/features/trips/components/trip-detail/GroundOpsTransitChecklist";
 import {
@@ -151,6 +154,8 @@ import {
   getComplianceDocumentSignedUrl,
   updateEntityDocumentExpiry,
   updateLatestEntityDocumentExpiry,
+  listLiveEntityDocumentIds,
+  supersedeEntityDocuments,
   uploadComplianceDocument,
 } from "@/features/compliance/services/documents.service";
 import {
@@ -164,6 +169,7 @@ import {
 import {
   deleteVehicleDocument,
   deleteVehicleExtraDocument,
+  findVehicleEntityDocumentIdByPath,
   getVehicleDocumentViewUrl,
   updateVehicleDocumentExpiry,
   uploadAndSaveVehicleDocumentForTrip,
@@ -2247,16 +2253,39 @@ export default function TripDetailScreen({
           // to entity_documents under the viewer org). Extra pages used to
           // write the owner's vehicles.documents and fail with "Partial upload".
           const slotFilled = Boolean(detail.vehicleDocs?.[complianceKind]?.url?.trim());
+          // Filled slot: a renewed document replaces the current copy (kept as
+          // history); otherwise the files are more pages of the same document.
+          let replacing = false;
+          if (slotFilled) {
+            const choice = await chooseReplaceOrAddPage(DOCUMENT_LABELS[complianceKind]);
+            if (!choice) return;
+            replacing = choice === "replace";
+          }
+          let replaceSnapshot: string[] = [];
+          if (replacing) {
+            const live = await listLiveEntityDocumentIds({
+              orgId: uploaderOrgId,
+              entityType: "vehicle",
+              entityId: vehicleId,
+              docType: complianceKind,
+            });
+            if (live.error) {
+              notifyVaultFailure("Upload failed", live.error.message);
+              return;
+            }
+            replaceSnapshot = live.ids;
+          }
           let workingDocs = detail.vehicleDocs;
           let remaining = buffers;
-          if (!slotFilled) {
+          if (!slotFilled || replacing) {
+            // The entered expiry only — never the previous file's date.
             const { documents, error } = await uploadAndSaveVehicleDocumentForTrip(
               uploaderOrgId,
               tripIdForUpload,
               vehicleId,
               complianceKind,
               first,
-              assetExpiry ?? detail.vehicleDocs?.[complianceKind]?.expiryDate ?? "",
+              assetExpiry ?? "",
               detail.vehicleDocs,
               [detail.trip?.organization_id],
             );
@@ -2277,6 +2306,8 @@ export default function TripDetailScreen({
               ...file,
               fileName: `${DOCUMENT_SHORT_LABELS[complianceKind]} · ${file.fileName}`,
               docType: complianceKind,
+              // Keep the date the user entered (it used to be dropped here).
+              expiryDate: assetExpiry,
             }));
             const { documents, error } = await uploadAndSaveVehicleExtraDocumentsForTrip(
               uploaderOrgId,
@@ -2298,6 +2329,21 @@ export default function TripDetailScreen({
               if (name) uploadedNames.push(name);
             }
             if (documents) detail.setVehicleDocs(documents);
+          }
+          if (replaceSnapshot.length > 0) {
+            // Every new file saved: retire exactly the copies live before it.
+            const newPath = workingDocs?.[complianceKind]?.url?.trim() ?? "";
+            const replacement = newPath
+              ? await findVehicleEntityDocumentIdByPath(vehicleId, newPath)
+              : { id: null, error: null };
+            const retired = await supersedeEntityDocuments(replaceSnapshot, replacement.id);
+            if (retired.error) {
+              showAppAlert(
+                "Saved, but the old file is still active",
+                `The new file was saved. Marking the previous copy as replaced failed: ${retired.error.message}`,
+              );
+            }
+            detail.reloadAssetExtras();
           }
         } else {
           const { documents, error } = await uploadAndSaveVehicleExtraDocumentsForTrip(
@@ -2336,6 +2382,34 @@ export default function TripDetailScreen({
         }
         const nextIdentity = { ...(detail.driverIdentityDocs ?? {}) };
         const extras = [...(nextIdentity.extras ?? [])];
+        let replacing = false;
+        if (nextIdentity[driverKind]?.url) {
+          const choice = await chooseReplaceOrAddPage(
+            driverKind === "license" ? "Driving licence" : "Aadhaar",
+          );
+          if (!choice) return;
+          replacing = choice === "replace";
+        }
+        let replaceSnapshot: string[] = [];
+        if (replacing) {
+          const live = await listLiveEntityDocumentIds({
+            orgId,
+            entityType: "driver",
+            entityId: driverId,
+            docType: driverKind,
+          });
+          if (live.error) {
+            notifyVaultFailure("Upload failed", live.error.message);
+            return;
+          }
+          replaceSnapshot = live.ids;
+          // The replacement becomes the slot; older pages of this kind go with it.
+          delete nextIdentity[driverKind];
+          for (let i = extras.length - 1; i >= 0; i -= 1) {
+            if (extras[i]?.kind === driverKind) extras.splice(i, 1);
+          }
+        }
+        let replacementId: string | null = null;
         for (const file of files) {
           const arrayBuffer = await readFileAsArrayBuffer(file.uri, file.arrayBuffer);
           if (!arrayBuffer || arrayBuffer.byteLength === 0) {
@@ -2364,7 +2438,8 @@ export default function TripDetailScreen({
               fileName: file.fileName,
             },
             uploadedBy: uploaderId,
-            expiryDate: assetExpiry ?? detail.driverIdentityDocs?.[driverKind]?.expiryDate ?? null,
+            // The entered expiry only (required for a licence) — never the old file's date.
+            expiryDate: assetExpiry,
           });
           if (error || !document?.storage_path) {
             notifyVaultFailure(
@@ -2383,11 +2458,22 @@ export default function TripDetailScreen({
           };
           if (!nextIdentity[driverKind]?.url) {
             nextIdentity[driverKind] = saved;
+            replacementId = document.id;
           } else {
             extras.push({ ...saved, kind: driverKind });
           }
         }
+        if (replaceSnapshot.length > 0) {
+          const retired = await supersedeEntityDocuments(replaceSnapshot, replacementId);
+          if (retired.error) {
+            showAppAlert(
+              "Saved, but the old file is still active",
+              `The new file was saved. Marking the previous copy as replaced failed: ${retired.error.message}`,
+            );
+          }
+        }
         if (extras.length > 0) nextIdentity.extras = extras;
+        else delete nextIdentity.extras;
         detail.setDriverIdentityDocs(nextIdentity);
       } else {
         for (const [index, file] of files.entries()) {
@@ -2600,6 +2686,26 @@ export default function TripDetailScreen({
           );
           return false;
         }
+        // Partner-truck files shown here are entity_documents rows merged into
+        // the view, not vehicles.documents. Delete the row they came from.
+        const entityDoc = await findVehicleEntityDocumentIdByPath(vehicleId, target.storagePath);
+        if (entityDoc.error) {
+          showAppAlert("Delete failed", entityDoc.error.message);
+          return false;
+        }
+        if (entityDoc.id) {
+          const { error } = await deleteComplianceDocument(entityDoc.id, target.storagePath);
+          if (error) {
+            showAppAlert("Delete failed", error.message);
+            return false;
+          }
+          detail.reloadAssetExtras();
+          detail.setSelectedDoc(null);
+          detail.handleRefresh();
+          refreshComplianceForTrip();
+          showAppAlert("Deleted", `${target.label} was removed.`);
+          return true;
+        }
         const { documents, error } =
           target.kind === "vehicle_extra"
             ? await deleteVehicleExtraDocument(
@@ -2683,7 +2789,11 @@ export default function TripDetailScreen({
             document_type: categoryToType[target.category ?? ""] ?? "manifest",
           } satisfies tripDocumentsService.TripDocumentRow);
 
-        const { error } = await tripDocumentsService.deleteTripDocument(payload);
+        // E-way numbers can live on the file being removed; keep them first.
+        const { error } =
+          payload.document_type === "eway_bill"
+            ? await tripDocumentsService.deleteEwayBillDocument(payload, detail.currentUserId)
+            : await tripDocumentsService.deleteTripDocument(payload);
         if (error) {
           showAppAlert("Delete failed", error.message);
           return false;
@@ -2715,6 +2825,7 @@ export default function TripDetailScreen({
     detail.setDriverIdentityDocs,
     detail.setSelectedDoc,
     detail.handleRefresh,
+    detail.currentUserId,
     refreshComplianceForTrip,
     currentOrganization?.id,
     uploadingDocId,
@@ -5486,7 +5597,23 @@ export default function TripDetailScreen({
       groundOpsBlocked: isGroundOpsOnly && !groundOpsDocUploadEnabled,
     });
 
-  const canUploadThisVaultDoc = (doc: (typeof detail.computedTripDocs)[number]) =>
+  // Ground Ops: the e-way strip follows the database lock
+  // (guard_trip_document_ground_ops) instead of offering a save it will refuse.
+  const ewayGroundOpsLock = groundOpsTripDocLock(
+    detail.tripDocuments
+      .filter((doc) => doc.document_type === "eway_bill")
+      .map((doc) => doc.storage_path),
+  );
+  const canChangeEwayBill = canUploadTripDocs && !ewayGroundOpsLock;
+  const ewayLockedLabel = ewayGroundOpsLock
+    ? `${groundOpsDocumentLockLabel(ewayGroundOpsLock)}. To change the e-way bill, ${
+        ewayGroundOpsLock === "advance_approved" || ewayGroundOpsLock === "advance_processed"
+          ? "ask Finance to send the trip back"
+          : "ask Compliance to put the trip on hold"
+      }.`
+    : null;
+
+  const canUploadThisVaultDoc =(doc: (typeof detail.computedTripDocs)[number]) =>
     canMutateTripVaultDoc({
       doc,
       canUploadTripDocs,
@@ -7084,8 +7211,9 @@ export default function TripDetailScreen({
                 ewayStripRows={ewayStripRows}
                 onViewEwayBill={openEwayBillPreview}
                 onUploadEwayBill={openEwayBillUpload}
-                canUploadEwayBill={canUploadTripDocs}
-                canEditEwayBill={canUploadTripDocs}
+                canUploadEwayBill={canChangeEwayBill}
+                canEditEwayBill={canChangeEwayBill}
+                ewayLockedLabel={ewayLockedLabel}
                 onSaveEwayBill={saveEwayBillFields}
                 onRemoveEwayBill={requestRemoveEwayBill}
                 tripIdLabel={mobileTripIdLabel}
@@ -8044,8 +8172,9 @@ export default function TripDetailScreen({
                       ewayStripRows={ewayStripRows}
                       onViewEwayBill={openEwayBillPreview}
                       onUploadEwayBill={openEwayBillUpload}
-                      canUploadEwayBill={canUploadTripDocs}
-                      canEditEwayBill={canUploadTripDocs}
+                      canUploadEwayBill={canChangeEwayBill}
+                      canEditEwayBill={canChangeEwayBill}
+                      ewayLockedLabel={ewayLockedLabel}
                       onSaveEwayBill={saveEwayBillFields}
                       onRemoveEwayBill={requestRemoveEwayBill}
                       columns={4}

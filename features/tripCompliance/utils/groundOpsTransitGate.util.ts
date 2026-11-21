@@ -25,6 +25,7 @@ import {
   isEntityDocumentExpired,
   isTripVaultDocumentOnFile,
 } from "@/features/tripCompliance/utils/complianceChecklist.util";
+import { canonicalEntityDocsByType } from "@/features/compliance/utils/currentDocument.util";
 
 const NOT_ATTACHED_STATUSES = new Set(["rejected", "replaced", "expired"]);
 
@@ -82,8 +83,9 @@ export function listMissingDocsForGroundOpsTransit(
   const entityOnFile = (
     rows: typeof input.vehicleDocuments,
   ): Set<string> =>
+    // Judge each slot by its current copy (shared rule with the Compliance queue).
     new Set(
-      rows
+      [...canonicalEntityDocsByType(rows).values()]
         .filter((doc) => isEntityDocumentAttached(doc, now))
         .map((doc) => doc.doc_type),
     );

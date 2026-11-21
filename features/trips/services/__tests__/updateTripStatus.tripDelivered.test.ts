@@ -162,3 +162,41 @@ describe('updateTripStatus — TripDelivered event', () => {
     expect(mockPublish).not.toHaveBeenCalled();
   });
 });
+
+describe('updateTripStatus — completed_at follows status (trips_check1)', () => {
+  it('stamps completed_at when completing without one', async () => {
+    const commit = updateBuilder({ data: trip, error: null });
+    mockFrom
+      .mockReturnValueOnce(awaitable({ data: supplierLinkGateRow, error: null }))
+      .mockReturnValueOnce(awaitable({ data: { status: 'in_transit', completed_at: null }, error: null }))
+      .mockReturnValueOnce(commit)
+      .mockReturnValue(awaitable({ data: [], error: null }));
+
+    await updateTripStatus('trip-1', { status: 'completed', status_change_origin: 'ops' });
+
+    const sent = (commit.update as jest.Mock).mock.calls[0][0];
+    expect(sent.completed_at).toBe(sent.updated_at);
+  });
+
+  it('keeps the existing completed_at when the trip was already completed', async () => {
+    const commit = updateBuilder({ data: trip, error: null });
+    mockFrom
+      .mockReturnValueOnce(awaitable({ data: supplierLinkGateRow, error: null }))
+      .mockReturnValueOnce(awaitable({ data: { status: 'completed', completed_at: trip.completed_at }, error: null }))
+      .mockReturnValueOnce(commit)
+      .mockReturnValue(awaitable({ data: [], error: null }));
+
+    await updateTripStatus('trip-1', { status: 'completed' });
+
+    expect((commit.update as jest.Mock).mock.calls[0][0]).not.toHaveProperty('completed_at');
+  });
+
+  it('clears completed_at when the trip leaves completed', async () => {
+    const commit = updateBuilder({ data: { ...trip, status: 'assigned', completed_at: null }, error: null });
+    mockFrom.mockReturnValueOnce(commit).mockReturnValue(awaitable({ data: [], error: null }));
+
+    await updateTripStatus('trip-1', { status: 'assigned' });
+
+    expect((commit.update as jest.Mock).mock.calls[0][0].completed_at).toBeNull();
+  });
+});

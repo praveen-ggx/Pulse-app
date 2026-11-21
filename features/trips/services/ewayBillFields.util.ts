@@ -18,6 +18,9 @@ export type EwayFieldValues = {
   createdDate: string;
   validTill: string;
   docNo: string;
+  /** When / by whom this entry was last saved (entries share one trip_documents row). */
+  updatedAt?: string;
+  updatedBy?: string;
 };
 
 export type EwayBillStripRow = {
@@ -30,6 +33,9 @@ export type EwayBillStripRow = {
   canView: boolean;
   updatedAt?: string | null;
   updatedById?: string | null;
+  /** The entry's own save stamp, carried back on the next save. */
+  entryUpdatedAt?: string | null;
+  entryUpdatedBy?: string | null;
   previewPath?: string | null;
   previewUri?: string | null;
   previewFileName?: string | null;
@@ -88,13 +94,28 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function withEntryStamp<T extends object>(
+  target: T,
+  stamp: { updatedAt?: unknown; updatedBy?: unknown },
+): T & Pick<EwayFieldValues, "updatedAt" | "updatedBy"> {
+  const out: T & Pick<EwayFieldValues, "updatedAt" | "updatedBy"> = { ...target };
+  const at = typeof stamp.updatedAt === "string" ? stamp.updatedAt.trim() : "";
+  const by = typeof stamp.updatedBy === "string" ? stamp.updatedBy.trim() : "";
+  if (at) out.updatedAt = at;
+  if (by) out.updatedBy = by;
+  return out;
+}
+
 function recordToEwayFields(parsed: Record<string, unknown>): EwayFieldValues {
-  return {
-    ewayNo: String(parsed.ewayNo ?? parsed.n ?? "").trim(),
-    createdDate: String(parsed.createdDate ?? parsed.created ?? "").trim(),
-    validTill: String(parsed.validTill ?? parsed.v ?? "").trim(),
-    docNo: String(parsed.docNo ?? parsed.d ?? "").trim(),
-  };
+  return withEntryStamp(
+    {
+      ewayNo: String(parsed.ewayNo ?? parsed.n ?? "").trim(),
+      createdDate: String(parsed.createdDate ?? parsed.created ?? "").trim(),
+      validTill: String(parsed.validTill ?? parsed.v ?? "").trim(),
+      docNo: String(parsed.docNo ?? parsed.d ?? "").trim(),
+    },
+    parsed,
+  );
 }
 
 export function ewayFieldHasContent(values: EwayFieldValues): boolean {
@@ -150,12 +171,24 @@ export function parseEwayFieldValues(raw?: string | null): EwayFieldValues {
 }
 
 function serializeOne(values: EwayFieldValues): EwayFieldValues {
-  return {
-    ewayNo: clampEwayBillNumber(values.ewayNo),
-    createdDate: values.createdDate.trim(),
-    validTill: values.validTill.trim(),
-    docNo: values.docNo.trim(),
-  };
+  return withEntryStamp(
+    {
+      ewayNo: clampEwayBillNumber(values.ewayNo),
+      createdDate: values.createdDate.trim(),
+      validTill: values.validTill.trim(),
+      docNo: values.docNo.trim(),
+    },
+    values,
+  );
+}
+
+/** The later of two ISO timestamps (either may be missing). */
+function laterTime(a?: string | null, b?: string | null): string | null {
+  const ta = Date.parse(a ?? "");
+  const tb = Date.parse(b ?? "");
+  if (!Number.isFinite(ta)) return Number.isFinite(tb) ? (b ?? null) : null;
+  if (!Number.isFinite(tb)) return a ?? null;
+  return ta >= tb ? (a ?? null) : (b ?? null);
 }
 
 /** End of the valid-till calendar day. A date-only bill stays valid through that day. */
@@ -287,6 +320,25 @@ export function buildEwayBillStripRows(params: {
     reviewStatus: ewayDoc?.reviewStatus ?? null,
     rejectionReason: ewayDoc?.rejectionReason ?? null,
   };
+  // Card "On … by …": the entry's own save, or its file upload when that is newer.
+  // Entries saved before stamps existed keep the row-level time as before.
+  const entryLog = (
+    fields: EwayFieldValues,
+    fileLog?: { uploadedAt?: string | null; uploadedBy?: string | null },
+  ): { updatedAt: string | null; updatedById: string | null } => {
+    if (!fields.updatedAt) {
+      return {
+        updatedAt: fileLog?.uploadedAt ?? latestLog.updatedAt,
+        updatedById: fileLog?.uploadedBy ?? latestLog.updatedById,
+      };
+    }
+    const at = laterTime(fields.updatedAt, fileLog?.uploadedAt);
+    const fromFile = !!fileLog?.uploadedAt && at === fileLog.uploadedAt && at !== fields.updatedAt;
+    return {
+      updatedAt: at,
+      updatedById: fromFile ? (fileLog?.uploadedBy ?? null) : (fields.updatedBy ?? null),
+    };
+  };
   const toRow = (
     fields: EwayFieldValues,
     index: number,
@@ -309,8 +361,9 @@ export function buildEwayBillStripRows(params: {
     validTill: displayDate(fields.validTill),
     docNo: dash(fields.docNo),
     canView,
-    updatedAt: fileLog?.uploadedAt ?? latestLog.updatedAt,
-    updatedById: fileLog?.uploadedBy ?? latestLog.updatedById,
+    ...entryLog(fields, fileLog),
+    ...(fields.updatedAt ? { entryUpdatedAt: fields.updatedAt } : {}),
+    ...(fields.updatedBy ? { entryUpdatedBy: fields.updatedBy } : {}),
     previewPath:
       fileLog?.storagePath?.trim() ||
       (slotPreviewable ? ewayDoc?.storagePath ?? null : null),
@@ -370,4 +423,76 @@ export function buildEwayBillStripRows(params: {
       file,
     );
   });
+}
+
+/** An `eway_bill` trip_documents row, as far as choosing where the numbers live. */
+export type EwayFieldsRowLike = {
+  id: string;
+  storage_path?: string | null;
+  file_name?: string | null;
+  uploaded_at?: string | null;
+  document_number?: string | null;
+};
+
+function uploadedMs(row: EwayFieldsRowLike): number {
+  const ms = row.uploaded_at ? Date.parse(row.uploaded_at) : Number.NaN;
+  // Trip Detail loads `order by uploaded_at desc` (Postgres: nulls first).
+  return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
+}
+
+/** Newest first, the same order Trip Detail and Compliance read e-way rows in. */
+export function sortEwayRowsNewestFirst<T extends EwayFieldsRowLike>(rows: readonly T[]): T[] {
+  return [...rows].sort((a, b) => uploadedMs(b) - uploadedMs(a));
+}
+
+/**
+ * The row whose numbers the screens show: the newest row holding at least
+ * one e-way entry (useTripDetail and deriveComplianceEwayBill pick the same).
+ */
+export function ewayFieldsSourceRow<T extends EwayFieldsRowLike>(rows: readonly T[]): T | null {
+  return (
+    sortEwayRowsNewestFirst(rows).find((row) => parseEwayFieldEntries(row.document_number).length > 0) ??
+    null
+  );
+}
+
+/**
+ * Where a save writes the numbers: the row the screens read, so a save is
+ * never written somewhere it will not be shown. With no numbers yet: the
+ * newest uploaded file, else an existing details row; null = create the
+ * details row.
+ */
+export function ewayFieldsWriteTarget<T extends EwayFieldsRowLike>(rows: readonly T[]): T | null {
+  const source = ewayFieldsSourceRow(rows);
+  if (source) return source;
+  const newest = sortEwayRowsNewestFirst(rows);
+  return (
+    newest.find((row) => !isEwayBillMetaPath(row.storage_path, row.file_name)) ??
+    newest.find((row) => isEwayBillMetaPath(row.storage_path, row.file_name)) ??
+    null
+  );
+}
+
+export type EwayFieldsCarry =
+  | { kind: "none" }
+  | { kind: "move"; toId: string; documentNumber: string }
+  | { kind: "create"; documentNumber: string };
+
+/**
+ * Before deleting `documentId`: when it holds the numbers the screens show,
+ * they must move first or the delete erases every e-way number on the trip.
+ * They go to the newest remaining row (where the screens look next), or to a
+ * new details row when no other e-way row remains.
+ */
+export function ewayFieldsCarryOnDelete<T extends EwayFieldsRowLike>(
+  rows: readonly T[],
+  documentId: string,
+): EwayFieldsCarry {
+  const source = ewayFieldsSourceRow(rows);
+  if (!source || source.id !== documentId) return { kind: "none" };
+  const documentNumber = source.document_number ?? "";
+  const remaining = sortEwayRowsNewestFirst(rows.filter((row) => row.id !== documentId));
+  const next = remaining[0];
+  if (next) return { kind: "move", toId: next.id, documentNumber };
+  return { kind: "create", documentNumber };
 }

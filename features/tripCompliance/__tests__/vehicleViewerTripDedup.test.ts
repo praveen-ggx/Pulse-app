@@ -45,6 +45,8 @@ function mockQuery(table: string) {
 }
 
 jest.mock("@/lib/supabase", () => ({
+  getAccessToken: async () => "test-token",
+  SESSION_EXPIRED_MESSAGE: "Your session has expired. Please sign in again.",
   supabase: () => ({
     from: (table: string) => mockQuery(table),
     rpc: (name: string, args: Record<string, unknown>) => {

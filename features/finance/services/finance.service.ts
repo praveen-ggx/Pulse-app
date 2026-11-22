@@ -1359,7 +1359,14 @@ export interface CreateLedgerEntryResult {
   pendingExchangeConfirmation?: boolean;
 }
 
-/** Payments to the counterparty on an Exchange trip go through Exchange's two gates, never straight to the ledger. */
+/** Compliance advance / balance post straight to the payer's ledger, also on Exchange trips. */
+const DIRECT_LEDGER_CATEGORIES: ReadonlySet<string> = new Set(["compliance_advance", "compliance_balance"]);
+
+/**
+ * Payments to the counterparty on an Exchange trip go through Exchange's two gates, never straight to the ledger.
+ * Compliance advance / balance are the exception: GOGOVAN books them in its own ledger (no supplier
+ * confirmation), matching the database guard (migration 20261122124730).
+ */
 async function routeExchangeTripPayment(
   orgId: string,
   entry: CreateLedgerEntryData,
@@ -1369,6 +1376,7 @@ async function routeExchangeTripPayment(
   date: string,
 ): Promise<CreateLedgerEntryResult | null> {
   if (!entry.trip_id || !entry.contact_type) return null;
+  if (entry.ledger_category && DIRECT_LEDGER_CATEGORIES.has(entry.ledger_category)) return null;
   const summary = await getExchangeTripSummary(entry.trip_id).then(
     (r) => r.summary,
     () => null,

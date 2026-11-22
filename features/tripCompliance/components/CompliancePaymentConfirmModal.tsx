@@ -665,30 +665,34 @@ export function CompliancePaymentConfirmModal({
     let cancelled = false;
     setTdsLoading(true);
     void (async () => {
-      const [tds, profile] = await Promise.all([
-        listSupplierTdsRates(orgId, supplierId),
-        getVendorOnboardingProfile(orgId, supplierId),
-      ]);
-      if (cancelled) return;
-      const resolved = resolveComplianceTdsRate(tds.rates);
-      setTdsRatePercent(resolved?.ratePercent ?? null);
-      setTdsRateFy(resolved?.financialYear ?? null);
-      const approval = trip?.id ? await fetchLiveAdvanceApproval(trip.id).catch(() => null) : null;
-      if (cancelled) return;
-      if (approval?.formulaVersion === 1 && approval.advancePercent != null) {
-        setAdvancePercentText(String(approval.advancePercent));
-        // The TDS rate is already resolved above; without this the TDS row
-        // showed "Fetching vendor rate…" forever on every approved advance.
-        setTdsLoading(false);
-        return;
+      try {
+        const [tds, profile] = await Promise.all([
+          listSupplierTdsRates(orgId, supplierId),
+          getVendorOnboardingProfile(orgId, supplierId),
+        ]);
+        if (cancelled) return;
+        const resolved = resolveComplianceTdsRate(tds.rates);
+        setTdsRatePercent(resolved?.ratePercent ?? null);
+        setTdsRateFy(resolved?.financialYear ?? null);
+        const approval = trip?.id ? await fetchLiveAdvanceApproval(trip.id).catch(() => null) : null;
+        if (cancelled) return;
+        if (approval?.formulaVersion === 1 && approval.advancePercent != null) {
+          setAdvancePercentText(String(approval.advancePercent));
+          return;
+        }
+        const adv = profile.profile?.advance_percentage;
+        const vendorPct =
+          adv != null && Number.isFinite(Number(adv)) ? Number(adv) : null;
+        if (isAdvance && vendorPct != null) {
+          setAdvancePercentText(String(vendorPct));
+        }
+      } catch {
+        // Lookup failed: no vendor rate. The server-approved amount still applies.
+      } finally {
+        // Every exit clears "Fetching vendor rate…" (it used to stay on forever
+        // on approved advances and when a lookup failed).
+        if (!cancelled) setTdsLoading(false);
       }
-      const adv = profile.profile?.advance_percentage;
-      const vendorPct =
-        adv != null && Number.isFinite(Number(adv)) ? Number(adv) : null;
-      if (isAdvance && vendorPct != null) {
-        setAdvancePercentText(String(vendorPct));
-      }
-      setTdsLoading(false);
     })();
     return () => {
       cancelled = true;

@@ -565,3 +565,39 @@ describe("compliancePayoutParty", () => {
     expect(party.party_name).toBe("Supplier");
   });
 });
+
+describe("postCompliancePayment — never reports success without a ledger row", () => {
+  beforeEach(() => {
+    mockTxnsResult = { data: [], error: null };
+    mockCreateLedgerEntry.mockReset();
+  });
+
+  it("returns an error when the write was parked as a Pulse Exchange claim", async () => {
+    mockCreateLedgerEntry.mockResolvedValue({ error: null, row: null, pendingExchangeConfirmation: true });
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip(),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "BANK",
+      paymentModeLabel: "Bank",
+      utr: "HSBCN32309042576",
+    });
+    expect(result.error?.message).toMatch(/not posted/i);
+    expect(result.error?.message).toMatch(/Pulse Exchange claim/);
+  });
+
+  it("succeeds when the ledger row was written", async () => {
+    mockCreateLedgerEntry.mockResolvedValue({ error: null, row: { id: "tx-1" } });
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip(),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "BANK",
+      paymentModeLabel: "Bank",
+      utr: "HSBCN32309042576",
+    });
+    expect(result.error).toBeNull();
+  });
+});

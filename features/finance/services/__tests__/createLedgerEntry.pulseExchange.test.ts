@@ -174,4 +174,32 @@ describe("createLedgerEntry — Exchange trips", () => {
     expect(mockFrom).toHaveBeenCalledWith("transactions");
     expect(result.error).toBeNull();
   });
+
+  it.each(["compliance_advance", "compliance_balance"])(
+    "posts a %s to the bidder account straight to the ledger (no Exchange claim)",
+    async (category) => {
+      mockSummary.mockResolvedValue(summary("payer", "supplier", "acct-bidder"));
+      insertingBuilder();
+
+      const result = await createLedgerEntry("org-1", {
+        ...exchangeSupplierPayment,
+        ledger_category: category,
+      } as never);
+
+      expect(mockClaim).not.toHaveBeenCalled();
+      expect(mockFrom).toHaveBeenCalledWith("transactions");
+      expect(result.pendingExchangeConfirmation).toBeUndefined();
+      expect(result.error).toBeNull();
+    },
+  );
+
+  it("still routes an ordinary payment to the same bidder account through Exchange", async () => {
+    mockSummary.mockResolvedValue(summary("payer", "supplier", "acct-bidder"));
+    mockClaim.mockResolvedValue({ error: null, payment: { id: "xp-3", status: "claimed" } });
+
+    const result = await createLedgerEntry("org-1", { ...exchangeSupplierPayment, ledger_category: "freight" } as never);
+
+    expect(result.pendingExchangeConfirmation).toBe(true);
+    expect(mockFrom).not.toHaveBeenCalledWith("transactions");
+  });
 });

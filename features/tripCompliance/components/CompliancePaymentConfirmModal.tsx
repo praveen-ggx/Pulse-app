@@ -677,6 +677,9 @@ export function CompliancePaymentConfirmModal({
       if (cancelled) return;
       if (approval?.formulaVersion === 1 && approval.advancePercent != null) {
         setAdvancePercentText(String(approval.advancePercent));
+        // The TDS rate is already resolved above; without this the TDS row
+        // showed "Fetching vendor rate…" forever on every approved advance.
+        setTdsLoading(false);
         return;
       }
       const adv = profile.profile?.advance_percentage;

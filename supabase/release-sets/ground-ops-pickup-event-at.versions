@@ -1,4 +1,4 @@
 # Ground Ops Simulate Trip: optional p_event_at + BISIM editedAt (PR #158 / praveen V1.0.43).
 # Preprod function body may already match via SQL Editor — apply history carefully with Nihas.
-# sha256 9bbf27c2ee83848851a4c32cd1a3252e80881a576150ae9f2b261dbce5b403b9  20271123101500_ground_ops_pickup_event_at.sql
+# sha256 7b6dd1a619c6a6033a22d6487723aab7522e2c8ade4a9a37321f06d38d5be3ed  20271123101500_ground_ops_pickup_event_at.sql
 20271123101500

@@ -1701,9 +1701,6 @@ export default function TripDetailScreen({
   const [uploadedByByDocId, setUploadedByByDocId] = useState<
     Record<string, string>
   >({});
-  const [journeyStatusEdits, setJourneyStatusEdits] = useState<
-    TripStatusAuditActivityRow[]
-  >([]);
 
   const journeyActorIdsKey = useMemo(() => {
     if (!detail.trip) return "";
@@ -10293,7 +10290,10 @@ export default function TripDetailScreen({
                   const slotPreviews = typeFiles.map((file) => ({
                     storagePath: file.url,
                     fileName: file.fileName,
-                    source: (file.source === "driver-kyc" ? "driver-kyc" : "compliance") as const,
+                    source:
+                      file.source === "driver-kyc"
+                        ? ("driver-kyc" as const)
+                        : ("compliance" as const),
                     organizationId:
                       detail.trip?.organization_id ?? currentOrganization?.id,
                     entityId: detail.trip?.driver_id,

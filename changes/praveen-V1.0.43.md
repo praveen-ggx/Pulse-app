@@ -39,7 +39,8 @@
 
 ## Tested
 - Rebased onto V1 after #157 (`a7339721`); clock conflicts resolved (under-stage = save clock; Ground Ops hides sim badge; Trip Ops keeps #157 badge skip).
+- Follow-up: removed duplicate `journeyStatusEdits` state left by rebase; fixed TS1355 `as const` on driver identity preview source (pre-existing ternary); release-set pin corrected to LF git blob `7b6dd1a6…` (prior pin was Windows CRLF of the same SQL — content unchanged, matches preprod paste intent: `p_event_at` + concat ISO + `editedAt`).
 - Local: `bash scripts/ci-local.sh` — see PR comment after push.
 - Ground Ops util suites + migration contract + revoke block + release-set pin.
 - Preprod RPC: `p_event_at` + `v_edited_iso` + concat ISO already live; history still open with Nihas.
-- Ground Ops Simulate Trip picker / Activity / Journey on gx-pulse: see PR comment after click-through.
+- Ground Ops Simulate Trip picker / Activity / Journey on gx-pulse: not clicked through (deployed V1 has no picker until merge).

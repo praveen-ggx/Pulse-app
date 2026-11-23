@@ -29,12 +29,17 @@
 - `features/trips/utils/__tests__/groundOpsSimulateFlow.e2e.test.ts`
 - `lib/trips/__tests__/buildTripAuditLog.compliance.test.ts`
 - `features/trips/utils/__tests__/simulateTripStage.util.test.ts`
+- `supabase/release-sets/ground-ops-pickup-event-at.versions`
+- `supabase/migrations/__tests__/groundOpsPickupEventAtReleaseSet.test.ts`
 
 ## Migrations
-- `20271123101500_ground_ops_pickup_event_at.sql` — optional `p_event_at` on `simulate_ground_ops_pickup_status`; BISIM stage clock + editedAt; ISO built by concat (SQL Editor-safe). **Preprod already has this function via SQL Editor.** After merge, record history: `supabase migration repair --status applied 20271123101500 --linked` so the next push does not recreate it. Do not re-apply the SQL if the live def already matches.
+- `20271123101500_ground_ops_pickup_event_at.sql` — optional `p_event_at` on `simulate_ground_ops_pickup_status`; BISIM stage clock + editedAt; ISO built by concat (SQL Editor-safe).
+- Release set: `supabase/release-sets/ground-ops-pickup-event-at.versions` (pin test `groundOpsPickupEventAtReleaseSet.test.ts`). **Prod: apply this set before shipping the app code that passes `p_event_at`.**
+- **Preprod:** function body already matches via SQL Editor; `schema_migrations` does not list `20271123101500` yet. Do **not** run `migration repair` from this PR alone — Nihas will align preprod history with us after rebase.
 
 ## Tested
-- Local (GitHub billing off — no remote CI): lint 48≤98, cycles 94≤94, lib-files 178≤178, nav-policy 69 pass, `git diff --check` clean. Full `npx jest --ci --silent`: all Ground Ops suites in this PR pass; remaining failures are pre-existing release-set/contract suites unrelated to this diff.
-- Ground Ops util suites + migration contract + revoke block
-- Preprod RPC checked after Nihas re-ran: `p_event_at` + `v_edited_iso` + concat ISO (no curly quotes in executable path). `schema_migrations` still missing `20271123101500` until repair.
-- Ground Ops Simulate Trip picker / Activity / Journey on device: not clicked through
+- Rebased onto V1 after #157 (`a7339721`); clock conflicts resolved (under-stage = save clock; Ground Ops hides sim badge; Trip Ops keeps #157 badge skip).
+- Local: `bash scripts/ci-local.sh` — see PR comment after push.
+- Ground Ops util suites + migration contract + revoke block + release-set pin.
+- Preprod RPC: `p_event_at` + `v_edited_iso` + concat ISO already live; history still open with Nihas.
+- Ground Ops Simulate Trip picker / Activity / Journey on gx-pulse: see PR comment after click-through.

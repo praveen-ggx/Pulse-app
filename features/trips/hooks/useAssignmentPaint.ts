@@ -31,6 +31,12 @@ export function useAssignmentPaint(tripId: string | null | undefined): Assignmen
       return current?.tripId === tripId ? current : undefined;
     },
   });
-  const fromQuery = data?.tripId === tripId ? data : null;
+  // The cached copy only keeps the painted names so a trip page does not flash
+  // stale values. It must never carry the "Assignment updated" popup: the
+  // popup is shown from the live state only, because Done closes the live
+  // state. A cached `confirm: true` could not be closed and kept reopening the
+  // trip page for up to 30 minutes.
+  const fromQuery: AssignmentPaint | null =
+    data && data.tripId === tripId ? { ...data, confirm: false } : null;
   return live ?? fromQuery ?? null;
 }

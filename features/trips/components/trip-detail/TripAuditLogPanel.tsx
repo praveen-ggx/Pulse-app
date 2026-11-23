@@ -7,13 +7,20 @@ import { TripAuditLogContent } from "@/features/trips/components/trip-detail/Tri
 import { resolveComplianceActorDetails } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
 import type { DriverActivityTimelineRow } from "@/features/trips/components/trip-detail/hooks/useTripDetail";
-import type { TripAssignmentAuditRow } from "@/features/trips/services/trip-assignment-audit.service";
+import {
+  getTripAssignmentAuditHistory,
+  type TripAssignmentAuditRow,
+} from "@/features/trips/services/trip-assignment-audit.service";
 import type { TripHardCopyPodState } from "@/features/trips/services/tripDocumentLrPod.service";
 import {
   getTripDisplayNumber,
   type TripRow,
 } from "@/features/trips/services/trips.service";
 import { listTripActivityMilestones } from "@/features/trips/services/tripActivityMilestones.service";
+import {
+  listTripStatusAudit,
+  type TripStatusAuditActivityRow,
+} from "@/features/trips/services/tripStatusTimes.service";
 import {
   applyDocumentActorsToMilestones,
   displayMapFromProfiles,
@@ -82,6 +89,7 @@ function collectActivityUserIds(
   timelineRows: DriverActivityTimelineRow[] = [],
   hardCopyActorId?: string | null,
   vaultDocuments: TripAuditLogPanelProps["vaultDocuments"] = [],
+  statusAuditRows: TripStatusAuditActivityRow[] = [],
 ): string[] {
   const ids = new Set<string>();
   const add = (id: string | null | undefined) => {
@@ -108,6 +116,7 @@ function collectActivityUserIds(
     add(doc.uploaded_by);
     add(doc.verified_by);
   }
+  for (const row of statusAuditRows) add(row.changed_by);
   return Array.from(ids);
 }
 
@@ -143,6 +152,12 @@ export function TripAuditLogPanel({
     [],
   );
   const [loadingCaptured, setLoadingCaptured] = useState(false);
+  const [statusAuditRows, setStatusAuditRows] = useState<TripStatusAuditActivityRow[]>(
+    [],
+  );
+  const [fetchedAssignmentRows, setFetchedAssignmentRows] = useState<
+    TripAssignmentAuditRow[]
+  >([]);
   const [actorHydration, setActorHydration] = useState<TripActivityActorHydration>({
     createdByByTxId: {},
     uploadedByByDocId: {},
@@ -157,6 +172,41 @@ export function TripAuditLogPanel({
       [doc.id, doc.uploaded_at, doc.uploaded_by, doc.verified_at, doc.status].join(":"),
     )
     .join("|");
+
+  const assignmentRowsForLog =
+    assignmentAuditRows.length > 0 ? assignmentAuditRows : fetchedAssignmentRows;
+
+  useEffect(() => {
+    if (!visible || !trip.id || assignmentAuditRows.length > 0) return;
+    let cancelled = false;
+    setFetchedAssignmentRows([]);
+    void getTripAssignmentAuditHistory(trip.id)
+      .then(({ rows }) => {
+        if (!cancelled) setFetchedAssignmentRows(rows ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setFetchedAssignmentRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, trip.id, assignmentAuditRows.length]);
+
+  useEffect(() => {
+    if (!visible || !trip.id) return;
+    let cancelled = false;
+    setStatusAuditRows([]);
+    void listTripStatusAudit(trip.id)
+      .then((rows) => {
+        if (!cancelled) setStatusAuditRows(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setStatusAuditRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, trip.id]);
 
   useEffect(() => {
     if (!visible) return;
@@ -188,7 +238,7 @@ export function TripAuditLogPanel({
     trip.assigned_by_user_id,
     trip.status_updated_by,
     hardCopyPod?.actorId,
-    ...assignmentAuditRows.map((row) => row.changed_by),
+    ...assignmentRowsForLog.map((row) => row.changed_by),
     ...tripLedgerEntries.map((row) => row.created_by),
     ...vaultDocuments.map((doc) => doc.uploaded_by ?? doc.verified_by),
   ]
@@ -246,23 +296,25 @@ export function TripAuditLogPanel({
     () =>
       collectActivityUserIds(
         trip,
-        assignmentAuditRows,
+        assignmentRowsForLog,
         hydratedLedgerEntries,
         mergedMilestones,
         sessionUserId,
         timelineRows,
         hardCopyPod?.actorId,
         vaultDocuments,
+        statusAuditRows,
       ),
-    [
+      [
       trip,
-      assignmentAuditRows,
+      assignmentRowsForLog,
       hydratedLedgerEntries,
       mergedMilestones,
       sessionUserId,
       timelineRows,
       hardCopyPod?.actorId,
       vaultDocuments,
+      statusAuditRows,
     ],
   );
   // Stable primitive key: the effect below must only re-run when the actual set
@@ -303,8 +355,14 @@ export function TripAuditLogPanel({
 
   useEffect(() => {
     if (!visible) return;
-    const orgId = organizationId ?? trip.organization_id;
-    if (!orgId && activityUserIds.length === 0) {
+    const orgIds = [
+      ...new Set(
+        [trip.organization_id, organizationId]
+          .map((id) => String(id ?? "").trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (orgIds.length === 0 && activityUserIds.length === 0) {
       setUserDisplayById({});
       setUserProfileById({});
       return;
@@ -313,16 +371,23 @@ export function TripAuditLogPanel({
     let cancelled = false;
 
     void (async () => {
-      const resolved = await resolveActivityUserProfiles({
-        userIds: activityUserIds,
-        organizationId: orgId,
-        seedProfiles: knownProfiles,
-      });
-      const profileMap: Record<string, TripActivityUserProfile> = { ...resolved };
+      const profileMap: Record<string, TripActivityUserProfile> = { ...knownProfiles };
+      for (const orgId of orgIds.length > 0 ? orgIds : [null]) {
+        const resolved = await resolveActivityUserProfiles({
+          userIds: activityUserIds,
+          organizationId: orgId,
+          seedProfiles: profileMap,
+        });
+        Object.assign(profileMap, resolved);
+      }
       const displayMap = displayMapFromProfiles(profileMap);
       const unresolved = activityUserIds.filter((id) => !displayMap[id]);
-      if (unresolved.length > 0) {
-        const details = await resolveComplianceActorDetails(unresolved, orgId);
+      for (const orgId of orgIds) {
+        if (unresolved.every((id) => displayMap[id])) break;
+        const details = await resolveComplianceActorDetails(
+          unresolved.filter((id) => !displayMap[id]),
+          orgId,
+        );
         for (const [id, detail] of Object.entries(details)) {
           if (!detail.name || detail.name === "Unknown") continue;
           profileMap[id] = {
@@ -360,7 +425,7 @@ export function TripAuditLogPanel({
       buildTripAuditLog({
         trip,
         tripRef,
-        assignmentAuditRows,
+        assignmentAuditRows: assignmentRowsForLog,
         assignmentDriverNames,
         assignmentVehicleLabels,
         timelineRows,
@@ -372,11 +437,12 @@ export function TripAuditLogPanel({
         hardCopyPod,
         scope,
         milestones: mergedMilestones,
+        statusAuditRows,
       }),
     [
       trip,
       tripRef,
-      assignmentAuditRows,
+      assignmentRowsForLog,
       assignmentDriverNames,
       assignmentVehicleLabels,
       timelineRows,
@@ -389,6 +455,7 @@ export function TripAuditLogPanel({
       hardCopyPod,
       scope,
       mergedMilestones,
+      statusAuditRows,
     ],
   );
 

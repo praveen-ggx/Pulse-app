@@ -54,7 +54,9 @@ export function appendBisimNote(params: {
     throw new Error("Simulation timestamp is required");
   }
   const place = (params.locationLabel ?? "").replace(/\|/g, " ").trim();
-  const simEntry = `[BISIM|${params.targetStatus}|${at}|${params.lat ?? ""}|${params.lng ?? ""}|${params.userName}|${params.fromStatus}${place ? `|${place}` : ""}]`;
+  // `at` = picker selection (stage clock). editedAt = when this save happened.
+  const editedAt = new Date().toISOString();
+  const simEntry = `[BISIM|${params.targetStatus}|${at}|${params.lat ?? ""}|${params.lng ?? ""}|${params.userName}|${params.fromStatus}|${place}|${editedAt}]`;
   const existing = params.existingNotes?.trim() || "";
   return existing ? `${existing}\n${simEntry}` : simEntry;
 }
@@ -159,13 +161,111 @@ export type ParsedBisimEntry = {
   userName: string;
   fromStatus: string | null;
   locationLabel: string | null;
+  /** Wall-clock of the save. Absent on lines written before this was recorded. */
+  editedAt: string | null;
 };
 
 export type ParsedBisimRevoke = {
   fromStatus: string;
   toStatus: string;
   timestamp: string;
+  /** Person who revoked, stored on the note. Empty when an older line omitted it. */
+  userName: string;
 };
+
+/** Last field is the save clock when it is an ISO timestamp and the line has a location slot. */
+function splitBisimFields(body: string): {
+  status: string;
+  timestamp: string;
+  lat: string;
+  lng: string;
+  userName: string;
+  fromStatus: string;
+  locationLabel: string;
+  editedAt: string | null;
+} {
+  const parts = body.split("|");
+  let editedAt: string | null = null;
+  const last = (parts[parts.length - 1] ?? "").trim();
+  if (parts.length >= 8 && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(last)) {
+    editedAt = last;
+    parts.pop();
+  }
+  const [status, timestamp, lat, lng, userName, fromStatus, ...locationParts] = parts;
+  return {
+    status: status ?? "",
+    timestamp: timestamp ?? "",
+    lat: lat ?? "",
+    lng: lng ?? "",
+    userName: userName ?? "",
+    fromStatus: fromStatus ?? "",
+    locationLabel: locationParts.join("|").trim(),
+    editedAt,
+  };
+}
+
+type SimulationNoteEvent =
+  | { kind: "sim"; entry: ParsedBisimEntry }
+  | { kind: "revoke"; entry: ParsedBisimRevoke; silent?: boolean };
+
+function parseRevokeLine(
+  line: string,
+  prefix: "[BISIM_REVOKE|" | "[BISIM_SUPERSEDE|",
+): ParsedBisimRevoke | null {
+  if (!line.startsWith(prefix) || !line.endsWith("]")) return null;
+  const parts = line.slice(prefix.length, -1).split("|");
+  const fromStatus = parts[0];
+  const toStatus = parts[1];
+  const timestamp = parts[2];
+  // [PREFIX|from|to|iso|lat|lng|userName] — name may itself contain |.
+  const userName = parts.slice(5).join("|").trim();
+  if (!fromStatus || !toStatus) return null;
+  return {
+    fromStatus: fromStatus.trim().toLowerCase(),
+    toStatus: toStatus.trim().toLowerCase(),
+    timestamp: timestamp ?? "",
+    userName,
+  };
+}
+
+/** BISIM, BISIM_REVOKE, and silent BISIM_SUPERSEDE lines in file order. */
+function parseTripSimulationEvents(
+  notes: string | null | undefined,
+): SimulationNoteEvent[] {
+  if (!notes?.trim()) return [];
+  const events: SimulationNoteEvent[] = [];
+  for (const raw of notes.split("\n")) {
+    const line = raw.trim();
+    const revoke = parseRevokeLine(line, "[BISIM_REVOKE|");
+    if (revoke) {
+      events.push({ kind: "revoke", entry: revoke });
+      continue;
+    }
+    // Internal clear before re-simulate — updates the live stack, not Activity Log.
+    const supersede = parseRevokeLine(line, "[BISIM_SUPERSEDE|");
+    if (supersede) {
+      events.push({ kind: "revoke", entry: supersede, silent: true });
+      continue;
+    }
+    if (!line.startsWith("[BISIM|") || !line.endsWith("]")) continue;
+    const parsed = splitBisimFields(line.slice(7, -1));
+    if (!parsed.status) continue;
+    events.push({
+      kind: "sim",
+      entry: {
+        status: parsed.status.trim().toLowerCase(),
+        timestamp: parsed.timestamp,
+        lat: parseFloat(parsed.lat) || null,
+        lng: parseFloat(parsed.lng) || null,
+        userName: parsed.userName || "Business",
+        fromStatus: parsed.fromStatus?.trim().toLowerCase() || null,
+        locationLabel: parsed.locationLabel?.trim() || null,
+        editedAt: parsed.editedAt,
+      },
+    });
+  }
+  return events;
+}
 
 export function parseTripSimulationNotes(notes: string | null | undefined): {
   sims: ParsedBisimEntry[];
@@ -173,46 +273,33 @@ export function parseTripSimulationNotes(notes: string | null | undefined): {
 } {
   const sims: ParsedBisimEntry[] = [];
   const revokes: ParsedBisimRevoke[] = [];
-  if (!notes?.trim()) return { sims, revokes };
-  for (const raw of notes.split("\n")) {
-    const line = raw.trim();
-    if (line.startsWith("[BISIM_REVOKE|") && line.endsWith("]")) {
-      const [fromStatus, toStatus, timestamp] = line.slice(14, -1).split("|");
-      if (fromStatus && toStatus) {
-        revokes.push({
-          fromStatus: fromStatus.trim().toLowerCase(),
-          toStatus: toStatus.trim().toLowerCase(),
-          timestamp: timestamp ?? "",
-        });
-      }
+  for (const event of parseTripSimulationEvents(notes)) {
+    if (event.kind === "sim") {
+      sims.push(event.entry);
       continue;
     }
-    if (!line.startsWith("[BISIM|") || !line.endsWith("]")) continue;
-    const [status, timestamp, lat, lng, userName, fromStatus, locationLabel] =
-      line.slice(7, -1).split("|");
-    if (!status) continue;
-    sims.push({
-      status: status.trim().toLowerCase(),
-      timestamp: timestamp ?? "",
-      lat: parseFloat(lat) || null,
-      lng: parseFloat(lng) || null,
-      userName: userName || "Business",
-      fromStatus: fromStatus?.trim().toLowerCase() || null,
-      locationLabel: locationLabel?.trim() || null,
-    });
+    // Silent supersedes are not user-facing Activity Log revokes.
+    if (!event.silent) revokes.push(event.entry);
   }
   return { sims, revokes };
 }
 
-/** Simulations still in effect after later BISIM_REVOKE lines. */
+/**
+ * Simulations still in effect.
+ * A revoke cancels the latest sim of that stage written *before* the revoke.
+ * A sim appended after the revoke is a new save and stays in effect.
+ */
 export function unrevokedBisimEntries(
   notes: string | null | undefined,
 ): ParsedBisimEntry[] {
-  const { sims, revokes } = parseTripSimulationNotes(notes);
-  const stack = [...sims];
-  for (const revoke of revokes) {
+  const stack: ParsedBisimEntry[] = [];
+  for (const event of parseTripSimulationEvents(notes)) {
+    if (event.kind === "sim") {
+      stack.push(event.entry);
+      continue;
+    }
     for (let i = stack.length - 1; i >= 0; i -= 1) {
-      if (stack[i]?.status === revoke.fromStatus) {
+      if (stack[i]?.status === event.entry.fromStatus) {
         stack.splice(i, 1);
         break;
       }
@@ -249,17 +336,81 @@ function latestIso(...candidates: Array<string | null | undefined>): string | nu
   return best;
 }
 
+const PICKUP_SIM_STATUSES = new Set(["in_progress", "picked_up", "pickup"]);
+
+/**
+ * Last still-active simulation for these statuses, in the order it was saved.
+ * A newly saved earlier time must beat an older line that is later on the clock.
+ */
 function latestSimTimestamp(
   notes: string | null | undefined,
   statuses: readonly string[],
 ): string | null {
   const want = new Set(statuses.map((s) => s.toLowerCase()));
-  let best: string | null = null;
+  let last: string | null = null;
   for (const row of unrevokedBisimEntries(notes)) {
-    if (!want.has(row.status) || !row.timestamp) continue;
-    best = latestIso(best, row.timestamp);
+    if (!want.has(row.status) || !row.timestamp?.trim()) continue;
+    if (!Number.isFinite(new Date(row.timestamp).getTime())) continue;
+    last = row.timestamp;
   }
-  return best;
+  return last;
+}
+
+/**
+ * Pickup BISIM written after the latest revoke. That line is the Pickup the
+ * user just saved; a stale `started_at` from before the revoke must not win.
+ */
+function pickupBisimSavedAfterLastRevoke(
+  notes: string | null | undefined,
+): string | null {
+  const lines = String(notes ?? "").split("\n");
+  let lastRevokeIndex = -1;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? "";
+    if (
+      (line.startsWith("[BISIM_REVOKE|") || line.startsWith("[BISIM_SUPERSEDE|")) &&
+      line.endsWith("]")
+    ) {
+      lastRevokeIndex = index;
+    }
+  }
+  if (lastRevokeIndex < 0) return null;
+  let saved: string | null = null;
+  for (let index = lastRevokeIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? "";
+    if (!line.startsWith("[BISIM|") || !line.endsWith("]")) continue;
+    const parts = line.slice(7, -1).split("|");
+    const status = (parts[0] ?? "").trim().toLowerCase();
+    const timestamp = (parts[1] ?? "").trim();
+    if (!PICKUP_SIM_STATUSES.has(status) || !timestamp) continue;
+    if (!Number.isFinite(new Date(timestamp).getTime())) continue;
+    saved = timestamp;
+  }
+  return saved;
+}
+
+/**
+ * True when Revoke Last returned the trip to Pickup and that Pickup time has
+ * not been saved again. The next Simulate re-records Pickup; the one after
+ * advances to In Transit using this new time.
+ */
+export function pickupRevisionPendingAfterRevoke(
+  notes: string | null | undefined,
+  status: string | null | undefined,
+): boolean {
+  const current = String(status ?? "").trim().toLowerCase();
+  if (!PICKUP_SIM_STATUSES.has(current)) return false;
+  const lines = String(notes ?? "").split("\n");
+  let lastRevokeIndex = -1;
+  let lastRevokeTo = "";
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? "";
+    if (!line.startsWith("[BISIM_REVOKE|") || !line.endsWith("]")) continue;
+    lastRevokeIndex = index;
+    lastRevokeTo = line.slice(14, -1).split("|")[1]?.trim().toLowerCase() ?? "";
+  }
+  if (lastRevokeIndex < 0 || !PICKUP_SIM_STATUSES.has(lastRevokeTo)) return false;
+  return pickupBisimSavedAfterLastRevoke(notes) == null;
 }
 
 type ActiveBisimLine = { index: number; status: string };
@@ -270,8 +421,12 @@ function activeBisimLines(notes: string): ActiveBisimLine[] {
   const lines = notes.split("\n");
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]?.trim() ?? "";
-    if (line.startsWith("[BISIM_REVOKE|") && line.endsWith("]")) {
-      const fromStatus = line.slice(14, -1).split("|")[0]?.trim().toLowerCase();
+    if (
+      (line.startsWith("[BISIM_REVOKE|") || line.startsWith("[BISIM_SUPERSEDE|")) &&
+      line.endsWith("]")
+    ) {
+      const prefixLen = line.startsWith("[BISIM_SUPERSEDE|") ? 17 : 14;
+      const fromStatus = line.slice(prefixLen, -1).split("|")[0]?.trim().toLowerCase();
       for (let i = stack.length - 1; i >= 0; i -= 1) {
         if (stack[i]?.status === fromStatus) {
           stack.splice(i, 1);
@@ -294,6 +449,52 @@ function rewriteBisimLineTimestamp(line: string, atIso: string): string {
   const parts = trimmed.slice(7, -1).split("|");
   parts[1] = atIso;
   return line.replace(trimmed, `[BISIM|${parts.join("|")}]`);
+}
+
+/**
+ * Revoke every still-active BISIM whose status is in `statuses`.
+ * Call before appending a new simulation so one save leaves one live entry
+ * for that stage (a re-save no longer stacks duplicate badges).
+ */
+export function clearUnrevokedBisimStatuses(
+  notes: string | null | undefined,
+  statuses: readonly string[],
+  params: {
+    userName: string;
+    toStatus: string;
+    at?: string;
+    lat?: number | null;
+    lng?: number | null;
+  },
+): string {
+  const want = new Set(
+    statuses.map((status) => String(status ?? "").trim().toLowerCase()).filter(Boolean),
+  );
+  if (want.size === 0) return String(notes ?? "");
+  let next = String(notes ?? "");
+  const at = String(params.at ?? new Date().toISOString()).trim();
+  const lat = params.lat ?? "";
+  const lng = params.lng ?? "";
+  const userName = params.userName || "Business";
+  const toStatus = String(params.toStatus ?? "").trim().toLowerCase() || "assigned";
+
+  for (;;) {
+    const live = unrevokedBisimEntries(next);
+    let match: ParsedBisimEntry | null = null;
+    for (let i = live.length - 1; i >= 0; i -= 1) {
+      const row = live[i];
+      if (row && want.has(row.status)) {
+        match = row;
+        break;
+      }
+    }
+    if (!match) break;
+    // Silent supersede — clears the live stack without an Activity Log revoke row.
+    const revokeEntry = `[BISIM_SUPERSEDE|${match.status}|${toStatus}|${at}|${lat}|${lng}|${userName}]`;
+    const trimmed = next.trim();
+    next = trimmed ? `${trimmed}\n${revokeEntry}` : revokeEntry;
+  }
+  return next;
 }
 
 /**
@@ -325,13 +526,16 @@ export function alignUnrevokedBisimTimestamps(
 }
 
 /**
- * Pickup instant the Journey Log shows.
- * `started_at` wins even when it is earlier than an older BISIM line — a revoke
- * followed by a new Pickup must replace the previous timeline, not sit under it.
+ * Pickup instant the Journey Log and the next-stage picker use.
+ * A Pickup BISIM saved after the latest revoke is the latest Pickup, even when
+ * `started_at` still holds the previous value. With no Pickup line after the
+ * revoke, `started_at` wins over an older BISIM that is later on the clock.
  */
 export function resolvePickupReferenceIso(
   trip: Pick<TripRow, "started_at" | "notes">,
 ): string | null {
+  const revisedAfterRevoke = pickupBisimSavedAfterLastRevoke(trip.notes);
+  if (revisedAfterRevoke) return revisedAfterRevoke;
   const started = trip.started_at?.trim();
   if (started && Number.isFinite(new Date(started).getTime())) return started;
   return latestSimTimestamp(trip.notes, ["in_progress", "picked_up", "pickup"]);
@@ -389,10 +593,9 @@ export function bumpIsoToNextPickerMinute(
  * Same minute as the floor is allowed; earlier is not.
  *
  * Pickup is unrestricted (past or future) — returns null.
- * In-transit floors to the current Pickup instant only (`started_at` when set).
- * A revoked In Transit time, or an older Pickup BISIM that is later on the clock,
- * is not a reference. Later stages chain from the active previous stage, and
- * never earlier than that Pickup instant.
+ * In-transit floors to the next picker minute after the latest saved Pickup.
+ * A revoked In Transit time is not a reference. Later stages chain from the
+ * last saved previous stage, and never earlier than that Pickup instant.
  */
 export function resolveSimulateStageMinAt(opts: {
   targetStatus: string;

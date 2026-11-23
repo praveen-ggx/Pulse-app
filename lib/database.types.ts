@@ -20904,7 +20904,11 @@ export type Database = {
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       simulate_ground_ops_pickup_status: {
-        Args: { p_new_status: string; p_trip_id: string }
+        Args: {
+          p_new_status: string
+          p_trip_id: string
+          p_event_at?: string | null
+        }
         Returns: Json
       }
       soft_delete_trip: {

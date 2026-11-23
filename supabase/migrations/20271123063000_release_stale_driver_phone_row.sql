@@ -10,6 +10,10 @@
 -- with any non-terminal trip, a row with a live pending invite, or the
 -- caller's own org. Those cases still hit the original error.
 -- Callers must already hold lock_driver_phone(last10).
+--
+-- The four function bodies below are the CURRENT PROD definitions (read from prod
+-- 2026-11-23, incl. the ADR-010 is_org_staff gates), plus one added helper call each.
+-- Do not rebuild them from older migration files: those predate ADR-010.
 
 CREATE OR REPLACE FUNCTION public.release_stale_driver_phone_row(p_last10 text, p_requesting_org_id uuid)
 RETURNS void
@@ -35,7 +39,6 @@ AS $$
 $$;
 
 REVOKE ALL ON FUNCTION public.release_stale_driver_phone_row(text, uuid) FROM PUBLIC, anon, authenticated;
-
 
 CREATE OR REPLACE FUNCTION public.assign_aggregate_trip_driver(p_trip_id uuid, p_driver_org_id uuid, p_driver_phone text, p_vehicle_display_number text DEFAULT NULL::text, p_vehicle_id uuid DEFAULT NULL::uuid, p_driver_name text DEFAULT NULL::text, p_execution_type text DEFAULT NULL::text)
  RETURNS jsonb
@@ -82,14 +85,14 @@ BEGIN
     );
   END IF;
   IF NOT (
-    public.is_org_member(v_trip.organization_id)
+    public.is_org_staff(v_trip.organization_id)
     OR EXISTS (
       SELECT 1 FROM public.suppliers s
       WHERE s.id = v_trip.supplier_id
         AND s.linked_organization_id IS NOT NULL
-        AND public.is_org_member(s.linked_organization_id)
+        AND public.is_org_staff(s.linked_organization_id)
     )
-    OR public.is_org_member(p_driver_org_id)
+    OR public.is_org_staff(p_driver_org_id)
   ) THEN
     RETURN jsonb_build_object('ok', false, 'error', 'Not authorized to assign this trip');
   END IF;
@@ -271,19 +274,11 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.create_driver_direct(
-  p_org_id uuid,
-  p_name text,
-  p_phone text,
-  p_email text DEFAULT NULL,
-  p_payable_amount numeric DEFAULT NULL,
-  p_commission_percent numeric DEFAULT NULL,
-  p_commission_per_km numeric DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
+CREATE OR REPLACE FUNCTION public.create_driver_direct(p_org_id uuid, p_name text, p_phone text, p_email text DEFAULT NULL::text, p_payable_amount numeric DEFAULT NULL::numeric, p_commission_percent numeric DEFAULT NULL::numeric, p_commission_per_km numeric DEFAULT NULL::numeric)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_name        text := coalesce(nullif(trim(p_name), ''), '—');
@@ -405,18 +400,11 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.ensure_driver_row_by_phone_insert(
-  p_org_id uuid,
-  p_name text,
-  p_phone text,
-  p_user_id uuid,
-  p_tracking_only boolean,
-  p_commission_percent numeric DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
+CREATE OR REPLACE FUNCTION public.ensure_driver_row_by_phone_insert(p_org_id uuid, p_name text, p_phone text, p_user_id uuid, p_tracking_only boolean, p_commission_percent numeric DEFAULT NULL::numeric)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_phone_norm text := nullif(trim(coalesce(p_phone, '')), '');
@@ -499,19 +487,11 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.invite_driver(
-  p_phone text,
-  p_name text,
-  p_org_id uuid,
-  p_email text DEFAULT NULL,
-  p_payable_amount numeric DEFAULT NULL,
-  p_commission_percent numeric DEFAULT NULL,
-  p_commission_per_km numeric DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
+CREATE OR REPLACE FUNCTION public.invite_driver(p_phone text, p_name text, p_org_id uuid, p_email text DEFAULT NULL::text, p_payable_amount numeric DEFAULT NULL::numeric, p_commission_percent numeric DEFAULT NULL::numeric, p_commission_per_km numeric DEFAULT NULL::numeric)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_phone_norm text := public.normalise_phone(p_phone);
@@ -523,7 +503,7 @@ BEGIN
   IF auth.uid() IS NULL THEN
     RETURN jsonb_build_object('ok', false, 'error', 'Not authenticated');
   END IF;
-  IF NOT public.is_org_member(p_org_id) THEN
+  IF NOT public.is_org_staff(p_org_id) THEN
     RETURN jsonb_build_object('ok', false, 'error', 'Not a member of this organization');
   END IF;
   IF length(coalesce(v_phone_norm, '')) < 10 THEN
@@ -541,8 +521,6 @@ BEGIN
   LIMIT 1;
 
   IF FOUND THEN
-    -- Reuse the existing row; refresh the same fields the removed client-side
-    -- block used to update. relationship_origin is write-once -- untouched.
     UPDATE public.drivers
     SET name = v_name,
         phone = coalesce(nullif(trim(p_phone), ''), phone),
@@ -627,6 +605,15 @@ BEGIN
     now() + interval '7 days'
   )
   RETURNING id INTO v_invite_id;
+
+  -- If roster row already linked to a user, provision pending/active membership.
+  IF v_driver.user_id IS NOT NULL THEN
+    PERFORM public.upsert_driver_org_membership(
+      p_org_id,
+      v_driver.user_id,
+      'pending'
+    );
+  END IF;
 
   RETURN jsonb_build_object('ok', true, 'driver', to_jsonb(v_driver), 'invite_id', v_invite_id);
 END;

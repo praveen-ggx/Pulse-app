@@ -55,7 +55,6 @@ import {
 import type { ElrTripSource } from "@/features/trips/services/elrSnapshot.util";
 import { SimCompletionTimeField } from "@/features/trips/components/trip-detail/SimCompletionTimeField";
 import {
-  revokeGroundOpsPickupStatus,
   simulateGroundOpsPickupStatus,
   type GroundOpsPickupTarget,
 } from "@/features/trips/services/groundOpsPickup.service";
@@ -4809,19 +4808,16 @@ export default function TripDetailScreen({
   })();
 
   const currentTripStatusLower = String(trip.status ?? "").trim().toLowerCase();
-  // Ground Ops undo only their own last pickup-side step (same name the RPC
-  // writes), never a Trip Ops simulation.
-  const groundOpsOwnSimName = detail.profile?.full_name?.trim() || "Ground Ops";
+  // Trip Ops only: Ground Ops may simulate Reached Pickup / Start Trip but
+  // must never Undo or Revoke Last (UI or handler).
   const canRevokeLastSimulation =
+    canTripSimulate &&
+    !isGroundOpsOnly &&
     !!lastSimulatedTransition?.toStatus &&
     currentTripStatusLower === lastSimulatedTransition.toStatus &&
     !!lastSimulatedTransition.fromStatus &&
     // Revoke Last after delivery (completed, delivered, or done) is owner / admin only.
-    (!revokeLastFromDeliveredRequiresOwner(currentTripStatusLower) || isOwnerOrAdmin) &&
-    (canTripSimulate ||
-      (canGroundOpsPickupSimulate &&
-        ["in_progress", "in_transit"].includes(lastSimulatedTransition.toStatus) &&
-        lastSimulatedTransition.userName === groundOpsOwnSimName));
+    (!revokeLastFromDeliveredRequiresOwner(currentTripStatusLower) || isOwnerOrAdmin);
 
   /** Start trip stays disabled until the document check passes. */
   const groundOpsConfirmBlocked =
@@ -4894,6 +4890,38 @@ export default function TripDetailScreen({
     setSimulating(true);
     setSimError(null);
     try {
+      // Same date/time picker rules as Trip Ops Simulate Stage.
+      const unrestrictedPickup = isUnrestrictedPickupSimStage(target);
+      const minAt = unrestrictedPickup
+        ? null
+        : simulateStageMinAt(target);
+      const usesPicker = showsSimCompletionPicker(target);
+      let eventAt: string | null = null;
+      if (usesPicker) {
+        eventAt = parseSimCompletionPickerValue(
+          simCompletionValueRef.current || simCompletionValue,
+        );
+        if (!eventAt) {
+          setSimError(
+            unrestrictedPickup
+              ? "Pick a pickup date and time."
+              : "Pick a completion date and time.",
+          );
+          return;
+        }
+        if (!unrestrictedPickup) {
+          eventAt = alignSimCompletionIsoToMin(eventAt, minAt);
+        }
+        if (
+          !unrestrictedPickup &&
+          !isSimCompletionAtOrAfterMin(eventAt, minAt)
+        ) {
+          setSimError(
+            "Completion time must be after the previous Journey Log stage.",
+          );
+          return;
+        }
+      }
       if (target === "in_transit") {
         // Re-check at confirm: documents may have changed since the dialog opened.
         const missing = await loadGroundOpsTransitMissing();
@@ -4904,7 +4932,7 @@ export default function TripDetailScreen({
         }
         if (missing.length > 0) return;
       }
-      const result = await simulateGroundOpsPickupStatus(trip.id, target);
+      const result = await simulateGroundOpsPickupStatus(trip.id, target, eventAt);
       if (!result.ok) {
         // The trip already moved on elsewhere (driver / Trip Ops): retrying the
         // same step can only fail again, so refresh and close instead.
@@ -5076,26 +5104,10 @@ export default function TripDetailScreen({
 
   const handleRevokeLastSimulation = async () => {
     if (!canRevokeLastSimulation || !lastSimulatedTransition?.fromStatus) return;
+    // Ground Ops: simulate only — never undo/revoke.
+    if (isGroundOpsOnly || !canTripSimulate) return;
     setRevokingSimulation(true);
     setSimError(null);
-    if (!canTripSimulate) {
-      // Ground Ops: undo through the RPC (role, warehouse and edge re-checked there).
-      try {
-        const result = await revokeGroundOpsPickupStatus(trip.id);
-        if (!result.ok) {
-          showAppAlert("Could not undo", result.error);
-          return;
-        }
-        notifyTripChatMessagesChanged();
-        refreshComplianceForTrip();
-        detail.handleRefresh();
-      } catch (e: unknown) {
-        showAppAlert("Could not undo", e instanceof Error ? e.message : "Undo failed");
-      } finally {
-        setRevokingSimulation(false);
-      }
-      return;
-    }
     try {
       const revertToStatus = lastSimulatedTransition.fromStatus;
       const revertPayload = {
@@ -6487,8 +6499,7 @@ export default function TripDetailScreen({
                 No driver GPS data available
               </Text>
             )}
-            {simConfirmStep.groundOps ||
-            !showsSimCompletionPicker(simConfirmStep.targetStatus) ? null : (
+            {showsSimCompletionPicker(simConfirmStep.targetStatus) ? (
             <View style={neoStyles.simModalTime}>
               <Text style={neoStyles.simModalLocLabel}>
                 {isUnrestrictedPickupSimStage(simConfirmStep.targetStatus)
@@ -6508,7 +6519,7 @@ export default function TripDetailScreen({
                 onChange={setSimCompletionPickerValue}
               />
             </View>
-            )}
+            ) : null}
             {simError ? (
               <Text style={neoStyles.simModalError}>
                 {simError}
@@ -7792,61 +7803,71 @@ export default function TripDetailScreen({
                                   {expanded && log.stepKey === "in_transit" ? (
                                     <ManifestDriverPingList pings={manifestDriverPings} />
                                   ) : null}
-                                  {/* Skip the yellow badge when history already
-                                      records this simulation — one entry only. */}
-                                  {(() => {
-                                    const sim = stepSimLogs[stepSimLogs.length - 1];
-                                    if (!sim) return null;
-                                    const historyAlreadyShowsSim = (
-                                      log.history ?? []
-                                    ).some((line) =>
-                                      String(line.action ?? "")
-                                        .toLowerCase()
-                                        .includes("simulated"),
-                                    );
-                                    if (historyAlreadyShowsSim) return null;
-                                    const badgeAt =
-                                      log.stepKey === "pickup" ||
-                                      log.stepKey === "in_transit"
-                                        ? log.atIso || sim.timestamp
-                                        : sim.timestamp || log.atIso;
-                                    return (
-                                      <View
-                                        style={[
-                                          neoStyles.simLogBadge,
-                                          isMobile && neoStyles.simLogBadgeMobile,
-                                        ]}
-                                      >
-                                        <Feather
-                                          name="zap"
-                                          size={10}
-                                          color={Theme.warning}
-                                        />
-                                        <View style={{ flex: 1, minWidth: 0 }}>
-                                          <Text
+                                  {/* Trip Ops only: skip yellow badge when history
+                                      already records this simulation. Ground Ops
+                                      never shows it. */}
+                                  {!isGroundOpsOnly
+                                    ? (() => {
+                                        const sim =
+                                          stepSimLogs[stepSimLogs.length - 1];
+                                        if (!sim) return null;
+                                        const historyAlreadyShowsSim = (
+                                          log.history ?? []
+                                        ).some((line) =>
+                                          String(line.action ?? "")
+                                            .toLowerCase()
+                                            .includes("simulated"),
+                                        );
+                                        if (historyAlreadyShowsSim) return null;
+                                        const badgeAt =
+                                          log.stepKey === "pickup" ||
+                                          log.stepKey === "in_transit"
+                                            ? log.atIso || sim.timestamp
+                                            : sim.timestamp || log.atIso;
+                                        return (
+                                          <View
                                             style={[
-                                              neoStyles.simLogBadgeText,
+                                              neoStyles.simLogBadge,
                                               isMobile &&
-                                                neoStyles.simLogBadgeTextMobile,
+                                                neoStyles.simLogBadgeMobile,
                                             ]}
                                           >
-                                            Business simulated · {sim.userName}
-                                          </Text>
-                                          {badgeAt ? (
-                                            <Text
-                                              style={[
-                                                neoStyles.simLogBadgeTime,
-                                                isMobile &&
-                                                  neoStyles.simLogBadgeTimeMobile,
-                                              ]}
+                                            <Feather
+                                              name="zap"
+                                              size={10}
+                                              color={Theme.warning}
+                                            />
+                                            <View
+                                              style={{ flex: 1, minWidth: 0 }}
                                             >
-                                              {formatTrackingDateTime(badgeAt)}
-                                            </Text>
-                                          ) : null}
-                                        </View>
-                                      </View>
-                                    );
-                                  })()}
+                                              <Text
+                                                style={[
+                                                  neoStyles.simLogBadgeText,
+                                                  isMobile &&
+                                                    neoStyles.simLogBadgeTextMobile,
+                                                ]}
+                                              >
+                                                Business simulated ·{" "}
+                                                {sim.userName}
+                                              </Text>
+                                              {badgeAt ? (
+                                                <Text
+                                                  style={[
+                                                    neoStyles.simLogBadgeTime,
+                                                    isMobile &&
+                                                      neoStyles.simLogBadgeTimeMobile,
+                                                  ]}
+                                                >
+                                                  {formatTrackingDateTime(
+                                                    badgeAt,
+                                                  )}
+                                                </Text>
+                                              ) : null}
+                                            </View>
+                                          </View>
+                                        );
+                                      })()
+                                    : null}
                                 </View>
                               </TouchableOpacity>
                             </View>
@@ -10269,7 +10290,10 @@ export default function TripDetailScreen({
                   const slotPreviews = typeFiles.map((file) => ({
                     storagePath: file.url,
                     fileName: file.fileName,
-                    source: (file.source === "driver-kyc" ? "driver-kyc" : "compliance") as const,
+                    source:
+                      file.source === "driver-kyc"
+                        ? ("driver-kyc" as const)
+                        : ("compliance" as const),
                     organizationId:
                       detail.trip?.organization_id ?? currentOrganization?.id,
                     entityId: detail.trip?.driver_id,

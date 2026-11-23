@@ -34,7 +34,7 @@
 - `20271123101500_ground_ops_pickup_event_at.sql` — optional `p_event_at` on `simulate_ground_ops_pickup_status`; BISIM stage clock + editedAt; ISO built by concat (SQL Editor-safe). **Preprod already has this function via SQL Editor.** After merge, record history: `supabase migration repair --status applied 20271123101500 --linked` so the next push does not recreate it. Do not re-apply the SQL if the live def already matches.
 
 ## Tested
-- Local handoff checks (lint / typecheck / cycles / lib-files / navigation-policy / jest / diff --check) — see PR notes
+- Local (GitHub billing off — no remote CI): lint 48≤98, cycles 94≤94, lib-files 178≤178, nav-policy 69 pass, `git diff --check` clean. Full `npx jest --ci --silent`: all Ground Ops suites in this PR pass; remaining failures are pre-existing release-set/contract suites unrelated to this diff.
 - Ground Ops util suites + migration contract + revoke block
 - Preprod RPC checked after Nihas re-ran: `p_event_at` + `v_edited_iso` + concat ISO (no curly quotes in executable path). `schema_migrations` still missing `20271123101500` until repair.
 - Ground Ops Simulate Trip picker / Activity / Journey on device: not clicked through

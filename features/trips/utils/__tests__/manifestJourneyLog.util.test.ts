@@ -332,11 +332,9 @@ describe("manifest journey simulation flow", () => {
       ],
     });
     expect(logs.find((row) => row.stepKey === "pickup")?.atIso).toBe(revisedPickup);
-    expect(
-      logs
-        .find((row) => row.stepKey === "pickup")
-        ?.history?.every((line) => line.atIso === revisedPickup),
-    ).toBe(true);
+    expect(logs.find((row) => row.stepKey === "pickup")?.history?.[0]?.atIso).toBe(
+      tripRow.updated_at,
+    );
     expect(
       logs.find((row) => row.stepKey === "in_transit")?.history?.some((line) =>
         line.atIso === "2026-11-12T09:30:00.000Z",
@@ -396,17 +394,15 @@ describe("manifest journey simulation flow", () => {
       ],
     });
     expect(logs.find((row) => row.stepKey === "pickup")?.atIso).toBe(revisedPickup);
-    expect(
-      logs
-        .find((row) => row.stepKey === "pickup")
-        ?.history?.every((line) => line.atIso === revisedPickup),
-    ).toBe(true);
+    // Right side stays the picker; under-stage uses save clock (updated_at when
+    // the note has no editedAt), never the picker instant.
+    expect(logs.find((row) => row.stepKey === "pickup")?.history?.[0]?.atIso).toBe(
+      tripRow.updated_at,
+    );
     expect(logs.find((row) => row.stepKey === "in_transit")?.atIso).toBe(transitAt);
-    expect(
-      logs.find((row) => row.stepKey === "in_transit")?.history?.some(
-        (line) => line.atIso === transitAt,
-      ),
-    ).toBe(true);
+    expect(logs.find((row) => row.stepKey === "in_transit")?.history?.[0]?.atIso).toBe(
+      tripRow.updated_at,
+    );
   });
 
   it("keeps each stage's last editor and time independent", () => {
@@ -504,14 +500,15 @@ describe("manifest journey simulation flow", () => {
     expect(pickup?.history).toEqual([
       expect.objectContaining({
         actor: "Satham Hussain",
-        atIso: "2026-11-10T09:10:00.000Z",
+        // No editedAt on these sims → under-stage uses trip.updated_at.
+        atIso: "2026-11-20T09:25:00.000Z",
       }),
     ]);
     expect(transit?.atIso).toBe("2026-11-10T12:25:00.000Z");
     expect(transit?.history).toEqual([
       expect.objectContaining({
         actor: "Satham Hussain",
-        atIso: "2026-11-10T12:25:00.000Z",
+        atIso: "2026-11-20T09:25:00.000Z",
       }),
     ]);
   });

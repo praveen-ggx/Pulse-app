@@ -993,9 +993,13 @@ export function buildManifestJourneyLogs(input: {
 
   const lastPickupEdit = (() => {
     if (!pickupSim && !pickupShownAt) return null;
-    // Under the stage: last editor + actual save time — not the picker clock.
+    // Under the stage: last editor + actual save time — never the picker clock.
+    // Prefer BISIM editedAt / status audit, then trip.updated_at. Do not fall
+    // back to started_at / sim.timestamp (those are the right-side Stage time).
     const editedAt =
-      pickupEditedAt ?? pickupShownAt ?? pickupSim?.timestamp ?? null;
+      pickupEditedAt ??
+      (pickupSim ? lastEditAtIso(tr.updated_at) : pickupShownAt) ??
+      null;
     if (!editedAt) return null;
     return {
       atIso: editedAt,
@@ -1010,7 +1014,8 @@ export function buildManifestJourneyLogs(input: {
   })();
   const lastTransitEdit = (() => {
     if (!transitSim) return null;
-    const editedAt = transitEditedAt ?? transitShownAt;
+    const editedAt =
+      transitEditedAt ?? lastEditAtIso(tr.updated_at) ?? null;
     if (!editedAt) return null;
     return {
       atIso: editedAt,

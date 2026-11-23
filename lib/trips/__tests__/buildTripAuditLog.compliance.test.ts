@@ -634,6 +634,45 @@ describe("journey activity history", () => {
   });
 });
 
+describe("Ground Ops simulate Activity Log", () => {
+  it("names the Ground Ops actor, uses edit time, and keeps picker Stage time", () => {
+    const entries = buildTripAuditLog({
+      trip: {
+        ...trip,
+        status: "in_progress",
+        started_at: "2026-11-14T10:33:00.000Z",
+        notes:
+          "[BISIM|in_progress|2026-11-14T10:33:00.000Z|||Satham Hussain|assigned||2026-11-23T10:46:00.000Z]",
+        updated_at: "2026-11-23T10:46:00.500Z",
+      } as TripRow,
+      tripRef: "SAT812GOGTRIP002326",
+      assignmentAuditRows: [],
+      assignmentDriverNames: {},
+      assignmentVehicleLabels: {},
+      timelineRows: [],
+      transactions: [],
+      currentUserId: "u-satham",
+      userDisplayById: { "u-satham": "Satham Hussain" },
+      statusAuditRows: [
+        {
+          id: "go-1",
+          status_from: "assigned",
+          status_to: "in_progress",
+          changed_by: "u-satham",
+          changed_at: "2026-11-23T10:46:00.200Z",
+        },
+      ],
+    });
+    const pickup = entries.find((row) => row.title === "simulated pickup");
+    expect(pickup).toBeTruthy();
+    expect(pickup?.recordedBy).toMatch(/Satham Hussain/i);
+    expect(pickup?.at).toBe("2026-11-23T10:46:00.200Z");
+    expect(pickup?.detail).toMatch(/Stage time/i);
+    expect(pickup?.detail).toMatch(/14 Nov 2026/i);
+    expect(entries.some((row) => row.title === "edited this trip")).toBe(false);
+  });
+});
+
 describe("dedupeTripAuditEntries", () => {
   const avatar = {
     name: "Staff",

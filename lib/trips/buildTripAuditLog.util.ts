@@ -4,6 +4,11 @@ import type { TripAssignmentAuditRow } from "@/features/trips/services/trip-assi
 import type { TripHardCopyPodState } from "@/features/trips/services/tripDocumentLrPod.service";
 import { formatCourierLrRemarks } from "@/features/trips/utils/lrReceiptStatus.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import {
+  parseTripSimulationNotes,
+  type ParsedBisimEntry,
+  type ParsedBisimRevoke,
+} from "@/features/trips/utils/simulateTripStage.util";
 import type { DriverActivityTimelineRow } from "@/features/trips/components/trip-detail/hooks/useTripDetail";
 import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.util";
 import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
@@ -201,6 +206,229 @@ type StatusActivityContext =
   | "pod_received"
   | "sim_revoked";
 
+/** One row from trip_status_audit. Who changed the status, and the instant they did. */
+export type TripStatusAuditActivityRow = {
+  id: string;
+  status_from?: string | null;
+  status_to: string;
+  changed_by?: string | null;
+  changed_at: string;
+};
+
+const GENERIC_SIM_ACTOR = /^(business|ground ops|staff|workspace member)$/i;
+
+const STATUS_RANK: Record<string, number> = {
+  draft: 0,
+  pending_acceptance: 1,
+  assigned: 2,
+  in_progress: 3,
+  picked_up: 3,
+  pickup: 3,
+  in_transit: 4,
+  dispatched: 4,
+  transit: 4,
+  at_drop: 5,
+  at_destination: 5,
+  completed: 6,
+  delivered: 6,
+  done: 6,
+};
+
+function humanizeStatus(status: string): string {
+  return status.trim().toLowerCase().replace(/_/g, " ");
+}
+
+function stageContextFromStatus(status: string): StatusActivityContext {
+  const value = status.trim().toLowerCase();
+  if (value === "assigned" || value === "pending_acceptance") return "accepted";
+  if (value === "in_progress" || value === "picked_up" || value === "pickup") {
+    return "pickup";
+  }
+  if (value === "in_transit" || value === "dispatched" || value === "transit") {
+    return "in_transit";
+  }
+  if (value === "at_drop" || value === "at_destination") return "at_drop";
+  if (value === "completed" || value === "delivered" || value === "done") {
+    return "completed";
+  }
+  return "started";
+}
+
+function statusesForContext(context: StatusActivityContext): string[] {
+  switch (context) {
+    case "accepted":
+      return ["assigned", "pending_acceptance"];
+    case "pickup":
+      return ["in_progress", "picked_up", "pickup"];
+    case "in_transit":
+      return ["in_transit", "dispatched", "transit"];
+    case "at_drop":
+      return ["at_drop", "at_destination"];
+    case "completed":
+      return ["completed", "delivered", "done"];
+    default:
+      return [];
+  }
+}
+
+function isBackwardStatusMove(from: string, to: string): boolean {
+  const fromRank = STATUS_RANK[from.trim().toLowerCase()];
+  const toRank = STATUS_RANK[to.trim().toLowerCase()];
+  return fromRank != null && toRank != null && toRank < fromRank;
+}
+
+function simulatedStageCopy(status: string): {
+  title: string;
+  stage: string;
+  context: StatusActivityContext;
+} {
+  const context = stageContextFromStatus(status);
+  switch (context) {
+    case "accepted":
+      return { title: "simulated driver acceptance", stage: "Driver acceptance", context };
+    case "pickup":
+      return { title: "simulated pickup", stage: "Pickup", context };
+    case "in_transit":
+      return { title: "simulated in transit", stage: "In transit", context };
+    case "at_drop":
+      return { title: "simulated drop-off", stage: "Drop-off", context };
+    case "completed":
+      return { title: "simulated delivery", stage: "Delivery", context };
+    default: {
+      const stage = humanizeStatus(status);
+      return { title: `simulated ${stage}`, stage, context: "started" };
+    }
+  }
+}
+
+/** Note vs status-audit skew that is still the same action, not a backdated stage. */
+const ACTION_TIME_SKEW_MS = 2 * 60_000;
+/** Pair a BISIM save only with an audit from the same save window. */
+const AUDIT_PAIR_WINDOW_MS = 2 * 60_000;
+
+/**
+ * Actual edit / save clock for Activity. Prefer the paired status-audit time;
+ * then the note's editedAt; the note stage timestamp is shown separately.
+ */
+function recordedActionAt(
+  noteAt: string | null | undefined,
+  auditAt: string | null | undefined,
+  editedAt?: string | null | undefined,
+): string {
+  return (
+    String(auditAt ?? "").trim() ||
+    String(editedAt ?? "").trim() ||
+    String(noteAt ?? "").trim()
+  );
+}
+
+function stageTimeClause(
+  noteAt: string | null | undefined,
+  actionAt: string,
+): string | null {
+  const note = String(noteAt ?? "").trim();
+  if (!note || note === actionAt) return null;
+  const noteMs = Date.parse(note);
+  const actionMs = Date.parse(actionAt);
+  if (!Number.isFinite(noteMs) || !Number.isFinite(actionMs)) return null;
+  if (Math.abs(noteMs - actionMs) <= ACTION_TIME_SKEW_MS) return null;
+  return `Stage time ${formatAuditTimestamp(note)}`;
+}
+
+function simulationRecordedBy(
+  noteName: string | null | undefined,
+  userId: string | null | undefined,
+  currentUserId: string | null | undefined,
+  userDisplayById: Record<string, string>,
+  userProfileById: Record<string, TripActivityUserProfile>,
+): string {
+  const note = String(noteName ?? "").trim();
+  const resolved = resolveTripActivityUserLabel(
+    userId,
+    currentUserId,
+    userDisplayById,
+    "",
+    userProfileById,
+  );
+  const generic = !note || GENERIC_SIM_ACTOR.test(note);
+  if (!generic) {
+    if (
+      userId &&
+      currentUserId &&
+      userId === currentUserId &&
+      !/\(you\)$/i.test(note)
+    ) {
+      return `${note} (you)`;
+    }
+    return note;
+  }
+  return resolved || note;
+}
+
+/**
+ * Earliest unused audit row for this status. A later revoke (status moves
+ * backward onto the same status) is left in the pool so the revoke can claim it.
+ */
+function takeAuditForStatus(
+  pool: TripStatusAuditActivityRow[],
+  statusTo: string,
+  statusFrom?: string | null,
+  /** Prefer the audit closest to this instant (BISIM editedAt / save clock). */
+  nearIso?: string | null,
+): TripStatusAuditActivityRow | undefined {
+  const to = statusTo.trim().toLowerCase();
+  const from = String(statusFrom ?? "").trim().toLowerCase();
+  const candidates: number[] = [];
+  for (let i = 0; i < pool.length; i += 1) {
+    const row = pool[i];
+    if (!row) continue;
+    if (row.status_to.trim().toLowerCase() !== to) continue;
+    const rowFrom = String(row.status_from ?? "").trim().toLowerCase();
+    if (from) {
+      if (rowFrom !== from) continue;
+    } else if (rowFrom && isBackwardStatusMove(rowFrom, to)) {
+      continue;
+    }
+    candidates.push(i);
+  }
+  if (candidates.length === 0) return undefined;
+  const nearMs = Date.parse(String(nearIso ?? "").trim());
+  if (Number.isFinite(nearMs)) {
+    // Only pair within the save window so an older BISIM cannot steal a later audit
+    // (and show yesterday's Stage time under today's edit).
+    let index = -1;
+    let best = Number.POSITIVE_INFINITY;
+    for (const i of candidates) {
+      const ms = Date.parse(pool[i]!.changed_at);
+      if (!Number.isFinite(ms)) continue;
+      const skew = Math.abs(ms - nearMs);
+      if (skew > AUDIT_PAIR_WINDOW_MS || skew >= best) continue;
+      best = skew;
+      index = i;
+    }
+    if (index < 0) return undefined;
+    return pool.splice(index, 1)[0];
+  }
+  return pool.splice(candidates[0]!, 1)[0];
+}
+
+function takeAuditForContext(
+  pool: TripStatusAuditActivityRow[],
+  context: StatusActivityContext,
+): TripStatusAuditActivityRow | undefined {
+  // "assigned" is also the assignment itself. Only a pending → assigned
+  // change is the driver accepting.
+  if (context === "accepted") {
+    return takeAuditForStatus(pool, "assigned", "pending_acceptance");
+  }
+  const statuses = statusesForContext(context);
+  for (const status of statuses) {
+    const row = takeAuditForStatus(pool, status);
+    if (row) return row;
+  }
+  return undefined;
+}
+
 function statusActivityTitle(
   context: StatusActivityContext,
   fallbackLabel: string,
@@ -368,6 +596,16 @@ function activityFamily(title: string): string {
 }
 
 function activityDedupeKey(entry: TripAuditLogEntry): string {
+  // Each simulate / revoke / status-audit row is its own action, even when two
+  // of the same stage share a minute. Collapsing those hid revoked history.
+  if (
+    entry.id.startsWith("bisim-") ||
+    entry.id.startsWith("bisim-revoke-") ||
+    entry.id.startsWith("status-audit-") ||
+    entry.id.startsWith("assign-")
+  ) {
+    return entry.id;
+  }
   const time = Date.parse(entry.at);
   const bucket = Number.isFinite(time) ? Math.floor(time / 60_000) : entry.at;
   return `${activityFamily(entry.title)}|${bucket}`;
@@ -377,11 +615,17 @@ function preferAuditEntry(
   current: TripAuditLogEntry,
   incoming: TripAuditLogEntry,
 ): TripAuditLogEntry {
-  const score = (row: TripAuditLogEntry) =>
-    (row.people?.length ?? 0) * 3 +
-    (row.detailLines?.length ?? 0) * 2 +
-    (row.recordedBy !== "Staff" && row.recordedBy !== "Workspace member" ? 2 : 0) +
-    (row.detail && !row.detail.includes(".") ? 1 : 0);
+  const score = (row: TripAuditLogEntry) => {
+    const name = row.recordedBy.trim();
+    const named =
+      name.length > 0 && name !== "Staff" && name !== "Workspace member";
+    return (
+      (named ? 4 : 0) +
+      (row.people?.length ?? 0) * 3 +
+      (row.detailLines?.length ?? 0) * 2 +
+      (row.detail && !row.detail.includes(".") ? 1 : 0)
+    );
+  };
   return score(incoming) > score(current) ? incoming : current;
 }
 
@@ -414,6 +658,11 @@ export function buildTripAuditLog(params: {
   /** Compliance card: skip trip lifecycle / assignment; keep payments + POD + milestones. */
   scope?: TripAuditLogScope;
   milestones?: TripAuditMilestone[];
+  /**
+   * Append-only status changes (who + when). Activity uses these so a later
+   * trip edit cannot restamp an earlier stage with `updated_at`.
+   */
+  statusAuditRows?: TripStatusAuditActivityRow[];
 }): TripAuditLogEntry[] {
   const {
     trip,
@@ -430,6 +679,7 @@ export function buildTripAuditLog(params: {
     hardCopyPod,
     scope = "all",
     milestones = [],
+    statusAuditRows = [],
   } = params;
   const complianceOnly = scope === "compliance";
 
@@ -441,11 +691,17 @@ export function buildTripAuditLog(params: {
       (row.driver_id_new
         ? assignmentDriverNames[row.driver_id_new]?.trim()
         : null) ||
+      (row.driver_id_new && row.driver_id_new === trip.driver_id
+        ? trip.driver_display_name?.trim()
+        : null) ||
       null;
     const vehicle =
       row.vehicle_number_new?.trim() ||
       (row.vehicle_id_new
         ? assignmentVehicleLabels[row.vehicle_id_new]?.trim()
+        : null) ||
+      (row.vehicle_id_new && row.vehicle_id_new === trip.vehicle_id
+        ? trip.vehicle_display_number?.trim()
         : null) ||
       null;
     const driverPrev =
@@ -482,9 +738,7 @@ export function buildTripAuditLog(params: {
             : null,
     ].filter(Boolean) as string[];
 
-    const actorUserId = isDriverDeclined
-      ? null
-      : row.changed_by ?? trip.assigned_by_user_id ?? null;
+    const actorUserId = isDriverDeclined ? null : row.changed_by ?? null;
     const actor = isDriverDeclined
       ? driverPrev?.trim() || "Driver"
       : resolveTripActivityUserLabel(
@@ -577,11 +831,118 @@ export function buildTripAuditLog(params: {
     });
   }
 
+  const auditPool: TripStatusAuditActivityRow[] = statusAuditRows.map((row) => ({
+    ...row,
+  }));
+  const coveredContexts = new Set<StatusActivityContext>();
+  if (!complianceOnly) {
+    const { sims, revokes } = parseTripSimulationNotes(trip.notes);
+    const pushSimulation = (
+      entry: {
+        id: string;
+        at: string;
+        title: string;
+        recordedBy: string;
+        userId?: string | null;
+        detail: string;
+      },
+    ) => {
+      entries.push({
+        id: entry.id,
+        at: entry.at,
+        category: "status",
+        categoryLabel: categoryLabel("status"),
+        title: entry.title,
+        recordedAtLabel: formatAuditTimestamp(entry.at),
+        recordedBy: entry.recordedBy,
+        actorAvatar: resolveActivityActorAvatar(
+          entry.recordedBy.replace(/\s*\(you\)$/i, ""),
+          entry.userId,
+          userProfileById,
+          "client",
+        ),
+        contextLabel: "Simulation",
+        detail: entry.detail,
+      });
+    };
+    sims.forEach((sim: ParsedBisimEntry, index) => {
+      const copy = simulatedStageCopy(sim.status);
+      // Pair by save clock (editedAt) so a re-simulate does not steal a later
+      // audit and show another stage's "Stage time".
+      const paired = takeAuditForStatus(
+        auditPool,
+        sim.status,
+        sim.fromStatus,
+        // Prefer the save clock on the note so each simulate pairs with its own audit.
+        sim.editedAt ?? null,
+      );
+      // Headline = when the change was made. Detail may add Stage time (picker).
+      const at = recordedActionAt(
+        sim.timestamp,
+        paired?.changed_at,
+        sim.editedAt,
+      );
+      if (!at) return;
+      coveredContexts.add(copy.context);
+      const recordedBy = simulationRecordedBy(
+        sim.userName,
+        paired?.changed_by,
+        currentUserId,
+        userDisplayById,
+        userProfileById,
+      );
+      const place = sim.locationLabel?.trim();
+      const detail = [
+        place ? `${copy.stage} · ${place}` : copy.stage,
+        stageTimeClause(sim.timestamp, at),
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      pushSimulation({
+        id: `bisim-${index}-${sim.status}-${at}`,
+        at,
+        title: copy.title,
+        recordedBy,
+        userId: paired?.changed_by,
+        detail,
+      });
+    });
+    revokes.forEach((revoke: ParsedBisimRevoke, index) => {
+      const paired = takeAuditForStatus(
+        auditPool,
+        revoke.toStatus,
+        revoke.fromStatus,
+        revoke.timestamp,
+      );
+      const at = recordedActionAt(revoke.timestamp, paired?.changed_at);
+      if (!at) return;
+      const recordedBy = simulationRecordedBy(
+        revoke.userName,
+        paired?.changed_by,
+        currentUserId,
+        userDisplayById,
+        userProfileById,
+      );
+      // Revoke rows: action time only — no simulated "Stage time" on a revoke.
+      const detail = `Reverted ${humanizeStatus(revoke.fromStatus)} → ${humanizeStatus(revoke.toStatus)}`;
+      pushSimulation({
+        id: `bisim-revoke-${index}-${revoke.fromStatus}-${revoke.toStatus}-${at}`,
+        at,
+        title: "revoked a simulated stage",
+        recordedBy,
+        userId: paired?.changed_by,
+        detail,
+      });
+    });
+  }
+
   for (const item of timelineRows) {
     if (item.kind !== "status") continue;
     if (item.status_context === "assigned" && assignmentAuditRows.length > 0) {
       continue;
     }
+    // No per-event assigner: this row pairs the current assignee with created_at.
+    if (item.id.startsWith("status-assigned-fallback")) continue;
     if (item.status_context === "pod_received" && hardCopyPod) continue;
     if (
       complianceOnly &&
@@ -589,9 +950,37 @@ export function buildTripAuditLog(params: {
     ) {
       continue;
     }
+    // Notes are the full simulate/revoke history, including stages later revoked.
+    if (item.id.startsWith("status-sim-")) continue;
+    if (
+      item.status_context !== "created" &&
+      item.status_context !== "assigned" &&
+      item.status_context !== "pod_received" &&
+      coveredContexts.has(item.status_context)
+    ) {
+      continue;
+    }
+
+    let changedAt = item.changed_at;
+    let actorItem = item;
+    let stampedUserId: string | null = null;
+    if (
+      !complianceOnly &&
+      item.status_context !== "created" &&
+      item.status_context !== "assigned" &&
+      item.status_context !== "pod_received" &&
+      item.status_context !== "sim_revoked"
+    ) {
+      const paired = takeAuditForContext(auditPool, item.status_context);
+      if (paired?.changed_at) changedAt = paired.changed_at;
+      if (paired?.changed_by) {
+        stampedUserId = paired.changed_by;
+        actorItem = { ...item, actorUserId: paired.changed_by };
+      }
+    }
 
     const actor = resolveStatusActor(
-      item,
+      actorItem,
       trip,
       userDisplayById,
       currentUserId,
@@ -602,12 +991,13 @@ export function buildTripAuditLog(params: {
     const category: TripAuditLogCategory =
       item.status_context === "created" ? "trip" : "status";
     const statusUserId =
-      item.status_context === "created"
+      stampedUserId ??
+      (item.status_context === "created"
         ? trip.created_by_user_id ?? trip.created_by ?? trip.owner_user_id ?? null
         : item.status_context === "accepted" ||
             trip.status_updated_role === "driver"
           ? null
-          : trip.status_updated_by ?? null;
+          : trip.status_updated_by ?? null);
     const statusEntityType: PartyEntityType =
       item.status_context === "accepted" ||
       trip.status_updated_role === "driver"
@@ -616,11 +1006,11 @@ export function buildTripAuditLog(params: {
 
     entries.push({
       id: item.id,
-      at: item.changed_at,
+      at: changedAt,
       category,
       categoryLabel: categoryLabel(category),
       title: statusActivityTitle(item.status_context, label),
-      recordedAtLabel: formatAuditTimestamp(item.changed_at),
+      recordedAtLabel: formatAuditTimestamp(changedAt),
       recordedBy: actor,
       actorAvatar: resolveActivityActorAvatar(
         actor,
@@ -663,6 +1053,75 @@ export function buildTripAuditLog(params: {
             ]
           : undefined,
     });
+  }
+
+  if (!complianceOnly) {
+    const hasAssignment = entries.some(
+      (entry) =>
+        entry.category === "assignment" || entry.id.startsWith("status-assigned"),
+    );
+    for (const row of auditPool) {
+      const to = row.status_to.trim().toLowerCase();
+      const from = String(row.status_from ?? "").trim().toLowerCase();
+      const at = row.changed_at?.trim();
+      if (!at || !to || to === "draft") continue;
+      const backward = Boolean(from) && isBackwardStatusMove(from, to);
+      if (
+        (to === "assigned" || to === "pending_acceptance") &&
+        !backward &&
+        from !== "pending_acceptance" &&
+        hasAssignment
+      ) {
+        continue;
+      }
+      const context: StatusActivityContext =
+        to === "assigned" && from !== "pending_acceptance" && !backward
+          ? "assigned"
+          : from === "pending_acceptance" && to === "assigned"
+            ? "accepted"
+            : stageContextFromStatus(to);
+      const recordedBy = resolveTripActivityUserLabel(
+        row.changed_by,
+        currentUserId,
+        userDisplayById,
+        "",
+        userProfileById,
+      );
+      const detail = from
+        ? `${humanizeStatus(from)} → ${humanizeStatus(to)}`
+        : humanizeStatus(to);
+      entries.push({
+        id: `status-audit-${row.id}`,
+        at,
+        category: "status",
+        categoryLabel: categoryLabel("status"),
+        title: backward
+          ? "reverted the stage"
+          : statusActivityTitle(context, humanizeStatus(to)),
+        recordedAtLabel: formatAuditTimestamp(at),
+        recordedBy,
+        actorAvatar: resolveActivityActorAvatar(
+          recordedBy.replace(/\s*\(you\)$/i, ""),
+          row.changed_by,
+          userProfileById,
+          context === "accepted" ? "driver" : "client",
+        ),
+        contextLabel: backward
+          ? "Simulation"
+          : context === "accepted"
+            ? "Driver accepted"
+            : context === "pickup"
+              ? "Pickup"
+              : context === "in_transit"
+                ? "In-transit"
+                : context === "at_drop"
+                  ? "Drop-off"
+                  : context === "completed"
+                    ? "Delivered"
+                    : "Status update",
+        detail: backward ? `Reverted ${detail}` : detail,
+      });
+    }
   }
 
   for (const tx of transactions ?? []) {
@@ -839,22 +1298,34 @@ export function buildTripAuditLog(params: {
 
   const updatedAt = String(trip.updated_at ?? "").trim();
   const createdAt = String(trip.created_at ?? "").trim();
+  const updatedMs = Date.parse(updatedAt);
+  const nearUpdate = (iso: string | null | undefined, windowMs: number) => {
+    const ms = Date.parse(String(iso ?? ""));
+    return Number.isFinite(updatedMs) && Number.isFinite(ms) && Math.abs(ms - updatedMs) < windowMs;
+  };
+  // `updated_at` moves on every write. It is not itself an edit, and the last
+  // assigner is not the editor. Only an explicit status editor counts, and
+  // only when this timestamp is not already a status change or simulation.
+  const simulationTouch =
+    trip.status_change_origin === "business_simulated" ||
+    trip.status_change_origin === "business_simulation_revoked";
+  const explainedByEntry = entries.some((entry) => {
+    const simulationEntry =
+      entry.id.startsWith("bisim-") || entry.id.startsWith("bisim-revoke-");
+    const windowMs = simulationTouch && simulationEntry ? 5 * 60_000 : 60_000;
+    return nearUpdate(entry.at, windowMs);
+  });
+  const explainedByStatus = statusAuditRows.some((row) => nearUpdate(row.changed_at, 60_000));
+  const editorId = String(trip.status_updated_by ?? "").trim();
   if (
     !complianceOnly &&
+    editorId &&
     updatedAt &&
     createdAt &&
     updatedAt > createdAt &&
-    !entries.some((entry) => {
-      const delta = Math.abs(Date.parse(entry.at) - Date.parse(updatedAt));
-      return Number.isFinite(delta) && delta < 60_000;
-    })
+    !explainedByEntry &&
+    !explainedByStatus
   ) {
-    const editorId =
-      trip.status_updated_by ??
-      trip.assigned_by_user_id ??
-      trip.owner_user_id ??
-      trip.created_by_user_id ??
-      null;
     const editor = resolveTripActivityUserLabel(
       editorId,
       currentUserId,

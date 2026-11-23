@@ -232,16 +232,23 @@ import {
     type TripRow,
 } from "../../services/trips.service";
 import {
+    listTripStatusAudit,
+    type TripStatusAuditActivityRow,
+} from "../../services/tripStatusTimes.service";
+import {
     alignSimCompletionIsoToMin,
     alignUnrevokedBisimTimestamps,
     appendBisimNote,
+    clearUnrevokedBisimStatuses,
     clampSimCompletionPickerValue,
     ensureBisimTimestampForStatus,
     isSimCompletionAtOrAfterMin,
     isUnrestrictedPickupSimStage,
     lastBisimCoordinate,
     parseSimCompletionPickerValue,
+    pickupRevisionPendingAfterRevoke,
     resolveAutoSimCompletionIso,
+    resolvePickupReferenceIso,
     resolveSimulateStageCoordinate,
     resolveSimulateStageMinAt,
     resolveTripAssignedAtIso,
@@ -1689,6 +1696,9 @@ export default function TripDetailScreen({
   const [uploaderProfiles, setUploaderProfiles] = useState<
     Record<string, TripActivityUserProfile>
   >({});
+  const [journeyStatusEdits, setJourneyStatusEdits] = useState<
+    TripStatusAuditActivityRow[]
+  >([]);
   const [uploadedByByDocId, setUploadedByByDocId] = useState<
     Record<string, string>
   >({});
@@ -1703,6 +1713,44 @@ export default function TripDetailScreen({
       .sort()
       .join(",");
   }, [detail.trip, detail.assignmentAuditRows]);
+
+  const statusEditorIdsKey = useMemo(
+    () =>
+      [
+        ...new Set(
+          journeyStatusEdits
+            .map((row) => String(row.changed_by ?? "").trim())
+            .filter(Boolean),
+        ),
+      ]
+        .sort()
+        .join(","),
+    [journeyStatusEdits],
+  );
+
+  useEffect(() => {
+    const tripId = String(detail.trip?.id ?? "").trim();
+    if (!tripId) {
+      setJourneyStatusEdits([]);
+      return;
+    }
+    let cancelled = false;
+    void listTripStatusAudit(tripId)
+      .then((rows) => {
+        if (!cancelled) setJourneyStatusEdits(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setJourneyStatusEdits([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    detail.trip?.id,
+    detail.trip?.notes,
+    detail.trip?.status,
+    detail.trip?.updated_at,
+  ]);
 
   const docUploaderIdsKey = useMemo(
     () =>
@@ -1732,7 +1780,10 @@ export default function TripDetailScreen({
     const journeyIds = journeyActorIdsKey
       ? journeyActorIdsKey.split(",").filter(Boolean)
       : [];
-    const unique = [...new Set([...docIds, ...journeyIds])];
+    const statusEditorIds = statusEditorIdsKey
+      ? statusEditorIdsKey.split(",").filter(Boolean)
+      : [];
+    const unique = [...new Set([...docIds, ...journeyIds, ...statusEditorIds])];
     if (!tripId && unique.length === 0) {
       setUploaderProfiles({});
       setUploadedByByDocId({});
@@ -1826,6 +1877,7 @@ export default function TripDetailScreen({
     currentOrganization?.id,
     docUploaderIdsKey,
     journeyActorIdsKey,
+    statusEditorIdsKey,
     detail.currentUserId,
     detail.profile?.avatar_seed,
     detail.profile?.avatar_url,
@@ -3457,6 +3509,7 @@ export default function TripDetailScreen({
       currentUserId: detail.currentUserId,
       staffDisplayName: detail.profile?.full_name,
       driverDisplayName: detail.driverName ?? tr.driver_display_name,
+      statusAuditRows: journeyStatusEdits,
     });
     if (!commerceJourney) return ftlLogs;
     return buildCommerceManifestJourneyLogs({
@@ -3473,6 +3526,7 @@ export default function TripDetailScreen({
     detail.currentUserId,
     detail.profile?.full_name,
     detail.driverName,
+    journeyStatusEdits,
     detail.driverLocation,
     detail.driverLocationAddress,
     manifestJourneyPings,
@@ -4689,12 +4743,24 @@ export default function TripDetailScreen({
         writeStartedAt: true,
         ...pinFor("in_progress"),
       };
-    if (["in_progress", "picked_up"].includes(s))
+    if (["in_progress", "picked_up"].includes(s)) {
+      // Revoke from In Transit lands here. Re-record Pickup before the next
+      // Simulate advances to In Transit, so the new date and time is what the
+      // In Transit picker floors against.
+      if (pickupRevisionPendingAfterRevoke(trip.notes, s)) {
+        return {
+          label: "Pickup — driver arrived at source",
+          targetStatus: "in_progress",
+          writeStartedAt: true,
+          ...pinFor("in_progress"),
+        };
+      }
       return {
         label: "In-transit — package collected",
         targetStatus: "in_transit",
         ...pinFor("in_transit"),
       };
+    }
     if (s === "in_transit")
       return {
         label: "Arrived at drop-off",
@@ -4798,9 +4864,15 @@ export default function TripDetailScreen({
     const minAt = isUnrestrictedPickupSimStage(step.targetStatus)
       ? null
       : simulateStageMinAt(step.targetStatus);
+    const revisingPickup = pickupRevisionPendingAfterRevoke(trip.notes, trip.status);
+    const savedPickupIso = revisingPickup ? resolvePickupReferenceIso(trip) : null;
+    const savedPickupMs = savedPickupIso ? new Date(savedPickupIso).getTime() : NaN;
+    const seed = Number.isFinite(savedPickupMs)
+      ? toSimCompletionPickerValue(new Date(savedPickupMs))
+      : toSimCompletionPickerValue();
     setSimCompletionPickerValue(
       showsSimCompletionPicker(step.targetStatus)
-        ? clampSimCompletionPickerValue(toSimCompletionPickerValue(), minAt)
+        ? clampSimCompletionPickerValue(seed, minAt)
         : "",
     );
     setSimError(null);
@@ -4922,18 +4994,45 @@ export default function TripDetailScreen({
         lat: simConfirmStep.driverLat,
         lng: simConfirmStep.driverLng,
       });
-      const userName = detail.profile?.full_name?.trim() || "Business";
+      const userName =
+        detail.profile?.full_name?.trim() ||
+        detail.profile?.displayName?.trim() ||
+        detail.profile?.email?.trim() ||
+        "Business";
       const targetStatus = simConfirmStep.targetStatus;
-      const stageStatuses =
-        targetStatus === "in_progress" || targetStatus === "picked_up"
-          ? ["in_progress", "picked_up", "pickup"]
-          : [targetStatus];
+      const savingPickup =
+        targetStatus === "in_progress" || targetStatus === "picked_up";
+      // Re-saving Pickup while already on Pickup must revoke back to Assigned,
+      // not to the same status.
+      const fromStatus =
+        savingPickup &&
+        (currentStatus === "in_progress" ||
+          currentStatus === "picked_up" ||
+          currentStatus === "pickup")
+          ? "assigned"
+          : currentStatus;
+      const stageStatuses = savingPickup
+        ? ["in_progress", "picked_up", "pickup"]
+        : [targetStatus];
+      // One simulate → one live BISIM for this stage. Clear prior active lines
+      // first so a re-save does not stack duplicate badges.
+      const notesAfterClear = clearUnrevokedBisimStatuses(
+        trip.notes,
+        stageStatuses,
+        {
+          userName,
+          toStatus: fromStatus,
+          at: new Date().toISOString(),
+          lat: pin.lat,
+          lng: pin.lng,
+        },
+      );
       const notes = alignUnrevokedBisimTimestamps(
         ensureBisimTimestampForStatus(
           appendBisimNote({
-            existingNotes: trip.notes,
+            existingNotes: notesAfterClear,
             targetStatus,
-            fromStatus: String(trip.status ?? "").trim().toLowerCase(),
+            fromStatus,
             userName,
             lat: pin.lat,
             lng: pin.lng,
@@ -4949,10 +5048,11 @@ export default function TripDetailScreen({
       const { error, cancelled, trip: updatedTrip } = await simulateBusinessTripStage({
         tripId: trip.id,
         targetStatus: simConfirmStep.targetStatus,
-        fromStatus: String(trip.status ?? "").trim().toLowerCase(),
+        fromStatus,
         notes,
         // Same instant for BISIM notes + started_at / completed_at — never click-time.
-        startedAt: simConfirmStep.writeStartedAt ? eventAt : undefined,
+        startedAt:
+          simConfirmStep.writeStartedAt || savingPickup ? eventAt : undefined,
         completedAt: simConfirmStep.writeCompletedAt ? eventAt : undefined,
         signal: abort.signal,
       });
@@ -5026,7 +5126,11 @@ export default function TripDetailScreen({
 
       notifyTripChatMessagesChanged();
 
-      const userName = detail.profile?.full_name?.trim() || "Business";
+      const userName =
+        detail.profile?.full_name?.trim() ||
+        detail.profile?.displayName?.trim() ||
+        detail.profile?.email?.trim() ||
+        "Business";
       const loc = detail.driverLocation;
       const revokeLat = loc?.latitude ?? lastSimulatedTransition.lat ?? "";
       const revokeLng = loc?.longitude ?? lastSimulatedTransition.lng ?? "";
@@ -7688,46 +7792,61 @@ export default function TripDetailScreen({
                                   {expanded && log.stepKey === "in_transit" ? (
                                     <ManifestDriverPingList pings={manifestDriverPings} />
                                   ) : null}
-                                  {/* Business simulation log badges */}
-                                  {stepSimLogs.map((sim, si) => (
-                                    <View
-                                      key={si}
-                                      style={[
-                                        neoStyles.simLogBadge,
-                                        isMobile && neoStyles.simLogBadgeMobile,
-                                      ]}
-                                    >
-                                      <Feather
-                                        name="zap"
-                                        size={10}
-                                        color={Theme.warning}
-                                      />
-                                      <View style={{ flex: 1, minWidth: 0 }}>
-                                        <Text
-                                          style={[
-                                            neoStyles.simLogBadgeText,
-                                            isMobile &&
-                                              neoStyles.simLogBadgeTextMobile,
-                                          ]}
-                                        >
-                                          Business simulated · {sim.userName}
-                                        </Text>
-                                        {(log.atIso || sim.timestamp) ? (
+                                  {/* Skip the yellow badge when history already
+                                      records this simulation — one entry only. */}
+                                  {(() => {
+                                    const sim = stepSimLogs[stepSimLogs.length - 1];
+                                    if (!sim) return null;
+                                    const historyAlreadyShowsSim = (
+                                      log.history ?? []
+                                    ).some((line) =>
+                                      String(line.action ?? "")
+                                        .toLowerCase()
+                                        .includes("simulated"),
+                                    );
+                                    if (historyAlreadyShowsSim) return null;
+                                    const badgeAt =
+                                      log.stepKey === "pickup" ||
+                                      log.stepKey === "in_transit"
+                                        ? log.atIso || sim.timestamp
+                                        : sim.timestamp || log.atIso;
+                                    return (
+                                      <View
+                                        style={[
+                                          neoStyles.simLogBadge,
+                                          isMobile && neoStyles.simLogBadgeMobile,
+                                        ]}
+                                      >
+                                        <Feather
+                                          name="zap"
+                                          size={10}
+                                          color={Theme.warning}
+                                        />
+                                        <View style={{ flex: 1, minWidth: 0 }}>
                                           <Text
                                             style={[
-                                              neoStyles.simLogBadgeTime,
+                                              neoStyles.simLogBadgeText,
                                               isMobile &&
-                                                neoStyles.simLogBadgeTimeMobile,
+                                                neoStyles.simLogBadgeTextMobile,
                                             ]}
                                           >
-                                            {formatTrackingDateTime(
-                                              log.atIso || sim.timestamp,
-                                            )}
+                                            Business simulated · {sim.userName}
                                           </Text>
-                                        ) : null}
+                                          {badgeAt ? (
+                                            <Text
+                                              style={[
+                                                neoStyles.simLogBadgeTime,
+                                                isMobile &&
+                                                  neoStyles.simLogBadgeTimeMobile,
+                                              ]}
+                                            >
+                                              {formatTrackingDateTime(badgeAt)}
+                                            </Text>
+                                          ) : null}
+                                        </View>
                                       </View>
-                                    </View>
-                                  ))}
+                                    );
+                                  })()}
                                 </View>
                               </TouchableOpacity>
                             </View>

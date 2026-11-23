@@ -2,6 +2,7 @@ import { formatTrackingDateTime } from "@/features/trips/utils/formatTrackingTim
 import type { TripAssignmentAuditRow } from "@/features/trips/services/trip-assignment-audit.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import {
+  resolvePickupReferenceIso,
   resolveTripAssignedAtIso,
   unrevokedBisimEntries,
 } from "@/features/trips/utils/simulateTripStage.util";
@@ -44,6 +45,8 @@ export type ManifestSimLogEntry = {
   userName: string;
   /** Place name shown in the simulate dialog. */
   locationLabel?: string | null;
+  /** Wall-clock of the save, when the note recorded it. */
+  editedAt?: string | null;
 };
 
 export type ManifestLocationPing = {
@@ -73,6 +76,42 @@ function pickLatestSim(
 ): ManifestSimLogEntry | null {
   const matches = simLogs.filter((e) => statuses.includes(e.status));
   return matches.length > 0 ? matches[matches.length - 1]! : null;
+}
+
+function latestStatusEdit(
+  rows:
+    | ReadonlyArray<{
+        status_to: string;
+        changed_by: string | null;
+        changed_at: string;
+      }>
+    | undefined,
+  statuses: readonly string[],
+): { changed_by: string | null; changed_at: string } | null {
+  const want = new Set(statuses.map((status) => status.toLowerCase()));
+  let best: { changed_by: string | null; changed_at: string } | null = null;
+  let bestMs = -Infinity;
+  for (const row of rows ?? []) {
+    if (!want.has(String(row.status_to ?? "").trim().toLowerCase())) continue;
+    const ms = new Date(row.changed_at).getTime();
+    if (!Number.isFinite(ms) || ms < bestMs) continue;
+    bestMs = ms;
+    best = { changed_by: row.changed_by, changed_at: row.changed_at };
+  }
+  return best;
+}
+
+/** Prefer the wall-clock of the save; never invent "now" here. */
+function lastEditAtIso(
+  ...candidates: Array<string | null | undefined>
+): string | null {
+  for (const iso of candidates) {
+    const value = iso?.trim();
+    if (!value) continue;
+    if (!Number.isFinite(new Date(value).getTime())) continue;
+    return value;
+  }
+  return null;
 }
 
 function locationFromSim(
@@ -541,14 +580,9 @@ function assignmentHistoryLine(
   return {
     atIso: row.changed_at,
     time: formatTrackingDateTime(row.changed_at),
+    // This row's actor only. A later assigner must not be written onto an earlier edit.
     actor: actorLabel({
-      userIds: isDriverEvent
-        ? [row.changed_by, row.driver_id_new]
-        : [
-            row.changed_by,
-            names.tripAssignedByUserId,
-            names.tripCreatedByUserId,
-          ],
+      userIds: isDriverEvent ? [row.changed_by, row.driver_id_new] : [row.changed_by],
       actorNameById: names.actorNameById,
       currentUserId: names.currentUserId,
       staffDisplayName: names.staffDisplayName,
@@ -558,6 +592,18 @@ function assignmentHistoryLine(
     }),
     action: bits.join(" · "),
   };
+}
+
+function latestByTime<T extends { changed_at: string }>(rows: readonly T[]): T | null {
+  let best: T | null = null;
+  let bestMs = -Infinity;
+  for (const row of rows) {
+    const ms = new Date(row.changed_at).getTime();
+    if (!Number.isFinite(ms) || ms < bestMs) continue;
+    best = row;
+    bestMs = ms;
+  }
+  return best;
 }
 
 function formatManifestHistoryLine(line: ManifestJourneyHistoryLine): string {
@@ -595,6 +641,12 @@ export function buildManifestJourneyLogs(input: {
   currentUserId?: string | null;
   staffDisplayName?: string | null;
   driverDisplayName?: string | null;
+  /** Status saves. The latest row for a stage is who last edited it, and when. */
+  statusAuditRows?: ReadonlyArray<{
+    status_to: string;
+    changed_by: string | null;
+    changed_at: string;
+  }>;
 }): ManifestJourneyLogEntry[] {
   const tr = input.trip;
   const simLogs = input.simLogs ?? [];
@@ -605,6 +657,17 @@ export function buildManifestJourneyLogs(input: {
   const statusLc = (tr.status ?? "").toLowerCase();
 
   const assignedAtIso: string | null = resolveTripAssignedAtIso(tr, audits);
+  const assignmentEdits = audits.filter((row) => {
+    const ev = String(row.event_type ?? "").trim().toLowerCase();
+    return ev === "assignment" || ev === "reassignment" || ev === "";
+  });
+  const acceptanceEdits = audits.filter((row) => {
+    const ev = String(row.event_type ?? "").trim().toLowerCase();
+    return ev === "driver_accepted" || ev === "accepted";
+  });
+  const lastAssignmentEdit = latestByTime(assignmentEdits);
+  const lastAcceptanceEdit = latestByTime(acceptanceEdits);
+  const assignedEditAt = lastAssignmentEdit?.changed_at ?? assignedAtIso;
 
   const driverAcceptedAtIso: string | null = resolveDriverAcceptanceAt({
     trip: tr,
@@ -644,7 +707,45 @@ export function buildManifestJourneyLogs(input: {
 
   const assignedSim = pickLatestSim(simLogs, ["pending_acceptance", "assigned"]);
   const pickupSim = pickLatestSim(simLogs, ["in_progress", "picked_up", "pickup"]);
+  const pickupAtIso = resolvePickupReferenceIso(tr);
+  const pickupAudit = pickupSim
+    ? latestStatusEdit(input.statusAuditRows, ["in_progress", "picked_up", "pickup"])
+    : null;
+  const storedPickupEditor = pickupSim?.userName?.trim() || "";
+  const pickupEditor =
+    storedPickupEditor && storedPickupEditor !== "Business"
+      ? storedPickupEditor
+      : actorLabel({
+          userIds: [pickupAudit?.changed_by],
+          actorNameById: input.actorNameById,
+          currentUserId: input.currentUserId,
+          staffDisplayName: input.staffDisplayName,
+        }) || storedPickupEditor;
   const transitSim = pickLatestSim(simLogs, ["in_transit"]);
+  const transitAudit = transitSim
+    ? latestStatusEdit(input.statusAuditRows, ["in_transit"])
+    : null;
+  // Right side = simulated picker clock. History line = actual last-edit clock.
+  const pickupShownAt = lastEditAtIso(pickupAtIso, pickupSim?.timestamp);
+  const transitShownAt = lastEditAtIso(transitSim?.timestamp);
+  const pickupEditedAt = lastEditAtIso(
+    pickupSim?.editedAt,
+    pickupAudit?.changed_at,
+  );
+  const transitEditedAt = lastEditAtIso(
+    transitSim?.editedAt,
+    transitAudit?.changed_at,
+  );
+  const storedTransitEditor = transitSim?.userName?.trim() || "";
+  const transitEditor =
+    storedTransitEditor && storedTransitEditor !== "Business"
+      ? storedTransitEditor
+      : actorLabel({
+          userIds: [transitAudit?.changed_by],
+          actorNameById: input.actorNameById,
+          currentUserId: input.currentUserId,
+          staffDisplayName: input.staffDisplayName,
+        }) || storedTransitEditor;
   const dropSim = pickLatestSim(simLogs, ["at_drop"]);
   const deliveredSim = pickLatestSim(simLogs, ["completed", "delivered", "done"]);
   const pickupPlace = (tr.pickup_area ?? "").trim() || null;
@@ -654,8 +755,8 @@ export function buildManifestJourneyLogs(input: {
     {
       stepKey: "assigned",
       status: "Assigned",
-      atIso: assignedAtIso,
-      time: assignedAtIso ? formatTrackingDateTime(assignedAtIso) : "—",
+      atIso: assignedEditAt,
+      time: assignedEditAt ? formatTrackingDateTime(assignedEditAt) : "—",
       location: resolveStepLocation(
         [
           locationFromSim(assignedSim, simLocationByKey),
@@ -701,7 +802,7 @@ export function buildManifestJourneyLogs(input: {
             geocodeLabel: acceptGeocodeLabel ?? latestDriverLabel,
             fallback: "Driver location pending",
           });
-      const acceptAt = driverAcceptedAtIso;
+      const acceptAt = lastAcceptanceEdit?.changed_at ?? driverAcceptedAtIso;
       return {
         stepKey: "driver_accepted" as const,
         status: pending ? "Awaiting Driver Acceptance" : "Driver Accepted",
@@ -716,20 +817,16 @@ export function buildManifestJourneyLogs(input: {
     {
       stepKey: "pickup",
       status: "Pickup",
-      // started_at is the picker / operational Pickup instant — prefer it over
-      // a BISIM line that may still carry the simulate-click wall clock.
-      atIso: tr.started_at ?? pickupSim?.timestamp ?? null,
-      time:
-        tr.started_at ?? pickupSim?.timestamp
-          ? formatTrackingDateTime(tr.started_at ?? pickupSim!.timestamp)
-          : "—",
+      // Simulated stage clock (picker / resolvePickupReferenceIso).
+      atIso: pickupShownAt,
+      time: pickupShownAt ? formatTrackingDateTime(pickupShownAt) : "—",
       location: resolveStepLocation(
         [
           simShownPlace(pickupSim, pickupPlace),
           pickupSim ? null : locationFromSim(pickupSim, simLocationByKey),
           pickupSim
             ? null
-            : locationFromPing(pings, tr.started_at ?? null),
+            : locationFromPing(pings, pickupShownAt),
           pickupSim ? null : latestDriverLabel,
           tr.pickup_area,
         ],
@@ -741,17 +838,15 @@ export function buildManifestJourneyLogs(input: {
     {
       stepKey: "in_transit",
       status: "In-Transit",
+      // Simulated stage clock. A GPS ping is not an edit; Pickup's started_at
+      // must not be copied here.
       atIso:
-        transitSim?.timestamp ??
-        input.driverLocation?.recorded_at ??
-        tr.started_at ??
-        tr.updated_at ??
-        null,
+        transitShownAt ??
+        (transitSim ? null : input.driverLocation?.recorded_at ?? null),
       time: (() => {
         const iso =
-          transitSim?.timestamp ??
-          input.driverLocation?.recorded_at ??
-          tr.started_at;
+          transitShownAt ??
+          (transitSim ? null : input.driverLocation?.recorded_at ?? null);
         return iso ? formatTrackingDateTime(iso) : "—";
       })(),
       location: resolveStepLocation(
@@ -896,56 +991,51 @@ export function buildManifestJourneyLogs(input: {
     });
   }
 
+  const lastPickupEdit = (() => {
+    if (!pickupSim && !pickupShownAt) return null;
+    // Under the stage: last editor + actual save time — not the picker clock.
+    const editedAt =
+      pickupEditedAt ?? pickupShownAt ?? pickupSim?.timestamp ?? null;
+    if (!editedAt) return null;
+    return {
+      atIso: editedAt,
+      time: formatTrackingDateTime(editedAt),
+      actor: pickupSim ? pickupEditor : "",
+      action: pickupSim
+        ? pickupSim.locationLabel?.trim()
+          ? `Simulated in progress · ${pickupSim.locationLabel.trim()}`
+          : "Simulated in progress"
+        : "Pickup started",
+    };
+  })();
+  const lastTransitEdit = (() => {
+    if (!transitSim) return null;
+    const editedAt = transitEditedAt ?? transitShownAt;
+    if (!editedAt) return null;
+    return {
+      atIso: editedAt,
+      time: formatTrackingDateTime(editedAt),
+      actor: transitEditor,
+      action: transitSim.locationLabel?.trim()
+        ? `Simulated in transit · ${transitSim.locationLabel.trim()}`
+        : "Simulated in transit",
+    };
+  })();
+
   const historyByStep: Record<ManifestJourneyStepKey, ManifestJourneyHistoryLine[]> = {
     assigned: sortHistory([
-      ...auditHistory.filter((l) => !l.action.startsWith("Driver accepted")),
+      ...auditHistory.filter((line) => !line.action.startsWith("Driver accepted")),
       ...fallbackAssigned,
       ...simHistory(["pending_acceptance", "assigned"]),
     ]),
     driver_accepted: sortHistory([
-      ...auditHistory,
-      ...fallbackAssigned,
-      ...acceptHistoryExtra,
-      ...simHistory(["assigned"]),
+      ...auditHistory.filter((line) => line.action.startsWith("Driver accepted")),
+      ...(acceptanceEdits.length === 0 ? acceptHistoryExtra : []),
+      ...(acceptanceEdits.length === 0 ? simHistory(["assigned"]) : []),
     ]),
-    pickup: sortHistory([
-      ...(tr.started_at
-        ? [
-            {
-              atIso: tr.started_at,
-              time: formatTrackingDateTime(tr.started_at),
-              actor: driver,
-              action: "Pickup started",
-            },
-          ]
-        : []),
-      // Align "Simulated in progress" with started_at (manual picker), not click-time.
-      ...simHistory(["in_progress", "picked_up", "pickup"]).map((line) =>
-        tr.started_at
-          ? {
-              ...line,
-              atIso: tr.started_at,
-              time: formatTrackingDateTime(tr.started_at),
-            }
-          : line,
-      ),
-    ]),
+    pickup: sortHistory(lastPickupEdit ? [lastPickupEdit] : []),
     loading: [],
-    in_transit: sortHistory([
-      ...simHistory(["in_transit"]),
-      ...(input.driverLocation?.recorded_at
-        ? [
-            {
-              atIso: input.driverLocation.recorded_at,
-              time: formatTrackingDateTime(input.driverLocation.recorded_at),
-              actor: driver,
-              action: latestDriverLabel
-                ? `Last GPS · ${latestDriverLabel}`
-                : "Last GPS update",
-            },
-          ]
-        : []),
-    ]),
+    in_transit: sortHistory(lastTransitEdit ? [lastTransitEdit] : []),
     drop_off: sortHistory(simHistory(["at_drop"])),
     unloading: [],
     delivered: sortHistory([

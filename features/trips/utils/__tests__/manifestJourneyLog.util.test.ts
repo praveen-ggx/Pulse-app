@@ -101,14 +101,17 @@ describe("manifest journey simulation flow", () => {
       actorNameById: { "staff-1": "Meena" },
       driverDisplayName: "Imran",
     });
-    const accepted = logs.find((row) => row.stepKey === "driver_accepted");
-    expect(accepted?.history?.map((line) => line.action)).toEqual(
+    const assigned = logs.find((row) => row.stepKey === "assigned");
+    expect(assigned?.atIso).toBe("2026-08-13T06:00:00.000Z");
+    expect(assigned?.history?.map((line) => line.action)).toEqual(
       expect.arrayContaining([
         "Assigned · driver Ravi · vehicle TN 01 AB 1234",
         "Reassigned · driver Ravi → Imran · vehicle TN 01 AB 1234",
       ]),
     );
-    expect(accepted?.history?.[0]?.actor).toBe("Meena");
+    expect(assigned?.history?.map((line) => line.actor)).toEqual(["Meena", "Meena"]);
+    const accepted = logs.find((row) => row.stepKey === "driver_accepted");
+    expect(accepted?.history?.map((line) => line.action) ?? []).toEqual([]);
   });
 
   it("never substitutes the viewing member's name or a generic Staff label", () => {
@@ -161,11 +164,8 @@ describe("manifest journey simulation flow", () => {
     const assigned = logs.find((row) => row.stepKey === "assigned");
     const actors = (assigned?.history ?? []).map((line) => line.actor);
     expect(actors).toContain("Nihas");
-    // Missing changed_by falls through to the resolved trip assigner (audit),
-    // not the viewing member and not a generic Staff label.
-    expect(actors.every((name) => name === "Nihas" || name === "Meena Creator")).toBe(
-      true,
-    );
+    // A row with no changed_by stays blank. It does not borrow another person.
+    expect(actors.every((name) => name === "Nihas" || name === "")).toBe(true);
     expect(actors).not.toContain("Staff");
     expect(actors).not.toContain("Praveen Viewer");
     const pickup = logs.find((row) => row.stepKey === "pickup");
@@ -348,6 +348,235 @@ describe("manifest journey simulation flow", () => {
     );
     expect(visible.some((row) => row.stepKey === "in_transit")).toBe(false);
     expect(visible[visible.length - 1]?.stepKey).toBe("pickup");
+  });
+
+  it("shows a Pickup re-saved after revoke instead of the previous started_at", () => {
+    const revisedPickup = "2026-11-05T04:30:00.000Z";
+    const transitAt = "2026-11-05T04:36:00.000Z";
+    const tripRow = {
+      ...trip,
+      status: "in_transit",
+      started_at: "2026-11-10T08:00:00.000Z",
+      updated_at: "2026-11-18T02:20:00.000Z",
+      notes: [
+        "[BISIM|in_progress|2026-11-10T08:00:00.000Z|1|2|Ops|assigned|Pickup]",
+        "[BISIM_REVOKE|in_transit|in_progress|2026-11-12T10:00:00.000Z|1|2|Ops]",
+        `[BISIM|in_progress|${revisedPickup}|1|2|Ops|assigned|Pickup]`,
+        `[BISIM|in_transit|${transitAt}|1|2|Ops|in_progress|Route]`,
+      ].join("\n"),
+    } as TripRow;
+    const logs = buildManifestJourneyLogs({
+      trip: tripRow,
+      assignmentAuditRows: [],
+      simLogs: [
+        {
+          status: "in_progress",
+          timestamp: "2026-11-10T08:00:00.000Z",
+          lat: null,
+          lng: null,
+          userName: "Ops",
+          locationLabel: "Old pickup",
+        },
+        {
+          status: "in_progress",
+          timestamp: revisedPickup,
+          lat: null,
+          lng: null,
+          userName: "Ops",
+          locationLabel: "Perambra",
+        },
+        {
+          status: "in_transit",
+          timestamp: transitAt,
+          lat: null,
+          lng: null,
+          userName: "Ops",
+          locationLabel: "Perambra",
+        },
+      ],
+    });
+    expect(logs.find((row) => row.stepKey === "pickup")?.atIso).toBe(revisedPickup);
+    expect(
+      logs
+        .find((row) => row.stepKey === "pickup")
+        ?.history?.every((line) => line.atIso === revisedPickup),
+    ).toBe(true);
+    expect(logs.find((row) => row.stepKey === "in_transit")?.atIso).toBe(transitAt);
+    expect(
+      logs.find((row) => row.stepKey === "in_transit")?.history?.some(
+        (line) => line.atIso === transitAt,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps each stage's last editor and time independent", () => {
+    const logs = buildManifestJourneyLogs({
+      trip: {
+        ...trip,
+        status: "in_transit",
+        driver_id: "driver-1",
+        started_at: "2026-11-10T09:10:00.000Z",
+        updated_at: "2026-11-20T09:25:00.000Z",
+        assigned_by_user_id: "jeeva",
+        created_by_user_id: "smk",
+      } as TripRow,
+      assignmentAuditRows: [
+        {
+          id: "a1",
+          trip_id: "t1",
+          event_type: "assignment",
+          driver_id_prev: null,
+          driver_id_new: "driver-1",
+          vehicle_id_prev: null,
+          vehicle_id_new: null,
+          changed_at: "2026-11-11T15:27:00.000Z",
+          changed_by: "smk",
+        },
+        {
+          id: "a2",
+          trip_id: "t1",
+          event_type: "reassignment",
+          driver_id_prev: "driver-1",
+          driver_id_new: "driver-1",
+          vehicle_id_prev: null,
+          vehicle_id_new: null,
+          changed_at: "2026-11-11T15:49:00.000Z",
+          changed_by: "jeeva",
+        },
+        {
+          id: "a3",
+          trip_id: "t1",
+          event_type: "driver_accepted",
+          driver_id_prev: "driver-1",
+          driver_id_new: "driver-1",
+          vehicle_id_prev: null,
+          vehicle_id_new: null,
+          changed_at: "2026-11-11T16:05:00.000Z",
+          changed_by: "driver-1",
+        },
+      ],
+      actorNameById: {
+        smk: "SMK LOGISTICS",
+        jeeva: "Jeeva",
+        "driver-1": "SELVARAJU S",
+      },
+      driverNames: { "driver-1": "SELVARAJU S" },
+      driverDisplayName: "SELVARAJU S",
+      simLogs: [
+        {
+          status: "in_progress",
+          timestamp: "2026-11-10T09:10:00.000Z",
+          userName: "Satham Hussain",
+          locationLabel: "Perambra, Kerala",
+        },
+        {
+          status: "in_transit",
+          timestamp: "2026-11-10T12:25:00.000Z",
+          userName: "Satham Hussain",
+          locationLabel: "Perambra, Kerala",
+        },
+      ],
+    });
+    const assigned = logs.find((row) => row.stepKey === "assigned");
+    const accepted = logs.find((row) => row.stepKey === "driver_accepted");
+    const pickup = logs.find((row) => row.stepKey === "pickup");
+    const transit = logs.find((row) => row.stepKey === "in_transit");
+
+    expect(assigned?.atIso).toBe("2026-11-11T15:49:00.000Z");
+    expect(assigned?.history?.at(-1)).toMatchObject({
+      actor: "Jeeva",
+      atIso: "2026-11-11T15:49:00.000Z",
+    });
+    expect(assigned?.history?.[0]).toMatchObject({
+      actor: "SMK LOGISTICS",
+      atIso: "2026-11-11T15:27:00.000Z",
+    });
+
+    expect(accepted?.atIso).toBe("2026-11-11T16:05:00.000Z");
+    expect(accepted?.history).toEqual([
+      expect.objectContaining({
+        actor: "SELVARAJU S",
+        atIso: "2026-11-11T16:05:00.000Z",
+      }),
+    ]);
+
+    expect(pickup?.atIso).toBe("2026-11-10T09:10:00.000Z");
+    expect(pickup?.history).toEqual([
+      expect.objectContaining({
+        actor: "Satham Hussain",
+        atIso: "2026-11-10T09:10:00.000Z",
+      }),
+    ]);
+    expect(transit?.atIso).toBe("2026-11-10T12:25:00.000Z");
+    expect(transit?.history).toEqual([
+      expect.objectContaining({
+        actor: "Satham Hussain",
+        atIso: "2026-11-10T12:25:00.000Z",
+      }),
+    ]);
+  });
+
+  it("shows simulated time on the right and actual last-edit time under the stage", () => {
+    const pickupStageAt = "2026-11-14T10:33:00.000Z";
+    const transitStageAt = "2026-11-17T06:43:00.000Z";
+    const pickupSavedAt = "2026-11-23T07:08:20.000Z";
+    const transitSavedAt = "2026-11-23T07:10:00.000Z";
+    const notes = [
+      "[BISIM_REVOKE|in_transit|in_progress|2026-11-23T07:08:00.000Z|||Satham Hussain]",
+      `[BISIM|in_progress|${pickupStageAt}|9.93|76.26|Satham Hussain|assigned|Perambra, Kerala|${pickupSavedAt}]`,
+      `[BISIM|in_transit|${transitStageAt}|9.93|76.26|Satham Hussain|in_progress|Perambra, Kerala|${transitSavedAt}]`,
+    ].join("\n");
+    const logs = buildManifestJourneyLogs({
+      trip: {
+        ...trip,
+        status: "in_transit",
+        started_at: pickupStageAt,
+        updated_at: transitSavedAt,
+        notes,
+      } as TripRow,
+      assignmentAuditRows: [],
+      actorNameById: { satham: "Satham Hussain" },
+      simLogs: [
+        {
+          status: "in_progress",
+          timestamp: pickupStageAt,
+          userName: "Satham Hussain",
+          locationLabel: "Perambra, Kerala",
+          editedAt: pickupSavedAt,
+        },
+        {
+          status: "in_transit",
+          timestamp: transitStageAt,
+          userName: "Business",
+          locationLabel: "Perambra, Kerala",
+          editedAt: transitSavedAt,
+        },
+      ],
+      statusAuditRows: [
+        {
+          status_to: "in_progress",
+          changed_by: "satham",
+          changed_at: pickupSavedAt,
+        },
+        {
+          status_to: "in_transit",
+          changed_by: "satham",
+          changed_at: transitSavedAt,
+        },
+      ],
+    });
+    const pickup = logs.find((row) => row.stepKey === "pickup");
+    const transit = logs.find((row) => row.stepKey === "in_transit");
+    expect(pickup?.atIso).toBe(pickupStageAt);
+    expect(pickup?.history?.[0]).toMatchObject({
+      actor: "Satham Hussain",
+      atIso: pickupSavedAt,
+    });
+    expect(transit?.atIso).toBe(transitStageAt);
+    expect(transit?.history?.[0]).toMatchObject({
+      actor: "Satham Hussain",
+      atIso: transitSavedAt,
+    });
   });
 
   it("does not treat Pickup started_at as Driver Accepted", () => {

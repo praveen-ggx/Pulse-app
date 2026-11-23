@@ -168,6 +168,17 @@ A second, orthogonal RBAC axis layered on top of the operating model above. Owne
 
 > **App-side only — not a security boundary.** Sourcing is the coarse role `member`, which `is_org_staff()` accepts, so the database lets a Sourcing login read and write every indent, trip, bid, rate, finance row and trip document in the org, exactly like Sales — the client / warehouse scope and every hidden field are enforced only in the app. A direct API call bypasses them. Database enforcement needs a separate, migration-backed change (see the 29 Oct 2026 RBAC audit).
 
+## RBM (view-only oversight preset)
+
+`platformRole: "rbm"`, stored as `organization_members.role = "member"`. Read-only across Sales, TripOps, Finance and Compliance: clients / suppliers / indents / trips (list + detail), Finance view with Cash, Customers and Suppliers sub-tabs and ledgers, Compliance documents, settlement state and all stage tabs, and vehicles / drivers (list + analytics, no create / edit / invite / assign).
+
+| Aspect | Rule |
+|--------|------|
+| Never granted | Advance / final payment, advance / settlement verification, document verify, mark verified, resubmit, Finance reject, POD manage, `finance.manage`, add / edit / void transaction, expense approve, any create / edit / award / assign / cancel, team and workspace settings. |
+| Tests | `lib/__tests__/rbac.rbmPreset.test.ts` |
+
+> **App-side only — not a security boundary** (same as Sourcing). Not a Department Manager department.
+
 ## Department Manager (surface-only delegation)
 
 A narrow, opt-in delegation on top of the owner-only model — the owner can let a member manage the other members of their own department, without becoming an org admin. Same mechanism for every department.

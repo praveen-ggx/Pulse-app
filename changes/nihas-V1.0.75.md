@@ -14,10 +14,13 @@ Branched from V1 `016e3239`+`5b4885eb` (after #152, #153) on 2026-11-23.
 - changes/nihas-V1.0.71.md, nihas-V1.0.72.md, nihas-V1.0.73.md
 
 ## Migrations
-None new (the set points at `20271123063000`). Prod apply still needs the Jest pin test and Vasanth's go.
+None new (the set points at `20271123063000`). Prod apply still needs Vasanth's go.
 
 ## Tested
 - Set checksum matches the migration file.
 
 ## Not tested
-- The set has not been dry-run or applied. No Jest pin test yet.
+- The set has not been dry-run or applied.
+
+## Also
+- Added `supabase/migrations/__tests__/releaseStaleDriverPhoneRowSet.test.ts` pinning the set (list, order, checksum, exclusions). Tested: 4 of 4 pass.

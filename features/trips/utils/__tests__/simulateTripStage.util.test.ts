@@ -2,6 +2,7 @@ import {
   alignSimCompletionIsoToMin,
   alignUnrevokedBisimTimestamps,
   appendBisimNote,
+  clearUnrevokedBisimStatuses,
   clampSimCompletionPickerValue,
   ensureBisimTimestampForStatus,
   formatSimCompletionInput,
@@ -12,7 +13,9 @@ import {
   hour12To24,
   hour24To12,
   parseSimCompletionPickerValue,
+  parseTripSimulationNotes,
   resolveAutoSimCompletionIso,
+  pickupRevisionPendingAfterRevoke,
   resolvePickupReferenceIso,
   toSimCompletionPickerValue,
   resolveSimulateStageCoordinate,
@@ -46,6 +49,37 @@ describe("simulateTripStage", () => {
     ]);
   });
 
+  it("keeps a stage simulated again after it was revoked", () => {
+    const previous = "2026-11-12T04:20:00.000Z";
+    const selected = "2026-11-10T12:25:00.000Z";
+    const notes = [
+      `[BISIM|in_progress|2026-11-10T09:10:00.000Z|1|2|Saravanan|assigned|Perambra]`,
+      `[BISIM|in_transit|${previous}|1|2|Saravanan|in_progress|Perambra]`,
+      "[BISIM_REVOKE|in_transit|in_progress|2026-11-20T09:00:00.000Z|1|2|Ops]",
+      `[BISIM|in_transit|${selected}|1|2|Ops|in_progress|Perambra]`,
+    ].join("\n");
+    const live = unrevokedBisimEntries(notes);
+    expect(live.map((row) => row.status)).toEqual(["in_progress", "in_transit"]);
+    expect(live.find((row) => row.status === "in_transit")?.timestamp).toBe(selected);
+    expect(live.some((row) => row.timestamp === previous)).toBe(false);
+  });
+
+  it("keeps who revoked, including a name that contains a pipe", () => {
+    const { revokes } = parseTripSimulationNotes(
+      [
+        "[BISIM_REVOKE|in_transit|in_progress|2026-11-20T06:14:00.000Z|1|2|Saravanan]",
+        "[BISIM_REVOKE|in_progress|assigned|2026-11-20T06:20:00.000Z|||Ground Ops]",
+      ].join("\n"),
+    );
+    expect(revokes[0]).toMatchObject({
+      fromStatus: "in_transit",
+      toStatus: "in_progress",
+      timestamp: "2026-11-20T06:14:00.000Z",
+      userName: "Saravanan",
+    });
+    expect(revokes[1]?.userName).toBe("Ground Ops");
+  });
+
   it("uses drop coords for arrival and completion", () => {
     expect(simulateStageStopTarget("at_drop")).toBe("drop");
     expect(simulateStageStopTarget("completed")).toBe("drop");
@@ -64,6 +98,57 @@ describe("simulateTripStage", () => {
     ).toEqual({ lat: 15.139, lng: 76.921 });
   });
 
+  it("clears prior active sims so a stage re-save leaves one live entry", () => {
+    const first = appendBisimNote({
+      existingNotes: null,
+      targetStatus: "in_progress",
+      fromStatus: "assigned",
+      userName: "Ops",
+      lat: 9.93,
+      lng: 76.26,
+      at: "2026-11-12T04:20:00.000Z",
+      locationLabel: "Perambra",
+    });
+    const secondStacked = appendBisimNote({
+      existingNotes: first,
+      targetStatus: "in_progress",
+      fromStatus: "assigned",
+      userName: "Ops",
+      lat: 9.93,
+      lng: 76.26,
+      at: "2026-11-10T09:10:00.000Z",
+      locationLabel: "Perambra",
+    });
+    expect(
+      unrevokedBisimEntries(secondStacked).filter((row) => row.status === "in_progress"),
+    ).toHaveLength(2);
+
+    const cleared = clearUnrevokedBisimStatuses(
+      secondStacked,
+      ["in_progress", "picked_up", "pickup"],
+      { userName: "Ops", toStatus: "assigned", at: "2026-11-20T09:11:00.000Z" },
+    );
+    expect(cleared).toContain("[BISIM_SUPERSEDE|");
+    expect(cleared).not.toContain("[BISIM_REVOKE|");
+    expect(parseTripSimulationNotes(cleared).revokes).toHaveLength(0);
+    const replaced = appendBisimNote({
+      existingNotes: cleared,
+      targetStatus: "in_progress",
+      fromStatus: "assigned",
+      userName: "Satham Hussain",
+      lat: 9.93,
+      lng: 76.26,
+      at: "2026-11-10T06:34:00.000Z",
+      locationLabel: "Perambra",
+    });
+    const live = unrevokedBisimEntries(replaced).filter(
+      (row) => row.status === "in_progress",
+    );
+    expect(live).toHaveLength(1);
+    expect(live[0]?.timestamp).toBe("2026-11-10T06:34:00.000Z");
+    expect(live[0]?.userName).toBe("Satham Hussain");
+  });
+
   it("appends a BISIM line without dropping prior notes", () => {
     const notes = appendBisimNote({
       existingNotes: "keep me",
@@ -75,7 +160,15 @@ describe("simulateTripStage", () => {
       at: "2026-09-22T10:00:00.000Z",
     });
     expect(notes).toContain("keep me");
-    expect(notes).toContain("[BISIM|at_drop|2026-09-22T10:00:00.000Z|15.139|76.921|Ops|in_transit]");
+    expect(notes).toContain(
+      "[BISIM|at_drop|2026-09-22T10:00:00.000Z|15.139|76.921|Ops|in_transit|",
+    );
+    const saved = unrevokedBisimEntries(notes).at(-1);
+    expect(saved?.timestamp).toBe("2026-09-22T10:00:00.000Z");
+    expect(saved?.userName).toBe("Ops");
+    expect(saved?.editedAt && Number.isFinite(new Date(saved.editedAt).getTime())).toBe(
+      true,
+    );
   });
 
   it("reads the latest simulated pin", () => {
@@ -274,6 +367,89 @@ describe("simulateTripStage", () => {
     );
     expect(fixed).toContain("2026-11-03T12:10:00.000Z");
     expect(fixed).not.toContain("2026-11-02T06:55:00.000Z");
+  });
+
+  it("uses a Pickup saved after revoke instead of the previous started_at", () => {
+    const earlier = "2026-11-05T04:30:00.000Z";
+    const later = "2026-11-18T02:15:00.000Z";
+    const stale = "2026-11-10T08:00:00.000Z";
+    const baseNotes = [
+      `[BISIM|in_progress|${stale}|1|2|Ops|assigned|Pickup]`,
+      "[BISIM|in_transit|2026-11-12T09:30:00.000Z|1|2|Ops|in_progress|Route]",
+      "[BISIM_REVOKE|in_transit|in_progress|2026-11-12T10:00:00.000Z|1|2|Ops]",
+    ];
+    expect(pickupRevisionPendingAfterRevoke(baseNotes.join("\n"), "in_progress")).toBe(
+      true,
+    );
+    expect(pickupRevisionPendingAfterRevoke(baseNotes.join("\n"), "in_transit")).toBe(
+      false,
+    );
+    expect(pickupRevisionPendingAfterRevoke(null, "in_progress")).toBe(false);
+
+    for (const saved of [earlier, later]) {
+      const notes = [
+        ...baseNotes,
+        `[BISIM|in_progress|${saved}|1|2|Ops|assigned|Pickup]`,
+      ].join("\n");
+      const trip = {
+        driver_id: "d1",
+        created_at: "2026-11-01T00:00:00.000Z",
+        updated_at: "2026-11-18T02:15:00.000Z",
+        started_at: stale,
+        completed_at: null,
+        notes,
+      };
+      expect(pickupRevisionPendingAfterRevoke(notes, "in_progress")).toBe(false);
+      expect(resolvePickupReferenceIso(trip)).toBe(saved);
+      const transitMin = resolveSimulateStageMinAt({
+        targetStatus: "in_transit",
+        trip,
+      });
+      expect(transitMin?.toISOString()).toBe(
+        saved === earlier
+          ? "2026-11-05T04:31:00.000Z"
+          : "2026-11-18T02:16:00.000Z",
+      );
+      expect(isSimCompletionAtOrAfterMin(stale, transitMin)).toBe(saved === earlier);
+      expect(isSimCompletionAtOrAfterMin(saved, transitMin)).toBe(false);
+    }
+  });
+
+  it("floors the next stage on the last saved time, not an older later clock time", () => {
+    const notes = [
+      "[BISIM|in_progress|2026-11-01T06:00:00.000Z|1|2|Ops|assigned|Pickup]",
+      "[BISIM|in_transit|2026-11-20T04:00:00.000Z|1|2|Ops|in_progress|Old]",
+      "[BISIM|in_transit|2026-11-02T08:15:00.000Z|1|2|Ops|in_progress|New]",
+    ].join("\n");
+    const dropMin = resolveSimulateStageMinAt({
+      targetStatus: "at_drop",
+      trip: {
+        driver_id: "d1",
+        created_at: "2026-11-01T00:00:00.000Z",
+        updated_at: "2026-11-02T08:15:00.000Z",
+        started_at: "2026-11-01T06:00:00.000Z",
+        completed_at: null,
+        notes,
+      },
+    });
+    expect(dropMin?.toISOString()).toBe("2026-11-02T08:16:00.000Z");
+
+    const withDrop = [
+      notes,
+      "[BISIM|at_drop|2026-11-02T09:00:00.000Z|1|2|Ops|in_transit|Drop]",
+    ].join("\n");
+    const completeMin = resolveSimulateStageMinAt({
+      targetStatus: "completed",
+      trip: {
+        driver_id: "d1",
+        created_at: "2026-11-01T00:00:00.000Z",
+        updated_at: "2026-11-02T09:00:00.000Z",
+        started_at: "2026-11-01T06:00:00.000Z",
+        completed_at: null,
+        notes: withDrop,
+      },
+    });
+    expect(completeMin?.toISOString()).toBe("2026-11-02T09:01:00.000Z");
   });
 });
 

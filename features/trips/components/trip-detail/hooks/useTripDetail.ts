@@ -43,8 +43,10 @@ import { getVehicleDocumentViewUrl, getVehicleDocumentViewUrls, mergeEntityDocum
 import { resolveTripDocumentPreviewUrl } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
 import { getVehicleById, getVehicleForTripViewer, findVehicleByPlate, ensureVehicleForVault } from "@/features/vehicles/services/vehicles.service";
 import { assignedVehiclePlate } from "@/features/trips/utils/tripAssignmentVehicle.util";
+import { resolveDriverAcceptanceAt } from "@/features/trips/utils/manifestJourneyLog.util";
 import {
   parseTripSimulationNotes,
+  resolveTripAssignedAtIso,
   unrevokedBisimEntries,
 } from "@/features/trips/utils/simulateTripStage.util";
 import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
@@ -986,18 +988,28 @@ export function useTripDetail({
         });
       });
     } else if (trip.driver_id || trip.driver_display_name || trip.vehicle_id || trip.vehicle_display_number) {
-      rows.push({
-        kind: "status",
-        id: "status-assigned-fallback",
-        status_label: "Assigned",
-        changed_at: trip.updated_at ?? trip.created_at ?? new Date().toISOString(),
-        status_context: "assigned",
-        actorUserId: trip.assigned_by_user_id ?? trip.created_by_user_id ?? trip.created_by ?? null,
-        detail_line:
-          [trip.driver_display_name, trip.vehicle_display_number].filter(Boolean).join(" · ") ||
-          trip.pickup_area ||
-          "Driver assigned",
-      });
+      // Same instant as the Journey Log. Never `updated_at` — simulate and
+      // revoke bump it and were rewriting Assigned to "now".
+      const assignedAt = resolveTripAssignedAtIso(trip, assignmentAuditRows);
+      if (assignedAt) {
+        rows.push({
+          kind: "status",
+          id: "status-assigned-fallback",
+          status_label: "Assigned",
+          changed_at: assignedAt,
+          status_context: "assigned",
+          actorUserId:
+            trip.assigned_by_user_id ??
+            trip.created_by_user_id ??
+            trip.created_by ??
+            trip.owner_user_id ??
+            null,
+          detail_line:
+            [trip.driver_display_name, trip.vehicle_display_number].filter(Boolean).join(" · ") ||
+            trip.pickup_area ||
+            "Driver assigned",
+        });
+      }
     }
 
     const statusLower = String(trip.status ?? "").toLowerCase();
@@ -1036,20 +1048,20 @@ export function useTripDetail({
       return "Trip update";
     };
 
-    if (
-      !simStatus.has("assigned") &&
-      (trip.status_updated_role === "driver" ||
-        liveSims.length > 0 ||
-        Number(trip.status_revision ?? 0) > 0) &&
-      (trip.updated_at || trip.started_at)
-    ) {
+    const acceptedAt = resolveDriverAcceptanceAt({
+      trip,
+      assignmentAuditRows,
+      locationPings: tripLocationPoints,
+      assignedAtIso: resolveTripAssignedAtIso(trip, assignmentAuditRows),
+    });
+    if (acceptedAt && !simStatus.has("assigned")) {
       rows.push({
         kind: "status",
         id: "status-accepted",
         status_label: "Driver accepted",
-        changed_at: trip.started_at ?? trip.updated_at ?? new Date().toISOString(),
+        changed_at: acceptedAt,
         status_context: "accepted",
-        actorUserId: trip.status_updated_by ?? trip.driver_id ?? null,
+        actorUserId: trip.driver_id ?? trip.status_updated_by ?? null,
         detail_line: trip.pickup_area || "Accepted assignment",
       });
     }
@@ -1062,7 +1074,7 @@ export function useTripDetail({
         status_label: stageLabel(context),
         changed_at: sim.timestamp || trip.updated_at || new Date().toISOString(),
         status_context: context,
-        actorUserId: staffOrDriverId,
+        actorUserId: sim.userName?.trim() || staffOrDriverId,
         detail_line:
           sim.locationLabel ||
           (context === "at_drop" || context === "completed"
@@ -1078,7 +1090,7 @@ export function useTripDetail({
         status_label: "Simulation revoked",
         changed_at: revoke.timestamp || trip.updated_at || new Date().toISOString(),
         status_context: "sim_revoked",
-        actorUserId: staffOrDriverId,
+        actorUserId: revoke.userName?.trim() || staffOrDriverId,
         detail_line: `Reverted ${revoke.fromStatus.replace(/_/g, " ")} → ${revoke.toStatus.replace(/_/g, " ")}`,
       });
     }
@@ -1186,7 +1198,14 @@ export function useTripDetail({
     }
 
     return rows;
-  }, [trip, hardCopyPod, assignmentAuditRows, assignmentDriverNames, assignmentVehicleLabels]);
+  }, [
+    trip,
+    hardCopyPod,
+    assignmentAuditRows,
+    assignmentDriverNames,
+    assignmentVehicleLabels,
+    tripLocationPoints,
+  ]);
 
   // Phase 3b: single-RPC bundle replacing 18-24 serial calls.
   // When ENABLE_TRIP_DETAIL_BUNDLE is true (global), bundleActive is true for all orgs.

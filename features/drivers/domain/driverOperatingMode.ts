@@ -20,7 +20,7 @@ export type DriverOperatingModeKind =
 
 export type DriverOperatingMode = {
   mode: DriverOperatingModeKind;
-  dcoStatus: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+  dcoStatus: 'NONE' | 'PENDING' | 'DOCS_APPROVED' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
   isEmployeeDriver: boolean;
   hasActiveVehicle: boolean;
   marketplaceAllowed: boolean;
@@ -37,6 +37,7 @@ const MODES: readonly DriverOperatingModeKind[] = [
 const DCO_STATUSES: readonly DriverOperatingMode['dcoStatus'][] = [
   'NONE',
   'PENDING',
+  'DOCS_APPROVED',
   'APPROVED',
   'REJECTED',
   'SUSPENDED',

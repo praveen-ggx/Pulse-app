@@ -5,7 +5,17 @@
  */
 import { supabase } from '@/lib/supabase';
 
-export type DcoStatus = 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+/**
+ * DOCS_APPROVED: admin approved, but the driver is still in a fleet. It becomes
+ * APPROVED automatically once they leave (20271123101500). Not a DCO yet.
+ */
+export type DcoStatus =
+  | 'NONE'
+  | 'PENDING'
+  | 'DOCS_APPROVED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'SUSPENDED';
 
 export type DcoProfile = {
   userId: string;
@@ -26,6 +36,7 @@ type DbRow = {
 function mapRow(row: DbRow): DcoProfile {
   const status: DcoStatus =
     row.status === 'PENDING' ||
+    row.status === 'DOCS_APPROVED' ||
     row.status === 'APPROVED' ||
     row.status === 'REJECTED' ||
     row.status === 'SUSPENDED'
@@ -73,4 +84,26 @@ export async function requestDcoStatus(): Promise<{
     return { error: new Error('No DCO profile returned'), profile: null };
   }
   return { error: null, profile: mapRow(data as DbRow) };
+}
+
+/**
+ * Safety net for DOCS_APPROVED: activates DCO status if the caller is no longer
+ * in any fleet (the server normally does this the moment they leave).
+ * Returns the caller's DCO status after the check.
+ */
+export async function activateMyDco(): Promise<{
+  error: Error | null;
+  status: DcoStatus | null;
+}> {
+  const { data, error } = await supabase().rpc('activate_my_dco' as never);
+  if (error) return { error: new Error(error.message), status: null };
+  const raw = typeof data === 'string' ? data : '';
+  const status = mapRow({
+    user_id: '',
+    status: raw,
+    requested_at: '',
+    reviewed_at: null,
+    decision_reason: null,
+  }).status;
+  return { error: null, status };
 }

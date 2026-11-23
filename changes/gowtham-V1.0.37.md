@@ -40,6 +40,7 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - Completed trip map (web): driven path drawn bold (solid orange, white casing) and road-snapped via `routingService` (≤12 points, ≤11 cached calls, 3 at a time; failed/detour gaps stay straight); planned route faded; start / end dots with times; legend (Driven / Planned); map card reads "Trip completed · Driven route shown on map" (or last location / no GPS). Live trips unchanged; native map unchanged.
 - Trip map halts + GPS pings (web), in the existing map colours (orange route, blue planned band, green pickup / amber drop pins unchanged): pings where the driver stayed within 100 m for ≥5 min become one dark halt pill ("25 min"; red dot when > 1 hr; turns orange while its card is open). Every GPS ping is a white bead with a dark-orange ring, always visible (thinned only when dots overlap on screen; hover = time, tap = card with place looked up on tap). Completed trips: green start ring + "Start · time" tag, dark-orange end ring + "End · time" tag, moving gaps with no GPS drawn dashed grey along the road (road-routed like the rest of the path) with "No signal · 40 min" — only on trails that normally ping every ≤ 5 min and only when the gap is ≥ 15 min and ≥ 4× the usual step (sparse 12-ping trails never show it); gap tags hide while they would overlap the start/end tags or a halt, top-left trip card (Completed · date, pickup → drop, time range, Moving / Stopped / GPS pings, collapsible timeline Started → halts → Ended with place names, key). Replaces the earlier top-right legend. Live trips: ping dots restyled to the same bead, halt pills, and a collapsed "Tracked so far" card only when there are halts; dashed line, arrows, ETA box, driver pin unchanged. Completed path builder keeps the last point of a ≥5 min stay so halt length is known. Display only — no tracking, interval or DB change.
 - Fleet invite popup (driver): with two or more pending invites, ‹ 1/2 › arrows in the header switch between offers (newest first). Accept closes the popup and hides the other invites for the session (they stay pending; driver can still decline them; server already refuses a second fleet). Decline shows the next invite. Remind me later still hides all at once. No DB change.
+- DCO: approve first, leave the fleet after. Driver submits while still in a fleet; admin approval sets new status `DOCS_APPROVED` (still employed) or `APPROVED` (not employed). Leaving the fleet by any path flips `DOCS_APPROVED` → `APPROVED` automatically (triggers + `activate_my_dco()` retry). DCO screen steps: Identity → DCO docs → Submit → Leave fleet (unlocks after approval). Driver push on approve / reject / activation (`chat_push_outbox`), app popup "You're approved — leave fleet" (once per app start until they leave) and one-time "You're now a DCO" welcome. Console: "Approved · awaiting fleet exit" badge + filter, "Still in a fleet" note, Reject can withdraw an awaiting approval. Existing approved DCOs untouched.
 
 ## Why
 - Driver / DCO Self surfaces needed mode-aware UI and book routing so Self vs fleet work does not hit the wrong gates or books.
@@ -49,6 +50,7 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - Live tracking showed the driver every ~30 min+ (ETA ÷ 12 pings) and stopped when the screen was off; pushing faster pings into `driver_locations` would spam trip chat and fan out `trips` updates, so live position goes over broadcast instead.
 - OSM tags Chennai corporation wards as the area's neighbourhood, so picking "Madhavaram" in search saved "Ward 30, Tamil Nadu".
 - Fleet invites: only the newest invite was reachable — the popup showed `[0]` with a 1/2 badge and no way to see Fleet A's offer once Fleet B invited the same driver.
+- DCO: drivers had to quit their fleet before even submitting, so a rejected driver had already lost their job.
 
 ## Areas
 - `lib/crypto/sha256File.util.ts` (+ unit test) — web odometer / Pulse Scan fingerprint
@@ -71,6 +73,7 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - `supabase/tests/dco_operating_model_boundary.sql`
 - `features/tracking/**` (driverLiveTracking.service, driverLiveLocationTask.service, useDriverLiveTracking, constants, flags, movement filter, map store, checkpoint service + tests), `features/driver/communication/hooks/useDriverLocationStream.ts`, `features/trips/components/trip-detail/hooks/useTripDetail.ts`, `app/_layout.tsx`, `app.config.js` (expo-location plugin: background + foreground service), `types/expo-location.d.ts`, `package.json` (`expo-task-manager`)
 - `components/driver/DriverInviteModal.tsx` (queue arrows), `contexts/DriverInviteModalContext.tsx` (active invite, next/prev, hide others after accept)
+- `supabase/migrations/20271123101500_dco_approve_before_leaving_fleet.sql`, `features/driver/components/DcoStatusScreen.tsx`, `features/driver/components/DcoApprovalPromptHost.tsx` (new), `app/(driver)/_layout.tsx`, `features/driver/services/dco.service.ts`, `features/drivers/domain/driverOperatingMode.ts`, `features/drivers/screens/DriverProfileScreen.tsx`, `analytics/src/lib/dco.ts`, `analytics/src/components/queue/DcoReviewPanel.tsx`, `docs/RBAC_OPERATING_MODEL_CHANGELOG.md`
 
 ## Migrations
 - `20271113100000_booking_ref_skip_taken_refs.sql`
@@ -78,6 +81,7 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - `20271113103000_fleet_disconnect_notify_and_dco_request_gate.sql`
 - `20271113104500_dco_require_verified_kyc.sql`
 - `20271113110000_ocr_jobs_insert_allow_trip_access.sql`
+- `20271123101500_dco_approve_before_leaving_fleet.sql`
 - Not applied from this branch. Nihas applies to preprod after merge; Vasanth applies to prod on release.
 - `lib/maps/placeSearch.util.ts` (`cleanOsmAreaName`), `lib/placesService.ts`, `lib/placeCityState.util.ts`, `lib/mapLocationLabel.service.ts` (+ `lib/__tests__/placeWardName.test.ts`)
 - `lib/placesService.ts` (`searchGooglePlaces` → Places API (New), `resolvePlaceSelection`, `isPendingGooglePlace`), `features/trips/components/add-trip/LocationSearchField.tsx` (+ `lib/__tests__/placesGoogleNew.test.ts`)

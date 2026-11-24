@@ -21,6 +21,12 @@ export type EwayFieldValues = {
   /** When / by whom this entry was last saved (entries share one trip_documents row). */
   updatedAt?: string;
   updatedBy?: string;
+  /**
+   * Storage path of the e-way file this entry belongs to, set when the number
+   * is saved from that file's card. Entries without it (saved before this
+   * existed, or via "Add e-way number") are matched to files by position.
+   */
+  filePath?: string;
 };
 
 export type EwayBillStripRow = {
@@ -36,6 +42,10 @@ export type EwayBillStripRow = {
   /** The entry's own save stamp, carried back on the next save. */
   entryUpdatedAt?: string | null;
   entryUpdatedBy?: string | null;
+  /** The entry's saved file link (EwayFieldValues.filePath), carried through saves. */
+  entryFilePath?: string | null;
+  /** Storage path of the e-way file shown on this card; null when the card has no file. */
+  fileStoragePath?: string | null;
   previewPath?: string | null;
   previewUri?: string | null;
   previewFileName?: string | null;
@@ -96,13 +106,15 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function withEntryStamp<T extends object>(
   target: T,
-  stamp: { updatedAt?: unknown; updatedBy?: unknown },
-): T & Pick<EwayFieldValues, "updatedAt" | "updatedBy"> {
-  const out: T & Pick<EwayFieldValues, "updatedAt" | "updatedBy"> = { ...target };
+  stamp: { updatedAt?: unknown; updatedBy?: unknown; filePath?: unknown },
+): T & Pick<EwayFieldValues, "updatedAt" | "updatedBy" | "filePath"> {
+  const out: T & Pick<EwayFieldValues, "updatedAt" | "updatedBy" | "filePath"> = { ...target };
   const at = typeof stamp.updatedAt === "string" ? stamp.updatedAt.trim() : "";
   const by = typeof stamp.updatedBy === "string" ? stamp.updatedBy.trim() : "";
+  const file = typeof stamp.filePath === "string" ? stamp.filePath.trim() : "";
   if (at) out.updatedAt = at;
   if (by) out.updatedBy = by;
+  if (file) out.filePath = file;
   return out;
 }
 
@@ -364,6 +376,8 @@ export function buildEwayBillStripRows(params: {
     ...entryLog(fields, fileLog),
     ...(fields.updatedAt ? { entryUpdatedAt: fields.updatedAt } : {}),
     ...(fields.updatedBy ? { entryUpdatedBy: fields.updatedBy } : {}),
+    ...(fields.filePath ? { entryFilePath: fields.filePath } : {}),
+    fileStoragePath: fileLog?.storagePath?.trim() || null,
     previewPath:
       fileLog?.storagePath?.trim() ||
       (slotPreviewable ? ewayDoc?.storagePath ?? null : null),
@@ -375,28 +389,28 @@ export function buildEwayBillStripRows(params: {
   });
 
   if (entries.length > 0) {
-    const entryRows = entries.map((fields, index) =>
-        toRow(
-          fields,
-          index,
-          files[index]?.id ?? `${baseId}-entry-${index}`,
-          !!files[index] || slotPreviewable,
-          files[index],
-        ),
+    const entryForFile = pairEwayEntriesWithFiles(
+      entries,
+      files.map((file) => file.storagePath?.trim() ?? ""),
     );
-    // Files uploaded beyond the saved entries still get their own row.
-    const extraRows = files
-      .slice(entries.length)
-      .map((file, offset) =>
-        toRow(
-          { ...EMPTY_EWAY_FIELD_VALUES },
-          entries.length + offset,
-          file.id,
-          true,
-          file,
-        ),
+    const paired = new Set(entryForFile.filter((index): index is number => index !== null));
+    // One card per file, in file order; a file with no entry gets a blank
+    // card (entryIndex -1) whose Edit adds a new entry linked to that file.
+    const fileRows = files.map((file, fileIndex) => {
+      const entryIndex = entryForFile[fileIndex];
+      return entryIndex === null || entryIndex === undefined
+        ? toRow({ ...EMPTY_EWAY_FIELD_VALUES }, -1, file.id, true, file)
+        : toRow(entries[entryIndex]!, entryIndex, file.id, true, file);
+    });
+    // Entries with no file on the trip (more numbers than files, or their
+    // file was removed) still get their own card.
+    const fileLessRows = entries
+      .map((fields, index) => ({ fields, index }))
+      .filter(({ index }) => !paired.has(index))
+      .map(({ fields, index }) =>
+        toRow(fields, index, `${baseId}-entry-${index}`, slotPreviewable, undefined),
       );
-    return [...entryRows, ...extraRows];
+    return [...fileRows, ...fileLessRows];
   }
 
   if (files.length === 0) {
@@ -495,4 +509,148 @@ export function ewayFieldsCarryOnDelete<T extends EwayFieldsRowLike>(
   const next = remaining[0];
   if (next) return { kind: "move", toId: next.id, documentNumber };
   return { kind: "create", documentNumber };
+}
+
+/**
+ * Which entry each file shows (by file position; null = no entry).
+ * 1. An entry linked to a file (`filePath`) shows on that file.
+ * 2. Entries without a link fill the remaining files in order (how entries
+ *    saved before links existed were always shown).
+ * 3. An entry linked to a file that is no longer on the trip is not moved
+ *    onto another file; it keeps a card of its own.
+ */
+export function pairEwayEntriesWithFiles(
+  entries: readonly Pick<EwayFieldValues, "filePath">[],
+  filePaths: readonly string[],
+): (number | null)[] {
+  const result: (number | null)[] = filePaths.map(() => null);
+  const fileIndexByPath = new Map<string, number>();
+  filePaths.forEach((path, index) => {
+    if (path && !fileIndexByPath.has(path)) fileIndexByPath.set(path, index);
+  });
+  const unlinked: number[] = [];
+  entries.forEach((entry, entryIndex) => {
+    const link = entry.filePath?.trim();
+    if (!link) {
+      unlinked.push(entryIndex);
+      return;
+    }
+    const fileIndex = fileIndexByPath.get(link);
+    if (fileIndex !== undefined && result[fileIndex] === null) result[fileIndex] = entryIndex;
+  });
+  let next = 0;
+  for (let fileIndex = 0; fileIndex < result.length && next < unlinked.length; fileIndex += 1) {
+    if (result[fileIndex] !== null) continue;
+    result[fileIndex] = unlinked[next]!;
+    next += 1;
+  }
+  return result;
+}
+
+/**
+ * The entries a card list stands for, in their saved order (the first one is
+ * the trip's primary e-way number elsewhere). Cards without an entry are
+ * skipped. Each entry keeps its file link and save stamp.
+ */
+export function ewayEntriesFromRows(
+  rows: readonly EwayBillStripRow[],
+  toFields: (row: EwayBillStripRow) => EwayFieldValues,
+): EwayFieldValues[] {
+  return rows
+    .filter((row) => row.entryIndex >= 0)
+    .slice()
+    .sort((a, b) => a.entryIndex - b.entryIndex)
+    .map(toFields)
+    .filter(ewayFieldHasContent);
+}
+
+/**
+ * Entries to save after the e-way editor closes. `editingIndex` is the
+ * entry being edited, or "new" for "Add e-way number" and for a card that
+ * has a file but no entry yet (its draft carries that file's link). A new
+ * entry is always added — before, editing such a card replaced nothing and
+ * the typed details were silently dropped.
+ */
+export function nextEwayEntries(input: {
+  existing: readonly EwayFieldValues[];
+  editingIndex: number | "new";
+  draft: EwayFieldValues;
+  mode: "save" | "remove";
+}): EwayFieldValues[] {
+  const { existing, editingIndex, draft, mode } = input;
+  if (mode === "remove") {
+    if (editingIndex === "new") return [...existing];
+    return existing.filter((_, index) => index !== editingIndex);
+  }
+  if (editingIndex === "new" || editingIndex < 0 || editingIndex >= existing.length) {
+    return [...existing, draft];
+  }
+  return existing.map((entry, index) => (index === editingIndex ? draft : entry));
+}
+
+/** True when a stored value is an e-way entry list (JSON), not a single plain number. */
+export function isEwayEntriesJson(raw?: string | null): boolean {
+  const text = raw?.trim() ?? "";
+  return (text.startsWith("{") || text.startsWith("[")) && parseEwayFieldEntries(text).length > 0;
+}
+
+/**
+ * The entry each e-way file shows, keyed by storage path, from the trip's
+ * e-way rows (same source row and pairing as the Trip Detail cards). Files
+ * with no entry are absent. The details row (fields.json) is never a file.
+ */
+export function ewayEntryByFilePath(rows: readonly EwayFieldsRowLike[]): Map<string, EwayFieldValues> {
+  const entries = parseEwayFieldEntries(ewayFieldsSourceRow(rows)?.document_number);
+  // Newest first: the order Trip Detail loads trip_documents in, so the
+  // pairing matches the cards.
+  const filePaths = sortEwayRowsNewestFirst(rows)
+    .filter((row) => !isEwayBillMetaPath(row.storage_path, row.file_name))
+    .map((row) => row.storage_path?.trim() ?? "")
+    .filter(Boolean);
+  const paired = pairEwayEntriesWithFiles(entries, filePaths);
+  const out = new Map<string, EwayFieldValues>();
+  paired.forEach((entryIndex, fileIndex) => {
+    if (entryIndex !== null) out.set(filePaths[fileIndex]!, entries[entryIndex]!);
+  });
+  return out;
+}
+
+/**
+ * Apply numbers typed per file (e.g. in the Trips hub update sheet) to the
+ * trip's entry list: a file's existing entry gets the new number (other
+ * fields kept) and is linked to that file; a file with no entry gets a new
+ * one. Blank typed numbers change nothing. `filePaths` are the e-way files in
+ * card order, so unlinked entries pair the same way the cards do.
+ */
+export function applyEwayNumbersByFile(input: {
+  entries: readonly EwayFieldValues[];
+  filePaths: readonly string[];
+  typedByPath: Readonly<Record<string, string>>;
+}): { entries: EwayFieldValues[]; changed: boolean } {
+  const entries = input.entries.map((entry) => ({ ...entry }));
+  const paired = pairEwayEntriesWithFiles(entries, input.filePaths);
+  // Pin every shown entry to its file (written only if something changes),
+  // so a later upload cannot move an unlinked number onto the new file.
+  paired.forEach((entryIndex, fileIndex) => {
+    if (entryIndex === null) return;
+    const entry = entries[entryIndex]!;
+    if (!entry.filePath) entries[entryIndex] = { ...entry, filePath: input.filePaths[fileIndex] };
+  });
+  let changed = false;
+  input.filePaths.forEach((path, fileIndex) => {
+    const typed = clampEwayBillNumber(input.typedByPath[path] ?? "");
+    if (!path || !typed) return;
+    const entryIndex = paired[fileIndex];
+    if (entryIndex === null || entryIndex === undefined) {
+      entries.push({ ...EMPTY_EWAY_FIELD_VALUES, ewayNo: typed, filePath: path });
+      changed = true;
+      return;
+    }
+    const entry = entries[entryIndex]!;
+    if (entry.ewayNo !== typed || entry.filePath !== path) {
+      entries[entryIndex] = { ...entry, ewayNo: typed, filePath: path };
+      changed = true;
+    }
+  });
+  return { entries, changed };
 }

@@ -1570,6 +1570,8 @@ export default function TripDetailScreen({
     message: string;
   } | null>(null);
   const vaultUploadInFlightRef = useRef(false);
+  /** Upload pressed on an e-way card that has a number but no file: link the new file to it. */
+  const ewayUploadLinkRef = useRef<{ entryIndex: number; ewayNo: string; at: number } | null>(null);
   const [pendingVaultUpload, setPendingVaultUpload] = useState<{
     slotId: string;
     label: string;
@@ -2237,6 +2239,7 @@ export default function TripDetailScreen({
         })),
       ];
       let uploadedCount = 0;
+      let firstEwayUploadPath: string | null = null;
       const uploadedNames: string[] = [];
       let lrOcrTarget: {
         uri: string;
@@ -2585,6 +2588,9 @@ export default function TripDetailScreen({
           }
           uploadedCount += 1;
           if (file.fileName.trim()) uploadedNames.push(file.fileName.trim());
+          if (pending.docType === "eway_bill" && doc?.storage_path && !firstEwayUploadPath) {
+            firstEwayUploadPath = doc.storage_path;
+          }
           if (doc) {
             if (lrPayload && !doc.document_number?.trim()) {
               await tripDocumentsService.updateTripDocumentNumber(doc.id, lrPayload);
@@ -2611,6 +2617,28 @@ export default function TripDetailScreen({
               storagePath: doc.storage_path,
             };
           }
+        }
+      }
+      const ewayLink = ewayUploadLinkRef.current;
+      ewayUploadLinkRef.current = null;
+      if (
+        ewayLink &&
+        firstEwayUploadPath &&
+        Date.now() - ewayLink.at < 10 * 60 * 1000 &&
+        uploaderId
+      ) {
+        const { error: linkError } = await tripDocumentsService.linkEwayEntryToFile({
+          tripId: tripIdForUpload,
+          uploadedBy: uploaderId,
+          entryIndex: ewayLink.entryIndex,
+          ewayNo: ewayLink.ewayNo,
+          filePath: firstEwayUploadPath,
+        });
+        if (linkError) {
+          showAppAlert(
+            "File saved",
+            `The file was uploaded, but it could not be attached to e-way bill ${ewayLink.ewayNo}: ${linkError.message}`,
+          );
         }
       }
       const saved = vaultUploadOutcome({
@@ -5669,7 +5697,12 @@ export default function TripDetailScreen({
     detail.setVehiclePreviewIndex(fileIndex >= 0 ? fileIndex : 0);
     detail.setSelectedDoc(ewayBillDoc);
   };
-  const openEwayBillUpload = (_rowId?: string) => {
+  const openEwayBillUpload = (rowId?: string) => {
+    const row = rowId ? ewayStripRows.find((item) => item.id === rowId) : undefined;
+    ewayUploadLinkRef.current =
+      row && row.entryIndex >= 0 && !row.fileStoragePath
+        ? { entryIndex: row.entryIndex, ewayNo: row.ewayNo === "—" ? "" : row.ewayNo, at: Date.now() }
+        : null;
     const doc =
       ewayBillDoc ??
       ({

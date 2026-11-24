@@ -159,7 +159,12 @@ import {
 } from "@/features/tripCompliance/utils/complianceResubmitChangeLog.util";
 import { fetchSupplierBankProofBundle } from "@/features/tripCompliance/utils/supplierBankProof.util";
 import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
-import { ewayValidTillEnd, parseEwayFieldValues } from "@/features/trips/services/ewayBillFields.util";
+import {
+  ewayEntryByFilePath,
+  ewayValidTillEnd,
+  parseEwayFieldValues,
+  type EwayFieldValues,
+} from "@/features/trips/services/ewayBillFields.util";
 import { supabase } from "@/lib/supabase";
 
 /** Stages whose bank card stays as it was (no beneficiary / branch, no live refresh). */
@@ -513,7 +518,12 @@ function entityDocumentChange(doc: { entity_type: "vehicle" | "driver"; entity_i
 }
 
 /** Row has reviewable content: a present trip doc (per classifier) or an entity file. */
-function vaultThumbCaption(row: ComplianceDocRow, index: number, total: number): string {
+function vaultThumbCaption(
+  row: ComplianceDocRow,
+  index: number,
+  total: number,
+  ewayByPath?: ReadonlyMap<string, EwayFieldValues>,
+): string {
   const code = shortVaultThumbCode(row.type);
   const fallback = total > 1 ? `${code} ${index + 1}` : code;
   const raw = row.doc?.document_number ?? null;
@@ -530,7 +540,10 @@ function vaultThumbCaption(row: ComplianceDocRow, index: number, total: number):
     if (labeled) return labeled.replace(/^Invoice No\.\s*/i, "");
   }
   if (row.type === "eway_bill") {
-    const eway = parseEwayFieldValues(raw);
+    // The trip's numbers live in one list; show this file's own entry, not the
+    // list's first number on one file and nothing on the others.
+    const path = row.doc?.storage_path?.trim() ?? "";
+    const eway = (path && ewayByPath?.get(path)) || parseEwayFieldValues(raw);
     const date = formatVaultDocDate(eway.validTill);
     if (eway.ewayNo && date) return `${eway.ewayNo}\n${date}`;
     if (eway.ewayNo) return eway.ewayNo;
@@ -669,6 +682,11 @@ function clusterFileEntries(
   tripId: string | null,
 ): { row: ComplianceDocRow; preview: VaultChooserPreview }[] {
   const types = firstRowPerType(categoryRows);
+  const ewayByPath = ewayEntryByFilePath(
+    allRows
+      .filter((item) => item.type === "eway_bill" && item.doc)
+      .map((item) => item.doc!),
+  );
   const fileEntries: { row: ComplianceDocRow; preview: VaultChooserPreview }[] = [];
   for (const typeRow of types) {
     const typeLabel =
@@ -691,7 +709,7 @@ function clusterFileEntries(
         row: item,
         preview: {
           ...preview,
-          label: vaultThumbCaption(item, index, typeFiles.length),
+          label: vaultThumbCaption(item, index, typeFiles.length, ewayByPath),
         },
       });
     });

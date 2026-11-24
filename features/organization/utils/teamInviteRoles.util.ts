@@ -40,6 +40,12 @@ export type PlatformTeamRole =
    */
   | "sourcing"
   /**
+   * RBM — broad read-only oversight across Sales, TripOps, Finance and
+   * Compliance. No payments, no approvals. App-side only: stored as org role
+   * `member`, so the database does not enforce it.
+   */
+  | "rbm"
+  /**
    * Zero-domain floor. A member with no Finance/Sales/TripOps access left
    * degrades to `restricted` instead of silently inheriting TripOps.
    */
@@ -57,6 +63,7 @@ const ALL_PLATFORM_TEAM_ROLES: readonly PlatformTeamRole[] = [
   "debit_control",
   "compliance",
   "sourcing",
+  "rbm",
   "restricted",
 ];
 
@@ -156,6 +163,7 @@ export const PLATFORM_ROLE_GRANTS: Record<PlatformTeamRole, string[]> = {
   debit_control: ["org:read", "execution:read"],
   compliance: ["org:read", "execution:read"],
   sourcing: ["org:read", "execution:read"],
+  rbm: ["org:read", "warehouses:read", "finance:read", "execution:read"],
   // Baseline only — can see the workspace exists, nothing functional.
   restricted: ["org:read"],
 };
@@ -221,6 +229,12 @@ export const TEAM_INVITE_ROLE_OPTIONS: TeamInviteRoleOption[] = [
     label: "Sourcing",
     description: "Follow indents and trips read-only — status and lifecycle. No bids, awards, documents or money.",
     grants: PLATFORM_ROLE_GRANTS.sourcing,
+  },
+  {
+    value: "rbm",
+    label: "RBM",
+    description: "View-only oversight of sales, trips, finance and compliance. No payments, no approvals.",
+    grants: PLATFORM_ROLE_GRANTS.rbm,
   },
 ];
 
@@ -341,6 +355,12 @@ export function platformRoleAfterAccessEdit(
       ? "sourcing"
       : platformRoleFromDomains(domains);
   }
+  if (role === "rbm") {
+    return memberHasSurface(orgCaps, surfaces, "tripops.trips.view") ||
+      memberHasSurface(orgCaps, surfaces, "finance.view")
+      ? "rbm"
+      : platformRoleFromDomains(domains);
+  }
   if (role === "debit_control") {
     return memberHasSurface(orgCaps, surfaces, "trip_compliance.pod.manage")
       ? "debit_control"
@@ -432,7 +452,8 @@ export function buildPermissionsFromSurfaces(
           requested === "compliance" ||
           requested === "vendor_support" ||
           requested === "debit_control" ||
-          requested === "sourcing"
+          requested === "sourcing" ||
+          requested === "rbm"
         ? requested
         : (requested === "finance" || requested === "sales" || requested === "tripops") &&
             domains[requested]
@@ -561,6 +582,8 @@ export function orgMemberRoleForPlatformRole(
       return "member";
     case "sourcing":
       return "member";
+    case "rbm":
+      return "member";
     case "restricted":
       return "member";
   }
@@ -619,7 +642,8 @@ export function functionalRoleFromPlatformRole(
   if (
     platformRole === "ground_ops" ||
     platformRole === "compliance" ||
-    platformRole === "sourcing"
+    platformRole === "sourcing" ||
+    platformRole === "rbm"
   ) {
     return "tripops";
   }

@@ -5,7 +5,7 @@
  */
 import { HardCopyPodDateField } from "@/features/trips/components/trip-detail/HardCopyPodDateField";
 import { HardCopyPodTimeField } from "@/features/trips/components/trip-detail/HardCopyPodTimeField";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
 import {
   clampSimCompletionPickerValue,
@@ -58,18 +58,9 @@ export function SimCompletionTimeField({
     [minDateTime],
   );
 
-  // When the floor moves (Pickup edited after a revoke), drop any previous
-  // stage selection and start from now, raised to the new floor. Keeping the
-  // old value would leave the last In Transit instant on screen.
-  useEffect(() => {
-    const next = clampSimCompletionPickerValue(toSimCompletionPickerValue(), minAt);
-    if (next !== value) onChange(next);
-    // Parent onChange must not be a render dependency. User edits change
-    // `value` only; those must not be snapped back to now.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minAt?.getTime() ?? null]);
-
-  const parts = splitPickerValue(value || toSimCompletionPickerValue());
+  // Show the value the parent holds. Do not replace a selected date and time
+  // with the current clock when the stage floor is applied.
+  const parts = splitPickerValue(value);
   const minParts = minDateTime ? splitPickerValue(minDateTime) : null;
   const minTimeForSelectedDay =
     minParts && parts.date === minParts.date ? minParts.time : undefined;

@@ -156,6 +156,20 @@ export async function recordTripWorkflowEvent(params: {
     ? `${params.tripId}:${params.eventType}`
     : null;
 
+  // Check first: a failed insert is still logged by Postgres as a 23505 error,
+  // even though we treat it as a no-op. (on_conflict can't target the partial index.)
+  if (idempotencyKey) {
+    const { data: existing } = await supabase()
+      .from('trip_workflow_events')
+      .select('id')
+      .eq('idempotency_key', idempotencyKey)
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      return { error: null, event: null, alreadyExists: true };
+    }
+  }
+
   const { data, error } = await supabase()
     .from('trip_workflow_events')
     .insert({

@@ -8912,6 +8912,17 @@ function docNumberForType(
 ): string | null {
   const matches = documents.filter((doc) => (doc.document_type ?? "").toLowerCase() === type);
   if (matches.length === 0) return null;
+  if (type === "lr" || type === "invoice") {
+    const prefix = type === "lr" ? "LR No." : "Invoice No.";
+    const strip = type === "lr" ? /^lr\s*no\.?\s*/i : /^invoice\s*no\.?\s*/i;
+    const format = type === "lr" ? formatLrVaultNumberLabel : formatInvoiceVaultNumberLabel;
+    const labels: string[] = [];
+    for (const doc of [...matches].sort((a, b) => (a.uploaded_at ?? "").localeCompare(b.uploaded_at ?? ""))) {
+      const bare = format(doc.document_number ?? null)?.replace(strip, "").trim();
+      if (bare && !labels.includes(bare)) labels.push(bare);
+    }
+    return labels.length > 0 ? `${prefix} ${labels.join(", ")}` : null;
+  }
   const latest = [...matches].sort((a, b) => (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? ""))[0];
   const raw = latest?.document_number ?? null;
   if (type === "lr") return formatLrVaultNumberLabel(raw);

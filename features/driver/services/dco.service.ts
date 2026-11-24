@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 
 /**
  * DOCS_APPROVED: admin approved, but the driver is still in a fleet. It becomes
- * APPROVED automatically once they leave (20271123101500). Not a DCO yet.
+ * APPROVED automatically once they leave (20271123110000). Not a DCO yet.
  */
 export type DcoStatus =
   | 'NONE'

@@ -7,7 +7,7 @@
  *    one-time "You're now a DCO" welcome. Already-approved DCOs never see it.
  *
  * Phone push for the same events is queued server-side
- * (20271123101500_dco_approve_before_leaving_fleet.sql); this covers drivers
+ * (20271123110000_dco_approve_before_leaving_fleet.sql); this covers drivers
  * who miss the push. Stays quiet while a fleet-invite popup is open.
  */
 import Theme from '@/constants/Theme';

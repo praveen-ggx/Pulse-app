@@ -26,7 +26,7 @@ export function useMobileKeepSignedInSignOut(
         getKeepSignedIn().then((keep) => {
           if (keep) return;
           signOutRequestedRef.current = true;
-          authService.signOut().finally(() => {
+          authService.signOut({ scope: "local" }).finally(() => {
             clearAuthState(false);
             logAuth("mobile_background_sign_out");
           });

@@ -271,6 +271,7 @@ export function OtherExpenseEntryScreen({
     billScan,
     persistedJob,
     handleCapture,
+    acceptPhoto,
     handleRemovePhoto,
     applyPendingUpdates,
     dismissPendingUpdates,
@@ -480,7 +481,9 @@ export function OtherExpenseEntryScreen({
             uri: photoUri,
             busy: saving || scanning,
             label: "Receipt",
-            onAttach: handleCapture,
+            onAttach: () => void handleCapture("camera"),
+            onCaptured: (uri) => void acceptPhoto(uri),
+            onPick: () => void handleCapture("library"),
             onRemove: handleRemovePhoto,
           }}
           amountSlot={

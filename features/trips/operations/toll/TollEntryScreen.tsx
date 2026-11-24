@@ -117,6 +117,7 @@ export function TollEntryScreen({
     billScan,
     persistedJob,
     handleCapture,
+    acceptPhoto,
     handleRemovePhoto: handleRemoveReceipt,
     applyPendingUpdates,
     dismissPendingUpdates,
@@ -257,7 +258,9 @@ export function TollEntryScreen({
           uri: receiptUri,
           busy: saving || scanning,
           label: "Receipt",
-          onAttach: handleCapture,
+          onAttach: () => void handleCapture("camera"),
+          onCaptured: (uri) => void acceptPhoto(uri),
+          onPick: () => void handleCapture("library"),
           onRemove: handleRemoveReceipt,
         }}
         amountSlot={

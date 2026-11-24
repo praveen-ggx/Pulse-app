@@ -66,4 +66,12 @@ describe("hub-unassigned-excludes-cancelled release set", () => {
     const all = fs.readdirSync(migrations).filter((f) => /^\d{14}_.*\.sql$/.test(f)).sort();
     expect(all.indexOf(FILE2)).toBeGreaterThan(all.indexOf("20271111164000_hub_metric_counter.sql"));
   });
+
+  it("the preprod-only set is exactly the second migration, pinned", () => {
+    const preprodSet = path.join(migrations, "../release-sets/hub-unassigned-excludes-cancelled-preprod.versions");
+    const lines = fs.readFileSync(preprodSet, "utf8").split("\n").map((line) => line.trim());
+    expect(lines.filter((line) => /^\d{14}$/.test(line))).toEqual([VERSION2]);
+    const actual = crypto.createHash("sha256").update(fs.readFileSync(path.join(migrations, FILE2))).digest("hex");
+    expect(lines[lines.indexOf(VERSION2) - 1]).toBe(`# sha256 ${actual}  ${FILE2}`);
+  });
 });

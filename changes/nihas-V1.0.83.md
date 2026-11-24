@@ -10,6 +10,7 @@ Branched from V1 `d1c15d0d` on 2026-11-24.
 - Added release set `hub-unassigned-excludes-cancelled` and a test pinning it, so the cancelled/Unassigned migration can go to preprod and prod through `db-push-set`.
 - History -> Cancelled trips now lists the cancelled trips (reads the server's cancelled bucket while that tile is open, count from the server). Without this, dropping cancelled from Unassigned would have hidden them everywhere.
 - Same cancelled-is-not-Unassigned rule in `hub_metric_contrib` (new migration `hub_metric_contrib_excludes_cancelled_unassigned`, in the same release set; not applied on prod).
+- Added a preprod-only release set (`hub-unassigned-excludes-cancelled-preprod`) with just the new migration, because preprod already has the first one and `db-push-set` only accepts Local-only versions. Prod still uses the full set.
 
 ## Why
 - The queue paints the first 40 trips and loads the rest in the background. That background load, and the reconcile that picks up trips added later, swallowed their errors, so a failed load left a short queue on screen with correct-looking counts, an "Updated just now" label and working exports. Seen on a local reload with 1083 trips: the first 40 showed, the rest failed once, and Retry then loaded all of them.

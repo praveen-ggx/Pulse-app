@@ -140,6 +140,7 @@ describe("buildEwayBillStripRows", () => {
         previewFileName: null,
         previewMime: null,
         documentId: null,
+        fileStoragePath: null,
         reviewStatus: null,
         rejectionReason: null,
       },
@@ -193,7 +194,10 @@ describe("buildEwayBillStripRows", () => {
     expect(rows[0]).toMatchObject({ id: "file-1", ewayNo: "102594941830" });
     expect(rows[1]).toMatchObject({
       id: "file-2",
-      entryIndex: 1,
+      // No saved entry yet: Edit adds one linked to this file (was 1, which
+      // pointed at an entry that did not exist, so the typed details were dropped).
+      entryIndex: -1,
+      fileStoragePath: "trip-1/eway_bill/b.pdf",
       ewayNo: "—",
       canView: true,
       previewPath: "trip-1/eway_bill/b.pdf",

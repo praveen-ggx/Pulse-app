@@ -1,6 +1,7 @@
 /**
  * Asset Vault — four cards in a row. Image opens preview; plus uploads.
  */
+import type { ComplianceVaultFile } from "@/features/tripCompliance/services/complianceVaultUpload.service";
 import { Theme } from "@/constants/Theme";
 import { DRIVER_IDENTITY_TYPE_HINT } from "@/features/drivers/utils/driverIdentityDocuments.util";
 import {
@@ -55,6 +56,8 @@ type Props = {
   /** Ground Ops lock note for the e-way strip. */
   ewayLockedLabel?: string | null;
   onSaveEwayBill: (values: EwayFieldValues[]) => Promise<boolean>;
+  /** "Add e-way number" with its required document (number + file saved together). */
+  onAddEwayBillWithFile?: (entry: EwayFieldValues, file: ComplianceVaultFile) => Promise<boolean>;
   onRemoveEwayBill?: (row: EwayBillStripRow) => void;
   columns?: 2 | 3 | 4;
   compact?: boolean;
@@ -184,6 +187,7 @@ export function TripVaultCardGrid({
   canEditEwayBill,
   ewayLockedLabel,
   onSaveEwayBill,
+  onAddEwayBillWithFile,
   onRemoveEwayBill,
   sign,
   resolveUploadAttribution,
@@ -228,6 +232,7 @@ export function TripVaultCardGrid({
           canEdit={canEditEwayBill}
           lockedLabel={ewayLockedLabel}
           onSave={onSaveEwayBill}
+          onAddWithFile={onAddEwayBillWithFile}
           onRemoveDocument={onRemoveEwayBill}
         />
       </View>

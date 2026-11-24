@@ -1,5 +1,10 @@
 import { supabase } from "@/lib/supabase";
-import { parseEwayFieldEntries } from "@/features/trips/services/ewayBillFields.util";
+import {
+  ewayFieldsSourceRow,
+  parseEwayFieldEntries,
+  sortEwayRowsNewestFirst,
+  type EwayFieldsRowLike,
+} from "@/features/trips/services/ewayBillFields.util";
 import type { ElrCanonicalPrefill } from "@/features/trips/services/elrCompletion.util";
 import type { ElrTripSource } from "@/features/trips/services/elrSnapshot.util";
 
@@ -100,10 +105,9 @@ export async function loadElrCanonicalPrefill(
       ? readMaybe(() =>
           supabase()
             .from("trip_documents")
-            .select("document_number")
+            .select("id, storage_path, file_name, uploaded_at, document_number")
             .eq("trip_id", tripId)
-            .eq("document_type", "eway_bill")
-            .limit(5),
+            .eq("document_type", "eway_bill"),
         )
       : Promise.resolve(null),
   ]);
@@ -158,7 +162,14 @@ export async function loadElrCanonicalPrefill(
     }
   }
 
-  for (const row of Array.isArray(ewayRows) ? ewayRows : []) {
+  // The trip's current e-way list (the row Trip Detail shows), then any other
+  // row. Rows used to be read in no order, so an older copy could win.
+  const ewayRowList = (Array.isArray(ewayRows) ? ewayRows : []) as EwayFieldsRowLike[];
+  const ewaySource = ewayFieldsSourceRow(ewayRowList);
+  const ordered = ewaySource
+    ? [ewaySource, ...sortEwayRowsNewestFirst(ewayRowList).filter((row) => row !== ewaySource)]
+    : sortEwayRowsNewestFirst(ewayRowList);
+  for (const row of ordered) {
     const entries = parseEwayFieldEntries(row.document_number);
     const number = entries.find((entry) => /^\d{12}$/.test(entry.ewayNo.trim()))?.ewayNo;
     if (number) {

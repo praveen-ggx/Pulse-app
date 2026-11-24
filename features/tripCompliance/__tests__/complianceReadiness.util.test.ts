@@ -202,6 +202,47 @@ describe("deriveComplianceQueueReadiness", () => {
     expect(readiness.blockerLines.some((line) => line.includes("Expired: RC, Insurance"))).toBe(true);
   });
 
+  it("lets an approved advance be posted while vehicle docs are expired; balance stays blocked", () => {
+    const readiness = deriveComplianceQueueReadiness(
+      summaryFixture({
+        complianceVerifiedAt: "2026-09-01",
+        financeVerifiedAt: "2026-09-02",
+        hardCopyPod: { received: true, receivedAt: "2026-09-05", courier: null, awbNumber: null, receivedBy: null },
+        documents: ["lr", "eway_bill", "invoice"].map((type) => ({
+          id: type,
+          trip_id: "trip-1",
+          document_type: type,
+          file_name: `${type}.pdf`,
+          storage_path: type,
+          uploaded_at: "2026-09-01",
+          status: "verified" as const,
+          verified_by: "u1",
+          verified_at: "2026-09-01",
+          rejection_reason: null,
+        })),
+        vehicleDocuments: [
+          {
+            id: "v-ins",
+            entity_type: "vehicle",
+            entity_id: "v1",
+            doc_type: "insurance",
+            status: "active",
+            storage_path: "org/v1/insurance.pdf",
+            expiry_date: "2020-06-01",
+            verified_at: null,
+            notes: null,
+            created_at: "2026-01-01",
+          },
+        ],
+      }),
+    );
+    expect(readiness.advance.status).toBe("ready");
+    expect(readiness.readyCategory).toBe("compliance_advance");
+    expect(readiness.nextAction).toBe("Post advance payment");
+    expect(readiness.balance.status).toBe("blocked");
+    expect(readiness.blockerLines.some((line) => line.includes("Expired: Insurance"))).toBe(true);
+  });
+
   it("does not treat on-file pending docs as verified", () => {
     const readiness = deriveComplianceQueueReadiness(
       summaryFixture({

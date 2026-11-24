@@ -13,6 +13,11 @@ import {
 import { parseLrFieldValues, serializeLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
 import {
+  ewayEntryByFilePath,
+  isEwayBillMetaPath,
+  isEwayEntriesJson,
+} from "@/features/trips/services/ewayBillFields.util";
+import {
   findOrgDuplicateLrNumbersForTrip,
   invalidateOrgLrIndexForTrip,
 } from "@/features/trips/services/orgLrDuplicate.service";
@@ -242,11 +247,17 @@ export function HubTripLrUpdateModal({
           includeOcr: false,
           includeStorageFallback: false,
         });
-        const typeDocs = (documents ?? []).filter(
+        const persistedOfType = (documents ?? []).filter(
+          (doc) => doc.document_type === category.type && !String(doc.id).startsWith("storage-"),
+        );
+        // E-way numbers live in one list on the trip; the details row
+        // (fields.json) holds it and is not a file to show here.
+        const ewayByPath =
+          category.type === "eway_bill" ? ewayEntryByFilePath(persistedOfType) : null;
+        const typeDocs = persistedOfType.filter(
           (doc) =>
-            doc.document_type === category.type &&
-            !String(doc.id).startsWith("storage-") &&
-            Boolean(doc.storage_path?.trim()),
+            Boolean(doc.storage_path?.trim()) &&
+            !(category.type === "eway_bill" && isEwayBillMetaPath(doc.storage_path, doc.file_name)),
         );
         if (cancelled) return;
         if (typeDocs.length === 0) {
@@ -264,7 +275,10 @@ export function HubTripLrUpdateModal({
           const name = doc.file_name?.trim() || `${categoryLabel} copy`;
           const id = `vault-${doc.id}`;
           const fields = parseLrFieldValues(doc.document_number);
-          nextNumbers[id] = storedNumberForDoc(category.type, doc.document_number);
+          nextNumbers[id] = ewayByPath
+            ? (ewayByPath.get(path.trim())?.ewayNo ??
+              (isEwayEntriesJson(doc.document_number) ? "" : storedNumberForDoc(category.type, doc.document_number)))
+            : storedNumberForDoc(category.type, doc.document_number);
           nextMeta[id] = {
             documentId: doc.id,
             date: fields.date,
@@ -419,9 +433,16 @@ export function HubTripLrUpdateModal({
       }
       const vaultOrgId = (tripOrganizationId || organizationId || "").trim() || null;
 
+      const isEway = category.type === "eway_bill";
+      // E-way: numbers typed per file, saved into the trip's one list below.
+      const ewayTypedByPath: Record<string, string> = {};
       for (const item of existingItems) {
         const meta = existingMetaRef.current[item.id];
         if (!meta?.documentId) continue;
+        if (isEway) {
+          if (item.storagePath) ewayTypedByPath[item.storagePath] = numberById[item.id] ?? "";
+          continue;
+        }
         const storedNumber = serializeCategoryNumber(category.type, numberById[item.id] ?? "", {
           date: meta.date,
           invoice: meta.invoice,
@@ -445,11 +466,13 @@ export function HubTripLrUpdateModal({
             mimeType: file.mimeType,
           },
           category.type,
-          storedNumber || undefined,
+          isEway ? undefined : storedNumber || undefined,
           { organizationId: vaultOrgId },
         );
         if (error) throw error;
-        if (doc && storedNumber && !doc.document_number?.trim()) {
+        if (isEway) {
+          if (doc?.storage_path) ewayTypedByPath[doc.storage_path] = numberById[file.id] ?? "";
+        } else if (doc && storedNumber && !doc.document_number?.trim()) {
           await tripDocumentsService.updateTripDocumentNumber(doc.id, storedNumber);
         }
         if (doc?.storage_path) {
@@ -461,6 +484,14 @@ export function HubTripLrUpdateModal({
             mimeHint: file.mimeType,
           });
         }
+      }
+      if (isEway) {
+        const { error: ewayError } = await tripDocumentsService.saveEwayNumbersByFile({
+          tripId,
+          uploadedBy: actorId,
+          typedByPath: ewayTypedByPath,
+        });
+        if (ewayError) throw ewayError;
       }
       const previewFiles: VaultCategoryPreviewFile[] = [
         ...existingItems.map((item) => ({

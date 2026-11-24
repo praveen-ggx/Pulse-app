@@ -22,8 +22,10 @@ import {
 import { tripNeedsPartyTag } from "@/features/drivers/utils/driverPartyReceivables.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter, type Href } from "expo-router";
 import {
   ArrowRight,
+  Banknote,
   Bell,
   Building2,
   CalendarDays,
@@ -249,6 +251,8 @@ type Props = {
   tripExpenses?: { tripId: string; amount: number; kind?: string }[];
   /** Show spent + margin on the month hero (DCO trip costs). */
   showMonthPnl?: boolean;
+  /** Salary request is for employed drivers. DCOs do not get a salary. */
+  showSalaryRequest?: boolean;
   /** Employer-dispatched trips must not show Tag. */
   isFleetDispatched?: (trip: TripRow) => boolean;
 };
@@ -271,9 +275,11 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
   isDark,
   tripExpenses = [],
   showMonthPnl = false,
+  showSalaryRequest = true,
   isFleetDispatched,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [tagTrip, setTagTrip] = useState<TripRow | null>(null);
   const [monthKey, setMonthKey] = useState(() => monthKeyFromDate(new Date()));
   const [fleetOrgId, setFleetOrgId] = useState<string>("all");
@@ -800,6 +806,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
       </View>
 
       {/* Fleet filter */}
+      <View style={styles.fleetFilterRow}>
       {showFleetFilter ? (
         <ScrollView
           horizontal
@@ -878,7 +885,27 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
             );
           })}
         </ScrollView>
-      ) : null}
+      ) : (
+        <View style={styles.fleetChipScroll} />
+      )}
+        {showSalaryRequest ? (
+        <Pressable
+          onPress={() => router.push("/(driver)/salary-request" as Href)}
+          style={[
+            styles.salaryIconBtn,
+            {
+              borderColor: cardBorder,
+              backgroundColor: colors.surface,
+            },
+          ]}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Salary request"
+        >
+          <Banknote size={16} color={colors.emerald} strokeWidth={2.3} />
+        </Pressable>
+        ) : null}
+      </View>
 
       {/* Hero summary — aligns with wallet “TO COLLECT” emerald card */}
       <LinearGradient
@@ -1954,9 +1981,25 @@ const styles = StyleSheet.create({
     lineHeight: 13,
     textAlign: "center",
   },
+  fleetFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   fleetChipScroll: {
-    flexGrow: 0,
+    flex: 1,
+    flexGrow: 1,
+    minWidth: 0,
     marginHorizontal: -2,
+  },
+  salaryIconBtn: {
+    width: 44,
+    height: 38,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   fleetChipRow: {
     gap: 8,

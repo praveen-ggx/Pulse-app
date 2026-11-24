@@ -1,9 +1,8 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { ComponentProps } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -11,15 +10,9 @@ import {
 } from "react-native";
 
 import Theme from "@/constants/Theme";
-import { useAuth } from "@/contexts/AuthContext";
 import { useDriverThemeColors } from "@/contexts/DriverThemeContext";
 import { tripHistoryDetailStyles as td } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
 import type { TripCostEvent, TripCostCategory } from "@/features/finance";
-import { ExpenseEntryDetailPanel } from "@/features/trips/operations/hub/ExpenseEntryDetailPanel";
-import {
-  useCancelDriverExpenseRequest,
-  useRemindDriverExpenseRequest,
-} from "@/features/trips/operations/queries/useTripOperations";
 import {
   isDriverVisibleCostEvent,
   isSelfRecordedCostEvent,
@@ -90,7 +83,6 @@ type Props = {
 };
 
 export function DriverTripExpenseLogSection({
-  trip,
   events: allEvents,
   loading = false,
   initialSelectedEventId,
@@ -98,15 +90,10 @@ export function DriverTripExpenseLogSection({
   onEditExpense,
 }: Props) {
   const colors = useDriverThemeColors();
-  const { profile } = useAuth();
 
   const [filter, setFilter] = useState<ExpenseFilter>("pending");
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const deepLinkAppliedRef = useRef(false);
-
-  const cancelDriverExpense = useCancelDriverExpenseRequest();
-  const remindDriverExpense = useRemindDriverExpenseRequest();
-  const loadingAction = cancelDriverExpense.isPending || remindDriverExpense.isPending;
 
   const events = useMemo(
     () =>
@@ -125,11 +112,6 @@ export function DriverTripExpenseLogSection({
     if (events.length > 0 && events.every(isSelfRecordedCostEvent)) setFilter("approved");
   }, [events]);
 
-  const selectedEvent = useMemo(
-    () => events.find((event) => event.id === selectedEventId) ?? null,
-    [events, selectedEventId],
-  );
-
   useEffect(() => {
     if (deepLinkAppliedRef.current || loading) return;
     const id = initialSelectedEventId?.trim();
@@ -146,66 +128,6 @@ export function DriverTripExpenseLogSection({
       setSelectedEventId(null);
     }
   }, [displayedEvents, selectedEventId]);
-
-  const handleToggleEntry = useCallback((eventId: string) => {
-    setSelectedEventId((prev) => (prev === eventId ? null : eventId));
-  }, []);
-
-  const handleCancelRequest = useCallback(
-    (event: TripCostEvent) => {
-      Alert.alert(
-        "Cancel reimbursement request?",
-        `Remove ${toCategoryLabel(event)} (${inr(event.amount)}) from fleet review?`,
-        [
-          { text: "Keep request", style: "cancel" },
-          {
-            text: "Cancel request",
-            style: "destructive",
-            onPress: () => {
-              void cancelDriverExpense
-                .mutateAsync({
-                  tripId: trip.id,
-                  eventId: event.id,
-                  actorUserId: profile?.uid ?? null,
-                  organizationId: trip.organization_id,
-                })
-                .then(() => setSelectedEventId(null))
-                .catch((e) => {
-                  Alert.alert(
-                    "Could not cancel request",
-                    e instanceof Error ? e.message : "Unknown error",
-                  );
-                });
-            },
-          },
-        ],
-      );
-    },
-    [cancelDriverExpense, profile?.uid, trip.id, trip.organization_id],
-  );
-
-  const handleRemindRequest = useCallback(
-    async (event: TripCostEvent) => {
-      try {
-        await remindDriverExpense.mutateAsync({
-          tripId: trip.id,
-          eventId: event.id,
-          actorUserId: profile?.uid ?? null,
-          organizationId: trip.organization_id,
-        });
-        Alert.alert(
-          "Reminder sent",
-          "Fleet owner will see this reimbursement request at the top of their queue.",
-        );
-      } catch (e) {
-        Alert.alert(
-          "Could not send reminder",
-          e instanceof Error ? e.message : "Unknown error",
-        );
-      }
-    },
-    [profile?.uid, remindDriverExpense, trip.id, trip.organization_id],
-  );
 
   return (
     <View style={styles.wrap}>
@@ -334,13 +256,11 @@ export function DriverTripExpenseLogSection({
                 ]}
               >
                 <Pressable
-                  style={[
-                    td.tdLogTouchable,
-                    expanded && { backgroundColor: colors.surfaceElevated, borderRadius: 10 },
-                  ]}
-                  onPress={() => handleToggleEntry(event.id)}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded }}
+                  style={td.tdLogTouchable}
+                  onPress={() => onEditExpense?.(event)}
+                  disabled={!onEditExpense}
+                  accessibilityRole={onEditExpense ? "button" : "text"}
+                  accessibilityLabel={`${toCategoryLabel(event)} ${inr(event.amount)}`}
                 >
                   <View style={td.tdLogMarkerCol}>
                     <View style={[styles.entryIcon, { backgroundColor: visual.bg }]}>
@@ -352,16 +272,9 @@ export function DriverTripExpenseLogSection({
                       <Text style={[td.tdLogStatus, { color: colors.text }]} numberOfLines={1}>
                         {toCategoryLabel(event)}
                       </Text>
-                      <View style={td.tdLogHeadRight}>
-                        <Text style={[td.tdLogMetaV, styles.entryAmount, { color: colors.text }]}>
-                          {inr(event.amount)}
-                        </Text>
-                        <Feather
-                          name={expanded ? "chevron-up" : "chevron-down"}
-                          size={14}
-                          color={expanded ? colors.emerald : colors.textMuted}
-                        />
-                      </View>
+                      <Text style={[td.tdLogMetaV, styles.entryAmount, { color: colors.text }]}>
+                        {inr(event.amount)}
+                      </Text>
                     </View>
                     <Text style={[td.tdLogLoc, { color: colors.textMuted }]} numberOfLines={1}>
                       {new Date(event.createdAt).toLocaleDateString("en-IN", {
@@ -374,21 +287,6 @@ export function DriverTripExpenseLogSection({
                     </Text>
                   </View>
                 </Pressable>
-
-                {expanded && selectedEvent ? (
-                  <>
-                    <View style={[styles.entryDivider, { backgroundColor: colors.border }]} />
-                    <ExpenseEntryDetailPanel
-                      inline
-                      event={selectedEvent}
-                      statusLabel={statusLabel(selectedEvent)}
-                      loadingAction={loadingAction}
-                      onEdit={onEditExpense}
-                      onRemind={handleRemindRequest}
-                      onCancel={handleCancelRequest}
-                    />
-                  </>
-                ) : null}
               </View>
             );
           })}

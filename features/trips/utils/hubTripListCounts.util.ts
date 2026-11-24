@@ -42,17 +42,14 @@ export function filterHubTripsForHistoryList<T extends Pick<TripRow, "status">>(
 
 /**
  * Rows the hub list may show for the current tab.
- * The Unassigned server page includes cancelled trips. The Active filter drops
- * those, so a full 250-row page was labelled 249. Keep cancelled rows on that tile.
+ * Cancelled trips are never in Active or on a stage tile, including Unassigned.
+ * They are only in the Cancelled bucket.
  */
 export function rowsForHubStatusList<T extends Pick<TripRow, "status">>(
   trips: readonly T[],
   opts: { history: boolean; tileBucket: string },
 ): T[] {
   if (opts.history) return filterHubTripsForHistoryList(trips);
-  if (opts.tileBucket === "unassigned") {
-    return trips.filter((trip) => hubTripBucket(trip.status) !== "history");
-  }
   return filterHubTripsForActiveList(trips);
 }
 
@@ -120,8 +117,8 @@ const HUB_SERVER_TILES = new Set([
 
 /**
  * Badges while a single tile page is loaded.
- * The selected tile uses the server bucket count, which includes cancelled rows
- * on Unassigned. The other tiles keep the counts from the last full Active or
+ * The selected tile uses the server bucket count (cancelled trips are not in
+ * any stage tile). The other tiles keep the counts from the last full Active or
  * History page for the same filters, so one tile page does not zero them.
  */
 export function hubTileBadgeCounts(

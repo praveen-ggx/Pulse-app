@@ -70,11 +70,22 @@ describe("canonical hub trip classification", () => {
     expect(filterHubTripsForActiveList(rows).map((r) => r.id)).toEqual(["a", "b", "g"]);
     expect(
       rowsForHubStatusList(rows, { history: false, tileBucket: "unassigned" }).map((r) => r.id),
-    ).toEqual(["a", "b", "f", "g"]);
+    ).toEqual(["a", "b", "g"]);
     expect(
       rowsForHubStatusList(rows, { history: false, tileBucket: "active" }).map((r) => r.id),
     ).toEqual(["a", "b", "g"]);
     expect(filterHubTripsForHistoryList(rows).map((r) => r.id)).toEqual(["c", "d", "e"]);
+  });
+
+  it("Unassigned list never shows cancelled trips, with or without a driver", () => {
+    const rows = [
+      trip({ id: "open", status: "assigned", driver_id: null }),
+      trip({ id: "cancel-no-driver", status: "cancelled", driver_id: null }),
+      trip({ id: "cancel-driver", status: "cancelled", driver_id: "d1" }),
+    ];
+    expect(
+      rowsForHubStatusList(rows, { history: false, tileBucket: "unassigned" }).map((r) => r.id),
+    ).toEqual(["open"]);
   });
 
   it("cancelled trips are in neither Active nor History", () => {
@@ -141,7 +152,7 @@ describe("Active rail", () => {
     expect(hubActiveAllTripCount(onlyCancelled)).toBe(0);
   });
 
-  it("keeps the server unassigned total, including cancelled, without zeroing other tiles", () => {
+  it("keeps the server unassigned total without zeroing other tiles", () => {
     const full = buildActiveHubRailCounts(SOURCE, DOCS);
     const tilePage = buildActiveHubRailCounts(
       [trip({ id: "cancelled", status: "cancelled", driver_id: null })],

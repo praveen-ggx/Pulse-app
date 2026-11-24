@@ -35,6 +35,7 @@ type DriverInviteModalContextValue = {
   refreshInvites: () => Promise<void>;
   presentPendingInvite: () => void;
   fleetConnectionRevision: number;
+  bumpFleetConnectionRevision: () => void;
 };
 
 const DriverInviteModalContext = createContext<DriverInviteModalContextValue | null>(null);
@@ -281,6 +282,7 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
       refreshInvites,
       presentPendingInvite,
       fleetConnectionRevision,
+      bumpFleetConnectionRevision,
     }),
     [
       allInvites,
@@ -289,6 +291,7 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
       refreshInvites,
       presentPendingInvite,
       fleetConnectionRevision,
+      bumpFleetConnectionRevision,
     ],
   );
 

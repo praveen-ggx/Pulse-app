@@ -6,16 +6,21 @@ import { DriverSelfLedgerPanel } from '@/features/drivers/components/DriverSelfL
 import { DriverSelfReceivablesPanel } from '@/features/drivers/components/DriverSelfReceivablesPanel';
 import { DriverPreDcoFleetHistoryView } from '@/features/drivers/components/DriverPreDcoFleetHistoryView';
 import {
-  UNTAGGED_PARTY_ID,
   buildDriverPartyReceivables,
+  summarizeDriverPartyReceivables,
 } from '@/features/drivers/utils/driverPartyReceivables.util';
+import { driverWalletTripEarnings } from '@/features/drivers/utils/driverWalletEarnings.util';
 import {
   publishSelectableShippers,
   selectableShippersFromReceivables,
 } from '@/features/drivers/utils/driverSelectableParties.util';
 import { listDriverTripExpensesByTripIds } from '@/features/drivers/services/driverTripExpenses.service';
 import { useCoalescedLoader, type CoalescedRunScope } from '@/features/drivers/hooks/useCoalescedLoader';
-import { receivedByTripFromDriverBooks } from '@/features/drivers/services/driverCapturePayment.service';
+import {
+  listDriverBookCollections,
+  receivedByTripFromDriverBooks,
+  type DriverBookCollection,
+} from '@/features/drivers/services/driverCapturePayment.service';
 import {
   buildDriverWalletTransactions,
   filterDriverWalletTransactions,
@@ -226,6 +231,7 @@ export default function DriverWalletScreen() {
   >({});
   const [ledgerEntries, setLedgerEntries] = useState<driversService.DriverLedgerRow[]>([]);
   const [bookReceivedByTripId, setBookReceivedByTripId] = useState<Record<string, number>>({});
+  const [bookCollections, setBookCollections] = useState<DriverBookCollection[]>([]);
   const [tripExpenses, setTripExpenses] = useState<
     Awaited<ReturnType<typeof listDriverTripExpensesByTripIds>>["entries"]
   >([]);
@@ -334,6 +340,7 @@ export default function DriverWalletScreen() {
           setSalaryRequests([]);
           setTripExpenses([]);
           setBookReceivedByTripId({});
+          setBookCollections([]);
           setLoading(false);
           initialLoadDoneRef.current = true;
           isRefreshingRef.current = false;
@@ -357,19 +364,19 @@ export default function DriverWalletScreen() {
         setTrips(tRes.trips ?? []);
         setLedgerEntries(ledgerRes.entries ?? []);
       })) return;
-      const receivedByTrip = await receivedByTripFromDriverBooks();
+      const [receivedByTrip, collections] = await Promise.all([
+        receivedByTripFromDriverBooks(),
+        listDriverBookCollections(),
+      ]);
       if (!commit(() => {
         setBookReceivedByTripId(receivedByTrip);
+        setBookCollections(collections);
         setSalaryRequests(salaryReqRes.requests ?? []);
       })) return;
-      if (isDco) {
-        const expenseRes = await listDriverTripExpensesByTripIds(
-          (tRes.trips ?? []).map((trip) => trip.id),
-        );
-        if (!commit(() => setTripExpenses(expenseRes.entries ?? []))) return;
-      } else if (!commit(() => setTripExpenses([]))) {
-        return;
-      }
+      const expenseRes = await listDriverTripExpensesByTripIds(
+        (tRes.trips ?? []).map((trip) => trip.id),
+      );
+      if (!commit(() => setTripExpenses(expenseRes.entries ?? []))) return;
       commit(() => {
         setLoading(false);
         initialLoadDoneRef.current = true;
@@ -388,7 +395,7 @@ export default function DriverWalletScreen() {
       // Reject so the coalesced loader does not treat this attempt as fresh.
       throw err;
     }
-  }, [profile?.uid, isDco]);
+  }, [profile?.uid]);
 
   const refreshWallet = useCoalescedLoader(load, { minIntervalMs: 15_000 });
   const requestWalletRefresh = useCallback((opts?: { force?: boolean; supersede?: boolean }) => {
@@ -471,6 +478,10 @@ export default function DriverWalletScreen() {
     () => buildDriverPartyReceivables(trips, receivedByTripId, isFleetDispatchedTrip),
     [trips, receivedByTripId, isFleetDispatchedTrip],
   );
+  const indieReceivableSummary = useMemo(
+    () => summarizeDriverPartyReceivables(selfPartyReceivables),
+    [selfPartyReceivables],
+  );
   useEffect(() => {
     publishSelectableShippers(selectableShippersFromReceivables(selfPartyReceivables));
   }, [selfPartyReceivables]);
@@ -542,6 +553,30 @@ export default function DriverWalletScreen() {
     (t: tripsService.TripRow) =>
       hasAgreedPayoutTermsForTrip(t) ? tripEarnings(t, payoutTermsForTrip(t), driverOrgIds) : 0,
     [hasAgreedPayoutTermsForTrip, payoutTermsForTrip, driverOrgIds],
+  );
+
+  /**
+   * Earnings for a trip. Fleet employment uses the agreed payout. Other trips use
+   * the driver's own tagged billed amount, else the org-scoped earnings figure.
+   * Never client_price, and never a broker's copy of an awarded load.
+   */
+  const earningsAmountForTrip = useCallback(
+    (t: tripsService.TripRow) =>
+      driverWalletTripEarnings(t, {
+        isFleetDispatched: isFleetDispatchedTrip(t),
+        hasAgreedPayoutTerms: hasAgreedPayoutTermsForTrip(t),
+        payoutTerms: payoutTermsForTrip(t),
+        driverOrgIds,
+      }),
+    [driverOrgIds, hasAgreedPayoutTermsForTrip, isFleetDispatchedTrip, payoutTermsForTrip],
+  );
+
+  const earningsTripHasAmount = useCallback(
+    (t: tripsService.TripRow) =>
+      isFleetDispatchedTrip(t)
+        ? hasAgreedPayoutTermsForTrip(t)
+        : earningsAmountForTrip(t) > 0 || (receivedByTripId[t.id] ?? 0) > 0,
+    [earningsAmountForTrip, hasAgreedPayoutTermsForTrip, isFleetDispatchedTrip, receivedByTripId],
   );
 
   const receivedLedgerEntries = useMemo(() => {
@@ -1410,7 +1445,7 @@ export default function DriverWalletScreen() {
     ],
   );
 
-  const { receivedTrips, filteredTrips, pendingTotal } = useMemo(() => {
+  const { receivedTrips, filteredTrips } = useMemo(() => {
     const visibleTrips = [...completedTrips]
       .sort((a, b) => {
         const da = new Date(a.completed_at ?? a.updated_at ?? a.created_at).getTime();
@@ -1907,36 +1942,6 @@ export default function DriverWalletScreen() {
       item.status !== 'Settled' && !!item.fleetPendingLedger,
     [],
   );
-
-  // Direct assignment trips — not created by any linked fleet employer.
-  const offlineJourneyItems = useMemo(
-    () => tripJourneyItems.filter((item) => !item.isFleetOwnerTrip),
-    [tripJourneyItems],
-  );
-
-  const directTripStats = useMemo(() => {
-    const items = offlineJourneyItems;
-    const earned = items.reduce((sum, item) => sum + item.amount, 0);
-    const pending = items
-      .filter((item) => item.status !== 'Settled')
-      .reduce((sum, item) => sum + item.outstandingAmount, 0);
-    return { count: items.length, earned: Math.round(earned), pending: Math.round(pending) };
-  }, [offlineJourneyItems]);
-
-  const openOfflineTrips = useCallback(() => {
-    router.push({ pathname: '/(driver)/trip-history', params: { type: 'offline' } } as Parameters<typeof router.push>[0]);
-  }, [router]);
-
-  const openOfflineReceivable = useCallback(() => {
-    const first = selfPartyReceivables[0];
-    const untagged = selfPartyReceivables.find((row) => row.id === UNTAGGED_PARTY_ID);
-    const target = untagged ?? first;
-    if (target) {
-      router.push(ROUTES.driverPartyReceivable(target.id) as Parameters<typeof router.push>[0]);
-      return;
-    }
-    openOfflineTrips();
-  }, [openOfflineTrips, router, selfPartyReceivables]);
 
   const pastLinkedDrivers = useMemo(
     () =>
@@ -2490,10 +2495,12 @@ export default function DriverWalletScreen() {
       string,
       { orgId: string; orgName: string; isEmployee: boolean; since: string }
     >();
+    const stillEmployed = operatingMode.mode === 'DCO_EMPLOYMENT_CONFLICT';
     for (const d of linkedDrivers) {
       const orgId = String(d.organization_id ?? '');
       if (!orgId || d.left_at || d.tracking_only === true) continue;
       const isEmployee = d.relationship_status === 'active_employee';
+      if (isEmployee && !stillEmployed) continue;
       const existing = byOrg.get(orgId);
       if (existing) {
         existing.isEmployee = existing.isEmployee || isEmployee;
@@ -2507,7 +2514,7 @@ export default function DriverWalletScreen() {
       });
     }
     return Array.from(byOrg.values());
-  }, [linkedDrivers, orgNameById]);
+  }, [linkedDrivers, orgNameById, operatingMode.mode]);
 
   /**
    * Find which employer the driver was connected to at the time of a given trip.
@@ -2623,11 +2630,12 @@ export default function DriverWalletScreen() {
             "Party";
           return walletTxnPartyFallback(trip, orgName);
         },
-        includeExpenses: isDco,
+        includeExpenses: true,
+        collections: bookCollections,
       }),
     [
+      bookCollections,
       driverTripNumberById,
-      isDco,
       orgNameById,
       receivedLedgerEntries,
       salaryRequestOrgOptions,
@@ -2812,85 +2820,6 @@ export default function DriverWalletScreen() {
         </View>
         <Text style={[styles.creditsSubtitle, { color: GRAY_700 }]}>Financial audit & settlements.</Text>
       </View>
-
-      {!isDco ? (
-      <View style={styles.walletCardWrap}>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => router.push('/(driver)/pending-earnings')}
-        >
-        <LinearGradient
-          colors={
-            isDark
-              ? [EMERALD_950, Theme.driverEmeraldDark]
-              : [Theme.driverEmeraldDark, Theme.driverEmerald]
-          }
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[
-            styles.walletCard,
-            {
-              borderWidth: 1,
-              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
-              shadowColor: isDark ? 'rgba(2,44,34,0.85)' : 'rgba(6,95,70,0.38)',
-              shadowOffset: { width: 0, height: 20 },
-              shadowOpacity: 1,
-              shadowRadius: 40,
-              elevation: 8,
-            },
-          ]}
-        >
-          <Animated.View
-            style={[styles.walletCardWatermarkWrap, cashWatermarkAnimStyle, { pointerEvents: 'none' }]}
-          >
-            <Wallet size={112} color={EMERALD_400} strokeWidth={1.4} />
-          </Animated.View>
-          <View style={styles.walletCardContent}>
-            <View style={styles.walletCardLabelRow}>
-              <Animated.View style={cashSparkleAnimStyle}>
-                <Sparkles size={17} color="rgba(236,253,245,0.95)" strokeWidth={2.5} />
-              </Animated.View>
-              <Text style={[styles.walletCardLabel, { color: EMERALD_200_90 }]}>TO COLLECT</Text>
-            </View>
-            <View style={styles.walletCardBalanceRow}>
-              <Text style={[styles.walletCardBalanceRupee, { color: '#ffffff' }]}>₹</Text>
-              <Text
-                style={[
-                  styles.walletCardBalanceNumber,
-                  isAndroid && styles.walletCardBalanceNumberAndroid,
-                  { color: '#ffffff' },
-                ]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.7}
-              >
-                {pendingTotal.toLocaleString('en-IN')}
-              </Text>
-            </View>
-            <Text style={[styles.walletCardPendingSubLabel, { color: 'rgba(167,243,208,0.7)' }]}>pending earnings</Text>
-            <TouchableOpacity
-              style={[
-                styles.walletCardWithdrawBtn,
-                {
-                  backgroundColor: 'rgba(248,250,252,0.96)',
-                  borderColor: 'rgba(255,255,255,0.38)',
-                  shadowColor: '#000',
-                },
-              ]}
-              activeOpacity={0.85}
-              onPress={() => router.push('/(driver)/salary-request')}
-              accessibilityLabel="Salary request"
-              accessibilityHint="Request salary from your fleet"
-            >
-              <Text style={[styles.walletCardWithdrawText, { color: Theme.textPrimaryDark }]}>
-                SALARY REQUEST
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </LinearGradient>
-        </TouchableOpacity>
-      </View>
-      ) : null}
 
       <View
         style={[
@@ -3079,6 +3008,64 @@ export default function DriverWalletScreen() {
                 ))}
               </View>
             ) : null}
+            <View style={[styles.walletCardWrap, { paddingHorizontal: 0, marginBottom: 16 }]}>
+              <LinearGradient
+                colors={
+                  isDark
+                    ? [EMERALD_950, Theme.driverEmeraldDark]
+                    : [Theme.driverEmeraldDark, Theme.driverEmerald]
+                }
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[
+                  styles.walletCard,
+                  {
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
+                    shadowColor: isDark ? 'rgba(2,44,34,0.85)' : 'rgba(6,95,70,0.38)',
+                    shadowOffset: { width: 0, height: 20 },
+                    shadowOpacity: 1,
+                    shadowRadius: 40,
+                    elevation: 8,
+                  },
+                ]}
+              >
+                <Animated.View
+                  style={[styles.walletCardWatermarkWrap, cashWatermarkAnimStyle, { pointerEvents: 'none' }]}
+                >
+                  <Wallet size={112} color={EMERALD_400} strokeWidth={1.4} />
+                </Animated.View>
+                <View style={styles.walletCardContent}>
+                  <View style={styles.walletCardLabelRow}>
+                    <Animated.View style={cashSparkleAnimStyle}>
+                      <Sparkles size={17} color="rgba(236,253,245,0.95)" strokeWidth={2.5} />
+                    </Animated.View>
+                    <Text style={[styles.walletCardLabel, { color: EMERALD_200_90 }]}>Total outstanding</Text>
+                  </View>
+                  <View style={styles.walletCardBalanceRow}>
+                    <Text style={[styles.walletCardBalanceRupee, { color: '#ffffff' }]}>₹</Text>
+                    <Text
+                      style={[
+                        styles.walletCardBalanceNumber,
+                        isAndroid && styles.walletCardBalanceNumberAndroid,
+                        { color: '#ffffff' },
+                      ]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.7}
+                    >
+                      {Math.round(indieReceivableSummary.due).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
+                  <Text style={[styles.walletCardPendingSubLabel, { color: 'rgba(167,243,208,0.85)' }]}>
+                    Collection {indieReceivableSummary.collectionPercent}%
+                  </Text>
+                  <Text style={[styles.walletCardPendingSubLabel, { color: 'rgba(167,243,208,0.7)' }]}>
+                    ₹{Math.round(indieReceivableSummary.received).toLocaleString('en-IN')} of ₹{Math.round(indieReceivableSummary.billed).toLocaleString('en-IN')}
+                  </Text>
+                </View>
+              </LinearGradient>
+            </View>
             <DriverSelfReceivablesPanel
               rows={selfPartyReceivables}
               trips={trips}
@@ -3086,6 +3073,7 @@ export default function DriverWalletScreen() {
               isFleetDispatched={isFleetDispatchedTrip}
               colors={colors}
               isDark={isDark}
+              hideSummary
             />
             <DriverSelfLedgerPanel
               entries={ledgerEntries}
@@ -3097,6 +3085,75 @@ export default function DriverWalletScreen() {
           </View>
         ) : (
         <View style={[styles.ledgerSection, { paddingHorizontal: Layout.screenPaddingHorizontal }]}>
+          <View style={[styles.walletCardWrap, { paddingHorizontal: 0, marginBottom: 16 }]}>
+            <LinearGradient
+              colors={
+                isDark
+                  ? [EMERALD_950, Theme.driverEmeraldDark]
+                  : [Theme.driverEmeraldDark, Theme.driverEmerald]
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[
+                styles.walletCard,
+                {
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
+                  shadowColor: isDark ? 'rgba(2,44,34,0.85)' : 'rgba(6,95,70,0.38)',
+                  shadowOffset: { width: 0, height: 20 },
+                  shadowOpacity: 1,
+                  shadowRadius: 40,
+                  elevation: 8,
+                },
+              ]}
+            >
+              <Animated.View
+                style={[styles.walletCardWatermarkWrap, cashWatermarkAnimStyle, { pointerEvents: 'none' }]}
+              >
+                <Wallet size={112} color={EMERALD_400} strokeWidth={1.4} />
+              </Animated.View>
+              <View style={styles.walletCardContent}>
+                <View style={styles.walletCardLabelRow}>
+                  <Animated.View style={cashSparkleAnimStyle}>
+                    <Sparkles size={17} color="rgba(236,253,245,0.95)" strokeWidth={2.5} />
+                  </Animated.View>
+                  <Text style={[styles.walletCardLabel, { color: EMERALD_200_90 }]}>Total outstanding</Text>
+                </View>
+                <View style={styles.walletCardBalanceRow}>
+                  <Text style={[styles.walletCardBalanceRupee, { color: '#ffffff' }]}>₹</Text>
+                  <Text
+                    style={[
+                      styles.walletCardBalanceNumber,
+                      isAndroid && styles.walletCardBalanceNumberAndroid,
+                      { color: '#ffffff' },
+                    ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
+                    {Math.round(indieReceivableSummary.due).toLocaleString('en-IN')}
+                  </Text>
+                </View>
+                <Text style={[styles.walletCardPendingSubLabel, { color: 'rgba(167,243,208,0.85)' }]}>
+                  Collection {indieReceivableSummary.collectionPercent}%
+                </Text>
+                <Text style={[styles.walletCardPendingSubLabel, { color: 'rgba(167,243,208,0.7)' }]}>
+                  ₹{Math.round(indieReceivableSummary.received).toLocaleString('en-IN')} of ₹{Math.round(indieReceivableSummary.billed).toLocaleString('en-IN')}
+                </Text>
+              </View>
+            </LinearGradient>
+          </View>
+
+          <DriverSelfReceivablesPanel
+            rows={selfPartyReceivables}
+            trips={trips}
+            receivedByTripId={receivedByTripId}
+            isFleetDispatched={isFleetDispatchedTrip}
+            colors={colors}
+            isDark={isDark}
+            audience="offline"
+            hideSummary
+          />
 
           {/* ── CURRENT EMPLOYER ── */}
           <Text style={[styles.transactionHistoryTitle, { color: colors.text }]}>Current employer</Text>
@@ -3399,212 +3456,6 @@ export default function DriverWalletScreen() {
             );
           })()}
 
-          {/* ── OFFLINE TRIPS (direct / clients) ── */}
-          <Text style={[styles.transactionHistoryTitle, { color: colors.text, marginTop: 16 }]}>Offline trips</Text>
-          <View
-            style={[
-              styles.fleetCard,
-              {
-                backgroundColor: colors.surface,
-                borderColor: isDark ? 'rgba(99,102,241,0.22)' : 'rgba(99,102,241,0.15)',
-                shadowColor: isDark ? '#000' : 'rgba(99,102,241,0.10)',
-              },
-            ]}
-          >
-            <TouchableOpacity
-              style={styles.offlineTripsHeader}
-              onPress={openOfflineTrips}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel="Offline trip history"
-            >
-              <View style={styles.fleetCardTopLeft}>
-                <View
-                  style={[
-                    styles.fleetCardLogoNew,
-                    {
-                      backgroundColor: isDark ? 'rgba(99,102,241,0.14)' : 'rgba(99,102,241,0.08)',
-                      borderWidth: 1,
-                      borderColor: isDark ? 'rgba(99,102,241,0.28)' : 'rgba(99,102,241,0.18)',
-                    },
-                  ]}
-                >
-                  <FontAwesome name="road" size={14} color={Theme.primary} />
-                </View>
-                <View style={styles.fleetCardBody}>
-                  <Text style={[styles.fleetCardTitle, { color: colors.text }]} numberOfLines={1}>
-                    Offline trips
-                  </Text>
-                  <Text style={[styles.offlineTripsMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                    {directTripStats.count} trip{directTripStats.count !== 1 ? 's' : ''}
-                  </Text>
-                </View>
-              </View>
-              <View
-                style={[
-                  styles.offlineDueChip,
-                  {
-                    backgroundColor: isDark ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.08)',
-                    borderColor: isDark ? 'rgba(99,102,241,0.30)' : 'rgba(99,102,241,0.18)',
-                  },
-                ]}
-              >
-                <Text style={[styles.offlineDueChipText, { color: '#4D3636' }]} numberOfLines={1}>
-                  ₹{directTripStats.pending.toLocaleString('en-IN')} due
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            <View style={styles.fleetStatsGridNew}>
-              <View
-                style={[
-                  styles.fleetStatBox,
-                  {
-                    backgroundColor: isDark ? colors.surfaceElevated : 'rgba(248,250,252,0.85)',
-                    borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.8)',
-                  },
-                ]}
-              >
-                <Text style={[styles.fleetStatBoxLabel, { color: colors.textMuted }]}>Total earned</Text>
-                <Text style={[styles.fleetStatBoxValue, { color: colors.text }]}>₹{directTripStats.earned.toLocaleString('en-IN')}</Text>
-              </View>
-              <View
-                style={[
-                  styles.fleetStatBox,
-                  styles.fleetStatBoxPending,
-                  {
-                    backgroundColor: isDark ? colors.surfaceElevated : 'rgba(248,250,252,0.85)',
-                    borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.8)',
-                    borderLeftColor:
-                      directTripStats.pending > 0
-                        ? isDark
-                          ? 'rgba(129,140,248,0.65)'
-                          : Theme.primary
-                        : isDark
-                          ? colors.borderSubtle
-                          : 'rgba(226,232,240,0.8)',
-                  },
-                ]}
-              >
-                <Text style={[styles.fleetStatBoxLabel, { color: colors.textMuted }]}>To collect</Text>
-                <Text
-                  style={[
-                    styles.fleetStatBoxValue,
-                    styles.fleetStatBoxValuePending,
-                    {
-                      color:
-                        directTripStats.pending > 0
-                          ? isDark
-                            ? '#a5b4fc'
-                            : Theme.primary
-                          : colors.textMuted,
-                    },
-                  ]}
-                >
-                  ₹{directTripStats.pending.toLocaleString('en-IN')}
-                </Text>
-              </View>
-            </View>
-
-            {offlineJourneyItems.length > 0 ? (
-              <View style={styles.offlineTripList}>
-                {offlineJourneyItems.slice(0, 6).map((item) => (
-                  <TouchableOpacity
-                    key={item.trip.id}
-                    style={[
-                      styles.offlineTripRow,
-                      { borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.9)' },
-                    ]}
-                    onPress={() => router.push(`/driver-trip/${item.trip.id}` as Parameters<typeof router.push>[0])}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${item.from} to ${item.to}`}
-                  >
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={[styles.offlineTripRoute, { color: colors.text }]} numberOfLines={1}>
-                        {item.from} → {item.to}
-                      </Text>
-                      <Text style={[styles.offlineTripMeta, { color: colors.textMuted }]} numberOfLines={1}>
-                        {item.provider} · {item.status}
-                      </Text>
-                    </View>
-                    <Text
-                      style={[
-                        styles.offlineTripAmt,
-                        { color: item.outstandingAmount > 0 ? Theme.negative : colors.emerald },
-                      ]}
-                    >
-                      ₹{Math.round(item.outstandingAmount || item.amount).toLocaleString('en-IN')}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ) : (
-              <Text style={[styles.offlineTripEmpty, { color: colors.textMuted }]}>
-                No offline trips yet
-              </Text>
-            )}
-
-            <TouchableOpacity
-              style={[
-                styles.fleetPrimaryButtonNew,
-                { backgroundColor: '#3730a3', shadowColor: isDark ? '#000' : 'rgba(55,48,163,0.35)' },
-              ]}
-              activeOpacity={0.85}
-              onPress={openOfflineTrips}
-              accessibilityRole="button"
-              accessibilityLabel="View offline trips"
-            >
-              <View style={styles.fleetPrimaryButtonLeft}>
-                <View style={[styles.fleetPrimaryRing, { borderColor: '#818cf8' }]}>
-                  <View style={[styles.fleetPrimaryRingDot, { backgroundColor: '#818cf8' }]} />
-                </View>
-                <Text style={[styles.fleetPrimaryButtonText, { color: Theme.textOnPrimary }]}>View offline trips</Text>
-              </View>
-              <FontAwesome name="chevron-right" size={12} color={Theme.textOnPrimary} style={styles.fleetPrimaryButtonArrow} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.fleetPrimaryButtonNew,
-                {
-                  marginTop: 8,
-                  backgroundColor: isDark ? 'rgba(16,185,129,0.22)' : 'rgba(16,185,129,0.12)',
-                  shadowColor: isDark ? '#000' : 'rgba(16,185,129,0.18)',
-                },
-              ]}
-              activeOpacity={0.85}
-              onPress={openOfflineReceivable}
-              accessibilityRole="button"
-              accessibilityLabel="View receivable history"
-            >
-              <View style={styles.fleetPrimaryButtonLeft}>
-                <View style={[styles.fleetPrimaryRing, { borderColor: Theme.driverEmerald }]}>
-                  <View style={[styles.fleetPrimaryRingDot, { backgroundColor: Theme.driverEmerald }]} />
-                </View>
-                <Text style={[styles.fleetPrimaryButtonText, { color: isDark ? Theme.textOnPrimary : Theme.driverEmerald }]}>
-                  View receivable history
-                </Text>
-              </View>
-              <FontAwesome
-                name="chevron-right"
-                size={12}
-                color={isDark ? Theme.textOnPrimary : Theme.driverEmerald}
-                style={styles.fleetPrimaryButtonArrow}
-              />
-            </TouchableOpacity>
-          </View>
-
-          <View style={{ marginTop: 16 }}>
-            <DriverSelfReceivablesPanel
-              rows={selfPartyReceivables}
-              trips={trips}
-              receivedByTripId={receivedByTripId}
-              isFleetDispatched={isFleetDispatchedTrip}
-              colors={colors}
-              isDark={isDark}
-              audience="offline"
-            />
-          </View>
-
           {/* ── CAREER HISTORY ── */}
           {pastEmployerFleetCards.length > 0 && (
             <>
@@ -3711,11 +3562,11 @@ export default function DriverWalletScreen() {
             orgId: String(f.orgId ?? ''),
             orgName: f.orgName,
           })).filter((f) => f.orgId.length > 0)}
-          tripEarnings={gatedTripEarnings}
-          hasAgreedPayoutTerms={hasAgreedPayoutTermsForTrip}
+          tripEarnings={earningsAmountForTrip}
+          hasAgreedPayoutTerms={earningsTripHasAmount}
           receivedByTripId={receivedByTripId}
           tripMeta={(trip) => {
-            const earned = Math.round(gatedTripEarnings(trip));
+            const earned = Math.round(earningsAmountForTrip(trip));
             const received = Math.round(receivedByTripId[trip.id] ?? 0);
             const pending = Math.max(0, earned - received);
             const orgId = String(trip.organization_id ?? '');
@@ -3748,7 +3599,8 @@ export default function DriverWalletScreen() {
           onSharePaymentPdf={shareEarningsFollowUpPdf}
           colors={colors}
           isDark={isDark}
-          showMonthPnl={isDco}
+          showMonthPnl
+          showSalaryRequest={!isDco}
           tripExpenses={tripExpenses}
           isFleetDispatched={isFleetDispatchedTrip}
         />

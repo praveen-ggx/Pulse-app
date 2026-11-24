@@ -1,0 +1,5 @@
+# Preprod only: the second migration of hub-unassigned-excludes-cancelled.
+# 20271124132234 is already applied on preprod, and db-push-set only accepts
+# Local-only versions, so the full set cannot be used there. Prod uses the full set.
+# sha256 b443ce9558185cdab8dba58d86f33ac4d874ddd47a2f9e1135b432a97a84e3da  20271124154500_hub_metric_contrib_excludes_cancelled_unassigned.sql
+20271124154500

@@ -127,7 +127,9 @@ export function deriveComplianceQueueReadiness(summary: ComplianceTripSummary): 
     );
   } else if (!advanceGuard.ok) {
     advance = lane("compliance_advance", "blocked", advanceGuard.reason ?? "Advance is blocked.");
-  } else if (expiredVehicleDocs.length > 0) {
+  } else if (expiredVehicleDocs.length > 0 && !summary.financeVerifiedAt) {
+    // Once Finance approved the advance, expired docs only block the balance:
+    // the advance may already be paid and its UTR must still be recordable.
     advance = lane(
       "compliance_advance",
       "blocked",
@@ -199,7 +201,7 @@ export function deriveComplianceQueueReadiness(summary: ComplianceTripSummary): 
     ).values(),
   ];
   let nextAction = requiredDocs.nextAction;
-  if (expiredVehicleDocs[0]) {
+  if (expiredVehicleDocs[0] && readyCategory !== "compliance_advance") {
     nextAction = `Replace expired ${expiredVehicleDocs[0]}`;
   } else if (requiredDocs.markVerifiedReady && complianceVerificationIncomplete) {
     nextAction = "Mark Compliance Verified";

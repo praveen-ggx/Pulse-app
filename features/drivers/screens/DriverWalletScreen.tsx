@@ -8,8 +8,8 @@ import { DriverPreDcoFleetHistoryView } from '@/features/drivers/components/Driv
 import {
   buildDriverPartyReceivables,
   summarizeDriverPartyReceivables,
-  tripReceivableBilled,
 } from '@/features/drivers/utils/driverPartyReceivables.util';
+import { driverWalletTripEarnings } from '@/features/drivers/utils/driverWalletEarnings.util';
 import {
   publishSelectableShippers,
   selectableShippersFromReceivables,
@@ -556,22 +556,27 @@ export default function DriverWalletScreen() {
   );
 
   /**
-   * Earnings for a trip. Fleet employment uses the agreed payout. Every other
-   * trip uses the same billed amount as the Independent / Self receivable list,
-   * so a client price is not shown as ₹0 just because there is no salary term.
+   * Earnings for a trip. Fleet employment uses the agreed payout. Other trips use
+   * the driver's own tagged billed amount, else the org-scoped earnings figure.
+   * Never client_price, and never a broker's copy of an awarded load.
    */
   const earningsAmountForTrip = useCallback(
     (t: tripsService.TripRow) =>
-      isFleetDispatchedTrip(t) ? gatedTripEarnings(t) : tripReceivableBilled(t),
-    [gatedTripEarnings, isFleetDispatchedTrip],
+      driverWalletTripEarnings(t, {
+        isFleetDispatched: isFleetDispatchedTrip(t),
+        hasAgreedPayoutTerms: hasAgreedPayoutTermsForTrip(t),
+        payoutTerms: payoutTermsForTrip(t),
+        driverOrgIds,
+      }),
+    [driverOrgIds, hasAgreedPayoutTermsForTrip, isFleetDispatchedTrip, payoutTermsForTrip],
   );
 
   const earningsTripHasAmount = useCallback(
     (t: tripsService.TripRow) =>
       isFleetDispatchedTrip(t)
         ? hasAgreedPayoutTermsForTrip(t)
-        : tripReceivableBilled(t) > 0 || (receivedByTripId[t.id] ?? 0) > 0,
-    [hasAgreedPayoutTermsForTrip, isFleetDispatchedTrip, receivedByTripId],
+        : earningsAmountForTrip(t) > 0 || (receivedByTripId[t.id] ?? 0) > 0,
+    [earningsAmountForTrip, hasAgreedPayoutTermsForTrip, isFleetDispatchedTrip, receivedByTripId],
   );
 
   const receivedLedgerEntries = useMemo(() => {

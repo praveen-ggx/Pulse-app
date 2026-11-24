@@ -1,0 +1,8 @@
+# Release 2026-11-24, one migration.
+# 20271124104457: Ground Ops simulate stage time window, PR #165 (nihas V1.0.84). CREATE OR REPLACE of
+#   simulate_ground_ops_pickup_status (same signature and grants as 20271123101500, already on prod).
+#   When the app sends a stage time: refuse more than 5 min in the future; refuse Start Trip before the
+#   recorded Reached Pickup minute. No time sent keeps now(). Safe before or after the app code; apply first.
+# Excluded: the Godrej test receipt migration (never applied).
+# sha256 d94de253cae0bbed2b4bebdb93ad46996b573185142b75a2c5c5fa0d2134652a  20271124104457_ground_ops_stage_time_window.sql
+20271124104457

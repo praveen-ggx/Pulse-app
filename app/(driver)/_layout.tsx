@@ -12,6 +12,7 @@ import { DriverAvatarProvider } from '@/contexts/DriverAvatarContext';
 import { DriverThemeProvider } from '@/contexts/DriverThemeContext';
 import { DriverCommunicationProvider } from '@/features/driver/communication';
 import { DriverTripCompletedHost } from '@/features/driver/components/DriverTripCompletedModal';
+import { DcoEmploymentConflictModal } from '@/features/drivers/components/DcoEmploymentConflictModal';
 import { useDriverIndieOutboxFlush } from '@/features/driver-indie/hooks/useDriverIndieOutboxFlush';
 import {
   consumePendingDriverInviteAfterAuth,
@@ -264,6 +265,7 @@ export default function DriverAppLayout() {
             <DriverTripOpsProvider>
               <DriverTabsNavigator />
               <DriverTripCompletedHost />
+              <DcoEmploymentConflictModal />
             </DriverTripOpsProvider>
           </DriverInviteModalProvider>
         </DriverCommunicationProvider>

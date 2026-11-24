@@ -204,44 +204,8 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
       props.secondaryAction ||
       props.primaryAction ? (
         <View style={styles.actions}>
-          {props.compactActions && props.tripAction ? (
-            <View style={styles.actionsRow}>
-              {props.dismissAction ? (
-                <Pressable
-                  hitSlop={8}
-                  style={({ pressed }) => [
-                    styles.ghostBtn,
-                    styles.ghostBtnCompact,
-                    pressed && styles.pressed,
-                  ]}
-                  onPress={props.dismissAction.onPress}
-                  accessibilityRole="button"
-                  accessibilityLabel={props.dismissAction.label}
-                >
-                  <Text style={[styles.ghostBtnText, styles.ghostBtnTextCompact]} numberOfLines={1}>
-                    {props.dismissAction.label}
-                  </Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                hitSlop={8}
-                style={({ pressed }) => [
-                  styles.ghostBtn,
-                  styles.ghostBtnCompact,
-                  pressed && styles.pressed,
-                ]}
-                onPress={props.tripAction.onPress}
-                accessibilityRole="button"
-                accessibilityLabel={props.tripAction.label}
-              >
-                <Text style={[styles.ghostBtnText, styles.ghostBtnTextCompact]} numberOfLines={1}>
-                  {props.tripAction.label}
-                </Text>
-              </Pressable>
-            </View>
-          ) : null}
           <View style={[styles.actionsRowInner, props.compactActions && styles.actionsRow]}>
-            {(!props.compactActions || !props.tripAction) && props.dismissAction ? (
+            {props.dismissAction ? (
               <Pressable
                 hitSlop={8}
                 style={({ pressed }) => [
@@ -259,20 +223,34 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                     props.compactActions && styles.ghostBtnTextCompact,
                   ]}
                   numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
                 >
                   {props.dismissAction.label}
                 </Text>
               </Pressable>
             ) : null}
-            {!props.compactActions && props.tripAction ? (
+            {props.tripAction ? (
               <Pressable
                 hitSlop={8}
-                style={({ pressed }) => [styles.ghostBtn, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.ghostBtn,
+                  props.compactActions && styles.ghostBtnCompact,
+                  pressed && styles.pressed,
+                ]}
                 onPress={props.tripAction.onPress}
                 accessibilityRole="button"
                 accessibilityLabel={props.tripAction.label}
               >
-                <Text style={styles.ghostBtnText} numberOfLines={1}>
+                <Text
+                  style={[
+                    styles.ghostBtnText,
+                    props.compactActions && styles.ghostBtnTextCompact,
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
+                >
                   {props.tripAction.label}
                 </Text>
               </Pressable>
@@ -295,6 +273,8 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                     props.compactActions && styles.ghostBtnTextCompact,
                   ]}
                   numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
                 >
                   {props.secondaryAction.label}
                 </Text>
@@ -318,6 +298,8 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                     props.compactActions && styles.primaryBtnTextCompact,
                   ]}
                   numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
                 >
                   {props.primaryAction.label}
                 </Text>
@@ -588,7 +570,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: LEDGER_RECEIPT.border,
     paddingVertical: 6,
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
     justifyContent: "center",
   },
   ghostBtnText: {
@@ -597,9 +579,9 @@ const styles = StyleSheet.create({
     color: LEDGER_RECEIPT.subtle,
   },
   ghostBtnTextCompact: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "600",
-    letterSpacing: 0.2,
+    letterSpacing: 0,
   },
   primaryBtn: {
     backgroundColor: LEDGER_RECEIPT.primaryBtn,
@@ -618,7 +600,7 @@ const styles = StyleSheet.create({
     alignSelf: "auto",
     borderRadius: 8,
     paddingVertical: 6,
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
     minHeight: 32,
   },
   primaryBtnPressed: {
@@ -632,8 +614,8 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   primaryBtnTextCompact: {
-    fontSize: 10,
-    letterSpacing: 0.3,
+    fontSize: 9,
+    letterSpacing: 0,
   },
   pressed: {
     opacity: 0.88,

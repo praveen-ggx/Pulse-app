@@ -278,6 +278,88 @@ async function collectSelfOnce(
   return { error: collected.error };
 }
 
+export type DriverBookCollection = {
+  id: string;
+  tripId: string | null;
+  amount: number;
+  at: string;
+  partyName: string;
+};
+
+type CollectionRow = {
+  id: string;
+  receivable_id: string;
+  amount: number;
+  created_at?: string | null;
+  paid_on?: string | null;
+};
+
+/** Each collected receipt on the independent and Self books, one row per payment. */
+export async function listDriverBookCollections(): Promise<DriverBookCollection[]> {
+  const [indieRecv, indieCols, selfRecv, selfCols] = await Promise.all([
+    supabase()
+      .from("driver_indie_receivables" as never)
+      .select("id, operational_trip_id, party_label"),
+    supabase()
+      .from("driver_indie_collections" as never)
+      .select("id, receivable_id, amount, created_at, paid_on"),
+    supabase()
+      .from("dco_self_receivables" as never)
+      .select("id, operational_trip_id, party_a_label"),
+    supabase()
+      .from("dco_self_collections" as never)
+      .select("id, receivable_id, amount, created_at, paid_on"),
+  ]);
+
+  const indieTrip = new Map<string, { tripId: string | null; partyName: string }>();
+  for (const row of (indieRecv.data as Array<{
+    id: string;
+    operational_trip_id: string | null;
+    party_label: string | null;
+  }> | null) ?? []) {
+    indieTrip.set(String(row.id), {
+      tripId: row.operational_trip_id ? String(row.operational_trip_id) : null,
+      partyName: String(row.party_label ?? "").trim() || "Party",
+    });
+  }
+  const selfTrip = new Map<string, { tripId: string | null; partyName: string }>();
+  for (const row of (selfRecv.data as Array<{
+    id: string;
+    operational_trip_id: string | null;
+    party_a_label: string | null;
+  }> | null) ?? []) {
+    selfTrip.set(String(row.id), {
+      tripId: row.operational_trip_id ? String(row.operational_trip_id) : null,
+      partyName: String(row.party_a_label ?? "").trim() || "Party",
+    });
+  }
+
+  const out: DriverBookCollection[] = [];
+  const push = (
+    rows: CollectionRow[] | null,
+    lookup: Map<string, { tripId: string | null; partyName: string }>,
+    prefix: string,
+  ) => {
+    for (const row of rows ?? []) {
+      const amount = Math.max(0, Math.round(Number(row.amount) || 0));
+      if (amount <= 0) continue;
+      const linked = lookup.get(String(row.receivable_id));
+      const at = String(row.created_at ?? row.paid_on ?? "").trim();
+      if (!at) continue;
+      out.push({
+        id: `${prefix}:${row.id}`,
+        tripId: linked?.tripId ?? null,
+        amount,
+        at,
+        partyName: linked?.partyName || "Party",
+      });
+    }
+  };
+  if (!indieCols.error) push((indieCols.data as CollectionRow[] | null) ?? [], indieTrip, "indie");
+  if (!selfCols.error) push((selfCols.data as CollectionRow[] | null) ?? [], selfTrip, "self");
+  return out;
+}
+
 /** Collected amounts on the DCO Self, independent, and Marketplace (Exchange) books, keyed by trip. */
 export async function receivedByTripFromDriverBooks(): Promise<Record<string, number>> {
   const [selfBook, indieBook, exchangeReceived] = await Promise.all([

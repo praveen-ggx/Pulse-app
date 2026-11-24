@@ -1273,6 +1273,50 @@ export async function linkEwayEntryToFile(input: {
   return { error: saved.error, linked: !saved.error };
 }
 
+/**
+ * Add one new e-way bill with its own document: upload the file, then add
+ * the number to the trip's list linked to that file (list re-read first, so
+ * a save made meanwhile is kept). A new e-way bill always has its document —
+ * a number-only entry used to show the trip's first e-way image instead.
+ */
+export async function addEwayBillWithFile(input: {
+  tripId: string;
+  uploadedBy: string;
+  organizationId?: string | null;
+  entry: EwayFieldValues;
+  file: { arrayBuffer: ArrayBuffer; fileName: string; mimeType: string };
+}): Promise<{ error: Error | null }> {
+  const { doc, error: uploadError } = await uploadTripDocument(
+    input.tripId,
+    input.uploadedBy,
+    input.file,
+    "eway_bill",
+    undefined,
+    { organizationId: input.organizationId ?? null },
+  );
+  if (uploadError) return { error: uploadError };
+  const filePath = doc?.storage_path?.trim();
+  if (!filePath) return { error: new Error("The e-way bill document was not saved. Try again.") };
+  const listed = await listEwayFieldsRows(input.tripId);
+  if (listed.error) {
+    return { error: new Error(`The document was uploaded, but the e-way number was not saved: ${listed.error.message}`) };
+  }
+  const entries = parseEwayFieldEntries(ewayFieldsSourceRow(listed.rows)?.document_number);
+  const saved = await upsertEwayBillFields({
+    tripId: input.tripId,
+    uploadedBy: input.uploadedBy,
+    values: [...entries, { ...input.entry, filePath }],
+  });
+  if (saved.error) {
+    return {
+      error: new Error(
+        `The document was uploaded, but the e-way number was not saved: ${saved.error.message} Use Edit on its card to add the number.`,
+      ),
+    };
+  }
+  return { error: null };
+}
+
 type EwayFieldsRow = {
   id: string;
   storage_path: string;

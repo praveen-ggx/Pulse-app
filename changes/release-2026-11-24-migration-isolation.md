@@ -1,7 +1,7 @@
 # PR #149 — Migration Isolation Follow-up
 
 **Frozen RC:** `242ebc4c3cef45d58c5946f118f46a6e0115bc92`  
-**Follow-up commit:** _(filled after push)_  
+**Follow-up commit:** `0998a902712d6b7174cb531a493d92e8a988f0c3`  
 **Migration branch (remote):** `vasanth/migration-reconcile-20261124` @ `c41b2563c0fbd1b8d349389e22890496e68e95a3`
 
 ## Before → after

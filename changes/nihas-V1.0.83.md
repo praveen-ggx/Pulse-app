@@ -7,6 +7,7 @@ Branched from V1 `d1c15d0d` on 2026-11-24.
 - Compliance queue: switching organisation no longer shows the previous organisation's trips (or counts) while the new queue loads. A slow load that started before a header refresh, an organisation switch or a session change can no longer overwrite newer data, and trips are merged by id so none appear twice.
 - No automatic retry and no change to how the banner looks while loading; both are follow-ups once the real error has been captured.
 - Trips hub: cancelled trips no longer count under Unassigned. The card, the Unassigned list and the DB count now all agree (new migration `hub_unassigned_excludes_cancelled`, not applied anywhere yet).
+- Added release set `hub-unassigned-excludes-cancelled` and a test pinning it, so the cancelled/Unassigned migration can go to preprod and prod through `db-push-set`.
 
 ## Why
 - The queue paints the first 40 trips and loads the rest in the background. That background load, and the reconcile that picks up trips added later, swallowed their errors, so a failed load left a short queue on screen with correct-looking counts, an "Updated just now" label and working exports. Seen on a local reload with 1083 trips: the first 40 showed, the rest failed once, and Retry then loaded all of them.
@@ -31,3 +32,4 @@ Branched from V1 `d1c15d0d` on 2026-11-24.
 - The cause of the failed background load on large queues (see Why).
 - Typecheck is 23 under its baseline; the cause of that gap in this checkout is not explained, so the baseline file is unchanged.
 - Vasanth confirmed cancelled should not count. The Unassigned card showed 11 on first load and 24 after a click because the DB count and the list included cancelled trips. On prod the main org had 8 vs 27.
+- The plain `db push` is blocked by preflight (frozen files in the tree); only a named set is allowed.

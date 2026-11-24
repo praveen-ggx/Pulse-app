@@ -19,10 +19,6 @@ import type { DriverTripSettlementTone } from "@/features/driver/tripSettlement/
 import { tripHistoryDetailStyles as styles } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
 import { useTripOperationsSummary } from "@/features/trips/operations/queries/useTripOperations";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import {
-  formatKm,
-  toVerificationSnapshot,
-} from "@/features/trips/verification/selectors/verificationSelectors";
 import { ROUTES, tripExpenseEntryEditRoute } from "@/lib/routes";
 import { type Href, useRouter } from "expo-router";
 import {
@@ -116,52 +112,10 @@ export function TripDetailSettlementPanel({
     router.push(ROUTES.tripOtherExpenseEntry(trip.id) as Href);
   }, [router, trip.id]);
   const costEvents = summaryQuery.data?.costEvents ?? [];
-  const reimbursementDueInr =
-    summaryQuery.data?.financialSnapshot?.payableOutstandingInr ?? 0;
   const totalExpensesInr = useMemo(
     () => costEvents.reduce((sum, event) => sum + Math.max(0, event.amount), 0),
     [costEvents],
   );
-  const pendingExpenseCount = costEvents.filter(
-    (e) => e.settlementState !== "settled" && e.approvalState !== "rejected",
-  ).length;
-  const settledExpenseCount = costEvents.filter(
-    (e) => e.settlementState === "settled",
-  ).length;
-  const distanceKm =
-    summaryQuery.data?.mileage.distanceKm ??
-    toVerificationSnapshot(trip).odometerDistanceKm ??
-    (trip.distance != null ? Number(trip.distance) : null);
-
-  const reimbursementStatusMessage =
-    pendingExpenseCount > 0
-      ? `${pendingExpenseCount} expense${pendingExpenseCount === 1 ? "" : "s"} awaiting fleet review`
-      : reimbursementDueInr > 0
-        ? `${inr(reimbursementDueInr)} pending reimbursement`
-        : costEvents.length > 0
-          ? "All expenses settled"
-          : "No expenses yet";
-
-  const reimbursementMetrics = [
-    {
-      label: "Distance",
-      value: summaryQuery.isLoading ? "…" : formatKm(distanceKm),
-    },
-    {
-      label: "Expenses",
-      value: summaryQuery.isLoading ? "…" : inr(totalExpensesInr),
-    },
-    {
-      label: "Due",
-      value: summaryQuery.isLoading ? "…" : inr(reimbursementDueInr),
-    },
-    {
-      label: "Settled",
-      value: summaryQuery.isLoading
-        ? "…"
-        : `${settledExpenseCount}/${costEvents.length || 0}`,
-    },
-  ];
 
   if (loading || !settlementView) {
     return (
@@ -598,67 +552,6 @@ export function TripDetailSettlementPanel({
         </>
       ) : null}
 
-      <View style={[styles.tdTimelineHeader, { marginTop: 6 }]}>
-        <View style={styles.tdTimelineHeaderIcon}>
-          <Wallet size={13} color="#ffffff" strokeWidth={2.2} />
-        </View>
-        <Text style={[styles.tdTimelineHeaderTitle, { color: colors.text }]} numberOfLines={1}>
-          Reimbursement summary
-        </Text>
-        <View
-          style={[
-            panelStyles.syncPill,
-            { backgroundColor: colors.surfaceElevated, borderColor: colors.border },
-          ]}
-        >
-          <View style={[panelStyles.syncDot, { backgroundColor: colors.emerald }]} />
-          <Text style={[panelStyles.syncPillText, { color: colors.emerald }]}>Live</Text>
-        </View>
-      </View>
-
-      <View
-        style={[
-          styles.tdTimelineCard,
-          { backgroundColor: colors.surface, borderColor: colors.border, marginBottom: 12 },
-        ]}
-      >
-        <View
-          style={[
-            styles.tdLogDetailsBox,
-            panelStyles.metricsBox,
-            { backgroundColor: colors.background, borderColor: colors.border, marginBottom: 0 },
-          ]}
-        >
-          <View style={panelStyles.metricGrid}>
-            {reimbursementMetrics.map((metric) => (
-              <View key={metric.label} style={panelStyles.metricCell}>
-                <Text
-                  style={[panelStyles.metricLabel, { color: colors.textMuted }]}
-                  numberOfLines={1}
-                >
-                  {metric.label}
-                </Text>
-                <Text
-                  style={[panelStyles.metricValue, { color: colors.text }]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.85}
-                >
-                  {metric.value}
-                </Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      </View>
-
-      <View style={[panelStyles.statusBanner, { backgroundColor: colors.emeraldDark }]}>
-        <Text style={panelStyles.summaryStatus}>{reimbursementStatusMessage}</Text>
-        <Text style={panelStyles.summaryHint}>
-          Fleet reviews and marks reimbursements after you submit expenses.
-        </Text>
-      </View>
-
       <View style={[styles.tdTimelineHeader, { marginTop: 14 }]}>
         <View style={styles.tdTimelineHeaderIcon}>
           <Activity size={13} color="#ffffff" strokeWidth={2.2} />
@@ -692,20 +585,6 @@ export function TripDetailSettlementPanel({
           if (href) router.push(href as Href);
         }}
       />
-
-      <TouchableOpacity
-        style={[
-          styles.tdQueryBtn,
-          { backgroundColor: colors.surface, borderColor: colors.border, marginTop: 12 },
-        ]}
-        activeOpacity={0.85}
-        onPress={() => router.push("/(driver)/wallet" as Href)}
-      >
-        <Text style={[styles.tdQueryBtnText, { color: colors.textMuted }]}>
-          Open earnings & trips
-        </Text>
-        <ChevronRight size={14} color={colors.textMuted} />
-      </TouchableOpacity>
 
       {showDcoPartyActions && collectFromOpen ? (
         <DriverCollectFromSheet

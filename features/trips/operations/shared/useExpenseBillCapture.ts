@@ -13,6 +13,7 @@ import type { ExpenseOcrKind, OcrJobRow } from "@/features/ocr";
 import { useOcrJobPoll } from "@/features/ocr/hooks/useOcrJobPoll";
 import { ocrReviewDecision } from "@/features/ocr/utils/ocrConfidenceReview.util";
 import { captureOrPickImage } from "@/lib/media/captureImage.util";
+import { keepPhotoForUpload } from "@/features/trips/operations/uploads/photoUploads";
 
 import {
   buildBillScanAppliedState,
@@ -48,7 +49,8 @@ export type ExpenseBillCaptureBag = {
   scanning: boolean;
   billScan: BillScanState;
   persistedJob: OcrJobRow | null;
-  handleCapture: () => Promise<void>;
+  handleCapture: (source?: "camera" | "library") => Promise<void>;
+  acceptPhoto: (uri: string) => Promise<void>;
   handleRemovePhoto: () => void;
   applyPendingUpdates: () => void;
   dismissPendingUpdates: () => void;
@@ -325,26 +327,38 @@ export function useExpenseBillCapture({
     [applyJobToUi, createdBy, kind, organizationId, persistedJob, storagePath, tripId],
   );
 
-  const handleCapture = useCallback(async () => {
-    const picked = await captureOrPickImage({
-      permissionTitle: "Camera required",
-      permissionMessage,
-    });
-    if (!picked) return;
+  const acceptPhoto = useCallback(
+    async (uri: string) => {
+      const trimmed = uri.trim();
+      if (!trimmed) return;
+      const durable = await keepPhotoForUpload(trimmed).catch(() => trimmed);
+      setPhotoUri(durable);
+      setScanning(true);
+      pendingUpdatesRef.current = [];
+      appliedOcrUpdatesRef.current = [];
+      setBillScan({
+        phase: "preparing",
+        message: "Bill attached · queuing scan…",
+        appliedFields: [],
+        stepIndex: 0,
+      });
+      await startScanPipeline(durable, false);
+    },
+    [startScanPipeline],
+  );
 
-    setPhotoUri(picked.uri);
-    setScanning(true);
-    pendingUpdatesRef.current = [];
-    appliedOcrUpdatesRef.current = [];
-    setBillScan({
-      phase: "preparing",
-      message: "Bill attached · queuing scan…",
-      appliedFields: [],
-      stepIndex: 0,
-    });
-
-    await startScanPipeline(picked.uri, false);
-  }, [permissionMessage, startScanPipeline]);
+  const handleCapture = useCallback(
+    async (source?: "camera" | "library") => {
+      const picked = await captureOrPickImage({
+        permissionTitle: "Camera required",
+        permissionMessage,
+        ...(source ? { source } : {}),
+      });
+      if (!picked) return;
+      await acceptPhoto(picked.uri);
+    },
+    [acceptPhoto, permissionMessage],
+  );
 
   const hydratePersistedOcr = useCallback(
     async (documentId: string) => {
@@ -384,6 +398,7 @@ export function useExpenseBillCapture({
     billScan,
     persistedJob,
     handleCapture,
+    acceptPhoto,
     handleRemovePhoto,
     applyPendingUpdates,
     dismissPendingUpdates,

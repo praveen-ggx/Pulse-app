@@ -6,6 +6,11 @@ Branched from V1 `d1c15d0d` on 2026-11-24.
 - Compliance queue: when the trips after the first 40 (or a trip that joined later) fail to load, the page now says so instead of showing a short queue as if it were complete. A banner shows "X of Y trips" with a Retry, stage counts show a "+" while incomplete, and every Compliance export is blocked until the queue is complete. Retry reads only the trips still missing, one retry at a time.
 - Compliance queue: switching organisation no longer shows the previous organisation's trips (or counts) while the new queue loads. A slow load that started before a header refresh, an organisation switch or a session change can no longer overwrite newer data, and trips are merged by id so none appear twice.
 - No automatic retry and no change to how the banner looks while loading; both are follow-ups once the real error has been captured.
+- Trips hub: cancelled trips no longer count under Unassigned. The card, the Unassigned list and the DB count now all agree (new migration `hub_unassigned_excludes_cancelled`, not applied anywhere yet).
+- Added release set `hub-unassigned-excludes-cancelled` and a test pinning it, so the cancelled/Unassigned migration can go to preprod and prod through `db-push-set`.
+- History -> Cancelled trips now lists the cancelled trips (reads the server's cancelled bucket while that tile is open, count from the server). Without this, dropping cancelled from Unassigned would have hidden them everywhere.
+- Same cancelled-is-not-Unassigned rule in `hub_metric_contrib` (new migration `hub_metric_contrib_excludes_cancelled_unassigned`, in the same release set; not applied on prod).
+- Added a preprod-only release set (`hub-unassigned-excludes-cancelled-preprod`) with just the new migration, because preprod already has the first one and `db-push-set` only accepts Local-only versions. Prod still uses the full set.
 
 ## Why
 - The queue paints the first 40 trips and loads the rest in the background. That background load, and the reconcile that picks up trips added later, swallowed their errors, so a failed load left a short queue on screen with correct-looking counts, an "Updated just now" label and working exports. Seen on a local reload with 1083 trips: the first 40 showed, the rest failed once, and Retry then loaded all of them.
@@ -29,3 +34,6 @@ Branched from V1 `d1c15d0d` on 2026-11-24.
 - Click-through in the browser: export blocked while incomplete with the right counts in the alert, export working once complete, desktop and phone. The export guards are checked by source-level tests, not by pressing the buttons.
 - The cause of the failed background load on large queues (see Why).
 - Typecheck is 23 under its baseline; the cause of that gap in this checkout is not explained, so the baseline file is unchanged.
+- Vasanth confirmed cancelled should not count. The Unassigned card showed 11 on first load and 24 after a click because the DB count and the list included cancelled trips. On prod the main org had 8 vs 27.
+- The plain `db push` is blocked by preflight (frozen files in the tree); only a named set is allowed.
+- Vasanth: the History -> Cancelled tile showed nothing because the History page asks the server for completed trips only, so Unassigned was the only place cancelled trips were visible.

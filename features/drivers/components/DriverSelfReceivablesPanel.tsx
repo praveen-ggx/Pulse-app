@@ -47,6 +47,8 @@ type Props = {
   isDark: boolean;
   /** Wallet callers may pass this; trip rollups match the 8081 Self view. */
   audience?: "dco" | "offline" | "indie";
+  /** The parent already shows the outstanding and collection figures. */
+  hideSummary?: boolean;
 };
 
 export function DriverSelfReceivablesPanel({
@@ -57,6 +59,7 @@ export function DriverSelfReceivablesPanel({
   colors,
   isDark,
   audience: _audience = "dco",
+  hideSummary = false,
 }: Props) {
   void _audience;
   const router = useRouter();
@@ -84,6 +87,8 @@ export function DriverSelfReceivablesPanel({
 
   return (
     <View style={styles.wrap}>
+      {hideSummary ? null : (
+        <>
       <Text style={[styles.title, { color: colors.text }]}>Receivables</Text>
       <Text style={[styles.sub, { color: colors.textMuted }]}>
         Marketplace Exchange and shipper (client) dues — same party view as Finance.
@@ -125,6 +130,8 @@ export function DriverSelfReceivablesPanel({
           </Text>
         </View>
       </View>
+        </>
+      )}
 
       <View style={[styles.headerRow, { borderBottomColor: hairline }]}>
         <Text style={[styles.headerCell, styles.headerParty, { color: colors.textMuted }]}>

@@ -58,6 +58,7 @@ export function useTripsHubDateRange(
     total,
     activeCount: first?.activeCount ?? null,
     historyCount: first?.historyCount ?? null,
+    cancelledCount: first?.cancelledCount ?? null,
     attributedCount: first?.attributedCount ?? null,
     hasMore: query.hasNextPage,
     loadMore: query.fetchNextPage,

@@ -83,6 +83,59 @@ describe("buildDriverWalletTransactions", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].kind).toBe("in");
   });
+
+  it("lists book collections and skips a ledger copy of the same capture", () => {
+    const rows = buildDriverWalletTransactions({
+      settlements: [
+        ledger({
+          id: "s1",
+          amount: 20,
+          trip_id: "t1",
+          reference_type: "dco_capture",
+          created_at: "2026-11-24T08:00:00Z",
+        }),
+        ledger({
+          id: "s2",
+          amount: 1400,
+          trip_id: "t2",
+          created_at: "2026-11-18T08:00:00Z",
+        }),
+      ],
+      expenses: [
+        {
+          id: "e1",
+          tripId: "t1",
+          kind: "fuel",
+          label: "Fuel",
+          amount: 2500,
+          enteredAt: "2026-11-13T08:00:00Z",
+        },
+      ],
+      collections: [
+        {
+          id: "indie:c1",
+          tripId: "t1",
+          amount: 20,
+          at: "2026-11-24T08:01:00Z",
+          partyName: "raju trx",
+        },
+        {
+          id: "indie:c2",
+          tripId: "t9",
+          amount: 1400,
+          at: "2026-11-18T09:00:00Z",
+          partyName: "Madras Logistics",
+        },
+      ],
+      tripsById: { t1: trip("t1"), t2: trip("t2") },
+      tripDisplay: (_trip, tripId) => (tripId === "t9" ? "TRP001" : "TRP009"),
+      partyNameForTrip: () => "Fleet",
+      includeExpenses: true,
+    });
+    expect(rows.map((row) => row.id)).toEqual(["in:indie:c1", "in:indie:c2", "in:s2", "out:e1"]);
+    expect(rows[0]).toMatchObject({ title: "raju trx", amount: 20 });
+    expect(rows[1]).toMatchObject({ title: "Madras Logistics", amount: 1400 });
+  });
 });
 
 describe("filter and group wallet transactions", () => {

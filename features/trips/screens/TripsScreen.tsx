@@ -839,6 +839,7 @@ export default function TripsScreen() {
     total: hubServerTotal,
     activeCount: hubActiveCount,
     historyCount: hubHistoryCount,
+    cancelledCount: hubCancelledCount,
     attributedCount: hubAttributedCount,
     hasMore: hubHasMore,
     loadMore: loadMoreHubTrips,
@@ -850,6 +851,30 @@ export default function TripsScreen() {
     hubDateBounds ?? HUB_ALL_TIME_BOUNDS,
     hubTileBucket,
     attributionFilter,
+  );
+  // History -> Cancelled trips: the History page is completed trips only, so the
+  // server's cancelled bucket is read on its own while that tile is open.
+  const hubCancelledTabActive =
+    tripFilter === "History" && activeHistoryMetricTab === "cancelled";
+  const {
+    trips: hubCancelledRaw,
+    hasMore: hubCancelledHasMore,
+    loadMore: loadMoreHubCancelled,
+    isFetching: hubCancelledFetching,
+  } = useTripsHubDateRange(
+    hubCancelledTabActive ? orgId : null,
+    hubDateBounds ?? HUB_ALL_TIME_BOUNDS,
+    "cancelled",
+    attributionFilter,
+  );
+  useEffect(() => {
+    if (hubCancelledTabActive && hubCancelledHasMore && !hubCancelledFetching) {
+      void loadMoreHubCancelled();
+    }
+  }, [hubCancelledTabActive, hubCancelledHasMore, hubCancelledFetching, loadMoreHubCancelled]);
+  const hubCancelledRows = useMemo(
+    () => (hubCancelledTabActive ? sourcingScope.filterTrips(hubCancelledRaw) : []),
+    [hubCancelledTabActive, sourcingScope, hubCancelledRaw],
   );
   const hubDateRangeTrips = useMemo(
     () => sourcingScope.filterTrips(hubDateRangeTripsRaw),
@@ -902,8 +927,9 @@ export default function TripsScreen() {
   }, [hubDateRangeTrips, hubSearchHits, hubSearchHitsCurrent, trips, useRangeList]);
   const hubTrips = useMemo(() => {
     const source = useRangeList ? hubDateRangeTrips : trips;
-    return hubExtraTrips.length > 0 ? source.concat(hubExtraTrips) : source;
-  }, [hubDateRangeTrips, hubExtraTrips, trips, useRangeList]);
+    const withExtra = hubExtraTrips.length > 0 ? source.concat(hubExtraTrips) : source;
+    return hubCancelledRows.length > 0 ? withExtra.concat(hubCancelledRows) : withExtra;
+  }, [hubCancelledRows, hubDateRangeTrips, hubExtraTrips, trips, useRangeList]);
   // INDENT stage: same `useIndentsQuery` Give Load already runs (shared
   // TanStack Query cache — no duplicate fetch), filtered to indents this org
   // owns that have not yet been allocated to a trip. Allocation is read from
@@ -3647,7 +3673,10 @@ export default function TripsScreen() {
         hint: "Hard copy not received",
       },
       cancelled: {
-        count: hubScopedTrips.filter((trip) => isTripCancelledForHub(trip.status)).length,
+        count: hubCancelledTabActive
+          ? hubScopedTrips.filter((trip) => isTripCancelledForHub(trip.status)).length
+          : (hubCancelledCount ??
+            hubScopedTrips.filter((trip) => isTripCancelledForHub(trip.status)).length),
         amount: 0,
         title: "Cancelled trips",
         hint: "Same dates as this view",
@@ -3695,6 +3724,8 @@ export default function TripsScreen() {
   }, [
     baseFilteredTrips,
     currentOrganization?.id,
+    hubCancelledCount,
+    hubCancelledTabActive,
     hubScopedTrips,
     showCompletedList,
     transactionsByTripId,

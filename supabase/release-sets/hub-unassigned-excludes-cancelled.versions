@@ -1,0 +1,10 @@
+# Trips hub: cancelled trips no longer count under Unassigned (Vasanth's decision).
+# 20271124132234 replaces count_org_hub_metrics (only the two unassigned predicates change)
+# and, where it exists, hub_tile_match. 20271124154500 does the same for hub_metric_contrib
+# (disabled projection, nothing reads it). Needs nothing else first.
+# 20271124132234 is already applied on preprod; only 20271124154500 is new there.
+# Branches nihas/V1.0.83 (PR #168) and the History -> Cancelled follow-up. Not applied on prod.
+# sha256 6136651bafb51a5cdb19447716570c6af7c4ca1dcbea5acf2c3eed365c5be46e  20271124132234_hub_unassigned_excludes_cancelled.sql
+20271124132234
+# sha256 b443ce9558185cdab8dba58d86f33ac4d874ddd47a2f9e1135b432a97a84e3da  20271124154500_hub_metric_contrib_excludes_cancelled_unassigned.sql
+20271124154500

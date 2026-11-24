@@ -117,10 +117,19 @@ export function paymentFieldTemplate(selection: readonly PaymentUpdateField[]): 
       {
         key: "tripId",
         label: "Trip ID",
-        required: true,
+        required: false,
         aliases: ["trip id", "trip", "trip no"],
         example: "TRP-1001",
-        format: "Trip code from the export, or the internal id",
+        format: "Trip code from the export, or the internal id. Trip ID or LR number is required.",
+        editable: false,
+      },
+      {
+        key: "lrNumber",
+        label: "LR number",
+        required: false,
+        aliases: ["lr", "lr no", "lr number", "lrn", "lorry receipt"],
+        example: "LR-1001",
+        format: "LR on the trip. Use this when Trip ID is blank.",
         editable: false,
       },
       ...chosen.map((field) => ({
@@ -152,7 +161,8 @@ export async function previewPaymentFieldUpdate(params: {
 }): Promise<BulkPreviewRow[]> {
   const sheet: BulkSheetRow[] = params.records.map((record) => ({
     rowIndex: record.rowIndex,
-    tripKey: record.tripId ?? "",
+    tripKey: (record.tripId ?? "").trim(),
+    lrKey: (record.lrNumber ?? "").trim(),
     amount: null,
     mode: "",
     date: parseBulkPaymentDate(record.transactionDate),

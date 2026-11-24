@@ -184,18 +184,6 @@ export function DriverTripHistoryDetailScreen({
   const [detailPodViewUrls, setDetailPodViewUrls] = useState<Record<string, string>>({});
   const detailPodUrlRequestedRef = useRef<Set<string>>(new Set());
   const [podPreviewIndex, setPodPreviewIndex] = useState<number | null>(null);
-  const resolveDetailPodPreview = useCallback(
-    async (doc: tripDocumentsService.TripDocumentRow): Promise<string | null> => {
-      const cached = detailPodViewUrls[doc.id];
-      if (cached) return cached;
-      const url = await tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path);
-      if (!url) return null;
-      setDetailPodViewUrls((prev) => ({ ...prev, [doc.id]: url }));
-      return url;
-    },
-    [detailPodViewUrls],
-  );
-
   useRegisterDriverContextTrip(trip);
   const heldPodPreviewUrls = useRef<Map<string, string>>(new Map());
   useEffect(() => () => {
@@ -211,6 +199,34 @@ export function DriverTripHistoryDetailScreen({
     if (url) heldPodPreviewUrls.current.set(docId, url);
     return url;
   };
+  const resolveDetailPodPreview = useCallback(
+    async (
+      doc: tripDocumentsService.TripDocumentRow,
+      opts?: { force?: boolean },
+    ): Promise<string | null> => {
+      const cached = detailPodViewUrls[doc.id];
+      if (!opts?.force && cached) return cached;
+      if (opts?.force) {
+        retainPodPreview(doc.id, null);
+        setDetailPodViewUrls((prev) => {
+          if (!prev[doc.id]) return prev;
+          const next = { ...prev };
+          delete next[doc.id];
+          return next;
+        });
+      }
+      const url = retainPodPreview(
+        doc.id,
+        await (opts?.force
+          ? tripDocumentsService.refreshDocumentViewUrl(doc.storage_path)
+          : tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path)),
+      );
+      if (!url) return null;
+      setDetailPodViewUrls((prev) => ({ ...prev, [doc.id]: url }));
+      return url;
+    },
+    [detailPodViewUrls],
+  );
   useEffect(() => {
     const live = new Set(detailPodDocuments.map((doc) => doc.id));
     for (const [id, url] of heldPodPreviewUrls.current) {
@@ -507,6 +523,37 @@ export function DriverTripHistoryDetailScreen({
     if (!trip) return "—";
     return formatDistance(trip.distance ?? routeFallback?.distance);
   }, [trip, routeFallback]);
+  const distanceComparisonHint = useMemo(() => {
+    if (!trip) return null;
+    const odo =
+      trip.odometer_distance_km != null && Number.isFinite(Number(trip.odometer_distance_km))
+        ? Number(trip.odometer_distance_km)
+        : trip.start_odometer_km != null &&
+            trip.end_odometer_km != null
+          ? Number(trip.end_odometer_km) - Number(trip.start_odometer_km)
+          : null;
+    const gps =
+      trip.gps_distance_km != null && Number.isFinite(Number(trip.gps_distance_km))
+        ? Number(trip.gps_distance_km)
+        : trip.actual_distance_traveled_km != null &&
+            Number.isFinite(Number(trip.actual_distance_traveled_km))
+          ? Number(trip.actual_distance_traveled_km)
+          : null;
+    if (odo == null && gps == null) return null;
+    const delta =
+      trip.distance_discrepancy_km != null
+        ? Number(trip.distance_discrepancy_km)
+        : odo != null && gps != null
+          ? Math.abs(odo - gps)
+          : null;
+    return [
+      odo != null ? `Odo ${odo.toLocaleString("en-IN", { maximumFractionDigits: 1 })}` : null,
+      gps != null ? `GPS ${gps.toLocaleString("en-IN", { maximumFractionDigits: 1 })}` : null,
+      delta != null ? `Δ ${delta.toLocaleString("en-IN", { maximumFractionDigits: 1 })}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }, [trip]);
   const durationDisplay = useMemo(() => {
     if (!trip) return "—";
     if (trip.estimated_duration?.trim()) return formatDurationForTrip(trip);
@@ -864,6 +911,11 @@ export function DriverTripHistoryDetailScreen({
                           <Text style={styles.tdHeroMetaValue}>
                             {distanceDisplay}
                           </Text>
+                          {distanceComparisonHint ? (
+                            <Text style={styles.tdHeroMetaCompare} numberOfLines={2}>
+                              {distanceComparisonHint}
+                            </Text>
+                          ) : null}
                         </View>
                       </View>
                       <View style={styles.tdHeroMetaItem}>

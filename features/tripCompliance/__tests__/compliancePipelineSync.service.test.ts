@@ -57,6 +57,7 @@ function mockQuery(table: string) {
 }
 
 jest.mock("@/lib/supabase", () => ({
+  getAccessToken: async () => "test-token",
   supabase: () => ({
     from: (table: string) => mockQuery(table),
     rpc: (name: string, args: Record<string, unknown>) => {

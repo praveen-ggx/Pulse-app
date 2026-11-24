@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { useRootNavigationState, useRouter, type Href } from 'expo-router';
 import { Eye, EyeOff } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
@@ -27,6 +28,18 @@ import { containsNullByte, validatePasswordForSignIn } from '@/lib/validation';
 import { ONBOARDING_BRAND } from './onboardingPersonaAssets';
 
 const pulseText = createPulseSignUpTextStyles(PULSE_SIGNUP);
+
+function signInEnvironmentLabel(): { text: string; local: boolean } | null {
+  const extra = Constants.expoConfig?.extra as
+    | { supabaseTarget?: string; supabaseProjectRef?: string }
+    | undefined;
+  if (!extra?.supabaseTarget) return null;
+  const ref = extra.supabaseProjectRef ? ` · ${extra.supabaseProjectRef}` : '';
+  return {
+    text: `Environment: ${extra.supabaseTarget}${ref}`,
+    local: extra.supabaseTarget === 'local',
+  };
+}
 
 export function HubSignInForm() {
   const router = useRouter();
@@ -124,11 +137,18 @@ export function HubSignInForm() {
     }
   };
 
+  const environment = signInEnvironmentLabel();
+
   return (
     <View style={styles.wrap}>
       <View style={styles.header}>
         <Text style={styles.title}>{SIGN_IN_COPY.formTitle}</Text>
         <Text style={styles.subtitle}>{SIGN_IN_COPY.formSubtitle}</Text>
+        {environment ? (
+          <Text style={[styles.environment, environment.local ? styles.environmentLocal : null]}>
+            {environment.text}
+          </Text>
+        ) : null}
       </View>
 
       <SignUpPulseField
@@ -265,6 +285,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: Theme.textMuted,
+  },
+  environment: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: Theme.textMuted,
+  },
+  environmentLocal: {
+    color: Theme.warning,
   },
   forgotRow: {
     alignSelf: 'flex-end',

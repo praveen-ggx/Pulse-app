@@ -9,7 +9,9 @@ import { PersistentTabPanel } from "@/components/PersistentTabPanel";
 import { EntityAvatar as PartyAvatar } from '@/components/EntityAvatar';
 import { ThemedAlertModal } from "@/components/ThemedAlertModal";
 import { useAssignmentPaint } from "@/features/trips/hooks/useAssignmentPaint";
+import { useDriverDeclineBusinessAlert } from "@/features/trips/hooks/useDriverDeclineBusinessAlert";
 import { dismissAssignmentConfirm } from "@/features/trips/utils/assignmentPaint.util";
+import { useOptionalChangeDriverPopup } from "@/contexts/ChangeDriverPopupContext";
 import { assignedVehiclePlate as visibleAssignedVehiclePlate } from "@/features/trips/utils/tripAssignmentVehicle.util";
 import {
   groundOpsDocumentLockLabel,
@@ -745,6 +747,17 @@ export default function TripDetailScreen({
     onBack,
     financeSurfaceActive: activeTab === "finance",
   });
+  const changeDriverPopup = useOptionalChangeDriverPopup();
+  const showDriverRejectedModal = useCallback(() => {
+    detail.setShowDriverRejectedModal(true);
+  }, [detail.setShowDriverRejectedModal]);
+  useDriverDeclineBusinessAlert({
+    tripId,
+    driverId: detail.trip?.driver_id,
+    canAssign: detail.canAssign,
+    assignmentAuditRows: detail.assignmentAuditRows,
+    onShowRejectedModal: showDriverRejectedModal,
+  });
   const assignmentPaint = useAssignmentPaint(tripId);
   const refreshComplianceForTrip = useCallback(() => {
     const orgId = currentOrganization?.id ?? detail.trip?.organization_id ?? null;
@@ -962,7 +975,7 @@ export default function TripDetailScreen({
       !!tripForAssetFinance &&
       !assetFinanceForViewer &&
       !isDcoOperatingTrip(tripForAssetFinance),
-    staleTime: 30_000,
+    staleTime: 0,
     queryFn: () =>
       fetchComplianceAdvanceFinanceBreakdown({
         orgId: complianceFinanceOrgId,
@@ -1390,6 +1403,33 @@ export default function TripDetailScreen({
       ?.replace(/^≈\s*/, "")
       .replace(/\s*km$/i, "")
       .trim() || undefined;
+
+  const distanceComparison = useMemo(() => {
+    const tr = detail.trip;
+    if (!tr) return null;
+    const odometerDistanceKm =
+      tr.odometer_distance_km != null && Number.isFinite(Number(tr.odometer_distance_km))
+        ? Number(tr.odometer_distance_km)
+        : tr.start_odometer_km != null &&
+            tr.end_odometer_km != null &&
+            Number.isFinite(Number(tr.start_odometer_km)) &&
+            Number.isFinite(Number(tr.end_odometer_km))
+          ? Number(tr.end_odometer_km) - Number(tr.start_odometer_km)
+          : null;
+    const gpsRaw =
+      tr.gps_distance_km ?? tr.actual_distance_traveled_km ?? null;
+    const gpsDistanceKm =
+      gpsRaw != null && Number.isFinite(Number(gpsRaw)) ? Number(gpsRaw) : null;
+    if (odometerDistanceKm == null && gpsDistanceKm == null) return null;
+    const discrepancyKm =
+      tr.distance_discrepancy_km != null &&
+      Number.isFinite(Number(tr.distance_discrepancy_km))
+        ? Number(tr.distance_discrepancy_km)
+        : odometerDistanceKm != null && gpsDistanceKm != null
+          ? Math.abs(odometerDistanceKm - gpsDistanceKm)
+          : null;
+    return { odometerDistanceKm, gpsDistanceKm, discrepancyKm };
+  }, [detail.trip]);
 
   const simLogEntries = useMemo(
     () => unrevokedBisimEntries(detail.trip?.notes),
@@ -6735,6 +6775,7 @@ export default function TripDetailScreen({
                 vehicleType={vehicleTypeLabel}
                 loadTonsLabel={loadTonsLabel}
                 distanceLabel={resolvedDistanceLabel}
+                distanceComparison={distanceComparison}
                 etaLabel={liveTrackingPresentation?.eta.label ?? null}
                 clientName={clientNameForParty}
                 driverName={allocatedDriverName}
@@ -7193,6 +7234,23 @@ export default function TripDetailScreen({
                           ? resolvedDistanceLabel.replace(/\s*km$/i, " KM")
                           : "—"}
                       </Text>
+                      {distanceComparison ? (
+                        <Text style={neoStyles.heroMetricSub} numberOfLines={2}>
+                          {[
+                            distanceComparison.odometerDistanceKm != null
+                              ? `Odo ${Number(distanceComparison.odometerDistanceKm).toLocaleString("en-IN", { maximumFractionDigits: 1 })}`
+                              : null,
+                            distanceComparison.gpsDistanceKm != null
+                              ? `GPS ${Number(distanceComparison.gpsDistanceKm).toLocaleString("en-IN", { maximumFractionDigits: 1 })}`
+                              : null,
+                            distanceComparison.discrepancyKm != null
+                              ? `Δ ${Number(distanceComparison.discrepancyKm).toLocaleString("en-IN", { maximumFractionDigits: 1 })}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </Text>
+                      ) : null}
                     </View>
                     <View style={neoStyles.heroMetricDivider} />
                     <View style={neoStyles.heroMetric}>
@@ -9189,9 +9247,30 @@ export default function TripDetailScreen({
 
       <ThemedAlertModal
         visible={detail.showDriverRejectedModal}
-        title="Driver Rejected"
-        message="The assigned driver has rejected this trip."
-        onOk={() => detail.setShowDriverRejectedModal(false)}
+        title={detail.t("driverRejected") || "Driver declined"}
+        message={
+          detail.t("driverRejectedNotify") ||
+          "Update the driver details to keep this trip moving."
+        }
+        okText={
+          detail.canAssign
+            ? detail.t("updateDriver") || "Update driver"
+            : "OK"
+        }
+        onOk={() => {
+          detail.setShowDriverRejectedModal(false);
+          if (detail.canAssign && tripId) {
+            changeDriverPopup?.openChangeDriver(tripId);
+          }
+        }}
+        secondaryText={
+          detail.canAssign ? detail.t("later") || "Later" : undefined
+        }
+        onSecondary={
+          detail.canAssign
+            ? () => detail.setShowDriverRejectedModal(false)
+            : undefined
+        }
         variant="warning"
       />
 

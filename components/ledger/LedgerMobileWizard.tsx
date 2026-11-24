@@ -9,6 +9,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useEffectiveBottomInset } from "@/lib/safeAreaWeb";
@@ -48,6 +49,9 @@ import {
   LEDGER_PAYMENT_MODES,
   LedgerPaymentModeTile,
   LedgerPaymentTypeIcon,
+  paymentModeHasWordmark,
+  splitLedgerPaymentModes,
+  type PaymentModeVisual,
 } from "@/components/ledger/ledgerPaymentVisuals";
 import { PaymentModeLogo } from "@/components/ledger/paymentModeLogos";
 import { ledgerPaymentTypeVisual } from "@/components/ledger/paymentTypeVisuals.util";
@@ -423,7 +427,9 @@ const WIZARD_FOOTER_CLEARANCE = 88;
 export const LedgerMobileWizard = memo(function LedgerMobileWizard(props: LedgerMobileWizardProps) {
   const insets = useSafeAreaInsets();
   const bottomInset = useEffectiveBottomInset();
+  const { width: windowWidth } = useWindowDimensions();
   const compact = props.compact !== false;
+  const sideBySideRefDate = windowWidth >= 360;
   const listBottomPad = bottomInset + WIZARD_FOOTER_CLEARANCE;
   const steps = useMemo(() => buildSteps(props), [props]);
   const [stepIndex, setStepIndex] = useState(() => resolveInitialStepIndex(steps, props));
@@ -1133,31 +1139,55 @@ export const LedgerMobileWizard = memo(function LedgerMobileWizard(props: Ledger
     </ScrollView>
   );
 
+  const renderModeTile = (mode: PaymentModeVisual) => {
+    const selected = props.paymentModeId === mode.id;
+    const hideLabel = paymentModeHasWordmark(mode.id);
+    return (
+      <Pressable
+        key={mode.id}
+        style={[
+          styles.modeTileEqual,
+          selected && { borderColor: mode.color, backgroundColor: mode.tint },
+        ]}
+        onPress={() => props.onPaymentModeSelect(mode.id)}
+        accessibilityRole="button"
+        accessibilityLabel={mode.label}
+        accessibilityState={{ selected }}
+      >
+        <LedgerPaymentModeTile modeId={mode.id} selected={selected} />
+        {hideLabel ? null : (
+          <Text
+            style={[styles.modeTileLabel, selected && { color: mode.color }]}
+            numberOfLines={1}
+          >
+            {mode.shortLabel}
+          </Text>
+        )}
+      </Pressable>
+    );
+  };
+
+  const renderPaymentModeRows = () => {
+    const { core, extra } = splitLedgerPaymentModes(LEDGER_PAYMENT_MODES);
+    return (
+      <View style={styles.modeRows}>
+        <View style={styles.modeTileRow}>{core.map(renderModeTile)}</View>
+        {extra.length > 0 ? (
+          <View style={styles.modeTileRow}>{extra.map(renderModeTile)}</View>
+        ) : null}
+      </View>
+    );
+  };
+
   const renderPaymentMode = () => (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.gridPad}>
-      <View style={styles.iconGrid}>
-        {LEDGER_PAYMENT_MODES.map((mode) => {
-          const selected = props.paymentModeId === mode.id;
-          return (
-            <Pressable
-              key={mode.id}
-              style={[styles.modeTile, selected && { borderColor: mode.color, backgroundColor: mode.tint }]}
-              onPress={() => props.onPaymentModeSelect(mode.id)}
-            >
-              <LedgerPaymentModeTile modeId={mode.id} selected={selected} />
-              <Text style={[styles.modeTileLabel, selected && { color: mode.color }]} numberOfLines={1}>
-                {mode.shortLabel}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      {renderPaymentModeRows()}
     </ScrollView>
   );
 
-  const renderDetailsFields = () => (
-    <>
-      <View style={shell.fieldBlock}>
+  const renderDetailsFields = () => {
+    const referenceField = (
+      <View style={[shell.fieldBlock, sideBySideRefDate && styles.refDateHalf]}>
         <Text style={shell.fieldLabel}>REFERENCE / UTR</Text>
         <TextInput
           style={[shell.input, compact && styles.inputCompact]}
@@ -1172,27 +1202,48 @@ export const LedgerMobileWizard = memo(function LedgerMobileWizard(props: Ledger
           autoCapitalize="characters"
         />
       </View>
-      <Text style={shell.fieldLabel}>ENTRY DATE</Text>
-      <View style={styles.dateRow}>
-        {[
-          { label: "Today", iso: todayIso },
-          { label: "Yesterday", iso: yesterdayIso },
-        ].map((opt) => {
-          const selected = props.entryDate === opt.iso;
-          return (
-            <Pressable
-              key={opt.iso}
-              style={[styles.dateChip, selected && styles.dateChipActive]}
-              onPress={() => props.onEntryDateChange(opt.iso)}
-            >
-              <Calendar size={12} color={selected ? Theme.primary : Theme.textMuted} strokeWidth={2.2} />
-              <Text style={[styles.dateChipText, selected && styles.dateChipTextActive]}>{opt.label}</Text>
-            </Pressable>
-          );
-        })}
+    );
+    const dateField = (
+      <View style={[shell.fieldBlock, sideBySideRefDate && styles.refDateHalf]}>
+        <Text style={shell.fieldLabel}>PAID ON</Text>
+        <View style={styles.dateRow}>
+          {[
+            { label: "Today", iso: todayIso },
+            { label: "Yesterday", iso: yesterdayIso },
+          ].map((opt) => {
+            const selected = props.entryDate === opt.iso;
+            return (
+              <Pressable
+                key={opt.iso}
+                style={[styles.dateChip, selected && styles.dateChipActive]}
+                onPress={() => props.onEntryDateChange(opt.iso)}
+              >
+                <Calendar
+                  size={12}
+                  color={selected ? Theme.primary : Theme.textMuted}
+                  strokeWidth={2.2}
+                />
+                <Text style={[styles.dateChipText, selected && styles.dateChipTextActive]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
-    </>
-  );
+    );
+    return sideBySideRefDate ? (
+      <View style={styles.refDateRow}>
+        {referenceField}
+        {dateField}
+      </View>
+    ) : (
+      <>
+        {referenceField}
+        {dateField}
+      </>
+    );
+  };
 
   const renderPaymentCapture = () => {
     const selectedTypeItem = props.paymentTypeItems.find((item) => item.selected);
@@ -1340,59 +1391,71 @@ export const LedgerMobileWizard = memo(function LedgerMobileWizard(props: Ledger
             () => props.onPaymentModeExpandedChange?.(true),
           )
         ) : (
-          <View style={styles.iconGrid}>
-            {LEDGER_PAYMENT_MODES.map((mode) => {
-              const selected = props.paymentModeId === mode.id;
+          renderPaymentModeRows()
+        )}
+      </View>
+
+      <View
+        style={[
+          styles.captureSectionCard,
+          sideBySideRefDate && styles.captureRefDateCard,
+        ]}
+      >
+        <View style={sideBySideRefDate ? styles.captureRefDateCol : undefined}>
+          <View style={styles.captureSectionHead}>
+            <View style={[styles.captureSectionIcon, styles.captureSectionIconRef]}>
+              <Hash size={15} color={Theme.primary} strokeWidth={2.2} />
+            </View>
+            <View style={styles.captureSectionHeadText}>
+              <Text style={styles.captureSectionEyebrow}>Reference / UTR</Text>
+              <Text style={styles.captureSectionHint}>
+                {isLedgerCashPaymentMode(props.paymentModeId)
+                  ? "Optional for cash payments"
+                  : "NEFT / UPI / bank transaction reference"}
+              </Text>
+            </View>
+          </View>
+          <TextInput
+            style={styles.captureReferenceInput}
+            value={props.paymentReference}
+            onChangeText={props.onPaymentReferenceChange}
+            placeholder={
+              isLedgerCashPaymentMode(props.paymentModeId)
+                ? "UTR or reference (optional)"
+                : "Enter UTR or bank reference"
+            }
+            placeholderTextColor={Theme.textMuted}
+            autoCapitalize="characters"
+            autoCorrect={false}
+          />
+        </View>
+        <View style={sideBySideRefDate ? styles.captureRefDateCol : styles.capturePaidOnBlock}>
+          <Text style={styles.captureSectionEyebrow}>Paid on</Text>
+          <View style={styles.dateRow}>
+            {[
+              { label: "Today", iso: todayIso },
+              { label: "Yesterday", iso: yesterdayIso },
+            ].map((opt) => {
+              const selected = props.entryDate === opt.iso;
               return (
                 <Pressable
-                  key={mode.id}
-                  style={[
-                    styles.modeTile,
-                    selected && { borderColor: mode.color, backgroundColor: mode.tint },
-                  ]}
-                  onPress={() => props.onPaymentModeSelect(mode.id)}
+                  key={opt.iso}
+                  style={[styles.dateChip, selected && styles.dateChipActive]}
+                  onPress={() => props.onEntryDateChange(opt.iso)}
                 >
-                  <LedgerPaymentModeTile modeId={mode.id} selected={selected} />
-                  <Text
-                    style={[styles.modeTileLabel, selected && { color: mode.color }]}
-                    numberOfLines={1}
-                  >
-                    {mode.shortLabel}
+                  <Calendar
+                    size={12}
+                    color={selected ? Theme.primary : Theme.textMuted}
+                    strokeWidth={2.2}
+                  />
+                  <Text style={[styles.dateChipText, selected && styles.dateChipTextActive]}>
+                    {opt.label}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
-        )}
-      </View>
-
-      <View style={styles.captureSectionCard}>
-        <View style={styles.captureSectionHead}>
-          <View style={[styles.captureSectionIcon, styles.captureSectionIconRef]}>
-            <Hash size={15} color={Theme.primary} strokeWidth={2.2} />
-          </View>
-          <View style={styles.captureSectionHeadText}>
-            <Text style={styles.captureSectionEyebrow}>Reference / UTR</Text>
-            <Text style={styles.captureSectionHint}>
-              {isLedgerCashPaymentMode(props.paymentModeId)
-                ? "Optional for cash payments"
-                : "NEFT / UPI / bank transaction reference"}
-            </Text>
-          </View>
         </View>
-        <TextInput
-          style={styles.captureReferenceInput}
-          value={props.paymentReference}
-          onChangeText={props.onPaymentReferenceChange}
-          placeholder={
-            isLedgerCashPaymentMode(props.paymentModeId)
-              ? "UTR or reference (optional)"
-              : "Enter UTR or bank reference"
-          }
-          placeholderTextColor={Theme.textMuted}
-          autoCapitalize="characters"
-          autoCorrect={false}
-        />
       </View>
     </ScrollView>
     );
@@ -1448,29 +1511,7 @@ export const LedgerMobileWizard = memo(function LedgerMobileWizard(props: Ledger
 
         <View style={styles.amountPaymentSection}>
           <Text style={styles.amountPaymentSectionLabel}>How was it paid?</Text>
-          <View style={styles.iconGrid}>
-            {LEDGER_PAYMENT_MODES.map((mode) => {
-              const selected = props.paymentModeId === mode.id;
-              return (
-                <Pressable
-                  key={mode.id}
-                  style={[
-                    styles.modeTile,
-                    selected && { borderColor: mode.color, backgroundColor: mode.tint },
-                  ]}
-                  onPress={() => props.onPaymentModeSelect(mode.id)}
-                >
-                  <LedgerPaymentModeTile modeId={mode.id} selected={selected} />
-                  <Text
-                    style={[styles.modeTileLabel, selected && { color: mode.color }]}
-                    numberOfLines={1}
-                  >
-                    {mode.shortLabel}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          {renderPaymentModeRows()}
         </View>
 
         <View style={styles.amountPaymentSection}>{renderDetailsFields()}</View>
@@ -2450,6 +2491,17 @@ const styles = StyleSheet.create({
   typeTileLabelActive: {
     color: Theme.primary,
   },
+  modeRows: {
+    width: "100%",
+    gap: 8,
+  },
+  modeTileRow: {
+    flexDirection: "row",
+    flexWrap: "nowrap",
+    alignItems: "stretch",
+    gap: 8,
+    width: "100%",
+  },
   modeTile: {
     width: "30%",
     flexGrow: 1,
@@ -2463,14 +2515,54 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  modeTileEqual: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    minHeight: 72,
+  },
   modeTileLabel: {
     fontSize: 10,
     fontWeight: "800",
     color: "#0f172a",
     textAlign: "center",
   },
+  refDateRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    width: "100%",
+  },
+  refDateHalf: {
+    flex: 1,
+    minWidth: 0,
+    marginBottom: 0,
+  },
+  captureRefDateCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  captureRefDateCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 8,
+  },
+  capturePaidOnBlock: {
+    marginTop: 12,
+    gap: 8,
+  },
   dateRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     marginBottom: 4,
     marginTop: 6,

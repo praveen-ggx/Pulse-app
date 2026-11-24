@@ -239,9 +239,11 @@ export function ChatFeedbackCard({
             </View>
           ) : null}
         </View>
-        <View style={s.sheetPill}>
-          <Text style={s.sheetPillText}>SYSTEM GENERATED</Text>
-        </View>
+        {presentation !== "modal" ? (
+          <View style={s.sheetPill}>
+            <Text style={s.sheetPillText}>SYSTEM GENERATED</Text>
+          </View>
+        ) : null}
       </View>
 
       {phase === "pick" ? (
@@ -265,7 +267,7 @@ export function ChatFeedbackCard({
                   color={
                     pickedScore != null && opt.score <= pickedScore
                       ? CHAT_ACCENT
-                      : Theme.borderLight
+                      : Theme.borderMedium
                   }
                   fill={
                     pickedScore != null && opt.score <= pickedScore
@@ -291,7 +293,7 @@ export function ChatFeedbackCard({
                   color={
                     pickedScore != null && opt.score <= pickedScore
                       ? CHAT_ACCENT
-                      : Theme.borderLight
+                      : Theme.borderMedium
                   }
                   fill={
                     pickedScore != null && opt.score <= pickedScore
@@ -440,9 +442,9 @@ const s = StyleSheet.create({
     borderWidth: 0,
     borderRadius: 0,
     marginVertical: 0,
-    paddingVertical: 18,
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    paddingTop: 22,
+    paddingTop: 8,
     shadowOpacity: 0,
     elevation: 0,
   },
@@ -520,13 +522,14 @@ const s = StyleSheet.create({
   },
   smileyBtn: {
     flex: 1,
-    minWidth: 0,
+    minWidth: 44,
+    minHeight: 44,
     aspectRatio: 1,
-    maxHeight: 52,
+    maxHeight: 56,
     borderRadius: 999,
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
+    borderColor: Theme.borderMedium,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -581,16 +584,21 @@ const s = StyleSheet.create({
     gap: 10,
   },
   cancelBtn: {
+    minHeight: 44,
     paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
   },
   cancelBtnText: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: Theme.textMuted,
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+    fontSize: 12,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+    letterSpacing: 0.4,
   },
   submitBtn: {
     flex: 1,

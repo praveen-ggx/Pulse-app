@@ -13,6 +13,8 @@ export type BulkUpdateTag = "ready" | "unchanged" | "no_payment" | "cash" | "inv
 export type BulkSheetRow = {
   rowIndex: number;
   tripKey: string;
+  /** LR / lorry receipt. Matches a trip when Trip ID is blank, and checks the trip when both are present. */
+  lrKey?: string;
   amount: number | null;
   mode: string;
   date: string;
@@ -24,6 +26,8 @@ export type BulkUpdateTripMatch = {
   id: string;
   label: string;
   keys: string[];
+  /** Normalized LR numbers stored on this trip. Empty when none were loaded. */
+  lrKeys?: string[];
   clientPrice?: number | null;
 };
 
@@ -94,11 +98,12 @@ export function parseBulkPaymentDate(raw: string | undefined): string {
     if (month && day >= 1 && day <= 31) return `${year}-${pad(month)}-${pad(day)}`;
   }
 
-  const numeric = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  const numeric = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4})$/);
   if (numeric) {
     const a = Number(numeric[1]);
     const b = Number(numeric[2]);
-    const year = Number(numeric[3]);
+    const rawYear = Number(numeric[3]);
+    const year = numeric[3].length === 2 ? (rawYear >= 70 ? 1900 + rawYear : 2000 + rawYear) : rawYear;
     const day = a > 12 ? a : b > 12 ? b : a;
     const month = a > 12 ? b : b > 12 ? a : b;
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31) return `${year}-${pad(month)}-${pad(day)}`;
@@ -137,6 +142,7 @@ function splitCsvLine(line: string): string[] {
 function headerField(label: string): keyof Omit<BulkSheetRow, "rowIndex"> | null {
   const key = label.toLowerCase().replace(/[_/]+/g, " ").replace(/\s+/g, " ").trim();
   if (key === "trip id" || key === "trip" || key === "tripid" || key === "trip no") return "tripKey";
+  if (key === "lr" || key === "lr no" || key === "lr number" || key === "lrn" || key === "lorry receipt") return "lrKey";
   if (key === "amount") return "amount";
   if (key === "mode" || key === "payment mode") return "mode";
   if (key === "date" || key === "transaction date" || key === "txn date" || key === "paid at") return "date";
@@ -155,6 +161,7 @@ function sheetRow(rowIndex: number, cells: string[], columns: Array<keyof Omit<B
   return {
     rowIndex,
     tripKey: pick("tripKey"),
+    lrKey: pick("lrKey"),
     amount: amountText === "" ? null : Number.isFinite(amount) ? amount : Number.NaN,
     mode: pick("mode").toUpperCase(),
     date: parseBulkPaymentDate(pick("date")),
@@ -175,7 +182,7 @@ export function parseBulkUpdateCsv(csvText: string): BulkSheetRow[] {
   if (lines.length <= 1) return [];
   const headerCells = splitCsvLine(lines[0]);
   let columns = headerCells.map(headerField);
-  if (!columns.includes("tripKey")) {
+  if (!columns.some(Boolean)) {
     columns = ["tripKey", "amount", "mode", "date", "utr", "remarks"];
   }
   return lines.slice(1).map((line, index) => sheetRow(index + 2, splitCsvLine(line), columns));
@@ -228,17 +235,46 @@ export function classifyBulkUpdateRows(params: {
       included: false,
     };
 
-    if (!row.tripKey.trim()) {
-      return { ...base, tag: "invalid" as const, detail: "Trip ID is missing." };
+    const tripKey = row.tripKey.trim();
+    const lrKey = (row.lrKey ?? "").trim();
+    if (!tripKey && !lrKey) {
+      return { ...base, tag: "invalid" as const, detail: "Add a Trip ID or an LR number." };
     }
-    const matches = tripsByKey.get(normKey(row.tripKey)) ?? [];
+    const byTrip = tripKey ? tripsByKey.get(normKey(tripKey)) ?? [] : [];
+    const byLr = lrKey ? tripsByKey.get(normKey(lrKey)) ?? [] : [];
+    const matches = byTrip.length > 0 ? byTrip : byLr;
     if (matches.length === 0) {
-      return { ...base, tag: "invalid" as const, detail: "No trip in this workspace matches this Trip ID." };
+      const shown = tripKey || lrKey;
+      return {
+        ...base,
+        tripKey: shown,
+        tag: "invalid" as const,
+        detail: tripKey
+          ? `${shown} is not a trip in this workspace. Only this organization's trips can be updated.`
+          : `${shown} is not an LR number on a trip in this workspace. Only this organization's trips can be updated.`,
+      };
     }
     if (matches.length > 1) {
-      return { ...base, tag: "invalid" as const, detail: "More than one trip matches this Trip ID." };
+      const shown = tripKey || lrKey;
+      return {
+        ...base,
+        tripKey: shown,
+        tag: "invalid" as const,
+        detail: `${shown} matches more than one trip in this workspace. Add the Trip ID so the right trip is used.`,
+      };
     }
     const trip = matches[0];
+    const lrKeys = (trip.lrKeys ?? []).map(normKey).filter(Boolean);
+    if (tripKey && lrKey && lrKeys.length > 0 && !lrKeys.includes(normKey(lrKey))) {
+      return {
+        ...base,
+        tripKey,
+        tripId: trip.id,
+        tripLabel: trip.label,
+        tag: "invalid" as const,
+        detail: `Trip ID ${tripKey} and LR ${lrKey} are different trips in this workspace.`,
+      };
+    }
     const payment = paymentByTrip.get(trip.id);
     const located = {
       ...base,
@@ -253,7 +289,11 @@ export function classifyBulkUpdateRows(params: {
       clientPrice: trip.clientPrice ?? null,
     };
     if (!payment) {
-      return { ...located, tag: "no_payment" as const, detail: "No posted payment to update." };
+      return {
+        ...located,
+        tag: "no_payment" as const,
+        detail: "No posted payment to update. Use Post payments to record this UTR.",
+      };
     }
     if (payment.cash) {
       return { ...located, tag: "cash" as const, detail: "Cash payments don't carry a UTR." };

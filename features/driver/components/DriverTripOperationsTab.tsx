@@ -7,8 +7,9 @@ import Theme from "@/constants/Theme";
 import { useDriverThemeColors } from "@/contexts/DriverThemeContext";
 import { tripHistoryDetailStyles as td } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import { DistanceComparisonCard } from "@/features/trips/verification/DistanceComparisonCard";
 import { useGPSDistanceEstimate } from "@/features/trips/verification/GPSDistanceHook";
-import { VerificationStatusChip } from "@/features/trips/verification/components/VerificationStatusChip";
+import { VerificationStatusChip } from "@/features/trips/verification/VerificationStatusChip";
 import { useTripVerification } from "@/features/trips/verification/queries/useTripVerification";
 import {
   buildOdometerGpsComparisonHint,
@@ -121,7 +122,15 @@ export function DriverTripOperationsTab({ trip }: Props) {
           </View>
         </View>
 
-        {odometerComparisonHint ? (
+        {snapshot.startOdometerKm != null && snapshot.endOdometerKm != null ? (
+          <View style={styles.compareCardWrap}>
+            <DistanceComparisonCard
+              odometerDistanceKm={snapshot.odometerDistanceKm}
+              gpsDistanceKm={gpsDistanceKm}
+              discrepancyKm={distanceDiscrepancyKm}
+            />
+          </View>
+        ) : odometerComparisonHint ? (
           <Text
             style={[
               styles.odometerCompareHint,
@@ -180,6 +189,9 @@ const styles = StyleSheet.create({
     lineHeight: 11,
     letterSpacing: 0.1,
     textAlign: "center",
+  },
+  compareCardWrap: {
+    marginTop: 10,
   },
   opsHint: {
     marginTop: 12,

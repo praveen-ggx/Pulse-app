@@ -7,7 +7,11 @@ import { getTripLedgerEmbed, toLedgerRow, type LedgerRow } from '@/features/fina
 import { refreshCompliancePodForTrip } from '@/lib/queries/invalidateHardCopyPodCaches';
 import { invalidateComplianceSettlementCaches } from '@/lib/queries/syncFinanceComplianceCaches';
 import { queryKeys } from '@/lib/queryKeys';
-import { applyTripRealtimeCatalogUpdate } from '@/lib/queries/tripRealtimeChange';
+import {
+  isOlderThanCached,
+  patchCompleteHistoryFromRealtime,
+  patchFiniteTripFromRealtime,
+} from '@/lib/queries/tripCatalogFreshness';
 import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
 import { scheduleInvalidation } from '@/lib/platform/moderator';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
@@ -30,34 +34,7 @@ export function useRealtimeTripsInvalidation(organizationId: string | null) {
         },
       ],
       (payload) => {
-        const decision = applyTripRealtimeCatalogUpdate(qc, organizationId, payload);
-        if (decision.ignore) return;
-        const tripId = decision.tripId;
-
-        // A primary-key-only old row is not a POD or settlement change. Comparing
-        // it with the full new row reloaded the compliance catalog on every update.
-        if (decision.podChanged && tripId) {
-          qc.invalidateQueries({ queryKey: queryKeys.trips.hardCopyPod(tripId) });
-          qc.invalidateQueries({ queryKey: queryKeys.trips.timeline(tripId) });
-          void refreshCompliancePodForTrip(qc, tripId);
-          qc.invalidateQueries({ queryKey: ["q", "invoicing"] });
-          qc.invalidateQueries({ queryKey: ["q", "log-pods"] });
-        }
-        if (decision.settlementChanged) {
-          invalidateComplianceSettlementCaches(qc, organizationId, tripId);
-        }
-
-        if (decision.clientChanged) {
-          qc.invalidateQueries({ queryKey: queryKeys.trips.shipperNamesForSupplier(organizationId) });
-        }
-        if (decision.assignmentChanged) {
-          qc.invalidateQueries({ queryKey: queryKeys.trips.assignmentAuditRoot });
-        }
-        if (decision.counterpartyChanged) {
-          qc.invalidateQueries({
-            queryKey: queryKeys.unlinkedCounterparties(organizationId),
-          });
-        }
+        applyTripRealtimeEvent(qc, organizationId, payload);
       },
     );
   }, [organizationId, qc]);
@@ -83,6 +60,143 @@ export function useRealtimeTransactionsInvalidation(organizationId: string | nul
       },
     );
   }, [organizationId, qc]);
+}
+
+function readCachedTripRow(
+  qc: QueryClient,
+  orgId: string,
+  tripId: string,
+): Record<string, unknown> | undefined {
+  for (const queryKey of [
+    queryKeys.trips.finite(orgId),
+    queryKeys.trips.complete(orgId),
+    queryKeys.trips.compliance(orgId),
+  ]) {
+    const rows = qc.getQueryData<Array<{ id?: string }>>(queryKey);
+    const found = rows?.find((row) => row?.id === tripId);
+    if (found) return found as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+/**
+ * Trip realtime. INSERT and DELETE still invalidate the org trip prefix, which
+ * refetches finite, complete, and compliance through their own query functions.
+ * UPDATE patches the finite row in place. Complete and compliance rows are
+ * patched only when a history field changed, so a location ping does not
+ * download the full catalog.
+ */
+export function applyTripRealtimeEvent(
+  qc: QueryClient,
+  organizationId: string,
+  payload: RealtimePostgresChangesPayload<Record<string, unknown>>,
+): void {
+  const tripId = (payload.new as { id?: string })?.id ?? (payload.old as { id?: string })?.id;
+  const newRow = payload.new as Record<string, unknown> | null;
+  const oldRow = payload.old as Record<string, unknown> | null;
+
+  if (tripId && payload.eventType === 'UPDATE' && payload.new && typeof payload.new === 'object') {
+    qc.setQueryData(queryKeys.trips.detail(tripId), (old: unknown) => {
+      if (!old || typeof old !== 'object') return old;
+      return { ...(old as Record<string, unknown>), ...(payload.new as object) };
+    });
+  } else if (tripId) {
+    qc.invalidateQueries({ queryKey: queryKeys.trips.detail(tripId) });
+  }
+
+  // Compare against the cached row when the realtime old record is only the
+  // primary key. Otherwise every location ping looks like a price, status,
+  // and client change and invalidates the surrounding catalogs.
+  const cachedBeforePatch = tripId
+    ? readCachedTripRow(qc, organizationId, tripId)
+    : undefined;
+  const staleUpdate = Boolean(
+    payload.eventType === 'UPDATE' &&
+      newRow &&
+      cachedBeforePatch &&
+      isOlderThanCached(cachedBeforePatch, newRow),
+  );
+  const fieldChanged = (field: string): boolean => {
+    if (staleUpdate || !newRow) return false;
+    if (oldRow && Object.prototype.hasOwnProperty.call(oldRow, field)) {
+      return oldRow[field] !== newRow[field];
+    }
+    if (
+      !cachedBeforePatch ||
+      !Object.prototype.hasOwnProperty.call(cachedBeforePatch, field)
+    ) {
+      return false;
+    }
+    return cachedBeforePatch[field] !== newRow[field];
+  };
+
+  if (payload.eventType !== 'UPDATE') {
+    scheduleInvalidation(qc, queryKeys.trips.all(organizationId));
+    scheduleInvalidation(qc, queryKeys.trips.finite(organizationId));
+    scheduleInvalidation(qc, queryKeys.trips.whereOrgIsClient(organizationId));
+    scheduleInvalidation(qc, queryKeys.trips.whereOrgIsSupplier(organizationId));
+  } else if (!staleUpdate && tripId && newRow) {
+    qc.setQueriesData(
+      { queryKey: queryKeys.trips.finite(organizationId) },
+      (old: unknown) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((t: { id: string }) =>
+          t.id === tripId ? patchFiniteTripFromRealtime(t, newRow) : t,
+        );
+      },
+    );
+    patchCompleteHistoryFromRealtime(qc, organizationId, tripId, newRow);
+    const podChanged =
+      fieldChanged('pod_received_at') ||
+      fieldChanged('pod_hard_copy_courier') ||
+      fieldChanged('pod_hard_copy_awb_number') ||
+      fieldChanged('pod_hard_copy_received_by');
+    if (podChanged) {
+      qc.invalidateQueries({ queryKey: queryKeys.trips.hardCopyPod(tripId) });
+      qc.invalidateQueries({ queryKey: queryKeys.trips.timeline(tripId) });
+      void refreshCompliancePodForTrip(qc, tripId);
+      qc.invalidateQueries({ queryKey: ["q", "invoicing"] });
+      qc.invalidateQueries({ queryKey: ["q", "log-pods"] });
+    }
+    const settlementChanged =
+      fieldChanged('compliance_verified_at') ||
+      fieldChanged('compliance_decision') ||
+      fieldChanged('compliance_declined_at') ||
+      fieldChanged('amount_paid');
+    if (settlementChanged) {
+      invalidateComplianceSettlementCaches(qc, organizationId, tripId);
+    }
+  }
+
+  const clientChanged =
+    payload.eventType !== 'UPDATE' ||
+    fieldChanged('client_id') ||
+    fieldChanged('client_name');
+  if (clientChanged) {
+    qc.invalidateQueries({ queryKey: queryKeys.trips.shipperNamesForSupplier(organizationId) });
+  }
+
+  const assignmentChanged =
+    payload.eventType !== 'UPDATE' ||
+    fieldChanged('driver_id') ||
+    fieldChanged('vehicle_id') ||
+    fieldChanged('assigned_by_user_id') ||
+    fieldChanged('status');
+  if (assignmentChanged) {
+    qc.invalidateQueries({ queryKey: queryKeys.trips.assignmentAuditRoot });
+  }
+
+  const counterpartyChanged =
+    payload.eventType !== 'UPDATE' ||
+    fieldChanged('supplier_name') ||
+    fieldChanged('client_name') ||
+    fieldChanged('supplier_id') ||
+    fieldChanged('client_id');
+  if (counterpartyChanged) {
+    qc.invalidateQueries({
+      queryKey: queryKeys.unlinkedCounterparties(organizationId),
+    });
+  }
 }
 
 /**

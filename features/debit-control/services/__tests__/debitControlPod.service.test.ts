@@ -1,5 +1,7 @@
 const mockInsert = jest.fn();
+const mockUpdate = jest.fn();
 let mockDraftSelectData: Array<{ trip_id: string; payload: unknown; created_at: string }> = [];
+let mockStoredIdempotencyKeys = new Set<string>();
 
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
@@ -8,18 +10,28 @@ jest.mock("@/lib/supabase", () => ({
         mockInsert(row);
         return Promise.resolve({ error: null });
       },
-      select: () => ({
+      select: (columns?: string) => ({
         in: () => ({
           eq: () => Promise.resolve({ data: mockDraftSelectData, error: null }),
         }),
-      }),
-      update: () => ({
-        eq: () => ({
-          eq: () => ({
-            eq: () => Promise.resolve({ error: null }),
-          }),
+        eq: (_column: string, value: string) => ({
+          maybeSingle: () =>
+            Promise.resolve({
+              data: columns === "id" && mockStoredIdempotencyKeys.has(value) ? { id: "existing" } : null,
+              error: null,
+            }),
         }),
       }),
+      update: (row: unknown) => {
+        mockUpdate(row);
+        return {
+          eq: () => ({
+            eq: () => ({
+              eq: () => Promise.resolve({ error: null }),
+            }),
+          }),
+        };
+      },
     }),
     rpc: jest.fn(async () => ({ error: null })),
   }),
@@ -45,7 +57,9 @@ import {
 describe("validateDebitControlPods", () => {
   beforeEach(() => {
     mockInsert.mockClear();
+    mockUpdate.mockClear();
     mockDraftSelectData = [];
+    mockStoredIdempotencyKeys = new Set();
   });
 
   it("stores the same validation event once per trip, deducting vendor exceptions from the vendor total", async () => {
@@ -138,5 +152,31 @@ describe("validateDebitControlPods", () => {
       .map((call) => call[0] as { event_type: string; payload?: { action?: string } })
       .find((row) => row.event_type === POD_CHARGES_CHANGED_EVENT);
     expect(changed?.payload?.action).toBe("removed");
+  });
+
+  it("updates a stored validation event instead of inserting a duplicate", async () => {
+    mockStoredIdempotencyKeys = new Set(["trip-a:pod.debit_control_validated"]);
+    const result = await validateDebitControlPods({
+      orgId: "org-1",
+      actorId: "user-1",
+      trips: [
+        {
+          tripId: "trip-a",
+          remarks: "Checked again",
+          clientInvoiceNumber: null,
+          client: { ...EMPTY_CHARGE_LINES, cost: 100 },
+          vendor: { ...EMPTY_CHARGE_LINES, cost: 80 },
+        },
+      ],
+    });
+
+    expect(result.error).toBeNull();
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor_id: "user-1",
+        payload: expect.objectContaining({ remarks: "Checked again" }),
+      }),
+    );
   });
 });

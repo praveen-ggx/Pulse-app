@@ -14,6 +14,10 @@
 -- 'accepted'. Source: indents.organization_id -> organizations.owner_id ->
 -- profiles.phone (no phone column on organizations itself).
 
+-- Return type differs from 20261111105431, which sorts earlier. PostgreSQL
+-- rejects CREATE OR REPLACE when OUT parameters change.
+DROP FUNCTION IF EXISTS public.list_my_org_market_bids(uuid, integer);
+
 CREATE OR REPLACE FUNCTION public.list_my_org_market_bids(
   p_org_id uuid,
   p_limit integer DEFAULT 50

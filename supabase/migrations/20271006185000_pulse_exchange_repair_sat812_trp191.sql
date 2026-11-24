@@ -18,7 +18,8 @@
 -- transactions and no exchange_payments: the ₹43,500 becomes an open Exchange
 -- obligation that the parties settle through claim/confirm.
 --
--- Safe to re-run: an already-repaired award is left as is. Any other drift from
+-- Safe to re-run: an already-repaired award is left as is. A database that does
+-- not contain these two production trips skips the repair. Any other drift from
 -- the reviewed state (different supplier/customer, Finance rows on either trip,
 -- award or fee changes, test-style names) aborts the whole migration.
 --
@@ -55,7 +56,8 @@ BEGIN
   SELECT * INTO v_ship FROM public.trips WHERE id = c_ship_trip FOR UPDATE;
   SELECT * INTO v_exec FROM public.trips WHERE id = c_exec_trip FOR UPDATE;
   IF v_ship.id IS NULL OR v_exec.id IS NULL THEN
-    RAISE EXCEPTION 'px_repair_sat812: trip missing (shipper %, execution %)', v_ship.id, v_exec.id;
+    RAISE NOTICE 'px_repair_sat812: named trips are absent on this database; nothing to repair';
+    RETURN;
   END IF;
 
   -- Identity of the two trips and the award they belong to.

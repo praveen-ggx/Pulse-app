@@ -66,9 +66,10 @@ export function buildAssignmentChatContent(
   );
 
   const isDriverDeclined =
-    row.event_type === "reassignment" &&
-    row.driver_id_prev != null &&
-    row.driver_id_new == null;
+    row.event_type === "declined_pending" ||
+    (row.event_type === "reassignment" &&
+      row.driver_id_prev != null &&
+      row.driver_id_new == null);
 
   if (isDriverDeclined) {
     const who = driverPrev ?? "Driver";

@@ -15,6 +15,7 @@ import { EntityAvatar } from "@/components/EntityAvatar";
 import { Feather } from "@expo/vector-icons";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import { DistanceComparisonCard } from "@/features/trips/verification/DistanceComparisonCard";
 import { getManifestCurrentStepIndex } from "@/features/trips/utils/manifestJourneyLog.util";
 import { formatIndianVehicleNumber, formatINR } from "@/lib/format";
 import { confirmDialog } from "@/lib/confirmDialog";
@@ -83,6 +84,12 @@ export type TripMobileDetailProps = {
   vehicleType?: string;
   loadTonsLabel?: string;
   distanceLabel?: string | null;
+  /** When set, show odometer vs GPS comparison under the trip card. */
+  distanceComparison?: {
+    odometerDistanceKm: number | null;
+    gpsDistanceKm: number | null;
+    discrepancyKm: number | null;
+  } | null;
   etaLabel?: string | null;
   clientName: string;
   driverName: string;
@@ -550,6 +557,7 @@ export const TripMobileDetail = memo(function TripMobileDetail({
   vehicleType = "",
   loadTonsLabel,
   distanceLabel,
+  distanceComparison,
   etaLabel,
   clientName,
   driverName,
@@ -733,6 +741,17 @@ export const TripMobileDetail = memo(function TripMobileDetail({
                 <Text style={styles.itemSpec} numberOfLines={2}>
                   {specLine}
                 </Text>
+              ) : null}
+              {distanceComparison &&
+              (distanceComparison.odometerDistanceKm != null ||
+                distanceComparison.gpsDistanceKm != null) ? (
+                <View style={styles.distanceCompareWrap}>
+                  <DistanceComparisonCard
+                    odometerDistanceKm={distanceComparison.odometerDistanceKm}
+                    gpsDistanceKm={distanceComparison.gpsDistanceKm}
+                    discrepancyKm={distanceComparison.discrepancyKm}
+                  />
+                </View>
               ) : null}
             </View>
 
@@ -1125,6 +1144,10 @@ const styles = StyleSheet.create({
     color: BODY,
     lineHeight: 15,
     textAlign: "center",
+  },
+  distanceCompareWrap: {
+    marginTop: 10,
+    width: "100%",
   },
   itemSpec: {
     marginTop: 4,

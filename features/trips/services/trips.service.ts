@@ -70,7 +70,7 @@ export type DriverTripListOpts = PageOpts & {
   signal?: AbortSignal;
 };
 import { getPlatformEventBus } from "@/lib/platform/events/InProcessEventBus";
-import { getAccessToken, supabase } from "@/lib/supabase";
+import { getAccessToken, getSupabaseBaseUrl, supabase } from "@/lib/supabase";
 import { uuidv7 } from "@/lib/uuidv7";
 import type { DriverTripRow, SupplierTripRow } from "@/types/trip-views";
 import {
@@ -526,12 +526,51 @@ function hubCount(value: unknown): number | null {
 
 let hubRowsRpcMissing = false;
 /**
- * 20271118143000 is not applied on production or preprod, so
- * list_compliance_ops_pipeline_keyset answers 404. Stay on the hub walk
- * and do not call the function. Set this to false after that migration
- * is applied, so the dedicated queue is used.
+ * Host of the database whose compliance keyset function was confirmed missing.
+ * A timeout, auth failure, or other error does not set this. A different
+ * Supabase host tries the function again. A full reload clears it.
  */
-let compliancePipelineRpcMissing = true;
+let compliancePipelineMissingHost: string | null = null;
+
+function complianceDatabaseHost(): string {
+  const base = getSupabaseBaseUrl();
+  if (!base) return "";
+  try {
+    return new URL(base).host;
+  } catch {
+    return base;
+  }
+}
+
+function compliancePipelineRpcIsMissing(): boolean {
+  const host = complianceDatabaseHost();
+  return host !== "" && compliancePipelineMissingHost === host;
+}
+
+function rememberCompliancePipelineRpcMissing(): void {
+  compliancePipelineMissingHost = complianceDatabaseHost();
+}
+
+/** Tests only. A real session clears this when the page reloads. */
+export function resetCompliancePipelineRpcProbe(): void {
+  compliancePipelineMissingHost = null;
+}
+
+function isMissingCompliancePipelineRpc(error: {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+}): boolean {
+  const code = String(error.code ?? "");
+  const msg = `${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
+  return (
+    code === "PGRST202" ||
+    code === "42883" ||
+    msg.includes("could not find the function") ||
+    msg.includes("undefined_function")
+  );
+}
 
 function isMissingHubRowsRpc(error: {
   code?: string;
@@ -590,6 +629,9 @@ export async function getHubTripKeysetPage(
     cancelledCount: null,
     attributedCount: null,
   };
+  if (!(await getAccessToken())) {
+    return { error: null, ...empty };
+  }
   const rowsOnly = opts?.withCounts === false && !hubRowsRpcMissing;
   const limit = Math.min(HUB_KEYSET_PAGE_SIZE, Math.max(1, opts?.limit ?? HUB_KEYSET_PAGE_SIZE));
   const dated = tripsForOrgRpcArgs(orgId, {
@@ -666,7 +708,7 @@ export async function getComplianceOpsPipelinePage(
   total: number | null;
 }> {
   const empty = { trips: [] as TripRow[], hasMore: false, total: null, missing: false };
-  if (compliancePipelineRpcMissing) return { ...empty, missing: true };
+  if (compliancePipelineRpcIsMissing()) return { ...empty, error: null, missing: true };
   const limit = Math.min(250, Math.max(1, opts?.limit ?? 250));
   const { data, error } = await supabase().rpc("list_compliance_ops_pipeline_keyset", {
     p_org_id: orgId,
@@ -675,8 +717,8 @@ export async function getComplianceOpsPipelinePage(
     p_before_id: opts?.cursor?.id ?? null,
     p_include_assigned: opts?.includeAssigned === true,
   });
-  if (error && isMissingHubRowsRpc(error)) {
-    compliancePipelineRpcMissing = true;
+  if (error && isMissingCompliancePipelineRpc(error)) {
+    rememberCompliancePipelineRpcMissing();
     return { ...empty, error: null, missing: true };
   }
   if (error) return { ...empty, error: new Error(error.message) };
@@ -1232,16 +1274,38 @@ export async function getTripByIndentId(
 export async function driverRejectTrip(
   tripId: string,
 ): Promise<{ error: Error | null; trip: TripRow | null }> {
+  const before = await getDriverTripById(tripId);
+  const prevDriverId = before.trip?.driver_id ?? null;
+  const prevVehicleId = before.trip?.vehicle_id ?? null;
   const { error } = await supabase().rpc("driver_reject_trip", {
     p_trip_id: tripId,
   });
   if (error) return { error: new Error(error.message), trip: null };
   // Fetch updated row for local UI consistency (RPC may not return the trip row).
   const refreshed = await getDriverTripById(tripId);
-  return {
-    error: null,
-    trip: refreshed.trip ? driverRowToTripRow(refreshed.trip) : null,
-  };
+  const trip = refreshed.trip ? driverRowToTripRow(refreshed.trip) : null;
+  if (trip && prevDriverId) {
+    try {
+      const { postAssignmentUpdateToTripChats } = await import(
+        "@/features/chat/services/chatAssignmentBridge.service"
+      );
+      await postAssignmentUpdateToTripChats({
+        trip,
+        audit: {
+          id: `reject:${tripId}:${prevDriverId}`,
+          event_type: "reassignment",
+          driver_id_prev: prevDriverId,
+          driver_id_new: null,
+          vehicle_id_prev: prevVehicleId,
+          vehicle_id_new: trip.vehicle_id ?? prevVehicleId,
+          changed_at: new Date().toISOString(),
+        },
+      });
+    } catch {
+      // Chat bridge is best-effort — decline already succeeded.
+    }
+  }
+  return { error: null, trip };
 }
 
 /**
@@ -1255,6 +1319,9 @@ export async function driverRejectTrip(
 export async function driverDeclinePendingAssignment(
   tripId: string,
 ): Promise<{ error: Error | null; trip: TripRow | null }> {
+  const before = await getDriverTripById(tripId);
+  const prevDriverId = before.trip?.driver_id ?? null;
+  const prevVehicleId = before.trip?.vehicle_id ?? null;
   const { data, error } = await supabase().rpc(
     "driver_decline_pending_assignment",
     { p_trip_id: tripId },
@@ -1268,10 +1335,29 @@ export async function driverDeclinePendingAssignment(
     };
   }
   const refreshed = await getDriverTripById(tripId);
-  return {
-    error: null,
-    trip: refreshed.trip ? driverRowToTripRow(refreshed.trip) : null,
-  };
+  const trip = refreshed.trip ? driverRowToTripRow(refreshed.trip) : null;
+  if (trip && prevDriverId) {
+    try {
+      const { postAssignmentUpdateToTripChats } = await import(
+        "@/features/chat/services/chatAssignmentBridge.service"
+      );
+      await postAssignmentUpdateToTripChats({
+        trip,
+        audit: {
+          id: `decline-pending:${tripId}:${prevDriverId}`,
+          event_type: "declined_pending",
+          driver_id_prev: prevDriverId,
+          driver_id_new: null,
+          vehicle_id_prev: prevVehicleId,
+          vehicle_id_new: trip.vehicle_id ?? prevVehicleId,
+          changed_at: new Date().toISOString(),
+        },
+      });
+    } catch {
+      // Chat bridge is best-effort — decline already succeeded.
+    }
+  }
+  return { error: null, trip };
 }
 
 /** Trips assigned to a driver (driver app). RLS must allow driver to SELECT where driver_id = self. */
@@ -2033,6 +2119,10 @@ export async function getOrgHubMetrics(
   source: OrgHubMetricsSource;
 }> {
   if (!orgId) {
+    return { error: null, metrics: EMPTY_ORG_HUB_METRICS, source: "empty" };
+  }
+  // These functions are granted to authenticated only. An anon call is a 42501.
+  if (!(await getAccessToken())) {
     return { error: null, metrics: EMPTY_ORG_HUB_METRICS, source: "empty" };
   }
   const { data, error } = await supabase().rpc("count_org_hub_metrics", {
@@ -4083,6 +4173,8 @@ export async function updateTripStatus(
   }
   if (data.completed_at !== undefined)
     updates.completed_at = data.completed_at ?? null;
+  else if (status === "completed")
+    updates.completed_at = updates.updated_at;
   if (data.status_change_origin !== undefined)
     updates.status_change_origin = data.status_change_origin ?? null;
   const { data: row, error } = await supabase()
@@ -4203,7 +4295,10 @@ export async function forceSetTripStatusSimulated(
   if (data.startedAt !== undefined) updates.started_at = data.startedAt ?? null;
   if (data.completedAt !== undefined) {
     updates.completed_at = data.completedAt ?? null;
-  } else if (data.status !== "completed") {
+  } else if (data.status === "completed") {
+    // trips_check1: status completed requires completed_at, and every other status forbids it.
+    updates.completed_at = updates.updated_at;
+  } else {
     updates.completed_at = null;
   }
   if (data.notes !== undefined) updates.notes = data.notes;

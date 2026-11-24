@@ -156,6 +156,19 @@ export async function recordTripWorkflowEvent(params: {
     ? `${params.tripId}:${params.eventType}`
     : null;
 
+  // The unique index is partial, so INSERT ... ON CONFLICT cannot target it.
+  // A read first keeps a repeat of the same milestone from raising 23505.
+  if (idempotencyKey) {
+    const existing = await supabase()
+      .from('trip_workflow_events')
+      .select('*')
+      .eq('idempotency_key', idempotencyKey)
+      .maybeSingle();
+    if (!existing.error && existing.data) {
+      return { error: null, event: existing.data as TripWorkflowEvent, alreadyExists: true };
+    }
+  }
+
   const { data, error } = await supabase()
     .from('trip_workflow_events')
     .insert({

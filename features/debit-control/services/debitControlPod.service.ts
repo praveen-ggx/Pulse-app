@@ -183,6 +183,33 @@ function validationEventPayload(trip: ValidatePodTripInput) {
   };
 }
 
+async function workflowEventAlreadyStored(idempotencyKey: string): Promise<boolean> {
+  const { data, error } = await supabase()
+    .from("trip_workflow_events")
+    .select("id")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (error) return false;
+  return data != null;
+}
+
+async function replaceWorkflowValidationPayload(input: {
+  actorId: string | null;
+  tripId: string;
+  eventType: string;
+  idempotencyKey: string;
+  payload: Record<string, unknown>;
+}): Promise<{ ok: boolean; message?: string }> {
+  const { error } = await supabase()
+    .from("trip_workflow_events")
+    .update({ actor_id: input.actorId, payload: input.payload })
+    .eq("trip_id", input.tripId)
+    .eq("event_type", input.eventType)
+    .eq("idempotency_key", input.idempotencyKey);
+  if (error) return { ok: false, message: error.message };
+  return { ok: true };
+}
+
 async function upsertWorkflowValidationEvent(input: {
   orgId: string;
   actorId: string | null;
@@ -191,6 +218,11 @@ async function upsertWorkflowValidationEvent(input: {
   idempotencyKey: string;
   payload: Record<string, unknown>;
 }): Promise<{ ok: boolean; message?: string }> {
+  // Read before insert. A second save of the same milestone used to collide
+  // with the partial unique index and show up as HTTP 409.
+  if (await workflowEventAlreadyStored(input.idempotencyKey)) {
+    return replaceWorkflowValidationPayload(input);
+  }
   const { error } = await supabase()
     .from("trip_workflow_events")
     .insert({
@@ -204,14 +236,7 @@ async function upsertWorkflowValidationEvent(input: {
   if (!error) return { ok: true };
   const code = String((error as { code?: string }).code ?? "");
   if (code !== "23505") return { ok: false, message: error.message };
-  const { error: updateError } = await supabase()
-    .from("trip_workflow_events")
-    .update({ actor_id: input.actorId, payload: input.payload })
-    .eq("trip_id", input.tripId)
-    .eq("event_type", input.eventType)
-    .eq("idempotency_key", input.idempotencyKey);
-  if (updateError) return { ok: false, message: updateError.message };
-  return { ok: true };
+  return replaceWorkflowValidationPayload(input);
 }
 
 async function loadInvoiceNumberByTripId(
@@ -330,6 +355,8 @@ export async function recordAdvanceDocumentCostSnapshot(
     .maybeSingle();
   const orgId = text(data?.organization_id) || text(fallback?.organizationId);
   if (!orgId) return;
+  const idempotencyKey = `${tripId}:${ADVANCE_DOCUMENT_COST_EVENT}`;
+  if (await workflowEventAlreadyStored(idempotencyKey)) return;
   const { error } = await supabase()
     .from("trip_workflow_events")
     .insert({
@@ -337,7 +364,7 @@ export async function recordAdvanceDocumentCostSnapshot(
       org_id: orgId,
       event_type: ADVANCE_DOCUMENT_COST_EVENT,
       payload: { amount },
-      idempotency_key: `${tripId}:${ADVANCE_DOCUMENT_COST_EVENT}`,
+      idempotency_key: idempotencyKey,
     });
   if (error && error.code !== "23505") return;
 }

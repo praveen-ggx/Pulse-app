@@ -498,13 +498,23 @@ async function readComplianceLedgerFlags(trip: TripRow): Promise<ComplianceLedge
  */
 export function compliancePayoutParty(trip: Pick<TripRow, "supplier_id" | "supplier_name">) {
   const supplierId = trip.supplier_id?.trim() || null;
+  const partyName = trip.supplier_name?.trim() || "Supplier";
+  if (!supplierId) {
+    return {
+      party_name: partyName,
+      contact_id: null,
+      contact_type: null,
+      ledger_entity_type: null,
+      ledger_flow_type: "payable" as const,
+    };
+  }
   return {
-    party_name: trip.supplier_name?.trim() || "Supplier",
+    party_name: partyName,
     contact_id: supplierId,
-    contact_type: "supplier",
-    ledger_entity_type: "supplier",
-    ledger_flow_type: "payable",
-  } as const;
+    contact_type: "supplier" as const,
+    ledger_entity_type: "supplier" as const,
+    ledger_flow_type: "payable" as const,
+  };
 }
 
 /**

@@ -31,7 +31,7 @@ const TERMS_FETCH_CONCURRENCY = 4;
 export type ComplianceAdvanceFinanceBreakdown = {
   baseFreight: number | null;
   advancePercent: number;
-  advancePercentSource: "vendor" | "default";
+  advancePercentSource: "vendor" | "default" | "approved";
   documentationCharges: number;
   documentationChargeNote: string;
   tdsRatePercent: number | null;
@@ -157,6 +157,22 @@ function documentationChargeNote(
  * Load Compliance advance math for one trip (Finance Hub Summary).
  * Returns null when there is no supplier to resolve vault terms against.
  */
+async function readApprovedAdvancePercent(tripId: string): Promise<number | null> {
+  const { data, error } = await supabase()
+    .from("payment_requests")
+    .select("terms_snapshot")
+    .eq("trip_id", tripId)
+    .eq("payment_type", "advance")
+    .neq("status", "cancelled")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error || !data?.[0]) return null;
+  const snapshot = data[0].terms_snapshot as { advance_percent?: number | string } | null;
+  const percent = Number(snapshot?.advance_percent);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null;
+  return percent;
+}
+
 export async function fetchComplianceAdvanceFinanceBreakdown(input: {
   orgId: string;
   tripId: string;
@@ -170,12 +186,13 @@ export async function fetchComplianceAdvanceFinanceBreakdown(input: {
   const supplierId = (input.supplierId ?? "").trim();
   if (!orgId || !tripId || !supplierId) return null;
 
-  const [tdsResult, profileResult, docChargeResult, ledger, freight] = await Promise.all([
+  const [tdsResult, profileResult, docChargeResult, ledger, freight, approved] = await Promise.all([
     listSupplierTdsRates(orgId, supplierId),
     getVendorOnboardingProfile(orgId, supplierId),
     getDocumentChargeConfig(orgId),
     fetchTripAdvanceLedger(tripId),
     readTripSupplierFreight(tripId).catch(() => null),
+    readApprovedAdvancePercent(tripId),
   ]);
 
   const baseFreight = supplierBaseFreight(
@@ -197,11 +214,13 @@ export async function fetchComplianceAdvanceFinanceBreakdown(input: {
   const vendorPct =
     adv != null && Number.isFinite(Number(adv)) ? Number(adv) : null;
   const advancePercent =
-    vendorPct != null
-      ? Math.min(100, Math.max(0, vendorPct))
-      : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
-  const advancePercentSource: "vendor" | "default" =
-    vendorPct != null ? "vendor" : "default";
+    approved != null
+      ? approved
+      : vendorPct != null
+        ? Math.min(100, Math.max(0, vendorPct))
+        : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
+  const advancePercentSource: "vendor" | "default" | "approved" =
+    approved != null ? "approved" : vendorPct != null ? "vendor" : "default";
 
   const docResolved = resolveComplianceDocumentationCharge(
     docChargeResult.data,
@@ -242,6 +261,37 @@ export async function fetchComplianceAdvanceFinanceBreakdown(input: {
   };
 }
 
+function quoteFromVaultTerms(
+  input: {
+    supplierRate: number | null | undefined;
+    supplierRateBasis: string | null | undefined;
+    loadTons: number | null | undefined;
+  },
+  profile: VendorOnboardingProfile | null,
+  rates: SupplierTdsRate[],
+  docCharge: Awaited<ReturnType<typeof getDocumentChargeConfig>>["data"],
+): { payable: number; percent: number } | null {
+  const baseFreight = supplierBaseFreight(input);
+  if (baseFreight == null || baseFreight <= 0) return null;
+  const resolvedTds = resolveComplianceTdsRate(rates);
+  const tdsAmount = computeComplianceTdsAmount(baseFreight, resolvedTds?.ratePercent ?? null);
+  const adv = profile?.advance_percentage;
+  const vendorPct = adv != null && Number.isFinite(Number(adv)) ? Number(adv) : null;
+  const percent =
+    vendorPct != null
+      ? Math.min(100, Math.max(0, vendorPct))
+      : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
+  const documentationCharges = resolveComplianceDocumentationCharge(docCharge, baseFreight).amount;
+  const payable = computeCompliancePaymentAmount({
+    baseFreight,
+    advancePercent: percent,
+    documentationCharges,
+    tdsAmount,
+  });
+  if (payable <= 0) return null;
+  return { payable, percent, baseFreight, tdsAmount, documentationCharges };
+}
+
 function payableFromVaultTerms(
   input: {
     supplierRate: number | null | undefined;
@@ -252,22 +302,42 @@ function payableFromVaultTerms(
   rates: SupplierTdsRate[],
   docCharge: Awaited<ReturnType<typeof getDocumentChargeConfig>>["data"],
 ): number {
-  const baseFreight = supplierBaseFreight(input);
-  const resolvedTds = resolveComplianceTdsRate(rates);
-  const tdsAmount = computeComplianceTdsAmount(baseFreight ?? 0, resolvedTds?.ratePercent ?? null);
-  const adv = profile?.advance_percentage;
-  const vendorPct = adv != null && Number.isFinite(Number(adv)) ? Number(adv) : null;
-  const advancePercent =
-    vendorPct != null
-      ? Math.min(100, Math.max(0, vendorPct))
-      : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
-  const documentationCharges = resolveComplianceDocumentationCharge(docCharge, baseFreight).amount;
-  return computeCompliancePaymentAmount({
-    baseFreight: baseFreight ?? 0,
-    advancePercent,
-    documentationCharges,
-    tdsAmount,
+  return quoteFromVaultTerms(input, profile, rates, docCharge)?.payable ?? 0;
+}
+
+/** Supplier advance percent, or 90 when the supplier has none, with the payable it produces. */
+export async function quoteAdvancePayablesForTrips(
+  organizationId: string,
+  trips: Array<{ id: string; supplierId: string | null }>,
+): Promise<Map<string, { payable: number; percent: number; baseFreight: number; tdsAmount: number; documentationCharges: number }>> {
+  const out = new Map<string, { payable: number; percent: number; baseFreight: number; tdsAmount: number; documentationCharges: number }>();
+  const rows = trips.filter((trip) => trip.id.trim());
+  if (!organizationId.trim() || rows.length === 0) return out;
+  const freightByTrip = await readTripSupplierFreightByIds(rows.map((trip) => trip.id));
+  const doc = await getDocumentChargeConfig(organizationId);
+  const supplierIds = [...new Set(rows.map((trip) => (trip.supplierId ?? "").trim()).filter(Boolean))];
+  const terms = new Map<string, { profile: VendorOnboardingProfile | null; rates: SupplierTdsRate[] }>();
+  await mapWithConcurrency(supplierIds, TERMS_FETCH_CONCURRENCY, async (supplierId) => {
+    const [tdsResult, profileResult] = await Promise.all([
+      listSupplierTdsRates(organizationId, supplierId),
+      getVendorOnboardingProfile(organizationId, supplierId),
+    ]);
+    terms.set(supplierId, { profile: profileResult.profile, rates: tdsResult.rates });
   });
+  for (const trip of rows) {
+    const freight = freightByTrip.get(trip.id);
+    if (!freight) continue;
+    const supplierId = (trip.supplierId ?? "").trim();
+    const vault = supplierId ? terms.get(supplierId) : undefined;
+    const quote = quoteFromVaultTerms(
+      freight,
+      vault?.profile ?? null,
+      vault?.rates ?? [],
+      doc.data,
+    );
+    if (quote) out.set(trip.id, quote);
+  }
+  return out;
 }
 
 /**

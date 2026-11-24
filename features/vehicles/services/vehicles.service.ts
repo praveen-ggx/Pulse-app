@@ -145,6 +145,38 @@ export async function getVehicleById(
   return { error: null, vehicle: data as VehicleRow | null };
 }
 
+const PLATE_CANDIDATE_PAGE = 40;
+
+/** Pages plate candidates until the normalized number matches or the set ends. */
+async function findPlateByTail(
+  compactKey: string,
+  tail: string,
+  organizationId: string | null,
+): Promise<{ error: Error | null; vehicle: VehicleRow | null }> {
+  let afterId: string | null = null;
+  for (;;) {
+    let query = supabase()
+      .from("vehicles")
+      .select(VEHICLE_PLATE_LOOKUP_COLUMNS)
+      .ilike("vehicle_number", `%${tail}%`);
+    if (organizationId) query = query.eq("organization_id", organizationId);
+    if (afterId) query = query.gt("id", afterId);
+    const { data, error } = await query.order("id", { ascending: true }).limit(PLATE_CANDIDATE_PAGE);
+    if (error) return { error: new Error(error.message), vehicle: null };
+    const rows = (data ?? []) as VehicleRow[];
+    const match = rows.find(
+      (row) => normalizeVehicleNumberForMatch(row.vehicle_number) === compactKey,
+    );
+    if (match) return { error: null, vehicle: match };
+    if (rows.length < PLATE_CANDIDATE_PAGE) return { error: null, vehicle: null };
+    const lastId = rows[rows.length - 1]?.id;
+    if (!lastId || lastId === afterId) {
+      return { error: new Error("Vehicle plate search did not advance."), vehicle: null };
+    }
+    afterId = lastId;
+  }
+}
+
 const VEHICLE_PLATE_LOOKUP_COLUMNS =
   "id, organization_id, vehicle_number, vehicle_type, vehicle_body_type, vehicle_size, vehicle_brand, vehicle_model, capacity, avatar_url, avatar_seed, documents, status, type, created_at, updated_at";
 
@@ -170,20 +202,7 @@ export async function findVehicleByPlate(
   const compactKey = normalizeVehicleNumberForMatch(plate);
   const tail = compactKey.slice(-4);
   if (compactKey.length >= 4 && tail) {
-    const { data: rows, error: listError } = await supabase()
-      .from("vehicles")
-      .select(VEHICLE_PLATE_LOOKUP_COLUMNS)
-      .eq("organization_id", orgId)
-      .ilike("vehicle_number", `%${tail}%`)
-      .limit(40);
-    if (listError) return { error: new Error(listError.message), vehicle: null };
-    const match = (rows ?? []).find(
-      (row) =>
-        normalizeVehicleNumberForMatch(
-          (row as { vehicle_number?: string | null }).vehicle_number,
-        ) === compactKey,
-    );
-    if (match) return { error: null, vehicle: match as VehicleRow };
+    return findPlateByTail(compactKey, tail, orgId);
   }
   return { error: null, vehicle: null };
 }
@@ -195,19 +214,7 @@ export async function findVisibleVehicleByPlate(
   const compactKey = normalizeVehicleNumberForMatch(plate);
   const tail = compactKey.slice(-4);
   if (compactKey.length < 4 || !tail) return { error: null, vehicle: null };
-  const { data: rows, error } = await supabase()
-    .from("vehicles")
-    .select(VEHICLE_PLATE_LOOKUP_COLUMNS)
-    .ilike("vehicle_number", `%${tail}%`)
-    .limit(40);
-  if (error) return { error: new Error(error.message), vehicle: null };
-  const match = (rows ?? []).find(
-    (row) =>
-      normalizeVehicleNumberForMatch(
-        (row as { vehicle_number?: string | null }).vehicle_number,
-      ) === compactKey,
-  );
-  return { error: null, vehicle: (match as VehicleRow) ?? null };
+  return findPlateByTail(compactKey, tail, null);
 }
 
 /**

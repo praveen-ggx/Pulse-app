@@ -80,9 +80,11 @@ export const ComplianceAdvanceFinanceCard = memo(
         : "No TDS rate on vendor vault";
 
     const advanceMeta =
-      breakdown.advancePercentSource === "vendor"
-        ? "From supplier vendor vault"
-        : "Default (vendor % not set)";
+      breakdown.advancePercentSource === "approved"
+        ? "Approved for this trip"
+        : breakdown.advancePercentSource === "vendor"
+          ? "From supplier vendor vault"
+          : "Default (vendor % not set)";
 
     const posted = breakdown.postedAdvanceAmount;
     const hasPosted = posted != null && posted > 0;

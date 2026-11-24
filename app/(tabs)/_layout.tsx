@@ -362,10 +362,12 @@ function TabsWithProfileDrawer({ isDesktopWeb }: { isDesktopWeb: boolean }) {
         tabBarShowLabel: false,
         tabBarStyle: { display: 'none' },
         /**
-         * Desktop web: keep all primary tabs mounted (Slack-like persistence).
-         * Native + mobile web: lazy mount — only the active tab loads its chunk.
+         * Every platform mounts a tab on first visit. Desktop web used to mount
+         * Home, Finance and Network immediately; those screens start a complete
+         * trip-book read, so a wide window on Trips walked `p_bucket=all`.
+         * freezeOnBlur stays off on desktop so a tab the user has opened stays warm.
          */
-        lazy: !isDesktopWeb,
+        lazy: true,
         freezeOnBlur: !isDesktopWeb,
         animation: 'none',
         sceneStyle: {
@@ -379,19 +381,19 @@ function TabsWithProfileDrawer({ isDesktopWeb }: { isDesktopWeb: boolean }) {
     >
       <Tabs.Screen
         name="index"
-        options={{ title: 'Home', lazy: Platform.OS === 'web' && !isDesktopWeb }}
+        options={{ title: 'Home', lazy: Platform.OS === 'web' }}
       />
       <Tabs.Screen
         name="finance"
-        options={{ title: 'Fiscal', lazy: Platform.OS === 'web' && !isDesktopWeb }}
+        options={{ title: 'Fiscal', lazy: Platform.OS === 'web' }}
       />
       <Tabs.Screen
         name="trips"
-        options={{ title: 'Trips', lazy: Platform.OS === 'web' && !isDesktopWeb }}
+        options={{ title: 'Trips', lazy: Platform.OS === 'web' }}
       />
       <Tabs.Screen
         name="network"
-        options={{ title: 'Home', lazy: Platform.OS === 'web' && !isDesktopWeb }}
+        options={{ title: 'Home', lazy: Platform.OS === 'web' }}
       />
       <Tabs.Screen name="indents" options={{ href: null }} />
       <Tabs.Screen name="resources" options={{ href: null }} />

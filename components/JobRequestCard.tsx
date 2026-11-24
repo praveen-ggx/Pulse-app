@@ -146,8 +146,8 @@ export function JobRequestCard({
   /** Same proceed/back pattern as POD complete delivery. */
   const requestAcceptConfirm = useCallback(() => {
     if (disabled || isAccepted) return;
-    const title = "Accept trip?";
-    const message = "Take this assignment and start the mission.";
+    const title = "You're up — accept this trip?";
+    const message = `${pickup} → ${dropoff}\n\nAccept to open your job card and head to pickup.`;
     if (Platform.OS === "web") {
       const w =
         typeof globalThis !== "undefined"
@@ -159,10 +159,10 @@ export function JobRequestCard({
       return;
     }
     Alert.alert(title, message, [
-      { text: "Back", style: "cancel" },
-      { text: "Proceed", onPress: () => completeAccept() },
+      { text: "Not now", style: "cancel" },
+      { text: "Accept & go", onPress: () => completeAccept() },
     ]);
-  }, [completeAccept, disabled, isAccepted]);
+  }, [completeAccept, disabled, dropoff, isAccepted, pickup]);
 
   const shellStyle =
     variant === "page" || edgeToEdge
@@ -329,12 +329,15 @@ export function JobRequestCard({
             <View style={styles.heroTopRow}>
               <View style={styles.heroEyebrowRow}>
                 <Sparkles size={9} color={MINT} strokeWidth={2.5} />
-                <Text style={styles.heroEyebrow}>TRIP ASSIGNMENT</Text>
+                <Text style={styles.heroEyebrow}>NEW TRIP FOR YOU</Text>
               </View>
               {assignedBy ? (
                 <HeroKindBadge kind={assignedBy.kind} label={assignedBy.kindLabel} />
               ) : null}
             </View>
+            <Text style={styles.heroInviteLine} numberOfLines={2}>
+              Ready when you are — accept to open your job card.
+            </Text>
             <View style={styles.heroMainRow}>
               <View
                 style={[
@@ -439,8 +442,8 @@ export function JobRequestCard({
                         {isAccepted
                           ? requireOtp
                             ? "Accepted! Enter OTP"
-                            : "Accepted!"
-                          : "Accept trip"}
+                            : "Opening job card…"
+                          : "Accept & go"}
                       </Text>
                     </LinearGradient>
                   </TouchableOpacity>
@@ -525,6 +528,14 @@ const styles = StyleSheet.create({
     letterSpacing: 0.9,
     color: MINT,
     textTransform: "uppercase",
+  },
+  heroInviteLine: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#fff",
+    letterSpacing: -0.1,
+    lineHeight: 18,
+    marginBottom: 2,
   },
   heroMainRow: {
     flexDirection: "row",

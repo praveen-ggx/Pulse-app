@@ -31,6 +31,7 @@ let mockFlagsResult: { data: unknown[]; error: null };
 let mockTxnsResult: { data: unknown[]; error: null };
 
 jest.mock("@/lib/supabase", () => ({
+  getAccessToken: async () => "test-token",
   supabase: () => ({
     from: (table: string) => {
       if (table === "trip_documents") return mockMakeThenable(mockTripDocsResult);

@@ -24,6 +24,7 @@
 SET LOCAL lock_timeout = '5s';
 
 DROP FUNCTION IF EXISTS public.get_trips_for_org(uuid, boolean);
+DROP FUNCTION IF EXISTS public.get_trips_for_org(uuid, boolean, date, date);
 
 create function public.get_trips_for_org(
   p_org_id uuid,

@@ -30,9 +30,12 @@ describe("complianceBulkUpdate.util", () => {
       date: "2026-09-08",
       utr: "hdfc998877",
     });
+    expect(rows[0].lrKey).toBe("LR-9");
     expect(rows[1].tripKey).toBe("TRP-2");
+    expect(rows[1].lrKey).toBe("note, with comma");
     expect(rows[1].remarks).toBe("paid, late");
     expect(parseBulkPaymentDate("08 Sep 2026")).toBe("2026-09-08");
+    expect(parseBulkPaymentDate("08/09/26")).toBe("2026-09-08");
   });
 
   it("marks a changed UTR ready and leaves a matching UTR unchanged", () => {
@@ -62,6 +65,16 @@ describe("complianceBulkUpdate.util", () => {
       payments: [payment],
     });
     expect(rows.map((row) => row.tag)).toEqual(["invalid", "ready", "duplicate", "invalid"]);
+  });
+
+  it("matches a row by LR number when Trip ID is blank", () => {
+    const [matched] = classifyBulkUpdateRows({
+      rows: [{ rowIndex: 2, tripKey: "", lrKey: "LR-9", amount: null, mode: "", date: "", utr: "HDFC998877", remarks: "" }],
+      trips: [{ ...trip, keys: ["trip-1", "TRP-1042", "LR-9"], lrKeys: ["LR-9"] }],
+      payments: [payment],
+    });
+    expect(matched.tag).toBe("ready");
+    expect(matched.tripId).toBe("trip-1");
   });
 
   it("rechecks an edited UTR before anything is saved", () => {

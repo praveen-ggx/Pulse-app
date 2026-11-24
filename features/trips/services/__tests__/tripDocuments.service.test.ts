@@ -76,6 +76,10 @@ describe('getDocumentsByTripId — storage-fallback subfolder concurrency', () =
     });
 
     expect(error).toBeNull();
+    expect(mockStorageList.mock.calls[0]).toEqual([
+      "trip-1",
+      { limit: 500, offset: 0, sortBy: { column: "name", order: "asc" } },
+    ]);
     expect(subfolderListCallCount).toBe(SIX_SUBFOLDER_TYPES.length);
     expect(maxActiveSubfolderListCalls).toBeLessThanOrEqual(3);
     expect(maxActiveSubfolderListCalls).toBeGreaterThan(0);
@@ -174,5 +178,85 @@ describe('getDocumentsByTripId — storage-fallback subfolder concurrency', () =
     expect(third.documents).toEqual(first.documents);
     expect(listsAfterPair).toBe(1 + SIX_SUBFOLDER_TYPES.length);
     expect(mockStorageList.mock.calls.length).toBe(listsAfterPair);
+  });
+
+  it('reads the next name page when a folder fills 500 entries and still shows the newest file first', async () => {
+    mockStorageList.mockImplementation(async (path: string, options?: { offset?: number }) => {
+      if (path !== 'trip-8') return { data: [], error: null };
+      if ((options?.offset ?? 0) === 0) {
+        return {
+          data: Array.from({ length: 500 }, (_, i) => ({
+            name: `old-${String(i).padStart(4, '0')}.jpg`,
+            updated_at: '2020-01-01T00:00:00.000Z',
+          })),
+          error: null,
+        };
+      }
+      return {
+        data: [{ name: 'a-newest.jpg', updated_at: '2026-11-18T00:00:00.000Z' }],
+        error: null,
+      };
+    });
+
+    const { documents, error } = await getDocumentsByTripId('trip-8', {
+      includeOcr: false,
+      includeStorageFallback: true,
+    });
+
+    expect(error).toBeNull();
+    expect(mockStorageList.mock.calls.map((call) => call[1])).toEqual([
+      { limit: 500, offset: 0, sortBy: { column: 'name', order: 'asc' } },
+      { limit: 500, offset: 500, sortBy: { column: 'name', order: 'asc' } },
+    ]);
+    expect(documents).toHaveLength(501);
+    expect(documents[0]?.file_name).toBe('a-newest.jpg');
+  });
+
+  it('does not return a trip folder that fills the 2000-object ceiling', async () => {
+    const fullPage = Array.from({ length: 500 }, (_, i) => ({
+      name: `file-${String(i).padStart(4, '0')}.jpg`,
+      updated_at: '2026-01-01T00:00:00.000Z',
+    }));
+    mockStorageList.mockImplementation(async () => ({ data: fullPage, error: null }));
+
+    const { documents, error } = await getDocumentsByTripId('trip-ceiling', {
+      includeOcr: false,
+      includeStorageFallback: true,
+    });
+
+    expect(documents).toEqual([]);
+    expect(error?.message).toBe('Storage listing stopped at 2000 objects and is incomplete.');
+    expect(mockStorageList.mock.calls.map((call) => [call[0], (call[1] as { offset: number }).offset])).toEqual([
+      ['trip-ceiling', 0],
+      ['trip-ceiling', 500],
+      ['trip-ceiling', 1000],
+      ['trip-ceiling', 1500],
+    ]);
+  });
+
+  it('does not return a document-type subfolder that fills the 2000-object ceiling', async () => {
+    const fullPage = Array.from({ length: 500 }, (_, i) => ({
+      name: `pod-${String(i).padStart(4, '0')}.jpg`,
+      updated_at: '2026-01-01T00:00:00.000Z',
+    }));
+    mockStorageList.mockImplementation(async (path: string) => {
+      if (!path.includes('/')) return { data: [{ name: 'pod' }], error: null };
+      return { data: fullPage, error: null };
+    });
+
+    const { documents, error } = await getDocumentsByTripId('trip-sub', {
+      includeOcr: false,
+      includeStorageFallback: true,
+    });
+
+    expect(documents).toEqual([]);
+    expect(error?.message).toBe('Storage listing stopped at 2000 objects and is incomplete.');
+    expect(mockStorageList.mock.calls.map((call) => [call[0], (call[1] as { offset: number }).offset])).toEqual([
+      ['trip-sub', 0],
+      ['trip-sub/pod', 0],
+      ['trip-sub/pod', 500],
+      ['trip-sub/pod', 1000],
+      ['trip-sub/pod', 1500],
+    ]);
   });
 });

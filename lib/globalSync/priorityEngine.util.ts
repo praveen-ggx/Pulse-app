@@ -202,21 +202,49 @@ function lastLocationMs(trip: ActiveTripSummary): number {
   return Math.max(a, b);
 }
 
+/** Assignment chat rows that mean the driver declined / was removed. */
+function recentEventsSuggestDriverDecline(events: ActiveTripRecentEvent[] | null | undefined): boolean {
+  const list = events ?? [];
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const event = list[i];
+    if (!event) continue;
+    const messageType = String(event.message_type ?? '').toLowerCase();
+    const content = String(event.content ?? '').toLowerCase();
+    if (
+      messageType === 'assignment_update' &&
+      (content.includes('declin') ||
+        content.includes('rejected') ||
+        content.includes('was removed'))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function syntheticUnassigned(trip: ActiveTripSummary, now: number): GlobalOperationAlert | null {
   if (trip.driver_id) return null;
   const st = String(trip.status ?? '').toLowerCase();
   if (st === 'completed' || st === 'cancelled' || st === 'delivered' || st === 'done') return null;
+  const declined = recentEventsSuggestDriverDecline(trip.recent_events);
+  const assignedWithoutDriver =
+    st === 'assigned' || st === 'pending_assignment' || st === 'driver_assigned';
   const age = now - parseTs(trip.created_at);
-  if (age < THIRTY_MIN_MS) return null;
+  // Decline / assigned-without-driver fire immediately; other unassigned wait 30m.
+  if (!declined && !assignedWithoutDriver && age < THIRTY_MIN_MS) return null;
+  const tripLabel = trip.display_trip_id ?? trip.trip_number;
   return {
     id: `syn:unassigned:${trip.trip_id}`,
     priority_weight: PRIORITY_WEIGHT_UNASSIGNED_CRITICAL,
     kind: 'critical',
     category: 'unassigned_trip',
     trip_id: trip.trip_id,
-    trip_number: trip.display_trip_id ?? trip.trip_number,
-    title: 'Driver unassigned',
-    subtitle: `${trip.trip_number} · Assign a driver to continue`,
+    trip_number: tripLabel,
+    title: declined || assignedWithoutDriver ? 'Driver declined' : 'Driver unassigned',
+    subtitle:
+      declined || assignedWithoutDriver
+        ? `${trip.trip_number} · Update driver details`
+        : `${trip.trip_number} · Assign a driver to continue`,
     amount: null,
     created_at: new Date(now).toISOString(),
     source: 'trip_synthetic_unassigned',

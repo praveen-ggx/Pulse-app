@@ -18,6 +18,8 @@ type Props = {
   label?: string;
   /** Open capture even when due is 0 (offline trip — add revenue). */
   allowZeroDue?: boolean;
+  /** e.g. stopPropagation / close preview before navigating. */
+  onPressBeforeNavigate?: () => void;
 };
 
 export function DriverCapturePaymentButton({
@@ -32,6 +34,7 @@ export function DriverCapturePaymentButton({
   disabled,
   label = "Capture",
   allowZeroDue = false,
+  onPressBeforeNavigate,
 }: Props) {
   const router = useRouter();
   if (!tripId) return null;
@@ -46,7 +49,9 @@ export function DriverCapturePaymentButton({
         disabled && styles.btnDisabled,
         !disabled && pressed ? styles.btnPressed : null,
       ]}
-      onPress={() =>
+      onPress={(event) => {
+        event?.stopPropagation?.();
+        onPressBeforeNavigate?.();
         router.push(
           ROUTES.driverCapturePayment({
             tripId,
@@ -56,8 +61,8 @@ export function DriverCapturePaymentButton({
             mode,
             reference,
           }) as Href,
-        )
-      }
+        );
+      }}
       disabled={disabled}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       accessibilityRole="button"

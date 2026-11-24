@@ -3,7 +3,7 @@
  * Single bounded context: drivers (driver records, invite, linked driver for current user).
  * One service per domain (microservices). Same DB as pulse-unified-base.
  */
-import { DEFAULT_PAGE_SIZE, readByIdChunks, type PageOpts } from "@/lib/pagination";
+import { chunkIdsForRead, DEFAULT_PAGE_SIZE, readAllPages, readByIdChunks, type PageOpts } from "@/lib/pagination";
 import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
 import type { DeltaResponse } from "@/lib/cache/deltaTypes";
@@ -25,11 +25,8 @@ const DRIVER_COLUMNS = [
   "avatar_url", "avatar_seed",
 ].join(",");
 
-const DRIVER_LEDGER_COLUMNS = [
-  "id", "organization_id", "driver_id", "trip_id", "type",
-  "amount", "currency", "description", "created_at", "created_by",
-  "reference_type", "reference_id",
-].join(",");
+const DRIVER_LEDGER_COLUMNS =
+  "id, organization_id, driver_id, trip_id, type, amount, currency, description, created_at, created_by, reference_type, reference_id" as const;
 
 export interface CreateDriverServiceData {
   driverSource?: string;
@@ -606,16 +603,22 @@ export async function updateDriver(
     if (!reconnecting && patch.phone !== undefined) {
       const phoneNorm = (patch.phone ?? "").replace(/\D/g, "").slice(-10);
       if (phoneNorm.length >= 8) {
-        const { data: peers, error: peersError } = await supabase()
-          .from("drivers")
-          .select("id, name, phone")
-          .eq("organization_id", orgId)
-          .is("left_at", null)
-          .neq("id", driverId)
-          .limit(200);
-        if (peersError) {
-          return { error: new Error(peersError.message), driver: null };
+        const peersPage = await readAllPages<{ id: string; name?: string | null; phone?: string | null }, { message: string }>(
+          (afterId, limit) => {
+            let q = supabase()
+              .from("drivers")
+              .select("id, name, phone")
+              .eq("organization_id", orgId)
+              .is("left_at", null)
+              .neq("id", driverId);
+            if (afterId) q = q.gt("id", afterId);
+            return q.order("id", { ascending: true }).limit(limit);
+          },
+        );
+        if (peersPage.error) {
+          return { error: new Error(peersPage.error.message), driver: null };
         }
+        const peers = peersPage.data;
         const conflict = (peers ?? []).find((peer) => {
           const peerDigits = String(
             (peer as { phone?: string | null }).phone ?? "",
@@ -715,16 +718,22 @@ export async function findLocalDriverContactCollisions(
 
     const phoneNorm = phoneRaw.replace(/\D/g, "").slice(-10);
     if (phoneNorm.length >= 8) {
-      const { data: peers, error: peersError } = await supabase()
-        .from("drivers")
-        .select("id, name, phone")
-        .eq("organization_id", orgId)
-        .is("left_at", null)
-        .neq("id", driverId)
-        .limit(200);
-      if (peersError) {
-        return { error: new Error(peersError.message), collisions: [] };
+      const peersPage = await readAllPages<{ id: string; name?: string | null; phone?: string | null }, { message: string }>(
+        (afterId, limit) => {
+          let q = supabase()
+            .from("drivers")
+            .select("id, name, phone")
+            .eq("organization_id", orgId)
+            .is("left_at", null)
+            .neq("id", driverId);
+          if (afterId) q = q.gt("id", afterId);
+          return q.order("id", { ascending: true }).limit(limit);
+        },
+      );
+      if (peersPage.error) {
+        return { error: new Error(peersPage.error.message), collisions: [] };
       }
+      const peers = peersPage.data;
       const conflict = (peers ?? []).find((row) => {
         const peerDigits = String((row as { phone?: string | null }).phone ?? "")
           .replace(/\D/g, "")
@@ -1692,6 +1701,7 @@ export async function getDriverProfileDisplayBatch(
 ): Promise<Record<string, { fullName: string; avatarUrl?: string; avatarSeed?: string }>> {
   const ids = driverIds.map((id) => id.trim()).filter(Boolean);
   if (ids.length === 0) return {};
+  if (!(await getAccessToken())) return {};
 
   const { data, error } = await supabase().rpc("get_driver_profile_display_batch", {
     p_driver_ids: ids,
@@ -2261,37 +2271,63 @@ export async function findActiveDriverForVehicle(
 /**
  * Get driver_ledger entries for a driver (e.g. driver app Wallet). RLS: driver can read own ledger.
  */
+function driverLedgerQuery() {
+  return supabase().from("driver_ledger").select(DRIVER_LEDGER_COLUMNS);
+}
+
+type DriverLedgerQuery = ReturnType<typeof driverLedgerQuery>;
+
+function toDriverLedgerRow(row: {
+  id: string;
+  organization_id: string;
+  driver_id: string;
+  trip_id: string | null;
+  type: string;
+  amount: number;
+  currency: string;
+  description: string | null;
+  created_at: string | null;
+  created_by: string | null;
+  reference_type: string | null;
+  reference_id: string | null;
+}): DriverLedgerRow {
+  return { ...row, created_at: row.created_at ?? "" };
+}
+
+async function readDriverLedger(
+  apply: (query: DriverLedgerQuery) => DriverLedgerQuery,
+): Promise<{ error: Error | null; entries: DriverLedgerRow[] }> {
+  const { data, error } = await readAllPages<
+    Parameters<typeof toDriverLedgerRow>[0],
+    { message: string }
+  >(async (afterId, limit) => {
+    let q = apply(driverLedgerQuery());
+    if (afterId) q = q.gt("id", afterId);
+    const page = await q.order("id", { ascending: true }).limit(limit);
+    return { data: page.data, error: page.error };
+  });
+  if (error) return { error: new Error(error.message), entries: [] };
+  const entries = (data ?? []).map(toDriverLedgerRow);
+  entries.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  return { error: null, entries };
+}
+
 export async function getDriverLedgerByDriver(
   driverId: string,
 ): Promise<{ error: Error | null; entries: DriverLedgerRow[] }> {
-  const { data, error } = await supabase()
-    .from("driver_ledger")
-    .select(DRIVER_LEDGER_COLUMNS)
-    .eq("driver_id", driverId)
-    .order("created_at", { ascending: false })
-    .limit(200);
-  if (error) return { error: new Error(error.message), entries: [] };
-  return { error: null, entries: (data ?? []) as unknown as DriverLedgerRow[] };
+  return readDriverLedger((query) => query.eq("driver_id", driverId));
 }
 
 /**
  * Ledger rows for one trip. The `trip_id` filter is applied in Postgres.
- * The cap matches the old driver-wide window so a busy trip is not truncated
- * below what settlement used to see, without loading other trips.
+ * Pages by id so a long settlement is not cut off, and does not load other trips.
  */
 export async function getDriverLedgerByTripId(
   tripId: string,
 ): Promise<{ error: Error | null; entries: DriverLedgerRow[] }> {
   const id = tripId.trim();
   if (!id) return { error: null, entries: [] };
-  const { data, error } = await supabase()
-    .from("driver_ledger")
-    .select(DRIVER_LEDGER_COLUMNS)
-    .eq("trip_id", id)
-    .order("created_at", { ascending: false })
-    .limit(200);
-  if (error) return { error: new Error(error.message), entries: [] };
-  return { error: null, entries: (data ?? []) as unknown as DriverLedgerRow[] };
+  return readDriverLedger((query) => query.eq("trip_id", id));
 }
 
 /**
@@ -2301,14 +2337,19 @@ export async function getDriverLedgerByDriverIds(
   driverIds: string[],
 ): Promise<{ error: Error | null; entries: DriverLedgerRow[] }> {
   if (driverIds.length === 0) return { error: null, entries: [] };
-  const { data, error } = await supabase()
-    .from("driver_ledger")
-    .select(DRIVER_LEDGER_COLUMNS)
-    .in("driver_id", driverIds)
-    .order("created_at", { ascending: false })
-    .limit(200);
-  if (error) return { error: new Error(error.message), entries: [] };
-  return { error: null, entries: (data ?? []) as unknown as DriverLedgerRow[] };
+  const merged: DriverLedgerRow[] = [];
+  const seen = new Set<string>();
+  for (const chunk of chunkIdsForRead(driverIds)) {
+    const page = await readDriverLedger((query) => query.in("driver_id", chunk));
+    if (page.error) return page;
+    for (const entry of page.entries) {
+      if (seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      merged.push(entry);
+    }
+  }
+  merged.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  return { error: null, entries: merged };
 }
 
 /** Single round-trip bundle for DriverDetailScreen — replaces 6 parallel calls. */

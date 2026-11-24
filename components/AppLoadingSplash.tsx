@@ -87,9 +87,10 @@ function AppLoadingSplashView({
 }: AppLoadingSplashProps & { translate: (key: string) => string }) {
   const insets = useSafeAreaInsets();
   const resolvedMessage = useSplashCopy(variant, message, translate);
-  // Moti's looping driver setStates from layout effects. On web that nests
-  // until React aborts with "maximum update depth". The planet clip itself
-  // still plays; only the Moti pulse stays on native.
+  // Moti's looping driver and lottie-react-native's web <canvas> both setState
+  // from layout or ref-detach. On web that nests until React aborts with
+  // "maximum update depth", especially while the splash remounts. Native keeps
+  // the planet clip and the pulse.
   const pulse = Platform.OS !== 'web';
 
   return (
@@ -128,14 +129,7 @@ function AppLoadingSplashView({
         </MotiView>
       ) : (
         <View style={styles.logoWrap}>
-          <LottieView
-            source={SPLASH_ANIMATION}
-            autoPlay
-            loop
-            speed={0.9}
-            resizeMode="contain"
-            style={styles.logo}
-          />
+          <View style={styles.logo} />
         </View>
       )}
 

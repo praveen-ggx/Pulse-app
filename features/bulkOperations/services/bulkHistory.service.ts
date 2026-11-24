@@ -18,6 +18,7 @@ type QueryChain = PromiseLike<QueryResult> & {
   order: (column: string, options: { ascending: boolean }) => QueryChain;
   limit: (count: number) => QueryChain;
   or: (filters: string) => QueryChain;
+  in: (column: string, values: string[]) => QueryChain;
 };
 
 function table(name: string): QueryChain {
@@ -87,6 +88,21 @@ export async function listBulkBatches(params: {
   const { data, error } = await query;
   if (error) return { batches: [], error: asError(error, "Couldn't load bulk history.") };
   return { batches: (data ?? []) as StoredBatch[], error: null };
+}
+
+/** Row keys used to tell a one-by-one payment from the bulk file that posted it. */
+export async function listBulkBatchMatchRows(batchIds: string[]): Promise<{
+  rows: Array<Record<string, unknown>>;
+  error: Error | null;
+}> {
+  const ids = [...new Set(batchIds.filter(Boolean))];
+  if (ids.length === 0) return { rows: [], error: null };
+  const { data, error } = await table("bulk_operation_rows")
+    .select("id, batch_id, match_key, record_id, status, message, proposed_values, before_values")
+    .in("batch_id", ids)
+    .limit(500);
+  if (error) return { rows: [], error: asError(error, "Couldn't load bulk file rows.") };
+  return { rows: Array.isArray(data) ? data as Array<Record<string, unknown>> : [], error: null };
 }
 
 export async function loadBulkBatchDetail(batchId: string): Promise<{
@@ -175,6 +191,45 @@ export async function confirmPaymentFieldBatch(params: {
     }
     seen.add(rowId);
   }
+}
+
+export async function recordBulkPaymentPost(params: {
+  organizationId: string;
+  category: ComplianceLedgerCategory;
+  fileName: string;
+  rows: Array<{
+    rowIndex: number;
+    matchKey: string;
+    recordId: string | null;
+    amount: number | null;
+    mode: string;
+    date: string;
+    utr: string;
+    error: string | null;
+  }>;
+}): Promise<{ batchId: string | null; status: BatchStatus | null }> {
+  const submitted = await rpc("bulk_payment_post_record", {
+    p_organization_id: params.organizationId,
+    p_category: params.category,
+    p_file_name: params.fileName,
+    p_rows: params.rows.map((row) => ({
+      rowIndex: row.rowIndex,
+      matchKey: row.matchKey,
+      recordId: row.recordId ?? "",
+      amount: row.amount ?? "",
+      mode: row.mode,
+      date: row.date,
+      utr: row.utr,
+      status: row.error ? "failed" : "applied",
+      message: row.error ?? "Posted.",
+    })),
+  });
+  if (submitted.error) return { batchId: null, status: null };
+  const body = submitted.data ?? {};
+  return {
+    batchId: typeof body.batchId === "string" ? body.batchId : null,
+    status: (body.status as BatchStatus | undefined) ?? null,
+  };
 }
 
 export async function correctPaymentField(params: {

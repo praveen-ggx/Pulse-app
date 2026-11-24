@@ -20,9 +20,11 @@ import {
   clampEwayBillNumber,
   EMPTY_EWAY_FIELD_VALUES,
   EWAY_BILL_NUMBER_MAX_DIGITS,
+  ewayEntriesFromRows,
   ewayExpiryLabel,
   ewayExpiryTone,
   isEwayBillMetaPath,
+  nextEwayEntries,
   type EwayBillStripRow,
   type EwayFieldValues,
 } from "@/features/trips/services/ewayBillFields.util";
@@ -205,20 +207,21 @@ function rowToDraft(row: EwayBillStripRow): EwayFieldValues {
     validTill: displayToDraft(row.validTill),
     docNo: displayToDraft(row.docNo),
   };
-  // Keep each entry's own save stamp when another entry is saved.
+  // Keep each entry's own save stamp and file link when another entry is saved.
   if (row.entryUpdatedAt) draft.updatedAt = row.entryUpdatedAt;
   if (row.entryUpdatedBy) draft.updatedBy = row.entryUpdatedBy;
+  // Pin the entry to the file it is shown with, so a later upload (cards are
+  // newest first) cannot move an unlinked number onto the new file.
+  if (row.entryFilePath) draft.filePath = row.entryFilePath;
+  else if (row.entryIndex >= 0 && row.fileStoragePath) draft.filePath = row.fileStoragePath;
   return draft;
 }
 
 function rowsToEntries(rows: EwayBillStripRow[]): EwayFieldValues[] {
-  return rows
-    .filter((row) => row.id !== EMPTY_ROW.id)
-    .map(rowToDraft)
-    .filter(
-      (entry) =>
-        entry.ewayNo || entry.createdDate || entry.validTill || entry.docNo,
-    );
+  return ewayEntriesFromRows(
+    rows.filter((row) => row.id !== EMPTY_ROW.id),
+    rowToDraft,
+  );
 }
 
 function toIsoToday(): string {
@@ -475,8 +478,12 @@ export function EwayBillLrStrip({
 
   const openEditor = (row: EwayBillStripRow) => {
     const next = rowToDraft(row);
+    // Tie the number to the file on this card, so it stays on this card
+    // whatever order the cards are filled in.
+    if (row.fileStoragePath) next.filePath = row.fileStoragePath;
     setDraft(next);
-    setEditingIndex(row.id === EMPTY_ROW.id ? "new" : row.entryIndex);
+    // A card with a file but no number yet (entryIndex -1) adds a new entry.
+    setEditingIndex(row.id === EMPTY_ROW.id || row.entryIndex < 0 ? "new" : row.entryIndex);
     setShowDatePicker(next.validTill ? null : "validTill");
     setEditing(true);
   };
@@ -495,21 +502,13 @@ export function EwayBillLrStrip({
   };
 
   const buildNextEntries = (mode: "save" | "remove"): EwayFieldValues[] => {
-    if (mode === "remove") {
-      if (editingIndex === "new") return existingEntries;
-      return existingEntries.filter((_, index) => index !== editingIndex);
-    }
     // Only the added / edited entry gets a new "On … by …" stamp.
     const stamped: EwayFieldValues = {
       ...draft,
       updatedAt: new Date().toISOString(),
       ...(currentUserId ? { updatedBy: currentUserId } : {}),
     };
-    if (editingIndex === "new") return [...existingEntries, stamped];
-    if (existingEntries.length === 0) return [stamped];
-    return existingEntries.map((entry, index) =>
-      index === editingIndex ? stamped : entry,
-    );
+    return nextEwayEntries({ existing: existingEntries, editingIndex, draft: stamped, mode });
   };
 
   const saveEditor = async (mode: "save" | "remove" = "save") => {

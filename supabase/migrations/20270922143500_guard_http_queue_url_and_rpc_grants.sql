@@ -45,9 +45,7 @@ DO $$
 DECLARE
   r record;
 BEGIN
-  IF to_regclass('cron.job') IS NULL
-     OR NOT has_table_privilege(current_user, 'cron.job', 'UPDATE') THEN
-    RAISE NOTICE 'cron.job command rewrite skipped: not updatable by %', current_user;
+  IF to_regclass('cron.job') IS NULL THEN
     RETURN;
   END IF;
 

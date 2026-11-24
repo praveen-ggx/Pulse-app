@@ -1,3 +1,11 @@
+# Amendment — migration isolation (post-`242ebc4c3`)
+
+Follow-up isolation commit removes all SQL migration-file differences from PR #149 vs `V1.0.1`. Ten files preserved on `vasanth/migration-reconcile-20261124` @ `c41b2563c`. Local validation after isolation: Jest 6546 pass, lint 97, typecheck 322, nav/V2/`build:ci` PASS. GitHub Architecture Check remains **BLOCKED** (billing). Node 22 parity **NOT RUN**. Browser/preprod smoke **NOT RUN**. Zero DB apply. **Do not merge** without GO 1/2/3.
+
+See `changes/release-2026-11-24-migration-isolation.md` and updated `changes/release-2026-11-24-execution-stop.md`.
+
+---
+
 # Pulse Release 2026-11-24 — PR #149 Final Readiness
 
 **Run:** 2026-11-24 19:30–20:15 UTC (2026-11-25 IST), local workspace `/Users/ggx/Desktop/Pulse-app`.

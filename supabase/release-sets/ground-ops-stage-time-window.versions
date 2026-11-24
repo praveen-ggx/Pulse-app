@@ -1,0 +1,5 @@
+# Ground Ops simulate stage time window (no future time; Start Trip not before
+# Reached Pickup). Replaces simulate_ground_ops_pickup_status from
+# 20271123101500_ground_ops_pickup_event_at.sql, so it must be applied after it.
+# sha256 d94de253cae0bbed2b4bebdb93ad46996b573185142b75a2c5c5fa0d2134652a  20271124104457_ground_ops_stage_time_window.sql
+20271124104457

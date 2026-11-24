@@ -241,6 +241,10 @@ import {
     appendBisimNote,
     clearUnrevokedBisimStatuses,
     clampSimCompletionPickerValue,
+    capSimCompletionPickerValueAtNow,
+    isSimCompletionInFuture,
+    SIM_FUTURE_TIME_MESSAGE,
+    resolveSimStageFloorWarning,
     ensureBisimTimestampForStatus,
     isSimCompletionAtOrAfterMin,
     isUnrestrictedPickupSimStage,
@@ -4921,8 +4925,30 @@ export default function TripDetailScreen({
       }),
     });
 
+  /**
+   * Previous stage saved in the future: no valid time exists for this stage.
+   * Names that stage and keeps Confirm off. Recomputed from the trip, so it
+   * clears once the stage is corrected (Revoke Last / Trip Ops) and refreshed.
+   */
+  const simFloorWarning = simConfirmStep
+    ? resolveSimStageFloorWarning({
+        targetStatus: simConfirmStep.targetStatus,
+        trip,
+        assignmentChangedAt: resolveTripAssignedAtIso(
+          trip,
+          detail.assignmentAuditRows ?? [],
+        ),
+        driverAcceptedAt: resolveDriverAcceptanceAt({
+          trip,
+          assignmentAuditRows: detail.assignmentAuditRows ?? [],
+        }),
+        groundOps: !!simConfirmStep.groundOps,
+      })
+    : null;
+
   const openSimulateConfirm = (step: NonNullable<typeof simConfirmStep>) => {
-    // Pickup: no floor (past or future). Later stages: floor to previous stage.
+    // Pickup: no floor (any past time). Later stages: floor to previous stage.
+    // Every stage: never later than now.
     const minAt = isUnrestrictedPickupSimStage(step.targetStatus)
       ? null
       : simulateStageMinAt(step.targetStatus);
@@ -4934,7 +4960,7 @@ export default function TripDetailScreen({
       : toSimCompletionPickerValue();
     setSimCompletionPickerValue(
       showsSimCompletionPicker(step.targetStatus)
-        ? clampSimCompletionPickerValue(seed, minAt)
+        ? clampSimCompletionPickerValue(capSimCompletionPickerValueAtNow(seed), minAt)
         : "",
     );
     setSimError(null);
@@ -4951,7 +4977,7 @@ export default function TripDetailScreen({
   };
 
   const handleConfirmGroundOpsPickup = async () => {
-    if (!simConfirmStep?.groundOps) return;
+    if (!simConfirmStep?.groundOps || simFloorWarning) return;
     const target = simConfirmStep.targetStatus as GroundOpsPickupTarget;
     setSimulating(true);
     setSimError(null);
@@ -4973,6 +4999,10 @@ export default function TripDetailScreen({
               ? "Pick a pickup date and time."
               : "Pick a completion date and time.",
           );
+          return;
+        }
+        if (isSimCompletionInFuture(eventAt)) {
+          setSimError(SIM_FUTURE_TIME_MESSAGE);
           return;
         }
         if (!unrestrictedPickup) {
@@ -5031,7 +5061,7 @@ export default function TripDetailScreen({
       await handleConfirmGroundOpsPickup();
       return;
     }
-    if (!simConfirmStep || !canTripSimulate) return;
+    if (!simConfirmStep || !canTripSimulate || simFloorWarning) return;
     const currentStatus = String(trip.status ?? "").toLowerCase();
     if (currentStatus === "completed" || currentStatus === "cancelled") {
       setSimError(`Trip is already ${currentStatus} — refresh the page.`);
@@ -5062,6 +5092,11 @@ export default function TripDetailScreen({
               ? "Pick a pickup date and time."
               : "Pick a completion date and time.",
           );
+          setSimulating(false);
+          return;
+        }
+        if (isSimCompletionInFuture(completedAt)) {
+          setSimError(SIM_FUTURE_TIME_MESSAGE);
           setSimulating(false);
           return;
         }
@@ -6587,9 +6622,15 @@ export default function TripDetailScreen({
                   const minAt = simulateStageMinAt(simConfirmStep.targetStatus);
                   return minAt ? toSimCompletionPickerValue(minAt) : null;
                 })()}
+                maxDateTime={toSimCompletionPickerValue(new Date())}
                 onChange={setSimCompletionPickerValue}
               />
             </View>
+            ) : null}
+            {simFloorWarning ? (
+              <Text style={neoStyles.simModalError}>
+                {simFloorWarning.message}
+              </Text>
             ) : null}
             {simError ? (
               <Text style={neoStyles.simModalError}>
@@ -6612,10 +6653,10 @@ export default function TripDetailScreen({
               <TouchableOpacity
                 style={[
                   neoStyles.simModalConfirm,
-                  (simulating || groundOpsConfirmBlocked) && { opacity: 0.6 },
+                  (simulating || groundOpsConfirmBlocked || !!simFloorWarning) && { opacity: 0.6 },
                 ]}
                 onPress={handleConfirmSimulate}
-                disabled={simulating || groundOpsConfirmBlocked}
+                disabled={simulating || groundOpsConfirmBlocked || !!simFloorWarning}
                 activeOpacity={0.85}
               >
                 {simulating ? (
@@ -9295,9 +9336,13 @@ export default function TripDetailScreen({
                       const minAt = simulateStageMinAt(simConfirmStep.targetStatus);
                       return minAt ? toSimCompletionPickerValue(minAt) : null;
                     })()}
+                    maxDateTime={toSimCompletionPickerValue(new Date())}
                     onChange={setSimCompletionPickerValue}
                   />
                 </View>
+              ) : null}
+              {simFloorWarning ? (
+                <Text style={neoStyles.simModalError}>{simFloorWarning.message}</Text>
               ) : null}
               {simError ? (
                 <Text style={neoStyles.simModalError}>{simError}</Text>
@@ -9316,10 +9361,10 @@ export default function TripDetailScreen({
                 <TouchableOpacity
                   style={[
                     neoStyles.simModalConfirm,
-                    simulating && { opacity: 0.6 },
+                    (simulating || !!simFloorWarning) && { opacity: 0.6 },
                   ]}
                   onPress={handleConfirmSimulate}
-                  disabled={simulating}
+                  disabled={simulating || !!simFloorWarning}
                   activeOpacity={0.85}
                 >
                   {simulating ? (

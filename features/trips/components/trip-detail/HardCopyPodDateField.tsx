@@ -55,6 +55,7 @@ export function HardCopyPodDateField({
   compact = false,
   quiet = false,
   minDate,
+  maxDate,
   allowClear = true,
 }: {
   label: string;
@@ -69,6 +70,8 @@ export function HardCopyPodDateField({
   quiet?: boolean;
   /** YYYY-MM-DD — earlier calendar days are disabled. */
   minDate?: string;
+  /** YYYY-MM-DD — later calendar days are disabled. */
+  maxDate?: string;
   allowClear?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -102,6 +105,7 @@ export function HardCopyPodDateField({
           <DocumentDateCalendar
             selectedIso={isoValue}
             minDate={minDate}
+            maxDate={maxDate}
             onSelect={(iso) => {
               onChange(iso);
               close();
@@ -178,6 +182,7 @@ export function HardCopyPodDateField({
           mode="date"
           display="default"
           minimumDate={minDate ? parseISO(minDate) : undefined}
+          maximumDate={maxDate ? parseISO(maxDate) : undefined}
           onChange={(e, date) => {
             setOpen(false);
             if (e.type === "set" && date) onChange(toISODate(date));
@@ -213,6 +218,7 @@ export function HardCopyPodDateField({
                 mode="date"
                 display="spinner"
                 minimumDate={minDate ? parseISO(minDate) : undefined}
+                maximumDate={maxDate ? parseISO(maxDate) : undefined}
                 onChange={(_, date) => date && onChange(toISODate(date))}
               />
             </View>

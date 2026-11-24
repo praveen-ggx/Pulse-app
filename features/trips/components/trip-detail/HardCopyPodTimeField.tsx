@@ -84,6 +84,7 @@ export function HardCopyPodTimeField({
   quiet = false,
   placeholder,
   minTime,
+  maxTime,
   allowClear = true,
   /** When true, shell + picker use 12-hour AM/PM (still stores HH:MM 24h). */
   hour12 = false,
@@ -101,6 +102,8 @@ export function HardCopyPodTimeField({
   placeholder?: string;
   /** HH:MM — earlier slots are disabled (same-day floor). */
   minTime?: string;
+  /** HH:MM — later slots are disabled (same-day ceiling, e.g. "now"). */
+  maxTime?: string;
   allowClear?: boolean;
   hour12?: boolean;
   minuteStep?: 1 | 5;
@@ -136,8 +139,31 @@ export function HardCopyPodTimeField({
       (nextHour === minParsed.hour && nextMinute < minParsed.minute)
     );
   };
+  const maxParsed = parseHm(maxTime ?? "");
+  const isAfterMax = (nextHour: number, nextMinute: number) => {
+    if (!maxParsed) return false;
+    return (
+      nextHour > maxParsed.hour ||
+      (nextHour === maxParsed.hour && nextMinute > maxParsed.minute)
+    );
+  };
+  const hasBounds = !!minParsed || !!maxParsed;
+  const isBlocked = (nextHour: number, nextMinute: number) =>
+    isBeforeMin(nextHour, nextMinute) || isAfterMax(nextHour, nextMinute);
+  /** Keep the minute when allowed; else snap to the bound in that hour. */
+  const allowedMinute = (nextHour: number, nextMinute: number) => {
+    if (minParsed && isBeforeMin(nextHour, nextMinute)) return minParsed.minute;
+    if (maxParsed && isAfterMax(nextHour, nextMinute)) return maxParsed.minute;
+    return nextMinute;
+  };
   const pick = (nextHour: number, nextMinute: number) => {
     if (isBeforeMin(nextHour, nextMinute)) return;
+    // Phone pickers cannot grey out later times: snap a time after the
+    // ceiling (e.g. now) back to it, same result as the web picker.
+    if (maxParsed && isAfterMax(nextHour, nextMinute)) {
+      onChange(formatHm(maxParsed.hour, maxParsed.minute));
+      return;
+    }
     onChange(formatHm(nextHour, nextMinute));
   };
   const pick12 = (hour12Value: number, nextMinute: number, period: "AM" | "PM") => {
@@ -209,16 +235,14 @@ export function HardCopyPodTimeField({
                         const selected = item === clock12.hour;
                         const candidate24 = to24Hour(item, clock12.period);
                         const hourDisabled =
-                          !!minParsed &&
-                          minuteChoices.every((m) => isBeforeMin(candidate24, m));
+                          hasBounds &&
+                          minuteChoices.every((m) => isBlocked(candidate24, m));
                         return (
                           <Pressable
                             key={`h12-${item}`}
                             onPress={() => {
                               if (hourDisabled) return;
-                              const nextMinute = isBeforeMin(candidate24, minute)
-                                ? minParsed!.minute
-                                : minute;
+                              const nextMinute = allowedMinute(candidate24, minute);
                               pick12(item, nextMinute, clock12.period);
                             }}
                             disabled={hourDisabled}
@@ -240,7 +264,7 @@ export function HardCopyPodTimeField({
                     <ScrollView style={styles.column} contentContainerStyle={styles.columnContent}>
                       {minuteChoices.map((item) => {
                         const selected = item === minute;
-                        const minuteDisabled = isBeforeMin(hour, item);
+                        const minuteDisabled = isBlocked(hour, item);
                         return (
                           <Pressable
                             key={`m-${item}`}
@@ -266,16 +290,14 @@ export function HardCopyPodTimeField({
                         const selected = period === clock12.period;
                         const candidate24 = to24Hour(clock12.hour, period);
                         const periodDisabled =
-                          !!minParsed &&
-                          minuteChoices.every((m) => isBeforeMin(candidate24, m));
+                          hasBounds &&
+                          minuteChoices.every((m) => isBlocked(candidate24, m));
                         return (
                           <Pressable
                             key={period}
                             onPress={() => {
                               if (periodDisabled) return;
-                              const nextMinute = isBeforeMin(candidate24, minute)
-                                ? minParsed!.minute
-                                : minute;
+                              const nextMinute = allowedMinute(candidate24, minute);
                               pick12(clock12.hour, nextMinute, period);
                             }}
                             disabled={periodDisabled}
@@ -301,18 +323,14 @@ export function HardCopyPodTimeField({
                       {HOURS_24.map((item) => {
                         const selected = item === hour;
                         const hourDisabled =
-                          !!minParsed &&
-                          (item < minParsed.hour ||
-                            (item === minParsed.hour &&
-                              minuteChoices.every((m) => isBeforeMin(item, m))));
+                          hasBounds &&
+                          minuteChoices.every((m) => isBlocked(item, m));
                         return (
                           <Pressable
                             key={item}
                             onPress={() => {
                               if (hourDisabled) return;
-                              const nextMinute = isBeforeMin(item, minute)
-                                ? minParsed!.minute
-                                : minute;
+                              const nextMinute = allowedMinute(item, minute);
                               pick(item, nextMinute);
                             }}
                             disabled={hourDisabled}
@@ -334,7 +352,7 @@ export function HardCopyPodTimeField({
                     <ScrollView style={styles.column} contentContainerStyle={styles.columnContent}>
                       {minuteChoices.map((item) => {
                         const selected = item === minute;
-                        const minuteDisabled = isBeforeMin(hour, item);
+                        const minuteDisabled = isBlocked(hour, item);
                         return (
                           <Pressable
                             key={item}

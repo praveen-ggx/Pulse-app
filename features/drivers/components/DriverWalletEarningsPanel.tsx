@@ -22,6 +22,7 @@ import {
 import { tripNeedsPartyTag } from "@/features/drivers/utils/driverPartyReceivables.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter, type Href } from "expo-router";
 import {
   ArrowRight,
   Banknote,
@@ -278,6 +279,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
   isFleetDispatched,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [tagTrip, setTagTrip] = useState<TripRow | null>(null);
   const [monthKey, setMonthKey] = useState(() => monthKeyFromDate(new Date()));
   const [fleetOrgId, setFleetOrgId] = useState<string>("all");

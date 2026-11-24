@@ -155,7 +155,7 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
   useEffect(() => {
     if (!sessionExpired) return;
-    authService.signOut().catch(() => {});
+    authService.signOut({ scope: "local" }).catch(() => {});
     try {
       router.replace(ROUTES.SIGN_IN_DIRECT);
     } catch {

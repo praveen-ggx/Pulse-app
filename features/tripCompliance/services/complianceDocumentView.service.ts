@@ -21,6 +21,7 @@ import { tryGetDocumentViewUrl } from "@/features/trips/services/tripDocuments.s
 import { parseComplianceStorageRef } from "@/features/tripCompliance/utils/complianceVaultDocuments.util";
 import { getVehicleDocumentViewUrl } from "@/features/vehicles/services/vehicleDocuments.service";
 import { supabase } from "@/lib/supabase";
+import { onlyUuids } from "@/lib/utils/uuid.util";
 import {
   isVehicleDocumentReferencePath,
   resolveTripDocumentPreviewUrl,
@@ -353,7 +354,8 @@ export async function resolveComplianceActorDetails(
     }
   }
 
-  const missing = unique.filter((id) => !details[id]);
+  // Actor columns can hold a free-text name; one non-UUID fails the whole profiles lookup (22P02).
+  const missing = onlyUuids(unique.filter((id) => !details[id]));
   if (missing.length === 0) return details;
 
   const { data: profiles } = await supabase()

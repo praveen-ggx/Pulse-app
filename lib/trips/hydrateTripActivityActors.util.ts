@@ -2,6 +2,7 @@ import type { LedgerRow } from "@/features/finance/services/finance.service";
 import { getOrganizationMembersShared } from "@/features/organization/services/members.service";
 import type { TripAuditMilestone, TripActivityUserProfile } from "@/lib/trips/buildTripAuditLog.util";
 import { supabase } from "@/lib/supabase";
+import { onlyUuids } from "@/lib/utils/uuid.util";
 
 export type TripActivityDocumentActor = {
   uploadedBy?: string | null;
@@ -124,7 +125,7 @@ function writeProfileCache(profiles: Record<string, TripActivityUserProfile>) {
 export async function fetchActivityUserProfiles(
   userIds: string[],
 ): Promise<Record<string, TripActivityUserProfile>> {
-  const unique = [...new Set(userIds.map(trimId).filter(Boolean))];
+  const unique = onlyUuids(userIds.map(trimId));
   if (unique.length === 0) return {};
   const profiles: Record<string, TripActivityUserProfile> = {};
   const { data, error } = await supabase()

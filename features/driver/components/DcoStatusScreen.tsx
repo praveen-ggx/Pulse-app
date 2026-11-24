@@ -144,7 +144,6 @@ export default function DcoStatusScreen() {
   const vehicleStepDone = useOwnVehiclePath
     ? hasOwnVehicle || operatingMode.hasActiveVehicle
     : hasAssignment;
-  const submitDone = status === 'PENDING' || status === 'APPROVED';
   const submitWaiting = status === 'PENDING';
 
   const leaveState: StepState = leftFleet ? 'done' : 'active';

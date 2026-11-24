@@ -6,7 +6,9 @@ jest.mock("@/lib/supabase", () => ({
     from: () => ({
       select: () => ({
         eq: () => ({
-          maybeSingle: async () => ({ data: mockStored, error: null }),
+          limit: () => ({
+            maybeSingle: async () => ({ data: mockStored, error: null }),
+          }),
         }),
       }),
       insert: (row: unknown) => {
@@ -49,7 +51,8 @@ describe("recordTripWorkflowEvent", () => {
     });
     expect(result.error).toBeNull();
     expect(result.alreadyExists).toBe(true);
-    expect(result.event?.id).toBe("evt-1");
+    // Production (V1.0.1) reads only the id and reports the duplicate without the stored row.
+    expect(result.event).toBeNull();
     expect(mockInsert).not.toHaveBeenCalled();
   });
 });

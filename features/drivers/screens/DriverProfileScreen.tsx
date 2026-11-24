@@ -115,7 +115,7 @@ export default function DriverProfileScreen() {
   const colors = useDriverThemeColors();
   const { user, profile, signOut, refreshSession, patchProfile } = useAuth();
   const { status: dcoStatus } = useDcoStatusQuery(profile?.uid);
-  const { canSeeMarketplace, canManageOwnerVehicles } = useDriverOperatingModeQuery(profile?.uid);
+  const { canSeeMarketplace } = useDriverOperatingModeQuery(profile?.uid);
   const { locale, localeOptions } = useLanguage();
   const languageLabel =
     localeOptions.find((o) => o.value === locale)?.label ?? 'English';

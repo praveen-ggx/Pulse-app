@@ -99,7 +99,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
     Alert,
-    Image,
     Linking,
     Modal,
     Platform,

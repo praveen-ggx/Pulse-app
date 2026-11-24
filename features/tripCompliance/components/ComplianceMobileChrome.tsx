@@ -8,6 +8,7 @@ import {
 } from "@/components/hub";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import { complianceCountLabel } from "@/features/tripCompliance/utils/complianceIncomplete.util";
 import type { ComplianceQueueFilter } from "@/features/tripCompliance/hooks/useComplianceTripsQuery";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { Download, Package, Wallet } from "lucide-react-native";
@@ -38,6 +39,8 @@ export function ComplianceMobileChrome({
   onExport,
   exportLabel = "Export",
   refreshControl,
+  countsIncomplete = false,
+  banner,
 }: {
   search: string;
   onSearchChange: (value: string) => void;
@@ -53,6 +56,10 @@ export function ComplianceMobileChrome({
   onExport?: () => void;
   exportLabel?: string;
   refreshControl?: ReactNode;
+  /** Queue still loading or failed: counts are "at least" and carry a "+". */
+  countsIncomplete?: boolean;
+  /** Completeness banner under the stage tabs. */
+  banner?: ReactNode;
 }) {
   return (
     <View style={styles.chrome} accessibilityRole="header">
@@ -104,19 +111,20 @@ export function ComplianceMobileChrome({
           {stages.map((item) => (
             <HubMobileUnderlineTab
               key={item.id}
-              label={`${item.label} (${item.count})`}
+              label={`${item.label} (${complianceCountLabel(item.count, countsIncomplete)})`}
               isActive={stage === item.id}
               onPress={() => onSelectStage(item.id)}
               accessibilityLabel={
                 item.caption
-                  ? `${item.label}, ${item.caption}, ${item.count} trips`
-                  : `${item.label}, ${item.count} trips`
+                  ? `${item.label}, ${item.caption}, ${countsIncomplete ? "at least " : ""}${item.count} trips`
+                  : `${item.label}, ${countsIncomplete ? "at least " : ""}${item.count} trips`
               }
             />
           ))}
         </ScrollView>
       </View>
       <View style={hubChrome.tabDivider} />
+      {banner}
       <HubMobileSearchRow
         value={search}
         onChange={onSearchChange}

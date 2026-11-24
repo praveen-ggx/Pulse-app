@@ -31,8 +31,14 @@ import {
   EWAY_BILL_FIELDS_FILE_NAME,
   ewayBillFieldsStoragePath,
   ewayFieldsCarryOnDelete,
+  applyEwayNumbersByFile,
+  ewayFieldsSourceRow,
   ewayFieldsWriteTarget,
+  isEwayBillMetaPath,
+  isEwayEntriesJson,
+  parseEwayFieldEntries,
   serializeEwayFieldEntries,
+  sortEwayRowsNewestFirst,
   type EwayFieldValues,
 } from "@/features/trips/services/ewayBillFields.util";
 
@@ -1157,9 +1163,24 @@ export async function upsertEwayBillFields(input: {
 
   if (target) {
     const written = await writeNumber(target.id);
+    if (!written.error && written.saved) {
+      await clearStaleEwayEntryLists(listed.rows, target.id);
+      return { error: null };
+    }
+    // Refused on the row the screens read (e.g. Ground Ops on a locked trip may
+    // only change their own recent upload): put the whole list on the newest
+    // e-way row instead. The screens read the newest row holding numbers, so
+    // the full list still shows.
+    const newest = sortEwayRowsNewestFirst(listed.rows)[0];
+    if (newest && newest.id !== target.id) {
+      const retried = await writeNumber(newest.id);
+      if (!retried.error && retried.saved) {
+        await clearStaleEwayEntryLists(listed.rows, newest.id);
+        return { error: null };
+      }
+    }
     if (written.error) return { error: written.error };
-    if (!written.saved) return { error: new Error(EWAY_NUMBER_NOT_SAVED) };
-    return { error: null };
+    return { error: new Error(EWAY_NUMBER_NOT_SAVED) };
   }
 
   const path = ewayBillFieldsStoragePath(input.tripId);
@@ -1188,6 +1209,112 @@ export async function upsertEwayBillFields(input: {
     return { error: null };
   }
   return { error: new Error(insertError.message) };
+}
+
+/**
+ * Older copies of the entry list left on other e-way rows (written there by
+ * the old save) are not shown on Trip Detail, but the Trips hub tags, expiry
+ * badge and e-LR prefill read every row, so they showed numbers that had been
+ * changed or removed. Once a save has landed, clear those copies. Plain single
+ * numbers (Trips hub sheet) are left alone. Best effort: a refused clear
+ * (e.g. Ground Ops on a locked trip) does not undo the save.
+ */
+async function clearStaleEwayEntryLists(rows: readonly EwayFieldsRow[], keepId: string): Promise<void> {
+  const stale = rows
+    .filter((row) => row.id !== keepId && isEwayEntriesJson(row.document_number))
+    .map((row) => row.id);
+  if (stale.length === 0) return;
+  await supabase().from("trip_documents").update({ document_number: null }).in("id", stale);
+}
+
+/**
+ * Numbers typed per e-way file (Trips hub update sheet) go into the trip's
+ * one e-way entry list, linked to their file — never onto the file rows,
+ * where a single number hid the list from Trip Detail / Compliance.
+ * `typedByPath` maps a file's storage path to the number typed for it.
+ */
+export async function saveEwayNumbersByFile(input: {
+  tripId: string;
+  uploadedBy: string;
+  typedByPath: Record<string, string>;
+}): Promise<{ error: Error | null }> {
+  const listed = await listEwayFieldsRows(input.tripId);
+  if (listed.error) return { error: new Error(listed.error.message) };
+  const entries = parseEwayFieldEntries(ewayFieldsSourceRow(listed.rows)?.document_number);
+  const filePaths = sortEwayRowsNewestFirst(listed.rows)
+    .filter((row) => !isEwayBillMetaPath(row.storage_path, row.file_name))
+    .map((row) => row.storage_path?.trim() ?? "")
+    .filter(Boolean);
+  const next = applyEwayNumbersByFile({ entries, filePaths, typedByPath: input.typedByPath });
+  if (!next.changed) return { error: null };
+  return upsertEwayBillFields({ tripId: input.tripId, uploadedBy: input.uploadedBy, values: next.entries });
+}
+
+/**
+ * Attach an uploaded e-way file to an existing entry that has no file yet
+ * (Upload pressed on that entry's card). Re-reads the current list so a save
+ * made meanwhile is not overwritten; the entry must still be at `entryIndex`
+ * with the same number, else nothing changes.
+ */
+export async function linkEwayEntryToFile(input: {
+  tripId: string;
+  uploadedBy: string;
+  entryIndex: number;
+  ewayNo: string;
+  filePath: string;
+}): Promise<{ error: Error | null; linked: boolean }> {
+  const listed = await listEwayFieldsRows(input.tripId);
+  if (listed.error) return { error: new Error(listed.error.message), linked: false };
+  const entries = parseEwayFieldEntries(ewayFieldsSourceRow(listed.rows)?.document_number);
+  const entry = entries[input.entryIndex];
+  if (!entry || entry.filePath || entry.ewayNo !== input.ewayNo) return { error: null, linked: false };
+  entries[input.entryIndex] = { ...entry, filePath: input.filePath };
+  const saved = await upsertEwayBillFields({ tripId: input.tripId, uploadedBy: input.uploadedBy, values: entries });
+  return { error: saved.error, linked: !saved.error };
+}
+
+/**
+ * Add one new e-way bill with its own document: upload the file, then add
+ * the number to the trip's list linked to that file (list re-read first, so
+ * a save made meanwhile is kept). A new e-way bill always has its document —
+ * a number-only entry used to show the trip's first e-way image instead.
+ */
+export async function addEwayBillWithFile(input: {
+  tripId: string;
+  uploadedBy: string;
+  organizationId?: string | null;
+  entry: EwayFieldValues;
+  file: { arrayBuffer: ArrayBuffer; fileName: string; mimeType: string };
+}): Promise<{ error: Error | null }> {
+  const { doc, error: uploadError } = await uploadTripDocument(
+    input.tripId,
+    input.uploadedBy,
+    input.file,
+    "eway_bill",
+    undefined,
+    { organizationId: input.organizationId ?? null },
+  );
+  if (uploadError) return { error: uploadError };
+  const filePath = doc?.storage_path?.trim();
+  if (!filePath) return { error: new Error("The e-way bill document was not saved. Try again.") };
+  const listed = await listEwayFieldsRows(input.tripId);
+  if (listed.error) {
+    return { error: new Error(`The document was uploaded, but the e-way number was not saved: ${listed.error.message}`) };
+  }
+  const entries = parseEwayFieldEntries(ewayFieldsSourceRow(listed.rows)?.document_number);
+  const saved = await upsertEwayBillFields({
+    tripId: input.tripId,
+    uploadedBy: input.uploadedBy,
+    values: [...entries, { ...input.entry, filePath }],
+  });
+  if (saved.error) {
+    return {
+      error: new Error(
+        `The document was uploaded, but the e-way number was not saved: ${saved.error.message} Use Edit on its card to add the number.`,
+      ),
+    };
+  }
+  return { error: null };
 }
 
 type EwayFieldsRow = {

@@ -592,7 +592,8 @@ export function bumpIsoToNextPickerMinute(
  * Minimum completion instant for the next simulate stage.
  * Same minute as the floor is allowed; earlier is not.
  *
- * Pickup is unrestricted (past or future) — returns null.
+ * Pickup has no floor (any past time) — returns null. No stage may be later
+ * than now (see isSimCompletionInFuture).
  * In-transit floors to the next picker minute after the latest saved Pickup.
  * A revoked In Transit time is not a reference. Later stages chain from the
  * last saved previous stage, and never earlier than that Pickup instant.
@@ -621,7 +622,7 @@ export function resolveSimulateStageMinAt(opts: {
     // Driver-accept simulation — must be ≥ Assigned.
     minIso = assigned;
   } else if (target === "in_progress" || target === "picked_up") {
-    // Pickup: any past or future instant — no Journey Log floor.
+    // Pickup: any past instant — no Journey Log floor (future blocked separately).
     return null;
   } else if (target === "in_transit") {
     // Strictly after Pickup (next picker minute).
@@ -704,7 +705,104 @@ export function clampSimCompletionPickerValue(
   return value;
 }
 
-/** Pickup stage — manual date+time with no past/future floor. */
+export const SIM_FUTURE_TIME_MESSAGE =
+  "Stage time can't be in the future. Pick the current time or earlier.";
+
+/** Stage times cannot be later than the current minute (past stays open). */
+export function isSimCompletionInFuture(
+  completionIso: string,
+  now: Date = new Date(),
+): boolean {
+  const ms = new Date(completionIso).getTime();
+  if (!Number.isFinite(ms)) return false;
+  return floorDateToMinuteMs(ms) > floorDateToMinuteMs(now.getTime());
+}
+
+/** Lower a picker value to `now` when it would be in the future. */
+export function capSimCompletionPickerValueAtNow(
+  value: string,
+  now: Date = new Date(),
+): string {
+  const parsed = parseSimCompletionPickerValue(value);
+  if (!parsed || isSimCompletionInFuture(parsed, now)) {
+    return toSimCompletionPickerValue(now);
+  }
+  return value;
+}
+
+const SIM_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Local "dd Mon yyyy, hh:mm AM" for stage messages. */
+export function formatSimStageTime(at: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const { hour, period } = hour24To12(at.getHours());
+  return `${pad(at.getDate())} ${SIM_MONTHS[at.getMonth()]} ${at.getFullYear()}, ${pad(hour)}:${pad(at.getMinutes())} ${period}`;
+}
+
+export type SimStageFloorWarning = {
+  /** Journey Log name of the previous stage that is saved in the future. */
+  stage: string;
+  at: Date;
+  message: string;
+};
+
+/**
+ * A previous stage saved in the future (before the no-future rule) leaves no
+ * valid time for the next stage: it must be "not before the previous stage"
+ * and "not in the future". Names that stage so it can be corrected first.
+ * Recomputed from the trip, so it clears once the stage is corrected.
+ */
+export function resolveSimStageFloorWarning(opts: {
+  targetStatus: string;
+  trip: Pick<
+    TripRow,
+    "created_at" | "updated_at" | "started_at" | "completed_at" | "driver_id" | "notes"
+  >;
+  assignmentChangedAt?: string | null;
+  driverAcceptedAt?: string | null;
+  groundOps?: boolean;
+  now?: Date;
+}): SimStageFloorWarning | null {
+  const target = String(opts.targetStatus ?? "").trim().toLowerCase();
+  if (!showsSimCompletionPicker(target) || isUnrestrictedPickupSimStage(target)) {
+    return null;
+  }
+  const minAt = resolveSimulateStageMinAt(opts);
+  const now = opts.now ?? new Date();
+  if (!minAt || floorDateToMinuteMs(minAt.getTime()) <= floorDateToMinuteMs(now.getTime())) {
+    return null;
+  }
+  const notes = opts.trip.notes;
+  const pickupAt = resolvePickupReferenceIso(opts.trip);
+  const inTransitAt = latestSimTimestamp(notes, ["in_transit"]);
+  const atDropAt = latestSimTimestamp(notes, ["at_drop"]);
+  // Same sources as resolveSimulateStageMinAt; the latest one is the floor.
+  const candidates: Array<[string, string | null | undefined]> =
+    target === "in_transit"
+      ? [["Reached Pickup", pickupAt]]
+      : target === "at_drop"
+        ? [["In Transit", inTransitAt], ["Reached Pickup", pickupAt]]
+        : [["At Drop", atDropAt], ["In Transit", inTransitAt], ["Reached Pickup", pickupAt]];
+  let stage = "The previous stage";
+  let best = -Infinity;
+  for (const [name, iso] of candidates) {
+    const ms = iso ? new Date(iso).getTime() : NaN;
+    if (Number.isFinite(ms) && ms > best) {
+      best = ms;
+      stage = name;
+    }
+  }
+  const how = opts.groundOps
+    ? `Ask Trip Ops to correct ${stage}`
+    : `Use Revoke Last to correct ${stage}`;
+  return {
+    stage,
+    at: minAt,
+    message: `${stage} is saved in the future (${formatSimStageTime(minAt)}). ${how}, then try again.`,
+  };
+}
+
+/** Pickup stage — manual date+time with no floor; never later than now. */
 export function isUnrestrictedPickupSimStage(
   targetStatus: string | null | undefined,
 ): boolean {

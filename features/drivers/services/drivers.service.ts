@@ -2055,9 +2055,11 @@ export async function acceptDriverInvite(inviteId: string): Promise<{
         ? "You're already registered with this organization."
         : error.message?.includes("dco_not_employee_driver")
           ? "DCOs cannot join a business as employee drivers. You can operate independently as a DCO."
-          : error.message?.includes("driver_already_in_fleet")
-            ? "You already work under another fleet. Leave that fleet first, then accept this invite."
-            : error.message;
+          : error.message?.includes("dco_awaiting_fleet_exit")
+            ? "You're approved as a DCO. Finish leaving your fleet — you can't join another fleet now."
+            : error.message?.includes("driver_already_in_fleet")
+              ? "You already work under another fleet. Leave that fleet first, then accept this invite."
+              : error.message;
     return {
       error: new Error(message),
       driver_id: null,

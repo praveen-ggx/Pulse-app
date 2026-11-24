@@ -78,8 +78,12 @@ type PendingAction =
   | { kind: 'reopen-driver' }
   | null;
 
-const STATUS_FILTERS: { key: 'all' | DriverKycReviewStatus; label: string }[] = [
+/** 'dco' = drivers with an open DCO request whose PAN / bank proof still needs checking. */
+type KycFilter = 'all' | 'dco' | DriverKycReviewStatus;
+
+const STATUS_FILTERS: { key: KycFilter; label: string }[] = [
   { key: 'submitted', label: 'Awaiting' },
+  { key: 'dco', label: 'DCO docs' },
   { key: 'approved', label: 'Approved' },
   { key: 'rejected', label: 'Rejected' },
   { key: 'all', label: 'All' },
@@ -130,7 +134,7 @@ function formatDate(iso: string | null): string {
 export function DriverKycPanel() {
   const [rows, setRows] = useState<DriverKycSubmissionRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | DriverKycReviewStatus>('submitted');
+  const [filter, setFilter] = useState<KycFilter>('submitted');
   const [search, setSearch] = useState('');
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [docs, setDocs] = useState<DriverKycQueueRow[]>([]);
@@ -195,7 +199,11 @@ export function DriverKycPanel() {
       // DCO document review rides the normal "Awaiting" queue even when the
       // driver's base KYC is already decided.
       const awaitingDco = filter === 'submitted' && r.dco_docs_pending > 0;
-      if (filter !== 'all' && r.review_status !== filter && !awaitingDco) return false;
+      if (filter === 'dco') {
+        if (r.dco_docs_pending <= 0) return false;
+      } else if (filter !== 'all' && r.review_status !== filter && !awaitingDco) {
+        return false;
+      }
       if (!q) return true;
       return (
         (r.driver_name ?? '').toLowerCase().includes(q) ||

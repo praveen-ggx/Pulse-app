@@ -1,4 +1,5 @@
 import type { DriverLedgerRow } from "@/features/drivers/services/drivers.service";
+import type { DriverBookCollection } from "@/features/drivers/services/driverCapturePayment.service";
 import type { DriverTripExpenseRow } from "@/features/drivers/services/driverTripExpenses.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { tripReceivablePartyName } from "@/features/drivers/utils/driverPartyReceivables.util";
@@ -24,13 +25,26 @@ export function buildDriverWalletTransactions(input: {
   tripDisplay: (trip: TripRow | undefined, tripId: string | null) => string;
   partyNameForTrip: (trip: TripRow | undefined) => string;
   includeExpenses: boolean;
+  /** Independent and Self book receipts. These are not ledger rows. */
+  collections?: DriverBookCollection[];
 }): DriverWalletTxn[] {
   const rows: DriverWalletTxn[] = [];
+  const collections = input.collections ?? [];
+  const collectedOnTrip = new Set(
+    collections.map((row) => `${row.tripId ?? ""}:${Math.round(row.amount)}`),
+  );
 
   for (const entry of input.settlements) {
     const amount = Math.round(Number(entry.amount) || 0);
     if (amount <= 0) continue;
     const tripId = entry.trip_id?.trim() || null;
+    // A capture that landed in the book and also in the ledger is one payment.
+    if (
+      entry.reference_type === "dco_capture" &&
+      collectedOnTrip.has(`${tripId ?? ""}:${amount}`)
+    ) {
+      continue;
+    }
     const trip = tripId ? input.tripsById[tripId] : undefined;
     const tripRef = input.tripDisplay(trip, tripId);
     rows.push({
@@ -43,6 +57,23 @@ export function buildDriverWalletTransactions(input: {
       tripId,
       tripRef,
       ledger: entry,
+    });
+  }
+
+  for (const collection of collections) {
+    const trip = collection.tripId ? input.tripsById[collection.tripId] : undefined;
+    const tripRef = input.tripDisplay(trip, collection.tripId);
+    const party = collection.partyName.trim();
+    rows.push({
+      id: `in:${collection.id}`,
+      kind: "in",
+      title: party && party !== "Party" ? party : input.partyNameForTrip(trip),
+      subtitle: tripRef,
+      amount: collection.amount,
+      at: collection.at,
+      tripId: collection.tripId,
+      tripRef,
+      ledger: null,
     });
   }
 
@@ -70,7 +101,7 @@ export function buildDriverWalletTransactions(input: {
     const db = new Date(b.at).getTime();
     return (Number.isFinite(db) ? db : 0) - (Number.isFinite(da) ? da : 0);
   });
-  return rows.slice(0, 80);
+  return rows;
 }
 
 export function filterDriverWalletTransactions(

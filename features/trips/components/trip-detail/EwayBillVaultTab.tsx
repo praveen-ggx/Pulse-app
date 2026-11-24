@@ -29,6 +29,11 @@ import {
   type EwayFieldValues,
 } from "@/features/trips/services/ewayBillFields.util";
 import { fetchAdjustmentActorNames } from "@/features/trips/components/trip-detail/adjustment/tripAdjustmentAddedLog.util";
+import {
+  pickComplianceVaultFile,
+  type ComplianceVaultFile,
+} from "@/features/tripCompliance/services/complianceVaultUpload.service";
+import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { formatLedgerDateTime } from "@/lib/format";
@@ -80,6 +85,12 @@ type Props = {
   canUpload?: boolean;
   canEdit?: boolean;
   onSave?: (values: EwayFieldValues[]) => Promise<boolean>;
+  /**
+   * "Add e-way number": a new e-way bill needs its own document. When set,
+   * the add form asks for the file (required) and this saves both — the file
+   * uploaded and the number linked to it.
+   */
+  onAddWithFile?: (entry: EwayFieldValues, file: ComplianceVaultFile) => Promise<boolean>;
   /** Delete the uploaded file for this row so a correct bill can be added. */
   onRemoveDocument?: (row: EwayBillStripRow) => void;
   /** Same notification card on phone and desktop. Pass `table` only for the old grid. */
@@ -404,6 +415,7 @@ export function EwayBillLrStrip({
   canUpload,
   canEdit,
   onSave,
+  onAddWithFile,
   onRemoveDocument,
   variant = "feed",
   lockedLabel,
@@ -457,6 +469,9 @@ export function EwayBillLrStrip({
   const [editing, setEditing] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | "new">(0);
   const [saving, setSaving] = useState(false);
+  /** Document picked for a new e-way bill (required when onAddWithFile is set). */
+  const [addFile, setAddFile] = useState<ComplianceVaultFile | null>(null);
+  const [pickingFile, setPickingFile] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState<
     null | "createdDate" | "validTill"
   >(null);
@@ -489,6 +504,7 @@ export function EwayBillLrStrip({
   };
 
   const openAdd = () => {
+    setAddFile(null);
     setDraft({ ...EMPTY_EWAY_FIELD_VALUES });
     setEditingIndex("new");
     setShowDatePicker("validTill");
@@ -501,22 +517,45 @@ export function EwayBillLrStrip({
     setEditing(false);
   };
 
-  const buildNextEntries = (mode: "save" | "remove"): EwayFieldValues[] => {
-    // Only the added / edited entry gets a new "On … by …" stamp.
-    const stamped: EwayFieldValues = {
-      ...draft,
-      updatedAt: new Date().toISOString(),
-      ...(currentUserId ? { updatedBy: currentUserId } : {}),
-    };
-    return nextEwayEntries({ existing: existingEntries, editingIndex, draft: stamped, mode });
+  // Only the added / edited entry gets a new "On … by …" stamp.
+  const stampedDraft = (): EwayFieldValues => ({
+    ...draft,
+    updatedAt: new Date().toISOString(),
+    ...(currentUserId ? { updatedBy: currentUserId } : {}),
+  });
+
+  const buildNextEntries = (mode: "save" | "remove"): EwayFieldValues[] =>
+    nextEwayEntries({ existing: existingEntries, editingIndex, draft: stampedDraft(), mode });
+
+  /** A brand-new e-way bill (not a card that already has its file) must come with its document. */
+  const requiresFile = editingIndex === "new" && !draft.filePath && !!onAddWithFile;
+
+  const chooseAddFile = async () => {
+    if (pickingFile || saving) return;
+    setPickingFile(true);
+    try {
+      const file = await pickComplianceVaultFile("eway_bill");
+      if (file) setAddFile(file);
+    } catch (error) {
+      alertMessage("File not accepted", error instanceof Error ? error.message : "Choose the file again.");
+    } finally {
+      setPickingFile(false);
+    }
   };
 
   const saveEditor = async (mode: "save" | "remove" = "save") => {
     if (!onSave || saving) return;
+    if (mode === "save" && requiresFile && !addFile) return;
     setSaving(true);
     try {
-      const ok = await onSave(buildNextEntries(mode));
-      if (ok) setEditing(false);
+      const ok =
+        mode === "save" && requiresFile && addFile && onAddWithFile
+          ? await onAddWithFile(stampedDraft(), addFile)
+          : await onSave(buildNextEntries(mode));
+      if (ok) {
+        setEditing(false);
+        setAddFile(null);
+      }
     } finally {
       setSaving(false);
     }
@@ -976,6 +1015,32 @@ export function EwayBillLrStrip({
                     editable={!saving}
                   />
                 </View>
+                {requiresFile ? (
+                  <View style={styles.fieldWrap}>
+                    <Text style={[styles.fieldLabel, WEB_COPY]}>E-way bill document (required)</Text>
+                    <Pressable
+                      onPress={() => void chooseAddFile()}
+                      disabled={saving || pickingFile}
+                      style={[styles.fieldInput, styles.addFileButton, WEB_POINTER]}
+                      accessibilityRole="button"
+                      accessibilityLabel={addFile ? `Change e-way bill document ${addFile.fileName}` : "Choose e-way bill document"}
+                    >
+                      <Feather name={addFile ? "file-text" : "upload"} size={14} color={Theme.textMuted} />
+                      <Text style={[styles.addFileLabel, WEB_COPY]} numberOfLines={1}>
+                        {pickingFile
+                          ? "Opening…"
+                          : addFile
+                            ? addFile.fileName
+                            : "Choose the e-way bill file"}
+                      </Text>
+                    </Pressable>
+                    {!addFile ? (
+                      <Text style={[styles.addFileHint, WEB_COPY]}>
+                        Each e-way bill needs its own document. Save stays off until you choose it.
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
               </ScrollView>
               <View style={styles.modalActions}>
                 {canRemove ? (
@@ -996,7 +1061,7 @@ export function EwayBillLrStrip({
                   <RegistryPrimaryButton
                     label={saving ? "Saving" : "Save"}
                     onPress={() => void saveEditor("save")}
-                    disabled={saving}
+                    disabled={saving || (requiresFile && !addFile)}
                     style={HUG_BTN}
                   />
                 </View>
@@ -1404,6 +1469,22 @@ const styles = StyleSheet.create({
   },
   fieldWrap: {
     gap: 6,
+  },
+  addFileButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 44,
+  },
+  addFileLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: Theme.textPrimary,
+  },
+  addFileHint: {
+    marginTop: 4,
+    fontSize: 12,
+    color: Theme.textMuted,
   },
   fieldLabel: {
     fontSize: 12,

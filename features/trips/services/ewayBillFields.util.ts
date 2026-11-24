@@ -365,6 +365,8 @@ export function buildEwayBillStripRows(params: {
       type?: string | null;
       documentId?: string | null;
     },
+    /** A number with no image of its own must not borrow the trip's first e-way image. */
+    noSlotFallback = false,
   ): EwayBillStripRow => ({
     id,
     entryIndex: index,
@@ -380,7 +382,7 @@ export function buildEwayBillStripRows(params: {
     fileStoragePath: fileLog?.storagePath?.trim() || null,
     previewPath:
       fileLog?.storagePath?.trim() ||
-      (slotPreviewable ? ewayDoc?.storagePath ?? null : null),
+      (slotPreviewable && !noSlotFallback ? ewayDoc?.storagePath ?? null : null),
     previewUri: fileLog?.previewUri ?? null,
     previewFileName: fileLog?.fileName ?? null,
     previewMime: fileLog?.type ?? null,
@@ -402,13 +404,24 @@ export function buildEwayBillStripRows(params: {
         ? toRow({ ...EMPTY_EWAY_FIELD_VALUES }, -1, file.id, true, file)
         : toRow(entries[entryIndex]!, entryIndex, file.id, true, file);
     });
-    // Entries with no file on the trip (more numbers than files, or their
-    // file was removed) still get their own card.
+    // Entries with no file on the trip (added by number only, or their file
+    // was removed) still get their own card — with no image. They used to
+    // show the trip's first e-way image, which looked like the first bill's
+    // image had been copied onto them. Trips with no separate file list
+    // (single-file e-way slot) keep showing that slot file.
+    const hasFileList = files.length > 0;
     const fileLessRows = entries
       .map((fields, index) => ({ fields, index }))
       .filter(({ index }) => !paired.has(index))
       .map(({ fields, index }) =>
-        toRow(fields, index, `${baseId}-entry-${index}`, slotPreviewable, undefined),
+        toRow(
+          fields,
+          index,
+          `${baseId}-entry-${index}`,
+          hasFileList ? false : slotPreviewable,
+          undefined,
+          hasFileList,
+        ),
       );
     return [...fileRows, ...fileLessRows];
   }

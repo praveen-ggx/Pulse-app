@@ -2,6 +2,7 @@
  * Trip detail — manifest layout (hero, Journey / Finance / Vault).
  * Mobile native + narrow web; wide web uses the same screen with isDesktop layout.
  */
+import type { ComplianceVaultFile } from "@/features/tripCompliance/services/complianceVaultUpload.service";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
 import { HubMobileUnderlineTab } from "@/components/hub/HubMobileUnderlineTab";
@@ -3711,6 +3712,43 @@ export default function TripDetailScreen({
     [detail.trip?.id, detail.currentUserId, detail.loadTripDocuments, queryClient],
   );
 
+  /** "Add e-way number": upload its document and add the number linked to it. */
+  const addEwayBillWithFile = useCallback(
+    async (entry: EwayFieldValues, file: ComplianceVaultFile) => {
+      const tripIdForSave = detail.trip?.id;
+      if (!tripIdForSave) return false;
+      const uploadedBy = detail.currentUserId;
+      if (!uploadedBy) {
+        showAppAlert("Could not save", "Sign in to add the e-way bill.");
+        return false;
+      }
+      const { error } = await tripDocumentsService.addEwayBillWithFile({
+        tripId: tripIdForSave,
+        uploadedBy,
+        organizationId: detail.trip?.organization_id ?? currentOrganization?.id ?? null,
+        entry,
+        file,
+      });
+      await detail.loadTripDocuments();
+      await queryClient.invalidateQueries({
+        queryKey: ["q", "trips", "eway-expiry", tripIdForSave],
+      });
+      if (error) {
+        showAppAlert("Could not add the e-way bill", error.message);
+        return false;
+      }
+      return true;
+    },
+    [
+      detail.trip?.id,
+      detail.trip?.organization_id,
+      detail.currentUserId,
+      detail.loadTripDocuments,
+      currentOrganization?.id,
+      queryClient,
+    ],
+  );
+
   const manifestHeroPartyContext = useMemo<AggregateTripKindPillContext>(
     () => ({
       viewerOrganizationId: currentOrganization?.id ?? null,
@@ -7363,6 +7401,7 @@ export default function TripDetailScreen({
                 canEditEwayBill={canChangeEwayBill}
                 ewayLockedLabel={ewayLockedLabel}
                 onSaveEwayBill={saveEwayBillFields}
+                onAddEwayBillWithFile={addEwayBillWithFile}
                 onRemoveEwayBill={requestRemoveEwayBill}
                 tripIdLabel={mobileTripIdLabel}
                 createdAtLabel={mobilePlacedOnLabel}
@@ -8349,6 +8388,7 @@ export default function TripDetailScreen({
                       canEditEwayBill={canChangeEwayBill}
                       ewayLockedLabel={ewayLockedLabel}
                       onSaveEwayBill={saveEwayBillFields}
+                      onAddEwayBillWithFile={addEwayBillWithFile}
                       onRemoveEwayBill={requestRemoveEwayBill}
                       columns={4}
                     />

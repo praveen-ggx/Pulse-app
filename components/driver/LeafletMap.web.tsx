@@ -1,5 +1,5 @@
 import Theme from "@/constants/Theme";
-import { withAlpha } from "@/lib/color";
+import { NATIVE_BASEMAP_STYLE } from "@/lib/maps/nativeBasemapStyle";
 import { LeafletMapZoomControls } from "@/components/driver/LeafletMapZoomControls";
 import { boundsFromCoordinates } from "@/features/trips/utils/mapRouteViewport.util";
 import {
@@ -25,13 +25,12 @@ const OSM_USEFUL_MAX_ZOOM = 16;
 const DEFAULT_FIT_MAX_ZOOM = 14;
 
 /**
- * Same Carto Positron style as native LeafletMap.maplibre.
- * Raw OSM raster + MapLibre leaves a black WebGL clear-color when tiles
- * fail/overzoom (exact "black map" symptom). Positron paints a light land
- * background immediately and serves reliable India tiles.
+ * Same Mapbox Light basemap as native LeafletMap.maplibre (see
+ * lib/maps/nativeBasemapStyle). Its background layer paints a light land
+ * colour immediately, so failed/overzoomed tiles never show the black WebGL
+ * clear-colour.
  */
-const MAP_STYLE =
-  "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const MAP_STYLE = NATIVE_BASEMAP_STYLE as unknown as Record<string, unknown>;
 
 /** Critical layout rules if CDN CSS is slow/blocked — without these the
  *  canvas often stays 0×0 (blank white) inside RN Web absolute hosts. */
@@ -151,8 +150,10 @@ function resolvePolylineLayers(
   return [];
 }
 
-/** Route outline (glow) opacity — was the "40" in the old `${color}40` hex-alpha-suffix concatenation (0x40/255 ≈ 0.25). */
-const ROUTE_OUTLINE_ALPHA = 0.25;
+/** Round dots (zero-length dash + round cap), spaced in line-width units — Google-style "approx" path. */
+const ROUTE_DOTTED_DASHARRAY = [0, 2];
+/** A solid dasharray resets a layer that was dotted before. */
+const ROUTE_SOLID_DASHARRAY = [1, 0];
 
 function isMapStyleReady(map: MapLibreMapLike | null | undefined): boolean {
   if (!map) return false;
@@ -194,10 +195,12 @@ function upsertRouteLayer(
       id: outlineId,
       type: "line",
       source: sourceId,
+      // White casing under solid routes so they read cleanly over roads and
+      // labels (same as the native map). Dotted routes have no casing.
       paint: {
-        "line-color": withAlpha(color, ROUTE_OUTLINE_ALPHA),
+        "line-color": Theme.cardWhite,
         "line-width": glowWidth,
-        "line-blur": layer.dashed ? 0 : 1.5,
+        "line-opacity": layer.dashed ? 0 : 1,
       },
       layout: {
         "line-cap": "round",
@@ -205,8 +208,8 @@ function upsertRouteLayer(
       },
     });
   } else {
-    map.setPaintProperty(outlineId, "line-color", withAlpha(color, ROUTE_OUTLINE_ALPHA));
     map.setPaintProperty(outlineId, "line-width", glowWidth);
+    map.setPaintProperty(outlineId, "line-opacity", layer.dashed ? 0 : 1);
   }
 
   if (!map.getLayer(mainId)) {
@@ -217,7 +220,7 @@ function upsertRouteLayer(
       paint: {
         "line-color": color,
         "line-width": mainWidth,
-        ...(layer.dashed ? { "line-dasharray": [2, 2.5] } : {}),
+        ...(layer.dashed ? { "line-dasharray": ROUTE_DOTTED_DASHARRAY } : {}),
       },
       layout: {
         "line-cap": "round",
@@ -227,11 +230,11 @@ function upsertRouteLayer(
   } else {
     map.setPaintProperty(mainId, "line-color", color);
     map.setPaintProperty(mainId, "line-width", mainWidth);
-    if (layer.dashed) {
-      map.setPaintProperty(mainId, "line-dasharray", [2, 2.5]);
-    } else {
-      map.setPaintProperty(mainId, "line-dasharray", [1, 0]);
-    }
+    map.setPaintProperty(
+      mainId,
+      "line-dasharray",
+      layer.dashed ? ROUTE_DOTTED_DASHARRAY : ROUTE_SOLID_DASHARRAY,
+    );
   }
   } catch (e) {
     console.warn("[LeafletMap.web] upsertRouteLayer:", e);

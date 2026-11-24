@@ -170,12 +170,35 @@ export async function createTripOtherExpense(
     approved_by: null,
     approved_at: null,
   };
-  const { data, error } = await supabase()
-    .from("trip_other_expenses")
-    .insert(payload)
-    .select("*")
-    .single();
-  if (error) return { error: new Error(error.message), entry: null };
+  const idempotencyKey = toNullableText(input.idempotencyKey);
+  const insertRow = (row: typeof payload) =>
+    supabase().from("trip_other_expenses").insert(row).select("*").single();
+  // idempotency_key is added by 20271117120400 (not in generated types yet).
+  const firstTry = await insertRow(
+    (idempotencyKey ? { ...payload, idempotency_key: idempotencyKey } : payload) as typeof payload,
+  );
+  let result = firstTry;
+  // Column not added yet (migration not applied): save the way it worked before.
+  if (
+    firstTry.error &&
+    idempotencyKey &&
+    /idempotency_key|PGRST204/i.test(`${firstTry.error.code ?? ""} ${firstTry.error.message ?? ""}`)
+  ) {
+    result = await insertRow(payload);
+  }
+  // Same save already went through (network retry): return that row, don't add another.
+  if (result.error && result.error.code === "23505" && idempotencyKey) {
+    const { data: existing } = await supabase()
+      .from("trip_other_expenses")
+      .select("*")
+      .eq("idempotency_key" as never, idempotencyKey as never)
+      .maybeSingle();
+    if (existing) return { error: null, entry: existing as TripOtherExpenseEntry };
+  }
+  if (result.error || !result.data) {
+    return { error: new Error(result.error?.message ?? "Could not save expense"), entry: null };
+  }
+  const data = result.data;
   const entry = data as TripOtherExpenseEntry;
   if (isEmployerExpenseOf(entry, null)) {
     await createVehicleOperationLedgerDraftFromSource({

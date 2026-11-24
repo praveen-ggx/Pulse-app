@@ -51,6 +51,10 @@ export type InboundProtocolInviteItem = {
   createdAt: string;
   /** Distinguishes org connection requests from fleet driver invitations. */
   kind?: 'connection' | 'driver';
+  /** Driver invites (sent tab): pending | countered (driver asked changes) | rejected. */
+  driverInviteStatus?: 'pending' | 'countered' | 'rejected';
+  /** Driver invites: the inviting org (to refresh its sent list after an action). */
+  fromOrgId?: string | null;
 };
 
 export type InboundProtocolSnapshot = {

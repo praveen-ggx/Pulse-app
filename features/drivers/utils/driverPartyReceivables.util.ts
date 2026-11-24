@@ -97,6 +97,10 @@ export function partyAvatarLookup(
   const first = trips[0];
   const tripClientId = String(first?.client_id ?? "").trim() || null;
   const tripOrgId = String(first?.organization_id ?? "").trim() || null;
+  // Marketplace: the trip's organization IS the listing shipper, so its logo
+  // is the right fallback. Offline / Self parties must not borrow it.
+  const shipperOrgFallback =
+    String(first?.source ?? "").trim() === "market_bid" ? tripOrgId : null;
 
   if (!partyId || partyId === MARKETPLACE_PARTY_ID || partyId === UNTAGGED_PARTY_ID) {
     return { clientId: null, orgId: null };
@@ -105,17 +109,21 @@ export function partyAvatarLookup(
     const orgId = partyId.slice("shipper:org:".length).trim();
     return { clientId: tripClientId, orgId: isUuid(orgId) ? orgId : tripOrgId };
   }
+  // Client / offline Self parties never borrow the trip's organization: that
+  // org owns the trip (e.g. the DCO's own workspace or the assigning fleet),
+  // so its logo is not the party's. A client row brings its own photo or
+  // linked-org logo; an offline party with neither falls back to initials.
   if (partyId.startsWith("shipper:name:") || partyId === "shipper:unknown") {
-    return { clientId: tripClientId, orgId: tripOrgId };
+    return { clientId: tripClientId, orgId: shipperOrgFallback };
   }
   if (partyId.startsWith("shipper:")) {
     const rest = partyId.slice("shipper:".length).trim();
     return {
       clientId: isUuid(rest) ? rest : tripClientId,
-      orgId: tripOrgId,
+      orgId: shipperOrgFallback,
     };
   }
-  return { clientId: tripClientId, orgId: tripOrgId };
+  return { clientId: tripClientId, orgId: shipperOrgFallback };
 }
 
 export function tripReceivableBilled(trip: TripRow): number {

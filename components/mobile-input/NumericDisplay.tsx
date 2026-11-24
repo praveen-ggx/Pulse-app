@@ -21,6 +21,10 @@ interface NumericDisplayProps {
    * Only applied when the field has a value.
    */
   tone?: "default" | "over" | "under" | "match";
+  /** Driver-expense emerald on the currency mark and caret. */
+  accentPrefix?: boolean;
+  /** Light typography for amount on a green pay sheet. */
+  onGreenSurface?: boolean;
 }
 
 function computeLargeDisplayTypography(
@@ -59,6 +63,8 @@ export function NumericDisplay({
   placeholder = '0',
   variant = 'default',
   tone = 'default',
+  accentPrefix = false,
+  onGreenSurface = false,
 }: NumericDisplayProps) {
   const isHero = variant === 'hero';
   const isWizard = variant === 'wizard' || variant === 'wizardCompact';
@@ -129,7 +135,9 @@ export function NumericDisplay({
                 fontSize: largeTypography.prefix,
                 lineHeight: largeTypography.lineHeight,
               },
-              isEmpty && styles.dim,
+              isEmpty && !accentPrefix && !onGreenSurface && styles.dim,
+              accentPrefix && !onGreenSurface && styles.prefixAccent,
+              onGreenSurface && styles.prefixOnGreen,
               toneColor ? { color: toneColor } : null,
             ]}
             allowFontScaling={false}
@@ -154,6 +162,9 @@ export function NumericDisplay({
             },
             isEmpty && styles.amountPlaceholder,
             isEmpty && isLarge && styles.amountPlaceholderHero,
+            isEmpty && accentPrefix && !onGreenSurface && styles.amountPlaceholderAccent,
+            isEmpty && onGreenSurface && styles.amountPlaceholderOnGreen,
+            !isEmpty && onGreenSurface && styles.amountOnGreen,
             // Only let the empty placeholder flex-shrink — valued amounts must
             // keep hero/wizard size. adjustsFontSizeToFit on a flex-shrunk Text
             // collapses the digits to a speck on RN Web.
@@ -180,6 +191,7 @@ export function NumericDisplay({
                 lineHeight: largeTypography.lineHeight,
               },
               isEmpty && styles.dim,
+              onGreenSurface && styles.suffixOnGreen,
             ]}
             allowFontScaling={false}
           >
@@ -194,6 +206,8 @@ export function NumericDisplay({
             isWizard && styles.cursorWizard,
             isWizardCompact && styles.cursorWizardCompact,
             largeTypography && { height: largeTypography.cursor },
+            accentPrefix && !onGreenSurface && styles.cursorAccent,
+            onGreenSurface && styles.cursorOnGreen,
             { opacity: blink },
           ]}
         />
@@ -328,8 +342,37 @@ const styles = StyleSheet.create({
   suffixWizardCompact: {
     fontSize: 22,
   },
+  prefixAccent: {
+    color: Theme.driverEmeraldDark,
+    fontWeight: '700',
+  },
+  prefixOnGreen: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  amountPlaceholderAccent: {
+    color: Theme.textPrimaryDark,
+    fontWeight: '700',
+  },
+  amountPlaceholderOnGreen: {
+    color: 'rgba(255,255,255,0.88)',
+    fontWeight: '700',
+  },
+  amountOnGreen: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  suffixOnGreen: {
+    color: 'rgba(255,255,255,0.85)',
+  },
   dim: {
     color: Theme.textMuted,
+  },
+  cursorAccent: {
+    backgroundColor: Theme.driverEmeraldDark,
+  },
+  cursorOnGreen: {
+    backgroundColor: '#ffffff',
   },
   cursor: {
     width: 2,

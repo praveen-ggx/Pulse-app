@@ -116,6 +116,8 @@ export function patchAssignmentCaches(
     vehicleType: args.patch.vehicleType ?? null,
     vehicleId: args.patch.vehicleId ?? null,
     ...(args.patch.focus ? { focus: args.patch.focus } : {}),
-    confirm: true,
+    // The popup is triggered by publishAssignmentPaint; a cached `true` can
+    // never be dismissed and would reopen the popup on later visits.
+    confirm: false,
   });
 }

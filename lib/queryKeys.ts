@@ -256,6 +256,9 @@ export const queryKeys = {
     /** Dispatcher trip detail: presence seed + checkpoint trail for one trip/driver pair. */
     tripLiveSeed: (tripId: string, driverId: string) =>
       ["q", "tracking", "trip-live-seed", tripId, driverId] as const,
+    /** Completed trip map: driven path (GPS history + checkpoints), read once. */
+    completedTripPath: (tripId: string) =>
+      ["q", "tracking", "completed-trip-path", tripId] as const,
   },
 
   /** Driver app home dashboard (linked drivers + pending OTP trips). */
@@ -281,6 +284,12 @@ export const queryKeys = {
      * dcoOwnerOperator here specifically to avoid confusion with that. */
     dcoOwnerOperator: (userId: string) =>
       ["q", "driver-app", userId, "dco-owner-operator"] as const,
+    /** Driver-level KYC submission (driver_kyc_submissions) — gates DCO request/approval. */
+    driverKycSubmission: (userId: string) =>
+      ["q", "driver-app", userId, "driver-kyc-submission"] as const,
+    /** Signed-in driver's own KYC documents + requirement list (DCO screen). */
+    driverKycDocuments: (userId: string) =>
+      ["q", "driver-app", userId, "driver-kyc-documents"] as const,
     /** Server-resolved Driver vs DCO operating mode (get_my_driver_operating_mode). */
     driverOperatingMode: (userId: string) =>
       ["q", "driver-app", userId, "driver-operating-mode"] as const,

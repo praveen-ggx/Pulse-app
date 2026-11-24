@@ -17,6 +17,8 @@ import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import {
   deleteComplianceDocument,
+  listLiveEntityDocumentIds,
+  supersedeEntityDocuments,
   rejectDocument,
   updateEntityDocumentExpiry,
   verifyDocument,
@@ -133,7 +135,11 @@ import {
   isOwnRecentUpload,
   tripAwaitingResubmit,
 } from "@/features/tripCompliance/utils/groundOpsDocumentLock.util";
-import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
+import {
+  alertMessage,
+  chooseReplaceOrAddPage,
+  confirmAction,
+} from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import {
   COMPLIANCE_DECLINE_REASON_SECTIONS,
   FINANCE_FLAG_REASON_SECTIONS,
@@ -153,7 +159,12 @@ import {
 } from "@/features/tripCompliance/utils/complianceResubmitChangeLog.util";
 import { fetchSupplierBankProofBundle } from "@/features/tripCompliance/utils/supplierBankProof.util";
 import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
-import { ewayValidTillEnd, parseEwayFieldValues } from "@/features/trips/services/ewayBillFields.util";
+import {
+  ewayEntryByFilePath,
+  ewayValidTillEnd,
+  parseEwayFieldValues,
+  type EwayFieldValues,
+} from "@/features/trips/services/ewayBillFields.util";
 import { supabase } from "@/lib/supabase";
 
 /** Stages whose bank card stays as it was (no beneficiary / branch, no live refresh). */
@@ -184,6 +195,7 @@ import {
   uploadComplianceVaultFile,
 } from "@/features/tripCompliance/services/complianceVaultUpload.service";
 import {
+  deleteEwayBillDocument,
   deleteTripDocument,
   uploadTripDocument,
   type TripDocumentRow,
@@ -506,7 +518,12 @@ function entityDocumentChange(doc: { entity_type: "vehicle" | "driver"; entity_i
 }
 
 /** Row has reviewable content: a present trip doc (per classifier) or an entity file. */
-function vaultThumbCaption(row: ComplianceDocRow, index: number, total: number): string {
+function vaultThumbCaption(
+  row: ComplianceDocRow,
+  index: number,
+  total: number,
+  ewayByPath?: ReadonlyMap<string, EwayFieldValues>,
+): string {
   const code = shortVaultThumbCode(row.type);
   const fallback = total > 1 ? `${code} ${index + 1}` : code;
   const raw = row.doc?.document_number ?? null;
@@ -523,7 +540,10 @@ function vaultThumbCaption(row: ComplianceDocRow, index: number, total: number):
     if (labeled) return labeled.replace(/^Invoice No\.\s*/i, "");
   }
   if (row.type === "eway_bill") {
-    const eway = parseEwayFieldValues(raw);
+    // The trip's numbers live in one list; show this file's own entry, not the
+    // list's first number on one file and nothing on the others.
+    const path = row.doc?.storage_path?.trim() ?? "";
+    const eway = (path && ewayByPath?.get(path)) || parseEwayFieldValues(raw);
     const date = formatVaultDocDate(eway.validTill);
     if (eway.ewayNo && date) return `${eway.ewayNo}\n${date}`;
     if (eway.ewayNo) return eway.ewayNo;
@@ -662,6 +682,11 @@ function clusterFileEntries(
   tripId: string | null,
 ): { row: ComplianceDocRow; preview: VaultChooserPreview }[] {
   const types = firstRowPerType(categoryRows);
+  const ewayByPath = ewayEntryByFilePath(
+    allRows
+      .filter((item) => item.type === "eway_bill" && item.doc)
+      .map((item) => item.doc!),
+  );
   const fileEntries: { row: ComplianceDocRow; preview: VaultChooserPreview }[] = [];
   for (const typeRow of types) {
     const typeLabel =
@@ -684,7 +709,7 @@ function clusterFileEntries(
         row: item,
         preview: {
           ...preview,
-          label: vaultThumbCaption(item, index, typeFiles.length),
+          label: vaultThumbCaption(item, index, typeFiles.length, ewayByPath),
         },
       });
     });
@@ -4394,6 +4419,8 @@ export function ComplianceDocumentWorkspace({
         vehicleId,
         docType: row.type,
         actorId,
+        displayedDocumentId: row.entityDoc.id,
+        displayedStoragePath: row.entityDoc.storage_path,
         vehicleDocuments: summary.vehicleDocuments,
       });
       if (marked.error) {
@@ -4759,18 +4786,34 @@ export function ComplianceDocumentWorkspace({
   const selectedDocumentNumber = activeRow?.doc?.document_number ?? null;
   const ewayFields =
     activeRow?.type === "eway_bill" ? parseEwayFieldValues(selectedDocumentNumber) : null;
+  // LR / E-way: always surface every vault number (copies + entries). The
+  // selected document_number path only shows the active file's first number.
+  const lrHeaderNumbers =
+    activeRow?.type === "lr" && vaultHeaderNumbers.length > 0
+      ? vaultHeaderNumbers.length === 1
+        ? [formatLrVaultNumberLabel(vaultHeaderNumbers[0]) ?? vaultHeaderNumbers[0]]
+        : [`LR No. ${vaultHeaderNumbers.join(" · ")}`]
+      : null;
+  const ewayHeaderNumbers =
+    activeRow?.type === "eway_bill" && vaultHeaderNumbers.length > 0
+      ? vaultHeaderNumbers
+      : null;
   const previewHeaderFacts = formatDocumentHeaderFacts({
     documentNumber:
       activeRow?.type === "eway_bill"
         ? ewayFields?.ewayNo || selectedDocumentNumber
         : selectedDocumentNumber,
-    numbers: selectedDocumentNumber
-      ? undefined
-      : vaultHeaderNumbers.length > 0
-        ? vaultHeaderNumbers
-        : typedPrimary
-          ? [typedPrimary]
-          : [],
+    numbers: lrHeaderNumbers
+      ? lrHeaderNumbers
+      : ewayHeaderNumbers
+        ? ewayHeaderNumbers
+        : selectedDocumentNumber
+          ? undefined
+          : vaultHeaderNumbers.length > 0
+            ? vaultHeaderNumbers
+            : typedPrimary
+              ? [typedPrimary]
+              : [],
     category: activeRow?.type,
     expiryDate:
       activeRow?.type === "lr"
@@ -5308,10 +5351,25 @@ export function ComplianceDocumentWorkspace({
           setScreenOpen(false);
         }
 
+        const addingToExisting = hasFile(row);
+        // A filled vehicle / driver slot: a renewed document replaces the
+        // current copy (kept as history); a page of the same document is added.
+        let replacing = false;
+        if (scope !== "trip" && addingToExisting) {
+          const choice = await chooseReplaceOrAddPage(rowLabel);
+          if (!choice) {
+            setCategoryPreview(null);
+            return;
+          }
+          replacing = choice === "replace";
+        }
+
         let expiryDate: string | null = null;
         if (scope !== "trip") {
+          // Only a page of the same document reuses the current expiry. A
+          // replacement always asks — it must never inherit an obsolete date.
           const current = row.entityDoc?.expiry_date?.trim() ?? "";
-          if (/^\d{4}-\d{2}-\d{2}$/.test(current)) {
+          if (addingToExisting && !replacing && /^\d{4}-\d{2}-\d{2}$/.test(current)) {
             expiryDate = current;
           } else if (documentRequiresExpiry(row.type)) {
             const entered = (await promptExpiryDate(row.type))?.trim() ?? "";
@@ -5327,10 +5385,24 @@ export function ComplianceDocumentWorkspace({
           }
         }
 
-        const addingToExisting = hasFile(row);
+        let replaceSnapshot: string[] = [];
+        if (replacing && entityId && scope !== "trip") {
+          const live = await listLiveEntityDocumentIds({
+            orgId: organizationId,
+            entityType: scope,
+            entityId,
+            docType: row.type,
+          });
+          if (live.error) {
+            alertMessage("Upload failed", live.error.message);
+            return;
+          }
+          replaceSnapshot = live.ids;
+        }
+        let replacementId: string | null = null;
         for (const [index, file] of files.entries()) {
-          const extraCopy = addingToExisting || index > 0;
-          await uploadComplianceVaultFile({
+          const extraCopy = (addingToExisting && !replacing) || index > 0;
+          const saved = await uploadComplianceVaultFile({
             scope,
             type: row.type,
             tripId: summary.trip.id,
@@ -5344,6 +5416,18 @@ export function ComplianceDocumentWorkspace({
             file,
             expiryDate,
           });
+          if (index === 0) replacementId = saved.entityDocumentId;
+        }
+        if (replaceSnapshot.length > 0) {
+          // Only after every new file saved: retire exactly the copies that
+          // were live before this upload.
+          const retired = await supersedeEntityDocuments(replaceSnapshot, replacementId);
+          if (retired.error) {
+            alertMessage(
+              "Saved, but the old file is still active",
+              `The new file was saved. Marking the previous copy as replaced failed: ${retired.error.message}`,
+            );
+          }
         }
         invalidateCompliancePreviewCache(
           listRows
@@ -5502,7 +5586,11 @@ export function ComplianceDocumentWorkspace({
     if (!ok) return;
     setFileActionKey(row.key);
     try {
-      const { error } = await deleteTripDocument(old);
+      // E-way numbers can live on the file being removed; keep them first.
+      const { error } =
+        old.document_type === "eway_bill"
+          ? await deleteEwayBillDocument(old, actorId)
+          : await deleteTripDocument(old);
       if (error) {
         alertMessage("Couldn't remove file", error.message);
         return;
@@ -6886,7 +6974,7 @@ export function ComplianceDocumentWorkspace({
                         {commerceLayout || !previewingDocument ? null : (
                           <>
                             {previewHeaderFacts ? (
-                              <Text style={styles.previewNavMeta} numberOfLines={1}>
+                              <Text style={styles.previewNavMeta} numberOfLines={2}>
                                 {previewHeaderFacts}
                               </Text>
                             ) : null}
@@ -7736,7 +7824,7 @@ export function ComplianceDocumentWorkspace({
                                 .filter(Boolean)
                                 .join(" · ");
                               return idLine ? (
-                                <Text style={styles.shopPreviewId} numberOfLines={1}>
+                                <Text style={styles.shopPreviewId} numberOfLines={2}>
                                   {idLine}
                                 </Text>
                               ) : null;
@@ -8842,6 +8930,17 @@ function docNumberForType(
 ): string | null {
   const matches = documents.filter((doc) => (doc.document_type ?? "").toLowerCase() === type);
   if (matches.length === 0) return null;
+  if (type === "lr" || type === "invoice") {
+    const prefix = type === "lr" ? "LR No." : "Invoice No.";
+    const strip = type === "lr" ? /^lr\s*no\.?\s*/i : /^invoice\s*no\.?\s*/i;
+    const format = type === "lr" ? formatLrVaultNumberLabel : formatInvoiceVaultNumberLabel;
+    const labels: string[] = [];
+    for (const doc of [...matches].sort((a, b) => (a.uploaded_at ?? "").localeCompare(b.uploaded_at ?? ""))) {
+      const bare = format(doc.document_number ?? null)?.replace(strip, "").trim();
+      if (bare && !labels.includes(bare)) labels.push(bare);
+    }
+    return labels.length > 0 ? `${prefix} ${labels.join(", ")}` : null;
+  }
   const latest = [...matches].sort((a, b) => (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? ""))[0];
   const raw = latest?.document_number ?? null;
   if (type === "lr") return formatLrVaultNumberLabel(raw);

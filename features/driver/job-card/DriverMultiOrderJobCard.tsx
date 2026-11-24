@@ -40,6 +40,10 @@ import {
 import type { DeliveryProofDraft } from '@/features/driver/job-card/deliveryProof';
 import { DriverStopVerificationScreen } from '@/features/driver/job-card/DriverStopVerificationScreen';
 import { DriverTripCompletionScreen } from '@/features/driver/job-card/DriverTripCompletionScreen';
+import {
+  showDriverTripCompleted,
+  type DriverTripCompletedPayload,
+} from '@/features/driver/components/DriverTripCompletedModal';
 import { CurrentStopCard } from '@/features/driver/job-card/parts/CurrentStopCard';
 import { RouteProgressHeader } from '@/features/driver/job-card/parts/RouteProgressHeader';
 import { TripPlanPage } from '@/features/driver/job-card/parts/TripPlanPage';
@@ -60,12 +64,21 @@ import {
   type DriverCommandResult,
 } from '@/features/driver/services/driverExecution.service';
 import { formatTime } from '@/lib/format';
+import { getTripDisplayLabel } from '@/lib/globalId';
 import { openExternalNavigation } from '@/lib/mapsNavigation.util';
 import { DeliveryDetailsPreview, type DeliveryPreviewStop } from '@/features/driver/job-card/parts/DeliveryDetailsPreview';
 import { ChevronUp, Receipt } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+function celebrateTripCompleted(details: DriverTripCompletedPayload | null) {
+  if (!details) return;
+  showDriverTripCompleted({
+    ...details,
+    completedAt: details.completedAt ?? new Date().toISOString(),
+  });
+}
 
 type Props = DriverTripFlowCardProps & {
   stopExecution: DriverStopExecutionController;
@@ -119,6 +132,9 @@ export function DriverMultiOrderJobCard({
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [markedComplete, setMarkedComplete] = useState(false);
   const summaryOfferedRef = useRef(false);
+  const [celebratePending, setCelebratePending] = useState(false);
+  const celebratePendingRef = useRef(false);
+  const completedDetailsRef = useRef<DriverTripCompletedPayload | null>(null);
   const proofLedgersRef = useRef(new Map<string, StopProofLedger>());
   const [verifySession, setVerifySession] = useState<{
     stop: DriverStopExecutionStop;
@@ -260,7 +276,41 @@ export function DriverMultiOrderJobCard({
     completionHandledRef.current = true;
     void AsyncStorage.removeItem('driver_accepted_trip_id');
     onTripCompleted?.();
+    celebratePendingRef.current = true;
+    setCelebratePending(true);
   }, [tripCompleted, onTripCompleted]);
+
+  const tripLabel = getTripDisplayLabel(trip);
+  useEffect(() => {
+    completedDetailsRef.current = {
+      tripLabel,
+      pickupLabel: trip.pickup_area ?? null,
+      dropLabel: trip.drop_location ?? null,
+      completedAt: trip.completed_at ?? null,
+      message:
+        stops.length > 1
+          ? `Great work! All ${stops.length} stops on ${tripLabel === '—' ? 'this trip' : tripLabel} are delivered.`
+          : null,
+    };
+  });
+
+  // iOS cannot present over a sibling full-screen modal, so hand off to the
+  // layout-level success modal once stop verification and the summary close.
+  useEffect(() => {
+    if (!celebratePending || verificationOpen || summaryOpen) return;
+    setCelebratePending(false);
+    if (!celebratePendingRef.current) return;
+    celebratePendingRef.current = false;
+    celebrateTripCompleted(completedDetailsRef.current);
+  }, [celebratePending, verificationOpen, summaryOpen]);
+
+  // Home drops a completed trip from the active mission, unmounting this card
+  // (and its modals) straight away, so hand off whatever is still pending.
+  useEffect(() => {
+    return () => {
+      if (celebratePendingRef.current) celebrateTripCompleted(completedDetailsRef.current);
+    };
+  }, []);
 
   const frameless = variant === 'page' || edgeToEdge;
   const inSheet = variant === 'page' || edgeToEdge;
@@ -360,6 +410,8 @@ export function DriverMultiOrderJobCard({
   const applyTripOutcome = (command: DriverCommandResult | undefined) => {
     if (!command?.ok || !command.trip_status) return;
     if (command.trip_status === String(trip.status ?? '').toLowerCase()) return;
+    // Flag before onTripUpdated: the parent may drop this trip and unmount the card.
+    if (command.trip_status === 'completed') celebratePendingRef.current = true;
     onTripUpdated?.(applyDriverCommandResult(trip, command));
     if (command.trip_status === 'completed') setMarkedComplete(true);
   };
@@ -379,6 +431,7 @@ export function DriverMultiOrderJobCard({
         setActionError(message);
         return;
       }
+      celebratePendingRef.current = true;
       onTripUpdated?.(applyDriverCommandResult(trip, result));
       setMarkedComplete(true);
     })();

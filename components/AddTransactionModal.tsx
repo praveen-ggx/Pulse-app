@@ -808,6 +808,8 @@ export function AddTransactionModal({
   const [ledgerSubmitConfirmVisible, setLedgerSubmitConfirmVisible] =
     useState(false);
   const [ledgerSubmitting, setLedgerSubmitting] = useState(false);
+  /** Sync guard: state updates are async, so a fast double tap would pass a state-only check. */
+  const ledgerSubmitInFlightRef = useRef(false);
   const [ledgerReconSucceeded, setLedgerReconSucceeded] = useState(false);
   const [ledgerFlowGuardAlert, setLedgerFlowGuardAlert] =
     useState<LedgerFlowGuardAlertContent | null>(null);
@@ -3501,7 +3503,8 @@ export function AddTransactionModal({
       paymentReference: paymentReference.trim() || null,
     };
     void (async () => {
-      if (ledgerSubmitting) return;
+      if (ledgerSubmitting || ledgerSubmitInFlightRef.current) return;
+      ledgerSubmitInFlightRef.current = true;
       setLedgerSubmitting(true);
       try {
         if (isEditMode && initialEntry?.id) {
@@ -3530,6 +3533,7 @@ export function AddTransactionModal({
         // Swallow here so the modal stays open (no success/dismiss) without the
         // rejection escaping this fire-and-forget IIFE as an unhandled rejection.
       } finally {
+        ledgerSubmitInFlightRef.current = false;
         setLedgerSubmitting(false);
       }
     })();

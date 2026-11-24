@@ -43,8 +43,10 @@ import { getVehicleDocumentViewUrl, getVehicleDocumentViewUrls, mergeEntityDocum
 import { resolveTripDocumentPreviewUrl } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
 import { getVehicleById, getVehicleForTripViewer, findVehicleByPlate, ensureVehicleForVault } from "@/features/vehicles/services/vehicles.service";
 import { assignedVehiclePlate } from "@/features/trips/utils/tripAssignmentVehicle.util";
+import { resolveDriverAcceptanceAt } from "@/features/trips/utils/manifestJourneyLog.util";
 import {
   parseTripSimulationNotes,
+  resolveTripAssignedAtIso,
   unrevokedBisimEntries,
 } from "@/features/trips/utils/simulateTripStage.util";
 import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
@@ -91,6 +93,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { invalidateTripFinanceNoteQueries } from "@/lib/queries/useTripFinanceAdjustmentsQuery";
 import { isServiceUnavailableError } from "@/lib/supabaseHttp.util";
 import * as driverLocationService from "@/features/driver/services/driverLocation.service";
+import { useCompletedTripPath } from "@/features/trips/hooks/useCompletedTripPath";
 import { getMoverAssetClientPaid } from "@/features/trips/services/moverAssetPayment.service";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
@@ -790,10 +793,25 @@ export function useTripDetail({
   const trackingBroadcastEnabled =
     trackingQueriesEnabled && trackingBroadcastEligible;
 
+  /**
+   * Listen for driver live-lane broadcasts whenever the trip map has driver data, regardless of
+   * EXPO_PUBLIC_TRACKING_BROADCAST_V1. That flag still decides whether the legacy driver_locations
+   * realtime path is turned off; here broadcast is purely additive (no DB cost, no WAL fan-out).
+   */
+  const liveBroadcastListening = trackingBroadcastEnabled || driverMapDataEnabled;
+
   const liveTracking = useTripLiveTracking({
     tripId: trip?.id ?? null,
     driverId: effectiveDriverIdForLocation,
     trackingEnabled: driverMapDataEnabled,
+  });
+
+  /** Completed trips: driven path read once for the map (live lanes stay off). */
+  const completedTripPath = useCompletedTripPath({
+    tripId: trip?.id,
+    startedAt: trip?.created_at,
+    completedAt: trip?.completed_at,
+    enabled: tripCompleted && trackingQueriesEnabled,
   });
 
   const driverPing = useRequestDriverPing({
@@ -878,9 +896,17 @@ export function useTripDetail({
   useEffect(() => {
     if (!trip?.id || !driverMapDataEnabled || trackingBroadcastEnabled) return;
     const seed = liveTracking.seedPoint;
-    const lat = driverLocation?.latitude ?? seed?.latitude;
-    const lng = driverLocation?.longitude ?? seed?.longitude;
-    const recordedAt = driverLocation?.recorded_at ?? seed?.recorded_at;
+    // Prefer whichever DB source is newer: driver_locations (12-ping lane) or
+    // driver_presence (live checkpoint lane, every ~2 min).
+    const dlMs = driverLocation?.recorded_at ? Date.parse(driverLocation.recorded_at) : NaN;
+    const seedMs = seed?.recorded_at ? Date.parse(seed.recorded_at) : NaN;
+    const useSeed =
+      seed != null &&
+      Number.isFinite(seedMs) &&
+      (!driverLocation || !Number.isFinite(dlMs) || seedMs > dlMs);
+    const lat = useSeed ? seed?.latitude : (driverLocation?.latitude ?? seed?.latitude);
+    const lng = useSeed ? seed?.longitude : (driverLocation?.longitude ?? seed?.longitude);
+    const recordedAt = useSeed ? seed?.recorded_at : (driverLocation?.recorded_at ?? seed?.recorded_at);
     if (lat == null || lng == null || !recordedAt) return;
     getTripTrackingMapStore(trip.id).applySeed(lat, lng, recordedAt);
     setLastSeenAt((prev) => {
@@ -962,18 +988,28 @@ export function useTripDetail({
         });
       });
     } else if (trip.driver_id || trip.driver_display_name || trip.vehicle_id || trip.vehicle_display_number) {
-      rows.push({
-        kind: "status",
-        id: "status-assigned-fallback",
-        status_label: "Assigned",
-        changed_at: trip.updated_at ?? trip.created_at ?? new Date().toISOString(),
-        status_context: "assigned",
-        actorUserId: trip.assigned_by_user_id ?? trip.created_by_user_id ?? trip.created_by ?? null,
-        detail_line:
-          [trip.driver_display_name, trip.vehicle_display_number].filter(Boolean).join(" · ") ||
-          trip.pickup_area ||
-          "Driver assigned",
-      });
+      // Same instant as the Journey Log. Never `updated_at` — simulate and
+      // revoke bump it and were rewriting Assigned to "now".
+      const assignedAt = resolveTripAssignedAtIso(trip, assignmentAuditRows);
+      if (assignedAt) {
+        rows.push({
+          kind: "status",
+          id: "status-assigned-fallback",
+          status_label: "Assigned",
+          changed_at: assignedAt,
+          status_context: "assigned",
+          actorUserId:
+            trip.assigned_by_user_id ??
+            trip.created_by_user_id ??
+            trip.created_by ??
+            trip.owner_user_id ??
+            null,
+          detail_line:
+            [trip.driver_display_name, trip.vehicle_display_number].filter(Boolean).join(" · ") ||
+            trip.pickup_area ||
+            "Driver assigned",
+        });
+      }
     }
 
     const statusLower = String(trip.status ?? "").toLowerCase();
@@ -1012,20 +1048,20 @@ export function useTripDetail({
       return "Trip update";
     };
 
-    if (
-      !simStatus.has("assigned") &&
-      (trip.status_updated_role === "driver" ||
-        liveSims.length > 0 ||
-        Number(trip.status_revision ?? 0) > 0) &&
-      (trip.updated_at || trip.started_at)
-    ) {
+    const acceptedAt = resolveDriverAcceptanceAt({
+      trip,
+      assignmentAuditRows,
+      locationPings: tripLocationPoints,
+      assignedAtIso: resolveTripAssignedAtIso(trip, assignmentAuditRows),
+    });
+    if (acceptedAt && !simStatus.has("assigned")) {
       rows.push({
         kind: "status",
         id: "status-accepted",
         status_label: "Driver accepted",
-        changed_at: trip.started_at ?? trip.updated_at ?? new Date().toISOString(),
+        changed_at: acceptedAt,
         status_context: "accepted",
-        actorUserId: trip.status_updated_by ?? trip.driver_id ?? null,
+        actorUserId: trip.driver_id ?? trip.status_updated_by ?? null,
         detail_line: trip.pickup_area || "Accepted assignment",
       });
     }
@@ -1038,7 +1074,7 @@ export function useTripDetail({
         status_label: stageLabel(context),
         changed_at: sim.timestamp || trip.updated_at || new Date().toISOString(),
         status_context: context,
-        actorUserId: staffOrDriverId,
+        actorUserId: sim.userName?.trim() || staffOrDriverId,
         detail_line:
           sim.locationLabel ||
           (context === "at_drop" || context === "completed"
@@ -1054,7 +1090,7 @@ export function useTripDetail({
         status_label: "Simulation revoked",
         changed_at: revoke.timestamp || trip.updated_at || new Date().toISOString(),
         status_context: "sim_revoked",
-        actorUserId: staffOrDriverId,
+        actorUserId: revoke.userName?.trim() || staffOrDriverId,
         detail_line: `Reverted ${revoke.fromStatus.replace(/_/g, " ")} → ${revoke.toStatus.replace(/_/g, " ")}`,
       });
     }
@@ -1162,7 +1198,14 @@ export function useTripDetail({
     }
 
     return rows;
-  }, [trip, hardCopyPod, assignmentAuditRows, assignmentDriverNames, assignmentVehicleLabels]);
+  }, [
+    trip,
+    hardCopyPod,
+    assignmentAuditRows,
+    assignmentDriverNames,
+    assignmentVehicleLabels,
+    tripLocationPoints,
+  ]);
 
   // Phase 3b: single-RPC bundle replacing 18-24 serial calls.
   // When ENABLE_TRIP_DETAIL_BUNDLE is true (global), bundleActive is true for all orgs.
@@ -3752,7 +3795,7 @@ export function useTripDetail({
 
   useTrackingTripBroadcast({
     tripId: trip?.id ?? null,
-    enabled: trackingBroadcastEnabled,
+    enabled: liveBroadcastListening,
     // Only the ISO timestamp escapes into React — coordinates go exclusively to TripTrackingMapStore.
     onTimestamp: (ts) => {
       lastBroadcastTimestampRef.current = ts;
@@ -3764,17 +3807,22 @@ export function useTripDetail({
 
   // Flush broadcast timestamp ref → React state at 1s cadence (drives "Updated X min ago" label).
   useEffect(() => {
-    if (!trackingBroadcastEnabled) return;
+    if (!liveBroadcastListening) return;
     const id = globalThis.setInterval(() => {
       const ts = lastBroadcastTimestampRef.current;
-      if (ts) setLastSeenAt(ts);
+      if (ts) {
+        // Never move "last seen" backwards (DB seed path may already hold a newer value).
+        setLastSeenAt((prev) =>
+          !prev || Date.parse(ts) >= Date.parse(prev) ? ts : prev,
+        );
+      }
     }, 1000);
     return () => globalThis.clearInterval(id);
-  }, [trackingBroadcastEnabled]);
+  }, [liveBroadcastListening]);
 
-  // Geocode live position from store (broadcast path) — no driverLocation state dependency.
+  // Geocode live position from store (broadcast + DB seed both land in the store).
   useEffect(() => {
-    if (!trackingBroadcastEnabled || !trip?.id) return;
+    if (!liveBroadcastListening || !trip?.id) return;
     const store = getTripTrackingMapStore(trip.id);
     const unsub = store.subscribe((point) => {
       if (!point) return;
@@ -3788,7 +3836,7 @@ export function useTripDetail({
       });
     });
     return unsub;
-  }, [trackingBroadcastEnabled, trip?.id]);
+  }, [liveBroadcastListening, trip?.id]);
 
   /**
    * Legacy WAL path — disabled when EXPO_PUBLIC_TRACKING_BROADCAST_V1=1.
@@ -3858,7 +3906,7 @@ export function useTripDetail({
   // Driver location — Mapbox/Nominatim label (no raw lat/lon in UI).
   // When broadcast is active, the store subscriber above handles geocoding instead.
   useEffect(() => {
-    if (trackingBroadcastEnabled) return;
+    if (liveBroadcastListening) return;
     if (!driverLocation) {
       setDriverLocationAddress(null);
       return;
@@ -3881,7 +3929,7 @@ export function useTripDetail({
     return () => {
       isActive = false;
     };
-  }, [driverLocation?.latitude, driverLocation?.longitude, trackingBroadcastEnabled]);
+  }, [driverLocation?.latitude, driverLocation?.longitude, liveBroadcastListening]);
 
   // Past location labels (last 2 checkpoints) for map stage markers
   useEffect(() => {
@@ -4112,6 +4160,7 @@ export function useTripDetail({
     /** @deprecated Use useTrackingState(tripId, tripStatus).broadcastActive instead. */
     trackingActive: trackingBroadcastEnabled,
     trackingTrail: liveTracking.trail,
+    completedTripPath,
     lastSeenAt,
     requestDriverPing: driverPing.requestPing,
     /** @deprecated Use useTrackingState(tripId, tripStatus, overrides).isPinging instead. */

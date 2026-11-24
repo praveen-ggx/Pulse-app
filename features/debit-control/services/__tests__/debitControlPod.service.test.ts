@@ -1,5 +1,6 @@
 const mockInsert = jest.fn();
 const mockUpdate = jest.fn();
+let mockUpdatedRows: Array<{ id: string }> = [];
 let mockDraftSelectData: Array<{ trip_id: string; payload: unknown; created_at: string }> = [];
 let mockStoredIdempotencyKeys = new Set<string>();
 
@@ -14,12 +15,17 @@ jest.mock("@/lib/supabase", () => ({
         in: () => ({
           eq: () => Promise.resolve({ data: mockDraftSelectData, error: null }),
         }),
-        eq: (_column: string, value: string) => ({
-          maybeSingle: () =>
-            Promise.resolve({
-              data: columns === "id" && mockStoredIdempotencyKeys.has(value) ? { id: "existing" } : null,
-              error: null,
+      }),
+      update: () => ({
+        eq: () => ({
+          eq: () => ({
+            eq: () => ({
+              select: () => {
+                mockUpdate();
+                return Promise.resolve({ data: mockUpdatedRows, error: null });
+              },
             }),
+          }),
         }),
       }),
       update: (row: unknown) => {
@@ -58,8 +64,33 @@ describe("validateDebitControlPods", () => {
   beforeEach(() => {
     mockInsert.mockClear();
     mockUpdate.mockClear();
+    mockUpdatedRows = [];
     mockDraftSelectData = [];
     mockStoredIdempotencyKeys = new Set();
+  });
+
+  it("updates the existing event on a repeat save instead of inserting a duplicate", async () => {
+    mockUpdatedRows = [{ id: "evt-1" }];
+    const result = await savePodValidationDraft({
+      orgId: "org-1",
+      actorId: "user-1",
+      trips: [
+        {
+          tripId: "trip-a",
+          remarks: "again",
+          clientInvoiceNumber: null,
+          noDebit: false,
+          client: EMPTY_CHARGE_LINES,
+          vendor: EMPTY_CHARGE_LINES,
+        },
+      ],
+    });
+    expect(result.error).toBeNull();
+    expect(mockUpdate).toHaveBeenCalled();
+    const drafts = mockInsert.mock.calls.filter(
+      (call) => (call[0] as { event_type: string }).event_type === "pod.debit_control_draft",
+    );
+    expect(drafts).toHaveLength(0);
   });
 
   it("stores the same validation event once per trip, deducting vendor exceptions from the vendor total", async () => {

@@ -31,8 +31,15 @@ import { expandLR } from "@/lib/utils/lr";
 import {
   EWAY_BILL_FIELDS_FILE_NAME,
   ewayBillFieldsStoragePath,
+  ewayFieldsCarryOnDelete,
+  applyEwayNumbersByFile,
+  ewayFieldsSourceRow,
+  ewayFieldsWriteTarget,
   isEwayBillMetaPath,
+  isEwayEntriesJson,
+  parseEwayFieldEntries,
   serializeEwayFieldEntries,
+  sortEwayRowsNewestFirst,
   type EwayFieldValues,
 } from "@/features/trips/services/ewayBillFields.util";
 
@@ -1110,8 +1117,17 @@ export async function deleteTripDocument(doc: TripDocumentRow): Promise<{ error:
   // Row first: when the database refuses (approved / locked document), the file
   // must stay, or the row would point at a file that no longer exists.
   const synthetic = doc.id.startsWith("storage-") || doc.id.startsWith("storage-meta-");
-  if (!synthetic && String(doc.status ?? "").toLowerCase() === "verified") {
-    return { error: new Error("Approved documents cannot be deleted.") };
+  // The cached row can be stale: re-read the status so an approved document is
+  // never sent for deletion (and no 'deleted' audit row is written for it).
+  if (!synthetic) {
+    const { data: current } = await supabase()
+      .from("trip_documents")
+      .select("status")
+      .eq("id", doc.id)
+      .maybeSingle();
+    if (String((current as { status?: string | null } | null)?.status ?? "") === "verified") {
+      return { error: new Error("Approved documents cannot be deleted.") };
+    }
   }
   // Snapshot audit before the row disappears so Activity keeps who deleted / when.
   await recordTripDocumentDeletedAudit(doc);
@@ -1239,42 +1255,42 @@ export async function upsertEwayBillFields(input: {
     if (error) return { error: new Error(error.message), saved: false };
     return { error: null, saved: (data ?? []).length > 0 };
   };
-  const { data, error: listError } = await supabase()
-    .from("trip_documents")
-    .select("id, storage_path, file_name")
-    .eq("trip_id", input.tripId)
-    .eq("document_type", "eway_bill");
-
-  if (listError) {
-    if (isTripDocumentsRestEndpointMissing(listError)) {
+  const listed = await listEwayFieldsRows(input.tripId);
+  if (listed.error) {
+    if (isTripDocumentsRestEndpointMissing(listed.error)) {
       return {
         error: new Error(
           "E-way bill details cannot be saved until trip documents are available.",
         ),
       };
     }
-    return { error: new Error(listError.message) };
+    return { error: new Error(listed.error.message) };
   }
-
-  const rows = (data ?? []) as {
-    id: string;
-    storage_path: string;
-    file_name: string;
-  }[];
-  const persisted = rows.filter((row) => !row.id.startsWith("storage-"));
-  const target =
-    persisted.find(
-      (row) => !isEwayBillMetaPath(row.storage_path, row.file_name),
-    ) ??
-    persisted.find((row) =>
-      isEwayBillMetaPath(row.storage_path, row.file_name),
-    );
+  // Write to the row the screens read (newest row holding numbers). Writing to
+  // any other file row made a save look ignored, and put the numbers on a file
+  // whose removal later erased them.
+  const target = ewayFieldsWriteTarget(listed.rows);
 
   if (target) {
     const written = await writeNumber(target.id);
+    if (!written.error && written.saved) {
+      await clearStaleEwayEntryLists(listed.rows, target.id);
+      return { error: null };
+    }
+    // Refused on the row the screens read (e.g. Ground Ops on a locked trip may
+    // only change their own recent upload): put the whole list on the newest
+    // e-way row instead. The screens read the newest row holding numbers, so
+    // the full list still shows.
+    const newest = sortEwayRowsNewestFirst(listed.rows)[0];
+    if (newest && newest.id !== target.id) {
+      const retried = await writeNumber(newest.id);
+      if (!retried.error && retried.saved) {
+        await clearStaleEwayEntryLists(listed.rows, newest.id);
+        return { error: null };
+      }
+    }
     if (written.error) return { error: written.error };
-    if (!written.saved) return { error: new Error(EWAY_NUMBER_NOT_SAVED) };
-    return { error: null };
+    return { error: new Error(EWAY_NUMBER_NOT_SAVED) };
   }
 
   const path = ewayBillFieldsStoragePath(input.tripId);
@@ -1303,6 +1319,177 @@ export async function upsertEwayBillFields(input: {
     return { error: null };
   }
   return { error: new Error(insertError.message) };
+}
+
+/**
+ * Older copies of the entry list left on other e-way rows (written there by
+ * the old save) are not shown on Trip Detail, but the Trips hub tags, expiry
+ * badge and e-LR prefill read every row, so they showed numbers that had been
+ * changed or removed. Once a save has landed, clear those copies. Plain single
+ * numbers (Trips hub sheet) are left alone. Best effort: a refused clear
+ * (e.g. Ground Ops on a locked trip) does not undo the save.
+ */
+async function clearStaleEwayEntryLists(rows: readonly EwayFieldsRow[], keepId: string): Promise<void> {
+  const stale = rows
+    .filter((row) => row.id !== keepId && isEwayEntriesJson(row.document_number))
+    .map((row) => row.id);
+  if (stale.length === 0) return;
+  await supabase().from("trip_documents").update({ document_number: null }).in("id", stale);
+}
+
+/**
+ * Numbers typed per e-way file (Trips hub update sheet) go into the trip's
+ * one e-way entry list, linked to their file — never onto the file rows,
+ * where a single number hid the list from Trip Detail / Compliance.
+ * `typedByPath` maps a file's storage path to the number typed for it.
+ */
+export async function saveEwayNumbersByFile(input: {
+  tripId: string;
+  uploadedBy: string;
+  typedByPath: Record<string, string>;
+}): Promise<{ error: Error | null }> {
+  const listed = await listEwayFieldsRows(input.tripId);
+  if (listed.error) return { error: new Error(listed.error.message) };
+  const entries = parseEwayFieldEntries(ewayFieldsSourceRow(listed.rows)?.document_number);
+  const filePaths = sortEwayRowsNewestFirst(listed.rows)
+    .filter((row) => !isEwayBillMetaPath(row.storage_path, row.file_name))
+    .map((row) => row.storage_path?.trim() ?? "")
+    .filter(Boolean);
+  const next = applyEwayNumbersByFile({ entries, filePaths, typedByPath: input.typedByPath });
+  if (!next.changed) return { error: null };
+  return upsertEwayBillFields({ tripId: input.tripId, uploadedBy: input.uploadedBy, values: next.entries });
+}
+
+/**
+ * Attach an uploaded e-way file to an existing entry that has no file yet
+ * (Upload pressed on that entry's card). Re-reads the current list so a save
+ * made meanwhile is not overwritten; the entry must still be at `entryIndex`
+ * with the same number, else nothing changes.
+ */
+export async function linkEwayEntryToFile(input: {
+  tripId: string;
+  uploadedBy: string;
+  entryIndex: number;
+  ewayNo: string;
+  filePath: string;
+}): Promise<{ error: Error | null; linked: boolean }> {
+  const listed = await listEwayFieldsRows(input.tripId);
+  if (listed.error) return { error: new Error(listed.error.message), linked: false };
+  const entries = parseEwayFieldEntries(ewayFieldsSourceRow(listed.rows)?.document_number);
+  const entry = entries[input.entryIndex];
+  if (!entry || entry.filePath || entry.ewayNo !== input.ewayNo) return { error: null, linked: false };
+  entries[input.entryIndex] = { ...entry, filePath: input.filePath };
+  const saved = await upsertEwayBillFields({ tripId: input.tripId, uploadedBy: input.uploadedBy, values: entries });
+  return { error: saved.error, linked: !saved.error };
+}
+
+/**
+ * Add one new e-way bill with its own document: upload the file, then add
+ * the number to the trip's list linked to that file (list re-read first, so
+ * a save made meanwhile is kept). A new e-way bill always has its document —
+ * a number-only entry used to show the trip's first e-way image instead.
+ */
+export async function addEwayBillWithFile(input: {
+  tripId: string;
+  uploadedBy: string;
+  organizationId?: string | null;
+  entry: EwayFieldValues;
+  file: { arrayBuffer: ArrayBuffer; fileName: string; mimeType: string };
+}): Promise<{ error: Error | null }> {
+  const { doc, error: uploadError } = await uploadTripDocument(
+    input.tripId,
+    input.uploadedBy,
+    input.file,
+    "eway_bill",
+    undefined,
+    { organizationId: input.organizationId ?? null },
+  );
+  if (uploadError) return { error: uploadError };
+  const filePath = doc?.storage_path?.trim();
+  if (!filePath) return { error: new Error("The e-way bill document was not saved. Try again.") };
+  const listed = await listEwayFieldsRows(input.tripId);
+  if (listed.error) {
+    return { error: new Error(`The document was uploaded, but the e-way number was not saved: ${listed.error.message}`) };
+  }
+  const entries = parseEwayFieldEntries(ewayFieldsSourceRow(listed.rows)?.document_number);
+  const saved = await upsertEwayBillFields({
+    tripId: input.tripId,
+    uploadedBy: input.uploadedBy,
+    values: [...entries, { ...input.entry, filePath }],
+  });
+  if (saved.error) {
+    return {
+      error: new Error(
+        `The document was uploaded, but the e-way number was not saved: ${saved.error.message} Use Edit on its card to add the number.`,
+      ),
+    };
+  }
+  return { error: null };
+}
+
+type EwayFieldsRow = {
+  id: string;
+  storage_path: string;
+  file_name: string;
+  uploaded_at: string | null;
+  document_number: string | null;
+};
+
+async function listEwayFieldsRows(
+  tripId: string,
+): Promise<{ rows: EwayFieldsRow[]; error: { message: string; code?: string } | null }> {
+  const { data, error } = await supabase()
+    .from("trip_documents")
+    .select("id, storage_path, file_name, uploaded_at, document_number")
+    .eq("trip_id", tripId)
+    .eq("document_type", "eway_bill");
+  if (error) return { rows: [], error };
+  const rows = ((data ?? []) as EwayFieldsRow[]).filter((row) => !row.id.startsWith("storage-"));
+  return { rows, error: null };
+}
+
+const EWAY_NUMBERS_NOT_KEPT =
+  "Nothing was removed: the e-way numbers saved with this file could not be kept on another e-way row.";
+
+/**
+ * Remove one e-way bill file without losing the trip's e-way numbers.
+ * The numbers live on one e-way row; when that is the row being removed, they
+ * are first copied to the row the screens read next (or a new details row),
+ * and only then is the file deleted. If the copy fails, nothing is deleted.
+ */
+export async function deleteEwayBillDocument(
+  doc: TripDocumentRow,
+  uploadedBy: string | null | undefined,
+): Promise<{ error: Error | null }> {
+  if (doc.id.startsWith("storage-")) return deleteTripDocument(doc);
+  const listed = await listEwayFieldsRows(doc.trip_id);
+  if (listed.error) return { error: new Error(listed.error.message) };
+  const carry = ewayFieldsCarryOnDelete(listed.rows, doc.id);
+  if (carry.kind === "move") {
+    const { data, error } = await supabase()
+      .from("trip_documents")
+      .update({ document_number: carry.documentNumber })
+      .eq("id", carry.toId)
+      .select("id");
+    if (error) return { error: new Error(`${EWAY_NUMBERS_NOT_KEPT} ${error.message}`) };
+    if ((data ?? []).length === 0) return { error: new Error(EWAY_NUMBERS_NOT_KEPT) };
+  } else if (carry.kind === "create") {
+    if (!uploadedBy) return { error: new Error(EWAY_NUMBERS_NOT_KEPT) };
+    const { error } = await supabase()
+      .from("trip_documents")
+      .insert({
+        trip_id: doc.trip_id,
+        file_name: EWAY_BILL_FIELDS_FILE_NAME,
+        storage_path: ewayBillFieldsStoragePath(doc.trip_id),
+        mime_type: "application/json",
+        size_bytes: 0,
+        uploaded_by: uploadedBy,
+        document_type: "eway_bill",
+        document_number: carry.documentNumber,
+      });
+    if (error) return { error: new Error(`${EWAY_NUMBERS_NOT_KEPT} ${error.message}`) };
+  }
+  return deleteTripDocument(doc);
 }
 
 function uniqueExpandedLrNumbers(raw: string): string[] {

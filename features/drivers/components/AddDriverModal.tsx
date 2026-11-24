@@ -55,6 +55,10 @@ export interface DriverFormData {
   commissionPercent: number | null;
   /** Optional offer: per-km rate (₹/km). */
   commissionPerKm: number | null;
+  /** Invite: vehicle, route, shift / hours, duties. */
+  jobDescription?: string;
+  /** Invite: terms & conditions the driver must agree to. */
+  termsText?: string;
 }
 
 const STEPS_FULL_KEYS = [

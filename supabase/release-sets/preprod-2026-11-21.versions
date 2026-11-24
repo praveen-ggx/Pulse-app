@@ -1,0 +1,8 @@
+# Preprod catch-up for release 2026-11-21: the two migrations of prod-2026-11-21-release that
+# preprod does not have yet (20261120055411 is already on preprod). Same files and hashes.
+# Path: V1 -> preprod (this set, Nihas runs) -> prod (prod-2026-11-21-release, Vasanth's GO).
+# Apply only via: npm run db:push-set -- preprod-2026-11-21   (dry-run first)
+# sha256 ce7c28dca2fb378e22e062255f82ae7ec22c004cffcf9eb22b8971601dd64a2d  20261120094932_per_mt_advance_uses_trip_total.sql
+20261120094932
+# sha256 d580d7ca1b0785e0d6496eaa5d82437f5c812d0669254ab7e5fa190e085fa162  20271120101500_pool_exhausted_quotes_can_rebid.sql
+20271120101500

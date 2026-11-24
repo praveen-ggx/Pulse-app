@@ -66,6 +66,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { driverTabBarBottomPad } from '@/components/driver/driverTabBarInsets';
 
 function tripEarnings(t: tripsService.TripRow): number {
   return tripEarningsForDriver(t);
@@ -126,7 +127,7 @@ export default function SalaryRequestScreen() {
    * Reserve space so NEXT / SUBMIT never sit under the glass dock (web + iOS + Android).
    */
   const footerPadTop = 4;
-  const footerPadBottom = Math.max(Math.round(insets.bottom * 0.35), 10);
+  const footerPadBottom = driverTabBarBottomPad(insets.bottom);
   const tabBarClearance =
     Layout.tabBarDockHeight + footerPadTop + footerPadBottom;
 
@@ -415,18 +416,31 @@ export default function SalaryRequestScreen() {
     return byTrip;
   }, [ledgerEntries]);
 
+  // Trips already inside a pending / approved / paid request. Offering them
+  // again lets the same trip be requested (and paid) twice. Rejected requests
+  // free their trips so the driver can ask again.
+  const tripIdsInOpenRequests = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of salaryRequests) {
+      if (r.status !== 'pending' && r.status !== 'approved' && r.status !== 'paid') continue;
+      for (const id of r.trip_ids ?? []) ids.add(String(id));
+    }
+    return ids;
+  }, [salaryRequests]);
+
   const pendingTripsForSalaryOrg = useMemo(() => {
     if (!effectiveSalaryOrg) return [];
     return completedTrips.filter(
       (t) =>
         t.driver_id === effectiveSalaryOrg.driverId &&
+        !tripIdsInOpenRequests.has(String(t.id)) &&
         (receivedByTripId[t.id] ?? 0) === 0 &&
         // A trip with no agreed commission/salary terms has nothing real to
         // request — excluded here (not just hidden) so the legacy 10% guess
         // can't become the basis of an actual salary claim.
         !tripEarningsDetailForDriver(t).isEstimated,
     );
-  }, [effectiveSalaryOrg, completedTrips, receivedByTripId]);
+  }, [effectiveSalaryOrg, completedTrips, receivedByTripId, tripIdsInOpenRequests]);
 
   const pendingTotalForSalaryOrg = useMemo(
     () => Math.round(pendingTripsForSalaryOrg.reduce((s, t) => s + tripEarnings(t), 0)),
@@ -558,6 +572,7 @@ export default function SalaryRequestScreen() {
   }, [salaryRequestType, salaryRequestAmount, neededByDate, salaryRequestReason]);
 
   const submitSalaryRequest = useCallback(async () => {
+    if (salaryRequestSubmitting) return;
     if (!isOnline) {
       showAppAlert('Offline', 'You are offline. Save as draft and submit when connected.');
       return;
@@ -619,6 +634,35 @@ export default function SalaryRequestScreen() {
           )
         : undefined;
 
+    if (salaryRequestType === 'monthly' && monthForDb) {
+      // One salary request per fleet per month: a second one gets paid twice.
+      const sameMonth = salaryRequests.find(
+        (r) =>
+          r.request_type === 'monthly' &&
+          String(r.organization_id) === String(org.orgId) &&
+          (r.salary_month ?? '').slice(0, 7) === monthForDb.slice(0, 7) &&
+          (r.status === 'pending' || r.status === 'approved' || r.status === 'paid'),
+      );
+      if (sameMonth) {
+        showAppAlert(
+          sameMonth.status === 'paid' ? 'Salary already paid' : 'Already requested',
+          sameMonth.status === 'paid'
+            ? `Your salary for this month was already paid by ${org.orgName}.`
+            : `You already have a salary request for this month with ${org.orgName}. Wait for the fleet to pay or reject it.`,
+        );
+        return;
+      }
+    }
+
+    // The advance "Needed by" date is required on the form but had nowhere to
+    // go, so the fleet never saw it. Until there is a column for it, put it at
+    // the start of the note.
+    const neededByPrefix =
+      salaryRequestType === 'advance' && neededByDate
+        ? `Needed by ${neededByDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`
+        : '';
+    const noteText = [neededByPrefix, trimmedReason].filter(Boolean).join(' · ');
+
     setSalaryRequestSubmitting(true);
     const { error, request } = await salaryRequestsService.createSalaryRequest(
       org.driverId,
@@ -626,7 +670,7 @@ export default function SalaryRequestScreen() {
       salaryRequestType,
       amount,
       {
-        note: trimmedReason ? trimmedReason.slice(0, VALIDATION.NOTES_MAX_LENGTH) : null,
+        note: noteText ? noteText.slice(0, VALIDATION.NOTES_MAX_LENGTH) : null,
         createdBy: profile?.uid ?? null,
         tripIds: salaryRequestType === 'trip_based' && selectedSalaryTripIds.length > 0 ? selectedSalaryTripIds : undefined,
         salaryMonth: monthForDb,
@@ -645,6 +689,8 @@ export default function SalaryRequestScreen() {
     setIsSuccess(true);
     load();
   }, [
+    salaryRequestSubmitting,
+    salaryRequests,
     isOnline,
     salaryRequestOrg,
     salaryRequestOrgOptions,

@@ -10,3 +10,8 @@ export function isDcoSelfTransportError(error: unknown): boolean {
     message,
   );
 }
+
+/** Stable key for one locally created party, shared by the live call and the outbox replay. */
+export function dcoSelfPartyKey(localPartyId: string): string {
+  return `dco-self-party:${localPartyId.trim()}`;
+}

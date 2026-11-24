@@ -8,7 +8,9 @@ import Theme from "@/constants/Theme";
 import {
   addToPlacesCache,
   getPopularPlacesInIndia,
+  isPendingGooglePlace,
   resolveIndiaPincode,
+  resolvePlaceSelection,
   reverseGeocodePlaceInIndia,
   searchPlacesInIndia,
   type PlaceResult,
@@ -256,7 +258,7 @@ export function LocationSearchField({
     };
   }, [query, dropdownOpen]);
 
-  const handleSelect = useCallback(
+  const applySelection = useCallback(
     (place: PlaceResult) => {
       const sync = enrichPlaceSelectionSync(place);
       const gen = ++enrichGenRef.current;
@@ -324,6 +326,35 @@ export function LocationSearchField({
       })();
     },
     [onChangeText, onSelectPlace, closeDropdown]
+  );
+
+  /**
+   * Google suggestions arrive without coordinates; fetch them for the picked
+   * one, then run the normal selection. All other results go straight through.
+   */
+  const handleSelect = useCallback(
+    (place: PlaceResult) => {
+      if (!isPendingGooglePlace(place)) {
+        applySelection(place);
+        return;
+      }
+      const gen = ++enrichGenRef.current;
+      setDraft(place.displayName);
+      closeDropdown();
+      void resolvePlaceSelection(place).then((resolved) => {
+        if (gen !== enrichGenRef.current) return;
+        if (isUsablePlaceCoordinate(resolved.lat, resolved.lon)) {
+          applySelection(resolved);
+          return;
+        }
+        // No coordinates from any provider — keep the text like a custom place.
+        const label = formatCityStateLabel(resolved.displayName) || resolved.displayName;
+        setDraft(label);
+        onChangeText(label);
+        onSelectPlace?.(label, customPlaceCoords());
+      });
+    },
+    [applySelection, closeDropdown, onChangeText, onSelectPlace]
   );
 
   const handleUseCustom = useCallback(() => {

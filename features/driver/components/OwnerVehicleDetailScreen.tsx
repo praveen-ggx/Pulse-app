@@ -20,10 +20,11 @@ import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
 import { ROUTES } from '@/lib/routes';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Fuel, Gauge, Share2, Truck, Wrench } from 'lucide-react-native';
+import { confirmDialog } from '@/lib/confirmDialog';
+import { showAppAlert } from '@/lib/appAlert';
 import { useCallback, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -57,30 +58,25 @@ export default function OwnerVehicleDetailScreen() {
 
   const confirmRemove = useCallback(() => {
     if (!uid || !vehicleId) return;
-    Alert.alert(
-      'Remove vehicle?',
-      'This removes it from My Fleet. It does not delete Business org vehicles.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              setRemoving(true);
-              const { error: delError } = await softDeleteOwnerVehicle(uid, vehicleId);
-              setRemoving(false);
-              if (delError) {
-                Alert.alert('Could not remove', delError.message);
-                return;
-              }
-              invalidate();
-              router.replace(ROUTES.driverMyFleet());
-            })();
-          },
-        },
-      ],
-    );
+    // confirmDialog / showAppAlert also work on web (the native alert does nothing there).
+    void (async () => {
+      const ok = await confirmDialog({
+        title: 'Remove vehicle?',
+        message: 'This removes it from My Fleet. It does not delete Business org vehicles.',
+        confirmLabel: 'Remove',
+        destructive: true,
+      });
+      if (!ok) return;
+      setRemoving(true);
+      const { error: delError } = await softDeleteOwnerVehicle(uid, vehicleId);
+      setRemoving(false);
+      if (delError) {
+        showAppAlert('Could not remove', delError.message);
+        return;
+      }
+      invalidate();
+      router.replace(ROUTES.driverMyFleet());
+    })();
   }, [uid, vehicleId, invalidate, router]);
 
   const cardBorder = isDark ? colors.borderSubtle : 'rgba(226,232,240,0.95)';

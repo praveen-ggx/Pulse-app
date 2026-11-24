@@ -9,6 +9,13 @@ import {
 } from '@/features/driver/utils/driverTripSequence.util';
 import { DriverBrandMark } from '@/components/driver/DriverBrandMark';
 import { DriverInviteCard } from '@/components/driver/DriverInviteCard';
+import { DriverInviteChangeRequestModal } from '@/features/drivers/components/DriverInviteChangeRequestModal';
+import {
+  declineDriverInviteWithReason,
+  requestDriverInviteChangesByMessage,
+} from '@/features/drivers/services/driverInviteNegotiation.service';
+import { askDeclineReason } from '@/features/drivers/utils/askDeclineReason.util';
+
 import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
 import {
@@ -27,10 +34,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   AppState,
   Image,
-  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -39,6 +44,19 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { confirmDialog } from '@/lib/confirmDialog';
+import { showAppAlert } from '@/lib/appAlert';
+import { driverInvitesReceivedQueryKey } from '@/lib/queries/useDriverInvitesQuery';
+import { queryKeys } from '@/lib/queryKeys';
+import { getQueryClient } from '@/lib/queryClient';
+import { syncAndInvalidateLinkedDrivers } from '@/lib/syncLinkedDriversForDriverHome';
+import {
+  buildFleetDisconnectConfirmMessage,
+  fleetDisconnectConfirmTitle,
+} from '@/features/drivers/utils/fleetDisconnectWarning.util';
+import * as salaryRequestsService from '@/features/drivers/services/salaryRequests.service';
+import { resolveAgreedPayTerms } from '@/features/drivers/utils/driverPayTerms.util';
+
 
 
 /**
@@ -69,6 +87,20 @@ export default function DriverRequestsScreen() {
   const isDark = theme === 'dark';
   const { profile } = useAuth();
   const { avatarUri } = useDriverAvatarUri();
+  /**
+   * After joining / leaving / declining a fleet, refresh the rest of the app
+   * too (Home, DCO status, Market), not just this list — otherwise Home keeps
+   * the old fleet until its 2-minute poll.
+   */
+  const refreshAfterFleetChange = useCallback(() => {
+    const uid = profile?.uid;
+    if (!uid) return;
+    // App-wide singleton (same instance the root provider uses).
+    const queryClient = getQueryClient();
+    void queryClient.invalidateQueries({ queryKey: queryKeys.driverApp.driverOperatingMode(uid) });
+    void queryClient.invalidateQueries({ queryKey: driverInvitesReceivedQueryKey(uid) });
+    void syncAndInvalidateLinkedDrivers(queryClient, uid);
+  }, [profile?.uid]);
 
   const [invites, setInvites] = useState<driversService.DriverInviteRow[]>([]);
   const [linkedDrivers, setLinkedDrivers] = useState<driversService.DriverRow[]>([]);
@@ -83,6 +115,8 @@ export default function DriverRequestsScreen() {
   // request instead of firing a second Promise.all of the same RPCs.
   const fetchInFlightRef = useRef<Promise<void> | null>(null);
   const [inviteActionId, setInviteActionId] = useState<string | null>(null);
+  const [counterInvite, setCounterInvite] = useState<driversService.DriverInviteRow | null>(null);
+
   const [leavingOrgId, setLeavingOrgId] = useState<string | null>(null);
   const [leaveFleetPressedOrgId, setLeaveFleetPressedOrgId] = useState<string | null>(null);
   const [quickTab, setQuickTab] = useState<RequestsQuickTab>('all');
@@ -156,7 +190,10 @@ export default function DriverRequestsScreen() {
     fetch().finally(() => setRefreshing(false));
   }, [fetch]);
 
-  const pendingInvites = invites.filter((i) => i.status === 'pending');
+  // 'countered' = driver asked for changes; stays here until the fleet replies.
+  const pendingInvites = invites.filter(
+    (i) => i.status === 'pending' || i.status === 'countered',
+  );
   const resolvedInvites = invites.filter((i) => i.status !== 'pending');
   const acceptedInvites = resolvedInvites.filter((i) => i.status === 'accepted');
 
@@ -214,11 +251,7 @@ export default function DriverRequestsScreen() {
       // Same authoritative resolver used elsewhere — an accepted invite for
       // this org doesn't mean every trip has agreed per-trip terms; only
       // trips with real agreed terms contribute to the total.
-      const offer = {
-        commissionPercent: inv.commission_percent ?? driver.commission_percent ?? null,
-        commissionPerKm: inv.commission_per_km ?? driver.commission_per_km ?? null,
-        payableAmount: inv.payable_amount ?? driver.payable_amount ?? null,
-      };
+      const offer = resolveAgreedPayTerms(driver, inv);
       const totalEarned = Math.round(
         completed.reduce((sum, t) => {
           const { hasAgreedPayoutTerms } = resolveDriverTripPayoutTerms(t, offer);
@@ -349,36 +382,57 @@ export default function DriverRequestsScreen() {
       setLeavingOrgId(null);
       if (error) {
         const msg = error.message ?? 'Could not leave fleet.';
-        Alert.alert(
+        showAppAlert(
           'Leave fleet failed',
           /function.*does not exist|relation.*does not exist/i.test(msg)
             ? 'Server is not set up for leaving fleets yet. Please try again later or contact support.'
             : msg,
-          [{ text: 'OK' }]
         );
         return;
       }
       fetch();
+      refreshAfterFleetChange();
     },
-    [fetch]
+    [fetch, refreshAfterFleetChange]
   );
 
   const handleLeaveFleetPress = useCallback(
-    (organizationId: string, orgName: string) => {
-      Alert.alert(
-        'Leave fleet?',
-        `You will no longer receive trip assignments from ${orgName}. Your passbook for this fleet will remain available under Passbook history. You can connect again if they send a new invite.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Leave fleet',
-            style: 'destructive',
-            onPress: () => handleLeaveFleet(organizationId),
-          },
-        ]
-      );
+    async (organizationId: string, orgName: string) => {
+      const passbook = passbookByOrgId[organizationId];
+      const driverIds = linkedDrivers
+        .filter((d) => String(d.organization_id ?? '') === organizationId)
+        .map((d) => d.id);
+      let pendingSalaryRequestInr = 0;
+      let openSalaryRequestCount = 0;
+      if (driverIds.length > 0) {
+        const { requests } =
+          await salaryRequestsService.getSalaryRequestsByDriverIds(driverIds);
+        const open = (requests ?? []).filter(
+          (r) =>
+            String(r.organization_id ?? '') === organizationId &&
+            String(r.status ?? '').toLowerCase() === 'pending',
+        );
+        openSalaryRequestCount = open.length;
+        pendingSalaryRequestInr = open.reduce(
+          (sum, r) => sum + (Number(r.amount) || 0),
+          0,
+        );
+      }
+      const confirmed = await confirmDialog({
+        title: fleetDisconnectConfirmTitle(orgName),
+        message: buildFleetDisconnectConfirmMessage({
+          orgName,
+          pendingTripPayInr: passbook?.pendingAmount ?? 0,
+          pendingSalaryRequestInr,
+          openSalaryRequestCount,
+        }),
+        confirmLabel: 'Disconnect',
+        destructive: true,
+      });
+      if (!confirmed) return;
+      handleLeaveFleet(organizationId);
     },
-    [handleLeaveFleet]
+    [handleLeaveFleet, passbookByOrgId, linkedDrivers],
   );
 
   const styles = useMemo(() => StyleSheet.create({
@@ -892,7 +946,7 @@ export default function DriverRequestsScreen() {
           </View>
         </View>
         <TouchableOpacity
-          onPress={() => {}}
+          onPress={() => router.push('/(driver)/notifications')}
           style={[styles.notificationBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
           activeOpacity={0.8}
           accessibilityLabel="Notifications"
@@ -1039,60 +1093,56 @@ export default function DriverRequestsScreen() {
                   offerText={buildOfferText(inv)}
                   busy={inviteActionId === inv.id}
                   fallbackAvatarUri={avatarUri}
-                  onIgnore={() => {
-                    const title = "Decline invitation?";
-                    const msg = "You will reject this fleet connection invitation.";
-                    
-                    if (Platform.OS === "web" && typeof window !== "undefined") {
-                      const confirmed = window.confirm(`${title}\n\n${msg}`);
-                      if (confirmed) {
-                        (async () => {
-                          setInviteActionId(inv.id);
-                          const { error } = await driversService.rejectDriverInvite(inv.id);
-                          setInviteActionId(null);
-                          if (error) {
-                            Alert.alert('Decline failed', error.message ?? 'Could not decline. Try again.', [{ text: 'OK' }]);
-                          }
-                          fetch();
-                        })();
-                      }
-                      return;
+                  waitingForFleet={inv.status === 'countered'}
+                  onRequestChanges={
+                    inv.status === 'pending' ? () => setCounterInvite(inv) : undefined
+                  }
+                  onIgnore={async () => {
+                    const reason = await askDeclineReason();
+                    if (reason === undefined) return;
+                    setInviteActionId(inv.id);
+                    const { error } = await declineDriverInviteWithReason(inv.id, reason);
+                    setInviteActionId(null);
+                    if (error) {
+                      showAppAlert('Decline failed', error.message ?? 'Could not decline. Try again.');
                     }
-
-                    Alert.alert(
-                      title,
-                      msg,
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        {
-                          text: "Decline",
-                          style: "destructive",
-                          onPress: async () => {
-                            setInviteActionId(inv.id);
-                            const { error } = await driversService.rejectDriverInvite(inv.id);
-                            setInviteActionId(null);
-                            if (error) {
-                              Alert.alert('Decline failed', error.message ?? 'Could not decline. Try again.', [{ text: 'OK' }]);
-                            }
-                            fetch();
-                          }
-                        }
-                      ]
-                    );
+                    fetch();
+                    refreshAfterFleetChange();
                   }}
                   onAccept={async () => {
                     setInviteActionId(inv.id);
                     const { error } = await driversService.acceptDriverInvite(inv.id);
                     setInviteActionId(null);
                     if (error) {
-                      Alert.alert('Accept failed', error.message ?? 'Could not accept. Try again.', [{ text: 'OK' }]);
+                      showAppAlert('Accept failed', error.message ?? 'Could not accept. Try again.');
                       fetch();
                       return;
                     }
                     fetch();
+                    refreshAfterFleetChange();
                   }}
                 />
               ))}
+              <DriverInviteChangeRequestModal
+                visible={counterInvite != null}
+                orgName={counterInvite?.from_org_name || 'the fleet'}
+                offer={counterInvite ?? {}}
+                submitting={counterInvite != null && inviteActionId === counterInvite.id}
+                onClose={() => setCounterInvite(null)}
+                onSubmit={async (message) => {
+                  if (!counterInvite) return;
+                  setInviteActionId(counterInvite.id);
+                  const { error } = await requestDriverInviteChangesByMessage(counterInvite, message);
+                  setInviteActionId(null);
+                  if (error) {
+                    showAppAlert('Could not send', error.message);
+                    return;
+                  }
+                  setCounterInvite(null);
+                  showAppAlert('Sent to fleet', 'The fleet will see your message and reply.');
+                  fetch();
+                }}
+              />
             </View>
           )}
 
@@ -1101,6 +1151,13 @@ export default function DriverRequestsScreen() {
               {connectedAcceptedInvites.map((inv) => {
                 const passbook = passbookByOrgId[inv.from_organization_id];
                 const isLeaving = leavingOrgId === inv.from_organization_id;
+                // Current terms: this fleet's driver row (edited by the fleet), not the old invite.
+                const currentTerms = resolveAgreedPayTerms(
+                  activeLinkedDrivers.find(
+                    (d) => String(d.organization_id ?? '') === String(inv.from_organization_id ?? ''),
+                  ),
+                  inv,
+                );
                 const receivedPercentage =
                   passbook && passbook.totalEarned > 0
                     ? Math.min(100, Math.round((passbook.totalReceived / passbook.totalEarned) * 100))
@@ -1156,7 +1213,10 @@ export default function DriverRequestsScreen() {
                       <TouchableOpacity
                         style={[styles.premiumInfoBtn, { backgroundColor: colors.surfaceElevated }]}
                         activeOpacity={0.8}
-                        onPress={() => {}}
+                        accessibilityLabel="Offer details"
+                        onPress={() =>
+                          showAppAlert(inv.from_org_name || 'Organisation', buildOfferText(inv))
+                        }
                       >
                         <FontAwesome name="info" size={12} color={colors.textMuted} />
                       </TouchableOpacity>
@@ -1172,13 +1232,13 @@ export default function DriverRequestsScreen() {
                         <View style={styles.quickStatsRow}>
                           <View style={styles.quickStatCol}>
                             <Text style={[styles.quickStatLabel, { color: colors.textMuted }]}>Rate</Text>
-                            <Text style={[styles.quickStatValue, { color: colors.text }]}>₹{inv.payable_amount?.toLocaleString('en-IN') ?? 0}</Text>
+                            <Text style={[styles.quickStatValue, { color: colors.text }]}>₹{(currentTerms.payableAmount ?? 0).toLocaleString('en-IN')}</Text>
 
                           </View>
                           <View style={[styles.quickDivider, { backgroundColor: colors.border }]} />
                           <View style={styles.quickStatCol}>
                             <Text style={[styles.quickStatLabel, { color: colors.textMuted }]}>Commission</Text>
-                            <Text style={[styles.quickStatValue, { color: colors.text }]}>{inv.commission_percent ?? 0}%</Text>
+                            <Text style={[styles.quickStatValue, { color: colors.text }]}>{currentTerms.commissionPercent ?? 0}%</Text>
                           </View>
                           <View style={[styles.quickDivider, { backgroundColor: colors.border }]} />
                           <View style={styles.quickStatCol}>

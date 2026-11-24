@@ -10,13 +10,12 @@ import {
   type DriverLedgerReceiptPreview,
 } from "@/features/drivers/components/DriverLedgerReceiptPreviewModal";
 import { ROUTES } from "@/lib/routes";
-import { useRouter } from "expo-router";
 import {
+  driverBodyPrimary,
   driverBodySecondary,
   driverUIBold,
   driverUIExtraBold,
   driverUISemiBold,
-  DriverFontFamily,
 } from "@/constants/DriverTypography";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
@@ -28,8 +27,10 @@ import {
 import { tripNeedsPartyTag } from "@/features/drivers/utils/driverPartyReceivables.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter, type Href } from "expo-router";
 import {
   ArrowRight,
+  Banknote,
   Bell,
   Building2,
   CalendarDays,
@@ -255,6 +256,8 @@ type Props = {
   tripExpenses?: { tripId: string; amount: number; kind?: string }[];
   /** Show spent + margin on the month hero (DCO trip costs). */
   showMonthPnl?: boolean;
+  /** Salary request is for employed drivers. DCOs do not get a salary. */
+  showSalaryRequest?: boolean;
   /** Employer-dispatched trips must not show Tag. */
   isFleetDispatched?: (trip: TripRow) => boolean;
 };
@@ -277,6 +280,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
   isDark,
   tripExpenses = [],
   showMonthPnl = false,
+  showSalaryRequest = true,
   isFleetDispatched,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -890,6 +894,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
       </View>
 
       {/* Fleet filter */}
+      <View style={styles.fleetFilterRow}>
       {showFleetFilter ? (
         <ScrollView
           horizontal
@@ -968,7 +973,27 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
             );
           })}
         </ScrollView>
-      ) : null}
+      ) : (
+        <View style={styles.fleetChipScroll} />
+      )}
+        {showSalaryRequest ? (
+        <Pressable
+          onPress={() => router.push("/(driver)/salary-request" as Href)}
+          style={[
+            styles.salaryIconBtn,
+            {
+              borderColor: cardBorder,
+              backgroundColor: colors.surface,
+            },
+          ]}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Salary request"
+        >
+          <Banknote size={16} color={colors.emerald} strokeWidth={2.3} />
+        </Pressable>
+        ) : null}
+      </View>
 
       {/* Hero summary — aligns with wallet “TO COLLECT” emerald card */}
       <LinearGradient
@@ -2043,9 +2068,25 @@ const styles = StyleSheet.create({
     lineHeight: 13,
     textAlign: "center",
   },
+  fleetFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   fleetChipScroll: {
-    flexGrow: 0,
+    flex: 1,
+    flexGrow: 1,
+    minWidth: 0,
     marginHorizontal: -2,
+  },
+  salaryIconBtn: {
+    width: 44,
+    height: 38,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   fleetChipRow: {
     gap: 8,
@@ -2264,14 +2305,14 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   heroBadgeText: {
-    fontFamily: DriverFontFamily.semiBold,
+    ...driverUISemiBold,
     fontSize: 10,
     letterSpacing: 0.7,
     textTransform: "uppercase",
     color: "rgba(236,253,245,0.95)",
   },
   heroTripCount: {
-    fontFamily: DriverFontFamily.medium,
+    ...driverBodyPrimary,
     fontSize: 11,
     color: "rgba(167,243,208,0.85)",
   },
@@ -2281,13 +2322,13 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   heroRupee: {
-    fontFamily: DriverFontFamily.bold,
+    ...driverUIBold,
     fontSize: 22,
     color: "rgba(255,255,255,0.88)",
     marginTop: 8,
   },
   heroAmount: {
-    fontFamily: DriverFontFamily.extraBold,
+    ...driverUIExtraBold,
     fontSize: 36,
     letterSpacing: -1,
     color: "#ffffff",
@@ -2317,7 +2358,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(167,243,208,0.95)",
   },
   progressCaption: {
-    fontFamily: DriverFontFamily.medium,
+    ...driverBodyPrimary,
     fontSize: 10,
     lineHeight: 13,
     color: "rgba(167,243,208,0.85)",
@@ -2348,7 +2389,7 @@ const styles = StyleSheet.create({
     marginVertical: 2,
   },
   heroMetricLabel: {
-    fontFamily: DriverFontFamily.semiBold,
+    ...driverUISemiBold,
     fontSize: 9,
     letterSpacing: 0.2,
     textTransform: "uppercase",
@@ -2356,7 +2397,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   heroMetricValue: {
-    fontFamily: DriverFontFamily.bold,
+    ...driverUIBold,
     fontSize: 13,
     letterSpacing: -0.2,
     color: "#ffffff",

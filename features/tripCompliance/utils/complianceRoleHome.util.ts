@@ -1,4 +1,4 @@
-import type { ComplianceQueueFilter } from "@/features/tripCompliance/tripCompliance.types";
+import type { ComplianceQueueFilter } from "@/features/tripCompliance/hooks/useComplianceTripsQuery";
 
 /**
  * Stage the Compliance desk opens on. All stays available, but it is not a home:

@@ -38,6 +38,13 @@ export class TripTrackingMapStore {
   }
 
   applySeed(latitude: number, longitude: number, recordedAt: string): void {
+    // A DB seed must never move the marker back behind a newer live broadcast point.
+    const cur = this.point;
+    if (cur) {
+      const curMs = Date.parse(cur.recordedAt);
+      const nextMs = Date.parse(recordedAt);
+      if (Number.isFinite(curMs) && Number.isFinite(nextMs) && nextMs < curMs) return;
+    }
     this.setPoint({ latitude, longitude, recordedAt, stale: false });
   }
 

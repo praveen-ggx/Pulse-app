@@ -2,6 +2,7 @@
  * Trip detail — manifest layout (hero, Journey / Finance / Vault).
  * Mobile native + narrow web; wide web uses the same screen with isDesktop layout.
  */
+import type { ComplianceVaultFile } from "@/features/tripCompliance/services/complianceVaultUpload.service";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
 import { HubMobileUnderlineTab } from "@/components/hub/HubMobileUnderlineTab";
@@ -57,12 +58,14 @@ import {
 import type { ElrTripSource } from "@/features/trips/services/elrSnapshot.util";
 import { SimCompletionTimeField } from "@/features/trips/components/trip-detail/SimCompletionTimeField";
 import {
-  revokeGroundOpsPickupStatus,
   simulateGroundOpsPickupStatus,
   type GroundOpsPickupTarget,
 } from "@/features/trips/services/groundOpsPickup.service";
 import { groundOpsPickupMovedTo } from "@/features/trips/utils/groundOpsPickupStale.util";
-import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
+import {
+  alertMessage,
+  chooseReplaceOrAddPage,
+} from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { loadCompliancePipelineInputs } from "@/features/tripCompliance/services/compliancePipelineSync.service";
 import { GroundOpsTransitChecklist } from "@/features/trips/components/trip-detail/GroundOpsTransitChecklist";
 import {
@@ -128,7 +131,10 @@ import { throwIfCancelled } from "@/lib/supabaseAbort.util";
 import { notifyTripChatMessagesChanged } from "@/lib/tripChatInvalidate";
 import { getOptimalRoute } from "@/lib/routingService";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
-import { downloadTripDocumentFile } from "@/features/trips/utils/tripDocumentDownload.util";
+import {
+  downloadTripDocumentFile,
+  downloadTripDocumentFiles,
+} from "@/features/trips/utils/tripDocumentDownload.util";
 import {
   acceptVaultFileConfirmation,
   vaultUploadOutcome,
@@ -150,6 +156,8 @@ import {
   getComplianceDocumentSignedUrl,
   updateEntityDocumentExpiry,
   updateLatestEntityDocumentExpiry,
+  listLiveEntityDocumentIds,
+  supersedeEntityDocuments,
   uploadComplianceDocument,
 } from "@/features/compliance/services/documents.service";
 import {
@@ -163,6 +171,7 @@ import {
 import {
   deleteVehicleDocument,
   deleteVehicleExtraDocument,
+  findVehicleEntityDocumentIdByPath,
   getVehicleDocumentViewUrl,
   updateVehicleDocumentExpiry,
   uploadAndSaveVehicleDocumentForTrip,
@@ -225,16 +234,27 @@ import {
     type TripRow,
 } from "../../services/trips.service";
 import {
+    listTripStatusAudit,
+    type TripStatusAuditActivityRow,
+} from "../../services/tripStatusTimes.service";
+import {
     alignSimCompletionIsoToMin,
     alignUnrevokedBisimTimestamps,
     appendBisimNote,
+    clearUnrevokedBisimStatuses,
     clampSimCompletionPickerValue,
+    capSimCompletionPickerValueAtNow,
+    isSimCompletionInFuture,
+    SIM_FUTURE_TIME_MESSAGE,
+    resolveSimStageFloorWarning,
     ensureBisimTimestampForStatus,
     isSimCompletionAtOrAfterMin,
     isUnrestrictedPickupSimStage,
     lastBisimCoordinate,
     parseSimCompletionPickerValue,
+    pickupRevisionPendingAfterRevoke,
     resolveAutoSimCompletionIso,
+    resolvePickupReferenceIso,
     resolveSimulateStageCoordinate,
     resolveSimulateStageMinAt,
     resolveTripAssignedAtIso,
@@ -1595,6 +1615,8 @@ export default function TripDetailScreen({
     message: string;
   } | null>(null);
   const vaultUploadInFlightRef = useRef(false);
+  /** Upload pressed on an e-way card that has a number but no file: link the new file to it. */
+  const ewayUploadLinkRef = useRef<{ entryIndex: number; ewayNo: string; at: number } | null>(null);
   const [pendingVaultUpload, setPendingVaultUpload] = useState<{
     slotId: string;
     label: string;
@@ -1720,6 +1742,9 @@ export default function TripDetailScreen({
   const [uploaderProfiles, setUploaderProfiles] = useState<
     Record<string, TripActivityUserProfile>
   >({});
+  const [journeyStatusEdits, setJourneyStatusEdits] = useState<
+    TripStatusAuditActivityRow[]
+  >([]);
   const [uploadedByByDocId, setUploadedByByDocId] = useState<
     Record<string, string>
   >({});
@@ -1734,6 +1759,44 @@ export default function TripDetailScreen({
       .sort()
       .join(",");
   }, [detail.trip, detail.assignmentAuditRows]);
+
+  const statusEditorIdsKey = useMemo(
+    () =>
+      [
+        ...new Set(
+          journeyStatusEdits
+            .map((row) => String(row.changed_by ?? "").trim())
+            .filter(Boolean),
+        ),
+      ]
+        .sort()
+        .join(","),
+    [journeyStatusEdits],
+  );
+
+  useEffect(() => {
+    const tripId = String(detail.trip?.id ?? "").trim();
+    if (!tripId) {
+      setJourneyStatusEdits([]);
+      return;
+    }
+    let cancelled = false;
+    void listTripStatusAudit(tripId)
+      .then((rows) => {
+        if (!cancelled) setJourneyStatusEdits(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setJourneyStatusEdits([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    detail.trip?.id,
+    detail.trip?.notes,
+    detail.trip?.status,
+    detail.trip?.updated_at,
+  ]);
 
   const docUploaderIdsKey = useMemo(
     () =>
@@ -1763,7 +1826,10 @@ export default function TripDetailScreen({
     const journeyIds = journeyActorIdsKey
       ? journeyActorIdsKey.split(",").filter(Boolean)
       : [];
-    const unique = [...new Set([...docIds, ...journeyIds])];
+    const statusEditorIds = statusEditorIdsKey
+      ? statusEditorIdsKey.split(",").filter(Boolean)
+      : [];
+    const unique = [...new Set([...docIds, ...journeyIds, ...statusEditorIds])];
     if (!tripId && unique.length === 0) {
       setUploaderProfiles({});
       setUploadedByByDocId({});
@@ -1857,6 +1923,7 @@ export default function TripDetailScreen({
     currentOrganization?.id,
     docUploaderIdsKey,
     journeyActorIdsKey,
+    statusEditorIdsKey,
     detail.currentUserId,
     detail.profile?.avatar_seed,
     detail.profile?.avatar_url,
@@ -2217,6 +2284,7 @@ export default function TripDetailScreen({
         })),
       ];
       let uploadedCount = 0;
+      let firstEwayUploadPath: string | null = null;
       const uploadedNames: string[] = [];
       let lrOcrTarget: {
         uri: string;
@@ -2284,16 +2352,39 @@ export default function TripDetailScreen({
           // to entity_documents under the viewer org). Extra pages used to
           // write the owner's vehicles.documents and fail with "Partial upload".
           const slotFilled = Boolean(detail.vehicleDocs?.[complianceKind]?.url?.trim());
+          // Filled slot: a renewed document replaces the current copy (kept as
+          // history); otherwise the files are more pages of the same document.
+          let replacing = false;
+          if (slotFilled) {
+            const choice = await chooseReplaceOrAddPage(DOCUMENT_LABELS[complianceKind]);
+            if (!choice) return;
+            replacing = choice === "replace";
+          }
+          let replaceSnapshot: string[] = [];
+          if (replacing) {
+            const live = await listLiveEntityDocumentIds({
+              orgId: uploaderOrgId,
+              entityType: "vehicle",
+              entityId: vehicleId,
+              docType: complianceKind,
+            });
+            if (live.error) {
+              notifyVaultFailure("Upload failed", live.error.message);
+              return;
+            }
+            replaceSnapshot = live.ids;
+          }
           let workingDocs = detail.vehicleDocs;
           let remaining = buffers;
-          if (!slotFilled) {
+          if (!slotFilled || replacing) {
+            // The entered expiry only — never the previous file's date.
             const { documents, error } = await uploadAndSaveVehicleDocumentForTrip(
               uploaderOrgId,
               tripIdForUpload,
               vehicleId,
               complianceKind,
               first,
-              assetExpiry ?? detail.vehicleDocs?.[complianceKind]?.expiryDate ?? "",
+              assetExpiry ?? "",
               detail.vehicleDocs,
               [detail.trip?.organization_id],
             );
@@ -2314,6 +2405,8 @@ export default function TripDetailScreen({
               ...file,
               fileName: `${DOCUMENT_SHORT_LABELS[complianceKind]} · ${file.fileName}`,
               docType: complianceKind,
+              // Keep the date the user entered (it used to be dropped here).
+              expiryDate: assetExpiry,
             }));
             const { documents, error } = await uploadAndSaveVehicleExtraDocumentsForTrip(
               uploaderOrgId,
@@ -2335,6 +2428,21 @@ export default function TripDetailScreen({
               if (name) uploadedNames.push(name);
             }
             if (documents) detail.setVehicleDocs(documents);
+          }
+          if (replaceSnapshot.length > 0) {
+            // Every new file saved: retire exactly the copies live before it.
+            const newPath = workingDocs?.[complianceKind]?.url?.trim() ?? "";
+            const replacement = newPath
+              ? await findVehicleEntityDocumentIdByPath(vehicleId, newPath)
+              : { id: null, error: null };
+            const retired = await supersedeEntityDocuments(replaceSnapshot, replacement.id);
+            if (retired.error) {
+              showAppAlert(
+                "Saved, but the old file is still active",
+                `The new file was saved. Marking the previous copy as replaced failed: ${retired.error.message}`,
+              );
+            }
+            detail.reloadAssetExtras();
           }
         } else {
           const { documents, error } = await uploadAndSaveVehicleExtraDocumentsForTrip(
@@ -2373,6 +2481,34 @@ export default function TripDetailScreen({
         }
         const nextIdentity = { ...(detail.driverIdentityDocs ?? {}) };
         const extras = [...(nextIdentity.extras ?? [])];
+        let replacing = false;
+        if (nextIdentity[driverKind]?.url) {
+          const choice = await chooseReplaceOrAddPage(
+            driverKind === "license" ? "Driving licence" : "Aadhaar",
+          );
+          if (!choice) return;
+          replacing = choice === "replace";
+        }
+        let replaceSnapshot: string[] = [];
+        if (replacing) {
+          const live = await listLiveEntityDocumentIds({
+            orgId,
+            entityType: "driver",
+            entityId: driverId,
+            docType: driverKind,
+          });
+          if (live.error) {
+            notifyVaultFailure("Upload failed", live.error.message);
+            return;
+          }
+          replaceSnapshot = live.ids;
+          // The replacement becomes the slot; older pages of this kind go with it.
+          delete nextIdentity[driverKind];
+          for (let i = extras.length - 1; i >= 0; i -= 1) {
+            if (extras[i]?.kind === driverKind) extras.splice(i, 1);
+          }
+        }
+        let replacementId: string | null = null;
         for (const file of files) {
           const arrayBuffer = await readFileAsArrayBuffer(file.uri, file.arrayBuffer);
           if (!arrayBuffer || arrayBuffer.byteLength === 0) {
@@ -2401,7 +2537,8 @@ export default function TripDetailScreen({
               fileName: file.fileName,
             },
             uploadedBy: uploaderId,
-            expiryDate: assetExpiry ?? detail.driverIdentityDocs?.[driverKind]?.expiryDate ?? null,
+            // The entered expiry only (required for a licence) — never the old file's date.
+            expiryDate: assetExpiry,
           });
           if (error || !document?.storage_path) {
             notifyVaultFailure(
@@ -2420,11 +2557,22 @@ export default function TripDetailScreen({
           };
           if (!nextIdentity[driverKind]?.url) {
             nextIdentity[driverKind] = saved;
+            replacementId = document.id;
           } else {
             extras.push({ ...saved, kind: driverKind });
           }
         }
+        if (replaceSnapshot.length > 0) {
+          const retired = await supersedeEntityDocuments(replaceSnapshot, replacementId);
+          if (retired.error) {
+            showAppAlert(
+              "Saved, but the old file is still active",
+              `The new file was saved. Marking the previous copy as replaced failed: ${retired.error.message}`,
+            );
+          }
+        }
         if (extras.length > 0) nextIdentity.extras = extras;
+        else delete nextIdentity.extras;
         detail.setDriverIdentityDocs(nextIdentity);
       } else {
         for (const [index, file] of files.entries()) {
@@ -2485,6 +2633,9 @@ export default function TripDetailScreen({
           }
           uploadedCount += 1;
           if (file.fileName.trim()) uploadedNames.push(file.fileName.trim());
+          if (pending.docType === "eway_bill" && doc?.storage_path && !firstEwayUploadPath) {
+            firstEwayUploadPath = doc.storage_path;
+          }
           if (doc) {
             if (lrPayload && !doc.document_number?.trim()) {
               await tripDocumentsService.updateTripDocumentNumber(doc.id, lrPayload);
@@ -2511,6 +2662,28 @@ export default function TripDetailScreen({
               storagePath: doc.storage_path,
             };
           }
+        }
+      }
+      const ewayLink = ewayUploadLinkRef.current;
+      ewayUploadLinkRef.current = null;
+      if (
+        ewayLink &&
+        firstEwayUploadPath &&
+        Date.now() - ewayLink.at < 10 * 60 * 1000 &&
+        uploaderId
+      ) {
+        const { error: linkError } = await tripDocumentsService.linkEwayEntryToFile({
+          tripId: tripIdForUpload,
+          uploadedBy: uploaderId,
+          entryIndex: ewayLink.entryIndex,
+          ewayNo: ewayLink.ewayNo,
+          filePath: firstEwayUploadPath,
+        });
+        if (linkError) {
+          showAppAlert(
+            "File saved",
+            `The file was uploaded, but it could not be attached to e-way bill ${ewayLink.ewayNo}: ${linkError.message}`,
+          );
         }
       }
       const saved = vaultUploadOutcome({
@@ -2637,6 +2810,26 @@ export default function TripDetailScreen({
           );
           return false;
         }
+        // Partner-truck files shown here are entity_documents rows merged into
+        // the view, not vehicles.documents. Delete the row they came from.
+        const entityDoc = await findVehicleEntityDocumentIdByPath(vehicleId, target.storagePath);
+        if (entityDoc.error) {
+          showAppAlert("Delete failed", entityDoc.error.message);
+          return false;
+        }
+        if (entityDoc.id) {
+          const { error } = await deleteComplianceDocument(entityDoc.id, target.storagePath);
+          if (error) {
+            showAppAlert("Delete failed", error.message);
+            return false;
+          }
+          detail.reloadAssetExtras();
+          detail.setSelectedDoc(null);
+          detail.handleRefresh();
+          refreshComplianceForTrip();
+          showAppAlert("Deleted", `${target.label} was removed.`);
+          return true;
+        }
         const { documents, error } =
           target.kind === "vehicle_extra"
             ? await deleteVehicleExtraDocument(
@@ -2720,7 +2913,11 @@ export default function TripDetailScreen({
             document_type: categoryToType[target.category ?? ""] ?? "manifest",
           } satisfies tripDocumentsService.TripDocumentRow);
 
-        const { error } = await tripDocumentsService.deleteTripDocument(payload);
+        // E-way numbers can live on the file being removed; keep them first.
+        const { error } =
+          payload.document_type === "eway_bill"
+            ? await tripDocumentsService.deleteEwayBillDocument(payload, detail.currentUserId)
+            : await tripDocumentsService.deleteTripDocument(payload);
         if (error) {
           showAppAlert("Delete failed", error.message);
           return false;
@@ -2752,6 +2949,7 @@ export default function TripDetailScreen({
     detail.setDriverIdentityDocs,
     detail.setSelectedDoc,
     detail.handleRefresh,
+    detail.currentUserId,
     refreshComplianceForTrip,
     currentOrganization?.id,
     uploadingDocId,
@@ -3383,6 +3581,7 @@ export default function TripDetailScreen({
       currentUserId: detail.currentUserId,
       staffDisplayName: detail.profile?.full_name,
       driverDisplayName: detail.driverName ?? tr.driver_display_name,
+      statusAuditRows: journeyStatusEdits,
     });
     if (!commerceJourney) return ftlLogs;
     return buildCommerceManifestJourneyLogs({
@@ -3399,6 +3598,7 @@ export default function TripDetailScreen({
     detail.currentUserId,
     detail.profile?.full_name,
     detail.driverName,
+    journeyStatusEdits,
     detail.driverLocation,
     detail.driverLocationAddress,
     manifestJourneyPings,
@@ -3554,6 +3754,43 @@ export default function TripDetailScreen({
       return true;
     },
     [detail.trip?.id, detail.currentUserId, detail.loadTripDocuments, queryClient],
+  );
+
+  /** "Add e-way number": upload its document and add the number linked to it. */
+  const addEwayBillWithFile = useCallback(
+    async (entry: EwayFieldValues, file: ComplianceVaultFile) => {
+      const tripIdForSave = detail.trip?.id;
+      if (!tripIdForSave) return false;
+      const uploadedBy = detail.currentUserId;
+      if (!uploadedBy) {
+        showAppAlert("Could not save", "Sign in to add the e-way bill.");
+        return false;
+      }
+      const { error } = await tripDocumentsService.addEwayBillWithFile({
+        tripId: tripIdForSave,
+        uploadedBy,
+        organizationId: detail.trip?.organization_id ?? currentOrganization?.id ?? null,
+        entry,
+        file,
+      });
+      await detail.loadTripDocuments();
+      await queryClient.invalidateQueries({
+        queryKey: ["q", "trips", "eway-expiry", tripIdForSave],
+      });
+      if (error) {
+        showAppAlert("Could not add the e-way bill", error.message);
+        return false;
+      }
+      return true;
+    },
+    [
+      detail.trip?.id,
+      detail.trip?.organization_id,
+      detail.currentUserId,
+      detail.loadTripDocuments,
+      currentOrganization?.id,
+      queryClient,
+    ],
   );
 
   const manifestHeroPartyContext = useMemo<AggregateTripKindPillContext>(
@@ -4477,14 +4714,17 @@ export default function TripDetailScreen({
     String(tripExtra.vehicle_number ?? "").trim() ||
     "Pending";
 
-  const mapDbLocationTrail = mergeMapLocationTrail(
-    detail.tripLocationPoints ?? [],
-    (detail.trackingTrail ?? []).map((c) => ({
-      latitude: c.latitude,
-      longitude: c.longitude,
-      recorded_at: c.recorded_at,
-    })),
-  );
+  // Completed trip: cleaned driven path (read once). Open trip: live history + checkpoints.
+  const mapDbLocationTrail = detail.tripCompleted
+    ? detail.completedTripPath ?? []
+    : mergeMapLocationTrail(
+        detail.tripLocationPoints ?? [],
+        (detail.trackingTrail ?? []).map((c) => ({
+          latitude: c.latitude,
+          longitude: c.longitude,
+          recorded_at: c.recorded_at,
+        })),
+      );
   const mapTruckLocation = resolveMapTruckLocation({
     tripCompleted: detail.tripCompleted,
     currentPosition: trackingState?.currentPosition ?? null,
@@ -4612,12 +4852,24 @@ export default function TripDetailScreen({
         writeStartedAt: true,
         ...pinFor("in_progress"),
       };
-    if (["in_progress", "picked_up"].includes(s))
+    if (["in_progress", "picked_up"].includes(s)) {
+      // Revoke from In Transit lands here. Re-record Pickup before the next
+      // Simulate advances to In Transit, so the new date and time is what the
+      // In Transit picker floors against.
+      if (pickupRevisionPendingAfterRevoke(trip.notes, s)) {
+        return {
+          label: "Pickup — driver arrived at source",
+          targetStatus: "in_progress",
+          writeStartedAt: true,
+          ...pinFor("in_progress"),
+        };
+      }
       return {
         label: "In-transit — package collected",
         targetStatus: "in_transit",
         ...pinFor("in_transit"),
       };
+    }
     if (s === "in_transit")
       return {
         label: "Arrived at drop-off",
@@ -4666,19 +4918,16 @@ export default function TripDetailScreen({
   })();
 
   const currentTripStatusLower = String(trip.status ?? "").trim().toLowerCase();
-  // Ground Ops undo only their own last pickup-side step (same name the RPC
-  // writes), never a Trip Ops simulation.
-  const groundOpsOwnSimName = detail.profile?.full_name?.trim() || "Ground Ops";
+  // Trip Ops only: Ground Ops may simulate Reached Pickup / Start Trip but
+  // must never Undo or Revoke Last (UI or handler).
   const canRevokeLastSimulation =
+    canTripSimulate &&
+    !isGroundOpsOnly &&
     !!lastSimulatedTransition?.toStatus &&
     currentTripStatusLower === lastSimulatedTransition.toStatus &&
     !!lastSimulatedTransition.fromStatus &&
     // Revoke Last after delivery (completed, delivered, or done) is owner / admin only.
-    (!revokeLastFromDeliveredRequiresOwner(currentTripStatusLower) || isOwnerOrAdmin) &&
-    (canTripSimulate ||
-      (canGroundOpsPickupSimulate &&
-        ["in_progress", "in_transit"].includes(lastSimulatedTransition.toStatus) &&
-        lastSimulatedTransition.userName === groundOpsOwnSimName));
+    (!revokeLastFromDeliveredRequiresOwner(currentTripStatusLower) || isOwnerOrAdmin);
 
   /** Start trip stays disabled until the document check passes. */
   const groundOpsConfirmBlocked =
@@ -4716,14 +4965,42 @@ export default function TripDetailScreen({
       }),
     });
 
+  /**
+   * Previous stage saved in the future: no valid time exists for this stage.
+   * Names that stage and keeps Confirm off. Recomputed from the trip, so it
+   * clears once the stage is corrected (Revoke Last / Trip Ops) and refreshed.
+   */
+  const simFloorWarning = simConfirmStep
+    ? resolveSimStageFloorWarning({
+        targetStatus: simConfirmStep.targetStatus,
+        trip,
+        assignmentChangedAt: resolveTripAssignedAtIso(
+          trip,
+          detail.assignmentAuditRows ?? [],
+        ),
+        driverAcceptedAt: resolveDriverAcceptanceAt({
+          trip,
+          assignmentAuditRows: detail.assignmentAuditRows ?? [],
+        }),
+        groundOps: !!simConfirmStep.groundOps,
+      })
+    : null;
+
   const openSimulateConfirm = (step: NonNullable<typeof simConfirmStep>) => {
-    // Pickup: no floor (past or future). Later stages: floor to previous stage.
+    // Pickup: no floor (any past time). Later stages: floor to previous stage.
+    // Every stage: never later than now.
     const minAt = isUnrestrictedPickupSimStage(step.targetStatus)
       ? null
       : simulateStageMinAt(step.targetStatus);
+    const revisingPickup = pickupRevisionPendingAfterRevoke(trip.notes, trip.status);
+    const savedPickupIso = revisingPickup ? resolvePickupReferenceIso(trip) : null;
+    const savedPickupMs = savedPickupIso ? new Date(savedPickupIso).getTime() : NaN;
+    const seed = Number.isFinite(savedPickupMs)
+      ? toSimCompletionPickerValue(new Date(savedPickupMs))
+      : toSimCompletionPickerValue();
     setSimCompletionPickerValue(
       showsSimCompletionPicker(step.targetStatus)
-        ? clampSimCompletionPickerValue(toSimCompletionPickerValue(), minAt)
+        ? clampSimCompletionPickerValue(capSimCompletionPickerValueAtNow(seed), minAt)
         : "",
     );
     setSimError(null);
@@ -4740,11 +5017,47 @@ export default function TripDetailScreen({
   };
 
   const handleConfirmGroundOpsPickup = async () => {
-    if (!simConfirmStep?.groundOps) return;
+    if (!simConfirmStep?.groundOps || simFloorWarning) return;
     const target = simConfirmStep.targetStatus as GroundOpsPickupTarget;
     setSimulating(true);
     setSimError(null);
     try {
+      // Same date/time picker rules as Trip Ops Simulate Stage.
+      const unrestrictedPickup = isUnrestrictedPickupSimStage(target);
+      const minAt = unrestrictedPickup
+        ? null
+        : simulateStageMinAt(target);
+      const usesPicker = showsSimCompletionPicker(target);
+      let eventAt: string | null = null;
+      if (usesPicker) {
+        eventAt = parseSimCompletionPickerValue(
+          simCompletionValueRef.current || simCompletionValue,
+        );
+        if (!eventAt) {
+          setSimError(
+            unrestrictedPickup
+              ? "Pick a pickup date and time."
+              : "Pick a completion date and time.",
+          );
+          return;
+        }
+        if (isSimCompletionInFuture(eventAt)) {
+          setSimError(SIM_FUTURE_TIME_MESSAGE);
+          return;
+        }
+        if (!unrestrictedPickup) {
+          eventAt = alignSimCompletionIsoToMin(eventAt, minAt);
+        }
+        if (
+          !unrestrictedPickup &&
+          !isSimCompletionAtOrAfterMin(eventAt, minAt)
+        ) {
+          setSimError(
+            "Completion time must be after the previous Journey Log stage.",
+          );
+          return;
+        }
+      }
       if (target === "in_transit") {
         // Re-check at confirm: documents may have changed since the dialog opened.
         const missing = await loadGroundOpsTransitMissing();
@@ -4755,7 +5068,7 @@ export default function TripDetailScreen({
         }
         if (missing.length > 0) return;
       }
-      const result = await simulateGroundOpsPickupStatus(trip.id, target);
+      const result = await simulateGroundOpsPickupStatus(trip.id, target, eventAt);
       if (!result.ok) {
         // The trip already moved on elsewhere (driver / Trip Ops): retrying the
         // same step can only fail again, so refresh and close instead.
@@ -4788,7 +5101,7 @@ export default function TripDetailScreen({
       await handleConfirmGroundOpsPickup();
       return;
     }
-    if (!simConfirmStep || !canTripSimulate) return;
+    if (!simConfirmStep || !canTripSimulate || simFloorWarning) return;
     const currentStatus = String(trip.status ?? "").toLowerCase();
     if (currentStatus === "completed" || currentStatus === "cancelled") {
       setSimError(`Trip is already ${currentStatus} — refresh the page.`);
@@ -4822,6 +5135,11 @@ export default function TripDetailScreen({
           setSimulating(false);
           return;
         }
+        if (isSimCompletionInFuture(completedAt)) {
+          setSimError(SIM_FUTURE_TIME_MESSAGE);
+          setSimulating(false);
+          return;
+        }
         if (!unrestrictedPickup) {
           // Minute-precision picker: align :mm:00 up to the previous-stage floor.
           completedAt = alignSimCompletionIsoToMin(completedAt, minAt);
@@ -4845,18 +5163,45 @@ export default function TripDetailScreen({
         lat: simConfirmStep.driverLat,
         lng: simConfirmStep.driverLng,
       });
-      const userName = detail.profile?.full_name?.trim() || "Business";
+      const userName =
+        detail.profile?.full_name?.trim() ||
+        detail.profile?.displayName?.trim() ||
+        detail.profile?.email?.trim() ||
+        "Business";
       const targetStatus = simConfirmStep.targetStatus;
-      const stageStatuses =
-        targetStatus === "in_progress" || targetStatus === "picked_up"
-          ? ["in_progress", "picked_up", "pickup"]
-          : [targetStatus];
+      const savingPickup =
+        targetStatus === "in_progress" || targetStatus === "picked_up";
+      // Re-saving Pickup while already on Pickup must revoke back to Assigned,
+      // not to the same status.
+      const fromStatus =
+        savingPickup &&
+        (currentStatus === "in_progress" ||
+          currentStatus === "picked_up" ||
+          currentStatus === "pickup")
+          ? "assigned"
+          : currentStatus;
+      const stageStatuses = savingPickup
+        ? ["in_progress", "picked_up", "pickup"]
+        : [targetStatus];
+      // One simulate → one live BISIM for this stage. Clear prior active lines
+      // first so a re-save does not stack duplicate badges.
+      const notesAfterClear = clearUnrevokedBisimStatuses(
+        trip.notes,
+        stageStatuses,
+        {
+          userName,
+          toStatus: fromStatus,
+          at: new Date().toISOString(),
+          lat: pin.lat,
+          lng: pin.lng,
+        },
+      );
       const notes = alignUnrevokedBisimTimestamps(
         ensureBisimTimestampForStatus(
           appendBisimNote({
-            existingNotes: trip.notes,
+            existingNotes: notesAfterClear,
             targetStatus,
-            fromStatus: String(trip.status ?? "").trim().toLowerCase(),
+            fromStatus,
             userName,
             lat: pin.lat,
             lng: pin.lng,
@@ -4872,10 +5217,11 @@ export default function TripDetailScreen({
       const { error, cancelled, trip: updatedTrip } = await simulateBusinessTripStage({
         tripId: trip.id,
         targetStatus: simConfirmStep.targetStatus,
-        fromStatus: String(trip.status ?? "").trim().toLowerCase(),
+        fromStatus,
         notes,
         // Same instant for BISIM notes + started_at / completed_at — never click-time.
-        startedAt: simConfirmStep.writeStartedAt ? eventAt : undefined,
+        startedAt:
+          simConfirmStep.writeStartedAt || savingPickup ? eventAt : undefined,
         completedAt: simConfirmStep.writeCompletedAt ? eventAt : undefined,
         signal: abort.signal,
       });
@@ -4899,26 +5245,10 @@ export default function TripDetailScreen({
 
   const handleRevokeLastSimulation = async () => {
     if (!canRevokeLastSimulation || !lastSimulatedTransition?.fromStatus) return;
+    // Ground Ops: simulate only — never undo/revoke.
+    if (isGroundOpsOnly || !canTripSimulate) return;
     setRevokingSimulation(true);
     setSimError(null);
-    if (!canTripSimulate) {
-      // Ground Ops: undo through the RPC (role, warehouse and edge re-checked there).
-      try {
-        const result = await revokeGroundOpsPickupStatus(trip.id);
-        if (!result.ok) {
-          showAppAlert("Could not undo", result.error);
-          return;
-        }
-        notifyTripChatMessagesChanged();
-        refreshComplianceForTrip();
-        detail.handleRefresh();
-      } catch (e: unknown) {
-        showAppAlert("Could not undo", e instanceof Error ? e.message : "Undo failed");
-      } finally {
-        setRevokingSimulation(false);
-      }
-      return;
-    }
     try {
       const revertToStatus = lastSimulatedTransition.fromStatus;
       const revertPayload = {
@@ -4949,7 +5279,11 @@ export default function TripDetailScreen({
 
       notifyTripChatMessagesChanged();
 
-      const userName = detail.profile?.full_name?.trim() || "Business";
+      const userName =
+        detail.profile?.full_name?.trim() ||
+        detail.profile?.displayName?.trim() ||
+        detail.profile?.email?.trim() ||
+        "Business";
       const loc = detail.driverLocation;
       const revokeLat = loc?.latitude ?? lastSimulatedTransition.lat ?? "";
       const revokeLng = loc?.longitude ?? lastSimulatedTransition.lng ?? "";
@@ -5476,7 +5810,12 @@ export default function TripDetailScreen({
     detail.setVehiclePreviewIndex(fileIndex >= 0 ? fileIndex : 0);
     detail.setSelectedDoc(ewayBillDoc);
   };
-  const openEwayBillUpload = (_rowId?: string) => {
+  const openEwayBillUpload = (rowId?: string) => {
+    const row = rowId ? ewayStripRows.find((item) => item.id === rowId) : undefined;
+    ewayUploadLinkRef.current =
+      row && row.entryIndex >= 0 && !row.fileStoragePath
+        ? { entryIndex: row.entryIndex, ewayNo: row.ewayNo === "—" ? "" : row.ewayNo, at: Date.now() }
+        : null;
     const doc =
       ewayBillDoc ??
       ({
@@ -5488,6 +5827,8 @@ export default function TripDetailScreen({
       } satisfies TripDocItem);
     void handleVaultUpload(doc);
   };
+  // Plain function (not useCallback): this runs after the early returns above,
+  // so a hook here changes hook order between loading and loaded renders.
   const requestRemoveEwayBill = (row: EwayBillStripRow) => {
     const storagePath = row.previewPath?.trim() ?? "";
     if (!row.documentId && !storagePath) return;
@@ -5518,7 +5859,23 @@ export default function TripDetailScreen({
       groundOpsBlocked: isGroundOpsOnly && !groundOpsDocUploadEnabled,
     });
 
-  const canUploadThisVaultDoc = (doc: (typeof detail.computedTripDocs)[number]) =>
+  // Ground Ops: the e-way strip follows the database lock
+  // (guard_trip_document_ground_ops) instead of offering a save it will refuse.
+  const ewayGroundOpsLock = groundOpsTripDocLock(
+    detail.tripDocuments
+      .filter((doc) => doc.document_type === "eway_bill")
+      .map((doc) => doc.storage_path),
+  );
+  const canChangeEwayBill = canUploadTripDocs && !ewayGroundOpsLock;
+  const ewayLockedLabel = ewayGroundOpsLock
+    ? `${groundOpsDocumentLockLabel(ewayGroundOpsLock)}. To change the e-way bill, ${
+        ewayGroundOpsLock === "advance_approved" || ewayGroundOpsLock === "advance_processed"
+          ? "ask Finance to send the trip back"
+          : "ask Compliance to put the trip on hold"
+      }.`
+    : null;
+
+  const canUploadThisVaultDoc =(doc: (typeof detail.computedTripDocs)[number]) =>
     canMutateTripVaultDoc({
       doc,
       canUploadTripDocs,
@@ -5649,7 +6006,29 @@ export default function TripDetailScreen({
                       }
                     })();
                   }
-                : undefined
+                : slot.id === "invoice" &&
+                    onFile &&
+                    files.some((file) => file.storagePath?.trim())
+                  ? () => {
+                      void (async () => {
+                        const { error } = await downloadTripDocumentFiles({
+                          files: files
+                            .filter((file) => file.storagePath?.trim())
+                            .map((file) => ({
+                              storagePath: file.storagePath!,
+                              fileName:
+                                file.fileName?.trim() ||
+                                file.label?.trim() ||
+                                "Invoice",
+                            })),
+                          archiveName: "Invoices.zip",
+                        });
+                        if (error) {
+                          showAppAlert("Download failed", error.message);
+                        }
+                      })();
+                    }
+                  : undefined
             }
             onAdd={() => uploadTripDetailsSlot(slot.id)}
             appearance="shop"
@@ -6266,8 +6645,7 @@ export default function TripDetailScreen({
                 No driver GPS data available
               </Text>
             )}
-            {simConfirmStep.groundOps ||
-            !showsSimCompletionPicker(simConfirmStep.targetStatus) ? null : (
+            {showsSimCompletionPicker(simConfirmStep.targetStatus) ? (
             <View style={neoStyles.simModalTime}>
               <Text style={neoStyles.simModalLocLabel}>
                 {isUnrestrictedPickupSimStage(simConfirmStep.targetStatus)
@@ -6284,10 +6662,16 @@ export default function TripDetailScreen({
                   const minAt = simulateStageMinAt(simConfirmStep.targetStatus);
                   return minAt ? toSimCompletionPickerValue(minAt) : null;
                 })()}
+                maxDateTime={toSimCompletionPickerValue(new Date())}
                 onChange={setSimCompletionPickerValue}
               />
             </View>
-            )}
+            ) : null}
+            {simFloorWarning ? (
+              <Text style={neoStyles.simModalError}>
+                {simFloorWarning.message}
+              </Text>
+            ) : null}
             {simError ? (
               <Text style={neoStyles.simModalError}>
                 {simError}
@@ -6309,10 +6693,10 @@ export default function TripDetailScreen({
               <TouchableOpacity
                 style={[
                   neoStyles.simModalConfirm,
-                  (simulating || groundOpsConfirmBlocked) && { opacity: 0.6 },
+                  (simulating || groundOpsConfirmBlocked || !!simFloorWarning) && { opacity: 0.6 },
                 ]}
                 onPress={handleConfirmSimulate}
-                disabled={simulating || groundOpsConfirmBlocked}
+                disabled={simulating || groundOpsConfirmBlocked || !!simFloorWarning}
                 activeOpacity={0.85}
               >
                 {simulating ? (
@@ -7095,9 +7479,11 @@ export default function TripDetailScreen({
                 ewayStripRows={ewayStripRows}
                 onViewEwayBill={openEwayBillPreview}
                 onUploadEwayBill={openEwayBillUpload}
-                canUploadEwayBill={canUploadTripDocs}
-                canEditEwayBill={canUploadTripDocs}
+                canUploadEwayBill={canChangeEwayBill}
+                canEditEwayBill={canChangeEwayBill}
+                ewayLockedLabel={ewayLockedLabel}
                 onSaveEwayBill={saveEwayBillFields}
+                onAddEwayBillWithFile={addEwayBillWithFile}
                 onRemoveEwayBill={requestRemoveEwayBill}
                 tripIdLabel={mobileTripIdLabel}
                 createdAtLabel={mobilePlacedOnLabel}
@@ -7588,46 +7974,71 @@ export default function TripDetailScreen({
                                   {expanded && log.stepKey === "in_transit" ? (
                                     <ManifestDriverPingList pings={manifestDriverPings} />
                                   ) : null}
-                                  {/* Business simulation log badges */}
-                                  {stepSimLogs.map((sim, si) => (
-                                    <View
-                                      key={si}
-                                      style={[
-                                        neoStyles.simLogBadge,
-                                        isMobile && neoStyles.simLogBadgeMobile,
-                                      ]}
-                                    >
-                                      <Feather
-                                        name="zap"
-                                        size={10}
-                                        color={Theme.warning}
-                                      />
-                                      <View style={{ flex: 1, minWidth: 0 }}>
-                                        <Text
-                                          style={[
-                                            neoStyles.simLogBadgeText,
-                                            isMobile &&
-                                              neoStyles.simLogBadgeTextMobile,
-                                          ]}
-                                        >
-                                          Business simulated · {sim.userName}
-                                        </Text>
-                                        {(log.atIso || sim.timestamp) ? (
-                                          <Text
+                                  {/* Trip Ops only: skip yellow badge when history
+                                      already records this simulation. Ground Ops
+                                      never shows it. */}
+                                  {!isGroundOpsOnly
+                                    ? (() => {
+                                        const sim =
+                                          stepSimLogs[stepSimLogs.length - 1];
+                                        if (!sim) return null;
+                                        const historyAlreadyShowsSim = (
+                                          log.history ?? []
+                                        ).some((line) =>
+                                          String(line.action ?? "")
+                                            .toLowerCase()
+                                            .includes("simulated"),
+                                        );
+                                        if (historyAlreadyShowsSim) return null;
+                                        const badgeAt =
+                                          log.stepKey === "pickup" ||
+                                          log.stepKey === "in_transit"
+                                            ? log.atIso || sim.timestamp
+                                            : sim.timestamp || log.atIso;
+                                        return (
+                                          <View
                                             style={[
-                                              neoStyles.simLogBadgeTime,
+                                              neoStyles.simLogBadge,
                                               isMobile &&
-                                                neoStyles.simLogBadgeTimeMobile,
+                                                neoStyles.simLogBadgeMobile,
                                             ]}
                                           >
-                                            {formatTrackingDateTime(
-                                              log.atIso || sim.timestamp,
-                                            )}
-                                          </Text>
-                                        ) : null}
-                                      </View>
-                                    </View>
-                                  ))}
+                                            <Feather
+                                              name="zap"
+                                              size={10}
+                                              color={Theme.warning}
+                                            />
+                                            <View
+                                              style={{ flex: 1, minWidth: 0 }}
+                                            >
+                                              <Text
+                                                style={[
+                                                  neoStyles.simLogBadgeText,
+                                                  isMobile &&
+                                                    neoStyles.simLogBadgeTextMobile,
+                                                ]}
+                                              >
+                                                Business simulated ·{" "}
+                                                {sim.userName}
+                                              </Text>
+                                              {badgeAt ? (
+                                                <Text
+                                                  style={[
+                                                    neoStyles.simLogBadgeTime,
+                                                    isMobile &&
+                                                      neoStyles.simLogBadgeTimeMobile,
+                                                  ]}
+                                                >
+                                                  {formatTrackingDateTime(
+                                                    badgeAt,
+                                                  )}
+                                                </Text>
+                                              ) : null}
+                                            </View>
+                                          </View>
+                                        );
+                                      })()
+                                    : null}
                                 </View>
                               </TouchableOpacity>
                             </View>
@@ -7656,6 +8067,7 @@ export default function TripDetailScreen({
                           }
                           truckLocation={mapTruckLocation}
                           dbLocationTrail={mapDbLocationTrail}
+                          completedTrip={detail.tripCompleted}
                           truckStatus={mapTruckStatus}
                           height="100%"
                           onDistanceCalculated={setMapRouteDistanceKm}
@@ -7699,7 +8111,7 @@ export default function TripDetailScreen({
                         <View style={neoStyles.radarBottomMetaRow}>
                           <View style={neoStyles.radarBottomLeft}>
                             <Text style={neoStyles.radarMetaLabel}>
-                              Driver location
+                              {detail.tripCompleted ? "Trip completed" : "Driver location"}
                             </Text>
                             <Text
                               style={neoStyles.radarMetaValue}
@@ -7709,7 +8121,13 @@ export default function TripDetailScreen({
                                 driverLastPingDisplay.cityLabel?.trim() ||
                                 (driverMapTrackingEligible
                                   ? "Waiting for first ping"
-                                  : "—")}
+                                  : detail.tripCompleted
+                                    ? mapDbLocationTrail.length > 1
+                                      ? "Driven route shown on map"
+                                      : mapDbLocationTrail.length === 1
+                                        ? "Last location shown on map"
+                                        : "No GPS saved for this trip"
+                                    : "—")}
                             </Text>
                             {detail.driverName?.trim() ? (
                               <>
@@ -8065,9 +8483,11 @@ export default function TripDetailScreen({
                       ewayStripRows={ewayStripRows}
                       onViewEwayBill={openEwayBillPreview}
                       onUploadEwayBill={openEwayBillUpload}
-                      canUploadEwayBill={canUploadTripDocs}
-                      canEditEwayBill={canUploadTripDocs}
+                      canUploadEwayBill={canChangeEwayBill}
+                      canEditEwayBill={canChangeEwayBill}
+                      ewayLockedLabel={ewayLockedLabel}
                       onSaveEwayBill={saveEwayBillFields}
+                      onAddEwayBillWithFile={addEwayBillWithFile}
                       onRemoveEwayBill={requestRemoveEwayBill}
                       columns={4}
                     />
@@ -8328,6 +8748,7 @@ export default function TripDetailScreen({
                     }
                     truckLocation={mapTruckLocation}
                     dbLocationTrail={mapDbLocationTrail}
+                    completedTrip={detail.tripCompleted}
                     truckStatus={mapTruckStatus}
                     height={mapHeight}
                     onDistanceCalculated={setMapRouteDistanceKm}
@@ -8769,6 +9190,7 @@ export default function TripDetailScreen({
                           }
                           truckLocation={mapTruckLocation}
                           dbLocationTrail={mapDbLocationTrail}
+                          completedTrip={detail.tripCompleted}
                           truckStatus={mapTruckStatus}
                           height={520}
                           onDistanceCalculated={setMapRouteDistanceKm}
@@ -8972,9 +9394,13 @@ export default function TripDetailScreen({
                       const minAt = simulateStageMinAt(simConfirmStep.targetStatus);
                       return minAt ? toSimCompletionPickerValue(minAt) : null;
                     })()}
+                    maxDateTime={toSimCompletionPickerValue(new Date())}
                     onChange={setSimCompletionPickerValue}
                   />
                 </View>
+              ) : null}
+              {simFloorWarning ? (
+                <Text style={neoStyles.simModalError}>{simFloorWarning.message}</Text>
               ) : null}
               {simError ? (
                 <Text style={neoStyles.simModalError}>{simError}</Text>
@@ -8993,10 +9419,10 @@ export default function TripDetailScreen({
                 <TouchableOpacity
                   style={[
                     neoStyles.simModalConfirm,
-                    simulating && { opacity: 0.6 },
+                    (simulating || !!simFloorWarning) && { opacity: 0.6 },
                   ]}
                   onPress={handleConfirmSimulate}
-                  disabled={simulating}
+                  disabled={simulating || !!simFloorWarning}
                   activeOpacity={0.85}
                 >
                   {simulating ? (
@@ -10061,7 +10487,10 @@ export default function TripDetailScreen({
                   const slotPreviews = typeFiles.map((file) => ({
                     storagePath: file.url,
                     fileName: file.fileName,
-                    source: (file.source === "driver-kyc" ? "driver-kyc" : "compliance") as const,
+                    source:
+                      file.source === "driver-kyc"
+                        ? ("driver-kyc" as const)
+                        : ("compliance" as const),
                     organizationId:
                       detail.trip?.organization_id ?? currentOrganization?.id,
                     entityId: detail.trip?.driver_id,

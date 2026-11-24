@@ -45,6 +45,42 @@ export function invoiceTripSearchIncludesDisplayedNumber(
   return tripListLrLabel(trip).toLowerCase().includes(q) || (serial.length > 0 && serial.includes(q));
 }
 
+function compactSearchToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Trip ID search. `id` may be the booking ref, so the operational code,
+ * trip code, and display trip id are matched as well.
+ */
+export function invoiceTripSearchIncludesTripId(
+  trip: {
+    id?: string | null;
+    trip_number?: string | null;
+    trip_operational_code?: string | null;
+    trip_code?: string | null;
+    display_trip_id?: string | null;
+  },
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return false;
+  const qCompact = compactSearchToken(q);
+  return [
+    trip.id,
+    trip.trip_number,
+    trip.trip_operational_code,
+    trip.trip_code,
+    trip.display_trip_id,
+  ].some((value) => {
+    const raw = (value ?? "").trim().toLowerCase();
+    if (!raw) return false;
+    if (raw.includes(q)) return true;
+    const compact = compactSearchToken(raw);
+    return qCompact.length > 0 && compact.includes(qCompact);
+  });
+}
+
 export function resolveInvoiceTripLrNumber(args: {
   bookingRef?: string | null;
   documentLrNumbers?: string[] | null;

@@ -28,7 +28,7 @@ import {
   tripEarningsDetailForDriver,
   tripEarningsForDriver,
 } from '@/features/drivers/utils/driverUtils.util';
-import { buildCompensationSalaryLines, buildDriverInviteSalaryLines } from '@/features/drivers/utils/driverInviteOffer.util';
+import { buildCompensationSalaryLines } from '@/features/drivers/utils/driverInviteOffer.util';
 import { resolveDriverOrgAvatarUri } from '@/features/drivers/utils/resolveDriverOrgAvatar.util';
 import {
   buildDriverTripNumberMap,
@@ -61,6 +61,7 @@ import {
     View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { resolveAgreedPayTerms } from '@/features/drivers/utils/driverPayTerms.util';
 
 function formatTransactionDateSection(dateStr: string): string {
   const d = new Date(dateStr);
@@ -552,30 +553,18 @@ export default function DriverPassbookDetailScreen() {
       )[0] ?? null;
   }, [invites, orgId]);
 
-  const salaryTermLines = useMemo(() => {
-    if (acceptedInviteForOrg) return buildDriverInviteSalaryLines(acceptedInviteForOrg);
-    return buildCompensationSalaryLines({
-      payableAmount: driver?.payable_amount ?? null,
-      commissionPercent: driver?.commission_percent ?? null,
-      commissionPerKm: driver?.commission_per_km ?? null,
-    });
-  }, [acceptedInviteForOrg, driver?.payable_amount, driver?.commission_percent, driver?.commission_per_km]);
-
-  const tripPayoutTerms = useMemo(
-    () => ({
-      commissionPercent: acceptedInviteForOrg?.commission_percent ?? driver?.commission_percent ?? null,
-      commissionPerKm: acceptedInviteForOrg?.commission_per_km ?? driver?.commission_per_km ?? null,
-      payableAmount: acceptedInviteForOrg?.payable_amount ?? driver?.payable_amount ?? null,
-    }),
-    [
-      acceptedInviteForOrg?.commission_percent,
-      acceptedInviteForOrg?.commission_per_km,
-      acceptedInviteForOrg?.payable_amount,
-      driver?.commission_percent,
-      driver?.commission_per_km,
-      driver?.payable_amount,
-    ],
+  // Current agreed terms: this fleet's driver row first, invite only as fallback.
+  const resolvedTerms = useMemo(
+    () => resolveAgreedPayTerms(driver, acceptedInviteForOrg),
+    [driver, acceptedInviteForOrg],
   );
+
+  const salaryTermLines = useMemo(
+    () => buildCompensationSalaryLines(resolvedTerms),
+    [resolvedTerms],
+  );
+
+  const tripPayoutTerms = resolvedTerms;
 
   const earningsForTrip = useCallback(
     (trip: tripsService.TripRow) => tripEarningsForDriver(trip, tripPayoutTerms),
@@ -651,7 +640,11 @@ export default function DriverPassbookDetailScreen() {
   const tripJourneyItems = useMemo(() => {
     return completedTrips.map((trip) => {
       const receivedAmt = receivedByTripId[trip.id] ?? 0;
-      const isSettled = receivedAmt > 0;
+      const expectedAmt = gatedEarningsForTrip(trip);
+      // Settled only when the full agreed amount came in (₹1 rounding slack).
+      // A part payment stays Pending with the balance — same rule as trip detail.
+      const isSettled = receivedAmt > 0 && (expectedAmt <= 0 || receivedAmt >= expectedAmt - 1);
+      const isPartPaid = receivedAmt > 0 && !isSettled;
       const fleetPendingLedger = latestFleetPaidPendingLedgerByTripId[trip.id];
       const hasFleetPending = !!fleetPendingLedger;
       const isActionRequired = !isSettled && !hasFleetPending && isAggregateTrip(trip) && gatedEarningsForTrip(trip) === 0;
@@ -687,7 +680,9 @@ export default function DriverPassbookDetailScreen() {
 
       const subStatus = isSettled
         ? paidLabel
-        : isActionRequired
+        : isPartPaid
+          ? `Part paid · ₹${Math.round(receivedAmt).toLocaleString('en-IN')} received`
+          : isActionRequired
           ? 'Ready to claim'
           : hasFleetPending
             ? fleetPendingLabel
@@ -701,7 +696,9 @@ export default function DriverPassbookDetailScreen() {
         amount: Math.round(
           isSettled
             ? receivedAmt
-            : hasFleetPending
+            : isPartPaid
+              ? Math.max(0, expectedAmt - receivedAmt)
+              : hasFleetPending
               ? Number(fleetPendingLedger?.amount ?? gatedEarningsForTrip(trip))
               : gatedEarningsForTrip(trip),
         ),
@@ -838,11 +835,19 @@ export default function DriverPassbookDetailScreen() {
       const tripIds = gatedItems.map((i) => i.trip.id);
       const total = gatedItems.reduce((sum, i) => sum + Math.round(i.amount), 0);
 
-      await salaryRequestsService.createSalaryRequest(fleetDriverId, orgId, 'trip_based', total, {
-        createdBy: profile?.uid ?? null,
-        tripIds,
-        note: `Bulk claim (${tripIds.length} trips)`,
-      });
+      const { error: claimError } = await salaryRequestsService.createSalaryRequest(
+        fleetDriverId,
+        orgId,
+        'trip_based',
+        total,
+        {
+          createdBy: profile?.uid ?? null,
+          tripIds,
+          note: `Bulk claim (${tripIds.length} trips)`,
+        },
+      );
+      // Stop before the PDF / WhatsApp if the claim never reached the fleet.
+      if (claimError) throw claimError;
 
       const generatedAt = new Date().toLocaleString('en-IN', {
         day: '2-digit',
@@ -924,24 +929,15 @@ export default function DriverPassbookDetailScreen() {
       const settledDescription = rawDescription.replace(/\s*\|\s*Sync\s*:\s*FLEET_PAID_PENDING\s*/i, '').trim();
 
       setMarkPaidLoadingTripId(trip.id);
-      let { error, row } = await driversService.createDriverLedgerEntry(
-        trip.organization_id,
+      const { error, row } = await driversService.confirmFleetPaidSettlement({
+        orgId: trip.organization_id,
         driverId,
-        Math.round(amount),
-        'settlement',
-        { tripId: trip.id, createdBy: profile?.uid ?? null, description: settledDescription },
-      );
-      if (error?.message?.includes("driver_ledger_created_by_fkey")) {
-        const retry = await driversService.createDriverLedgerEntry(
-          trip.organization_id,
-          driverId,
-          Math.round(amount),
-          'settlement',
-          { tripId: trip.id, createdBy: null, description: settledDescription },
-        );
-        error = retry.error;
-        if (retry.row) row = retry.row;
-      }
+        amount,
+        tripId: trip.id,
+        createdBy: profile?.uid ?? null,
+        description: settledDescription,
+        sourceLedgerId: sourceLedger?.id ?? null,
+      });
       setMarkPaidLoadingTripId(null);
 
       if (error) {

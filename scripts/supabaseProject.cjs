@@ -7,6 +7,11 @@
  *
  * There is no silent fallback. A missing target does not use .env, because
  * .env on a developer machine may be a cloud project.
+ *
+ * Netlify production context means production, with one named exception:
+ * the site whose SITE_NAME is exactly "gx-pulse" builds V1 for preprod in its
+ * production context. That site is locked to preprod. Every other site name,
+ * including an unset one, stays locked to production.
  */
 "use strict";
 
@@ -17,6 +22,8 @@ const PREPROD_REF = "xbisiveavvbifbzyfhgy";
 const PRODUCTION_REF = "nafxpivddesgsrthmosv";
 const PREPROD_URL = `https://${PREPROD_REF}.supabase.co`;
 const TARGETS = new Set(["local", "preprod", "production"]);
+/** Netlify SITE_NAME of the preprod site (gx-pulse.netlify.app). Exact match only. */
+const PREPROD_NETLIFY_SITE = "gx-pulse";
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "10.0.2.2", "::1"]);
 
 function hostOf(url) {
@@ -84,6 +91,7 @@ function readTargetFile(projectRoot) {
  *   processEnv?: Record<string, string | undefined>,
  *   isCI?: boolean,
  *   netlifyContext?: string,
+ *   netlifySiteName?: string,
  * }} input
  */
 function resolveSupabaseProject(input) {
@@ -91,6 +99,7 @@ function resolveSupabaseProject(input) {
   const local = input.local || {};
   const processEnv = input.processEnv || {};
   const netlifyContext = String(input.netlifyContext || "");
+  const netlifySiteName = String(input.netlifySiteName || "");
   const requested = String(
     input.explicitTarget || processEnv.PULSE_SUPABASE_TARGET || "",
   )
@@ -105,10 +114,17 @@ function resolveSupabaseProject(input) {
       );
     }
     selected = "preprod";
+  } else if (netlifyContext === "production" && netlifySiteName === PREPROD_NETLIFY_SITE) {
+    if (requested && requested !== "preprod") {
+      throw new Error(
+        `Netlify site ${PREPROD_NETLIFY_SITE} cannot use Supabase target "${requested}". It is locked to preprod ${PREPROD_REF}.`,
+      );
+    }
+    selected = "preprod";
   } else if (netlifyContext === "production") {
     if (requested && requested !== "production") {
       throw new Error(
-        `Production deploy cannot use Supabase target "${requested}". It is locked to ${PRODUCTION_REF}.`,
+        `Production deploy cannot use Supabase target "${requested}". It is locked to ${PRODUCTION_REF} (SITE_NAME ${netlifySiteName || "unset"}).`,
       );
     }
     selected = "production";
@@ -180,7 +196,8 @@ function resolveSupabaseProject(input) {
   const actual = classifySupabaseUrl(url);
   if (actual !== selected) {
     throw new Error(
-      `Supabase target is ${selected} but ${url || "(empty)"} is ${actual}. Refusing to send authentication to a different project.`,
+      `Supabase target is ${selected} but ${url || "(empty)"} is ${actual}. Refusing to send authentication to a different project.` +
+        (netlifyContext ? ` (Netlify context ${netlifyContext}, SITE_NAME ${netlifySiteName || "unset"})` : ""),
     );
   }
 
@@ -257,7 +274,7 @@ function syncClientEnvOverride(projectRoot, resolved) {
   if (text !== raw) fs.writeFileSync(localPath, text);
 }
 
-function resolveSupabaseProjectFromDisk(projectRoot, env = process.env) {
+function resolveProjectRoot(projectRoot, env) {
   return resolveSupabaseProject({
     explicitTarget: env.PULSE_SUPABASE_TARGET || readTargetFile(projectRoot),
     dotenv: parseEnvFile(path.join(projectRoot, ".env")),
@@ -265,83 +282,84 @@ function resolveSupabaseProjectFromDisk(projectRoot, env = process.env) {
     processEnv: env,
     isCI: env.CI === "true",
     netlifyContext: env.CONTEXT || env.EXPO_PUBLIC_NETLIFY_CONTEXT || "",
+    netlifySiteName: env.SITE_NAME || "",
   });
-}
-
-/**
- * Metro, Commerce, and the ops console each keep their own request burst.
- * On the Small production database that pins the PostgREST pool (90 connection
- * cap) and holds RAM after the queries have finished. Dev servers stay off
- * that database unless the operator sets PULSE_ALLOW_PRODUCTION=1.
- */
-function devServerProductionBlock(projectRoot, env = process.env) {
-  if (env.PULSE_ALLOW_PRODUCTION === "1") return null;
-  const selected = String(
-    env.PULSE_SUPABASE_TARGET || readTargetFile(projectRoot) || "",
-  ).trim();
-  let resolvedTarget = selected;
-  if (!resolvedTarget) {
-    try {
-      resolvedTarget = resolveSupabaseProjectFromDisk(projectRoot, env).target;
-    } catch {
-      resolvedTarget = "";
-    }
-  }
-  if (resolvedTarget !== "production") return null;
-  return (
-    "Refusing to start a dev server against production (" +
-    PRODUCTION_REF +
-    "). That database is a Small instance with 90 connections; " +
-    "Metro, Commerce, and the ops console keep the PostgREST pool warm and the RAM near its ceiling. " +
-    "Point .pulse-supabase-target at local or preprod. " +
-    "Set PULSE_ALLOW_PRODUCTION=1 only for a deliberate production session."
-  );
-}
-
-/**
- * Dev servers must use the selected target. A production URL left in `.env`
- * is not a fallback for `vite` / Commerce / the ops console.
- */
-function devServerSupabaseOverride(projectRoot, env = process.env) {
-  const block = devServerProductionBlock(projectRoot, env);
-  if (block) throw new Error(block);
-  return resolveSupabaseProjectFromDisk(projectRoot, env);
-}
-
-/** Drop a service-role key that belongs to a different project than the selected target. */
-function serviceRoleKeyForTarget(serviceRoleKey, resolved) {
-  if (!serviceRoleKey || !resolved || resolved.target === "local") return "";
-  const ref = anonKeyProjectRef(serviceRoleKey);
-  const expected =
-    resolved.target === "preprod" ? PREPROD_REF : resolved.projectRef;
-  if (ref && ref !== expected) return "";
-  return serviceRoleKey;
 }
 
 function loadSupabaseProject(projectRoot, env = process.env) {
-  const resolved = resolveSupabaseProject({
-    explicitTarget: env.PULSE_SUPABASE_TARGET || readTargetFile(projectRoot),
-    dotenv: parseEnvFile(path.join(projectRoot, ".env")),
-    local: parseEnvFile(path.join(projectRoot, ".env.local")),
-    processEnv: env,
-    isCI: env.CI === "true",
-    netlifyContext: env.CONTEXT || env.EXPO_PUBLIC_NETLIFY_CONTEXT || "",
-  });
+  const resolved = resolveProjectRoot(projectRoot, env);
+  if (env.CONTEXT) {
+    console.log(
+      `[pulse][config] Netlify context ${env.CONTEXT}, SITE_NAME ${env.SITE_NAME || "unset"} -> Supabase ${resolved.target} (${resolved.projectRef})`,
+    );
+  }
   applySupabaseProject(env, resolved);
   syncClientEnvOverride(projectRoot, resolved);
   return resolved;
 }
 
+/**
+ * Local dev servers must never talk to the production database. Returns the
+ * refusal message when the selected project is production, otherwise null.
+ * Resolution errors are left to `loadSupabaseProject`, which reports them.
+ * Read-only: does not touch `env` or `.env.local`.
+ */
+function devServerProductionBlock(projectRoot, env = process.env) {
+  let resolved;
+  try {
+    resolved = resolveProjectRoot(projectRoot, env);
+  } catch {
+    return null;
+  }
+  return productionBlockMessage(resolved);
+}
+
+function productionBlockMessage(resolved) {
+  if (resolved.target !== "production") return null;
+  return (
+    `Refusing to start a local dev server against production Supabase (${PRODUCTION_REF}). ` +
+    `Select preprod (${PREPROD_REF}) or local instead.`
+  );
+}
+
+/**
+ * Supabase project for a Vite dev server (oms, analytics). `.env` may still
+ * name production; this follows `.pulse-supabase-target` instead. Throws on
+ * an unresolvable target or a production target. Read-only.
+ */
+function devServerSupabaseOverride(projectRoot, env = process.env) {
+  const resolved = resolveProjectRoot(projectRoot, env);
+  const block = productionBlockMessage(resolved);
+  if (block) throw new Error(block);
+  return resolved;
+}
+
+/**
+ * Keeps a service-role key only when it belongs to the resolved project, so a
+ * dev bundle never carries another project's key. Cloud targets need a JWT
+ * whose `ref` matches; keys without a readable ref are dropped.
+ */
+function serviceRoleKeyForTarget(serviceRoleKey, resolved) {
+  const key = String(serviceRoleKey || "");
+  if (!key || !resolved) return "";
+  const keyRef = anonKeyProjectRef(key);
+  if (resolved.target === "local") {
+    return keyRef === PREPROD_REF || keyRef === PRODUCTION_REF ? "" : key;
+  }
+  return keyRef === resolved.projectRef ? key : "";
+}
+
 module.exports = {
+  PREPROD_NETLIFY_SITE,
   PREPROD_REF,
   PRODUCTION_REF,
   classifySupabaseUrl,
   resolveSupabaseProject,
   applySupabaseProject,
-  loadSupabaseProject,
   devServerProductionBlock,
   devServerSupabaseOverride,
-  serviceRoleKeyForTarget,
+  loadSupabaseProject,
   readTargetFile,
+  serviceRoleKeyForTarget,
   syncClientEnvOverride,
 };

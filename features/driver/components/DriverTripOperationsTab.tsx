@@ -151,9 +151,6 @@ export function DriverTripOperationsTab({ trip }: Props) {
         )}
       </TouchableOpacity>
 
-      <Text style={[styles.opsHint, { color: colors.textMuted }]}>
-        Expense log and reimbursements live on the Settlement tab.
-      </Text>
     </View>
   );
 }

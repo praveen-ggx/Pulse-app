@@ -8,12 +8,14 @@
  *   - any driver whose participation isn't DCO-eligible (employed/invited)
  *   - a DCO-eligible driver who currently has an active trip (unavailable)
  *   - a DCO-eligible driver with an incoming assignment / pending OTP claim
+ *   - a plain driver with no fleet (Find Work / Market is DCO-only)
  *   - while participation/availability/incoming trips are still loading
  *     (fail safe to Home rather than flash Available over an accept popup)
  *
  * DriverAvailableScreen (new, A7.2-approved) renders only for a DCO-eligible
- * driver who is currently available (is_driver_available() === true) and has
- * no linked assigned-not-started trip and no pending OTP claim.
+ * driver who is currently available (is_driver_available() === true), is an
+ * approved DCO allowed to see Market (canSeeMarketplace), and has no linked
+ * assigned-not-started trip and no pending OTP claim.
  *
  * Participation is fetched locally here (not via a shared hook) rather than
  * touching features/reach/screens/DriverStoriesScreen.tsx's own inline
@@ -28,6 +30,7 @@ import {
   shouldShowDriverAvailableSurface,
 } from '@/features/driver/utils/driverIncomingAssignment.util';
 import { useDriverAvailabilityQuery } from '@/lib/queries/useDriverAvailabilityQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { useDriverUiTripsQuery } from '@/lib/queries/useDriverUiTripsQuery';
 import { usePendingOtpTripsQuery } from '@/lib/queries/usePendingOtpTripsQuery';
 import { getDriverFleetMemberships } from '@/features/reach/services/driverReferrals.service';
@@ -63,6 +66,7 @@ export default function DriverIndexRoute() {
 
   const { available, isLoading: availabilityLoading, isError: availabilityError } =
     useDriverAvailabilityQuery(uid);
+  const { canSeeMarketplace } = useDriverOperatingModeQuery(uid);
   const tripsQuery = useDriverUiTripsQuery(uid || null);
   const pendingOtpQuery = usePendingOtpTripsQuery(uid || null);
 
@@ -82,15 +86,17 @@ export default function DriverIndexRoute() {
     (tripsQuery.linkedFetched || tripsQuery.isFetched || tripsQuery.isError) &&
     (pendingOtpQuery.isFetched || pendingOtpQuery.isError);
 
-  const showAvailableSurface = shouldShowDriverAvailableSurface({
-    participationKnown,
-    availabilityLoading,
-    availabilityError,
-    isDcoEligible,
-    available,
-    hasIncomingAssignment,
-    incomingAssignmentKnown,
-  });
+  const showAvailableSurface =
+    canSeeMarketplace &&
+    shouldShowDriverAvailableSurface({
+      participationKnown,
+      availabilityLoading,
+      availabilityError,
+      isDcoEligible,
+      available,
+      hasIncomingAssignment,
+      incomingAssignmentKnown,
+    });
 
   return showAvailableSurface ? <DriverAvailableScreen /> : <DriverHomeScreen />;
 }

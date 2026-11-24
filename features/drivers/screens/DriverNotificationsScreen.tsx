@@ -11,7 +11,6 @@ import {
 import Theme from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
-import { computeDriverTripEstEarningsInr } from '@/features/finance/selectors/assetTripProvisionSelectors';
 import { getPendingOtpTrips } from '@/features/trips/services/tripOtp.service';
 import { getLatestAssignmentAuditByTripIds } from '@/features/trips/services/trip-assignment-audit.service';
 import { TripListAssignerRow } from '@/components/driver/TripListAssignerRow';
@@ -32,6 +31,7 @@ import {
     getDriverTripDisplayNumber,
 } from '@/features/driver/utils/driverTripSequence.util';
 import {
+  computeDriverTripPayInr,
     canShowDriverTripEstEarnings,
     DRIVER_PAY_NA_LABEL,
     isActiveMission,
@@ -59,6 +59,7 @@ import {
     View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { pickDriverRowForTrip, resolveAgreedPayTerms } from '@/features/drivers/utils/driverPayTerms.util';
 
 const DRIVER_ACCEPTED_TRIP_ID_KEY = 'driver_accepted_trip_id';
 const DRIVER_NOTIFICATION_FOCUS_TRIP_KEY = 'driver_notification_focus_trip_id';
@@ -541,22 +542,14 @@ export default function DriverNotificationsScreen() {
           String(inviteForTrip.status ?? '').toLowerCase() === 'accepted'
             ? inviteForTrip
             : null;
-        const payoutOffer = {
-          payableAmount:
-            acceptedInviteForTrip?.payable_amount ?? driver?.payable_amount ?? null,
-          commissionPercent:
-            acceptedInviteForTrip?.commission_percent ??
-            driver?.commission_percent ??
-            null,
-          commissionPerKm:
-            acceptedInviteForTrip?.commission_per_km ??
-            driver?.commission_per_km ??
-            null,
-        };
+        const payoutOffer = resolveAgreedPayTerms(
+          pickDriverRowForTrip(trip, [driver]),
+          acceptedInviteForTrip,
+        );
         const commissionForTrip = canShowDriverTripEstEarnings(trip, payoutOffer, {
           trackingOnly: driver?.tracking_only,
         })
-          ? computeDriverTripEstEarningsInr(trip, payoutOffer)
+          ? computeDriverTripPayInr(trip, payoutOffer)
           : 0;
 
         const orgId = (assignerDisplay.effectiveAssignerOrgId ?? '').trim();

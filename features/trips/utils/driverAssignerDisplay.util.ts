@@ -8,6 +8,9 @@ import { getFleetAvatarSeedForOrg } from "@/features/vehicles/utils/fleetAvatar.
 const UUID_V4_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** Any-version UUID: what Postgres accepts for a uuid column. */
+const UUID_ANY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function looksLikeUuidFragment(s: string): boolean {
   const t = String(s ?? "").trim();
   if (!t) return false;
@@ -31,13 +34,19 @@ export function resolveAssignerUserId(
   const assignedBy = String(meta.assigned_by ?? "").trim();
   const createdBy = String(trip.created_by ?? "").trim();
 
-  if (audit) return audit;
-  if (assignedByUserId) return assignedByUserId;
-  if (createdByUserId) return createdByUserId;
-  if (ownerUserId) return ownerUserId;
-  if (statusUpdatedBy) return statusUpdatedBy;
-  if (assignedBy && UUID_V4_RE.test(assignedBy)) return assignedBy;
-  if (createdBy && UUID_V4_RE.test(createdBy)) return createdBy;
+  // Every candidate feeds `profiles.id IN (...)`. status_updated_by / audit actors can hold a
+  // free-text name (e.g. "Sivakozhunthu"), which makes Postgres reject the whole list (22P02).
+  for (const candidate of [
+    audit,
+    assignedByUserId,
+    createdByUserId,
+    ownerUserId,
+    statusUpdatedBy,
+    assignedBy,
+    createdBy,
+  ]) {
+    if (candidate && UUID_ANY_RE.test(candidate)) return candidate;
+  }
   return "";
 }
 
@@ -103,7 +112,7 @@ export function resolveJobCardAssignmentSourceKind(
     String(acceptedInviteForOrg.status ?? "").toLowerCase() === "accepted";
 
   if (flags.requiresOtp || flags.isAggregate) {
-    return { kind: "direct", kindLabel: "DIRECT TRIP" };
+    return { kind: "direct", kindLabel: "OFFLINE TRIP" };
   }
   if (isOwnFleet) {
     return { kind: "your_fleet", kindLabel: "YOUR FLEET" };

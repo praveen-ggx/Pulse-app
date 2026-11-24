@@ -9,6 +9,9 @@ import { supabaseAuth as supabase } from '@/lib/supabaseAuth';
 
 export type DcoProfileStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
+/** Driver-level KYC review status (driver_kyc_submissions); 'none' = never submitted. */
+export type DcoKycStatus = 'none' | 'submitted' | 'approved' | 'rejected';
+
 export interface DcoReviewRow {
   user_id: string;
   status: DcoProfileStatus;
@@ -18,6 +21,10 @@ export interface DcoReviewRow {
   driver_name: string | null;
   driver_phone: string | null;
   driver_email: string | null;
+  /** DCO approval requires this to be 'approved' (enforced by platform_approve_dco). */
+  kyc_review_status: DcoKycStatus;
+  /** DCO-only documents (PAN, bank proof) not yet verified; null when all verified. */
+  dco_docs_unverified: string | null;
 }
 
 type DbRow = {
@@ -32,7 +39,15 @@ type QueueRow = DbRow & {
   driver_name: string | null;
   driver_phone: string | null;
   driver_email: string | null;
+  kyc_review_status?: string | null;
+  dco_docs_unverified?: string | null;
 };
+
+function asKycStatus(status: string | null | undefined): DcoKycStatus {
+  return (['submitted', 'approved', 'rejected'].includes(status ?? '')
+    ? status
+    : 'none') as DcoKycStatus;
+}
 
 function asStatus(status: string): DcoProfileStatus {
   return (['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'].includes(status)
@@ -50,6 +65,10 @@ function toReviewRow(row: QueueRow): DcoReviewRow {
     driver_name: row.driver_name,
     driver_phone: row.driver_phone,
     driver_email: row.driver_email,
+    kyc_review_status: asKycStatus(row.kyc_review_status),
+    // Unknown (fallback path without the RPC) is treated as outstanding.
+    dco_docs_unverified:
+      row.dco_docs_unverified === undefined ? 'unknown' : row.dco_docs_unverified,
   };
 }
 

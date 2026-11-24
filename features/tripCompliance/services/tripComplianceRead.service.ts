@@ -55,7 +55,7 @@ import {
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { chunkIdsForRead, mapWithConcurrency, readAllPages, readByIdChunks } from "@/lib/pagination";
-import { getAccessToken, supabase } from "@/lib/supabase";
+import { getAccessToken, SESSION_EXPIRED_MESSAGE, supabase } from "@/lib/supabase";
 
 /**
  * `trip_documents.status`/`verified_by`/`verified_at`/`rejection_reason` and
@@ -133,7 +133,8 @@ async function readTripDocumentsViaBatchRpc(
   tripIds: string[],
 ): Promise<{ data: RawTripDocRow[]; error: { message: string; code?: string } | null } | null> {
   if (tripDocumentsBatchRpcMissing) return null;
-  if (!(await getAccessToken())) return null;
+  // No session: the call would go out as anon and fail with permission denied.
+  if (!(await getAccessToken())) return { data: [], error: { message: SESSION_EXPIRED_MESSAGE } };
   const { data, error } = await readAllPages<RawTripDocRow, { message: string; code?: string }>(
     (afterId, limit) =>
       supabase().rpc("list_trip_documents_for_trips", {

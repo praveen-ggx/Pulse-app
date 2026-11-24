@@ -2,10 +2,12 @@
  * Completion date + time for simulate — same pickers as vault / hard-copy POD.
  * Controlled: parent owns the value so Confirm Simulate saves exactly what is shown.
  * Optional minDateTime enforces Journey Log chronological order (same minute OK).
+ * Optional maxDateTime is the latest allowed instant (stage times cannot be in
+ * the future; past dates stay open).
  */
 import { HardCopyPodDateField } from "@/features/trips/components/trip-detail/HardCopyPodDateField";
 import { HardCopyPodTimeField } from "@/features/trips/components/trip-detail/HardCopyPodTimeField";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
 import {
   clampSimCompletionPickerValue,
@@ -17,6 +19,8 @@ type Props = {
   onChange: (next: string) => void;
   /** Local picker floor `YYYY-MM-DDTHH:mm` — earlier dates/times disabled. */
   minDateTime?: string | null;
+  /** Local picker ceiling `YYYY-MM-DDTHH:mm` — later dates/times disabled. */
+  maxDateTime?: string | null;
 };
 
 function splitPickerValue(value: string): { date: string; time: string } {
@@ -52,31 +56,33 @@ export function SimCompletionTimeField({
   value,
   onChange,
   minDateTime,
+  maxDateTime,
 }: Props) {
   const minAt = useMemo(
     () => parseLocalPickerDateTime(minDateTime),
     [minDateTime],
   );
 
-  // When the floor moves (Pickup edited after a revoke), drop any previous
-  // stage selection and start from now, raised to the new floor. Keeping the
-  // old value would leave the last In Transit instant on screen.
-  useEffect(() => {
-    const next = clampSimCompletionPickerValue(toSimCompletionPickerValue(), minAt);
-    if (next !== value) onChange(next);
-    // Parent onChange must not be a render dependency. User edits change
-    // `value` only; those must not be snapped back to now.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minAt?.getTime() ?? null]);
-
-  const parts = splitPickerValue(value || toSimCompletionPickerValue());
+  // Show the value the parent holds. Do not replace a selected date and time
+  // with the current clock when the stage floor is applied.
+  const parts = splitPickerValue(value);
   const minParts = minDateTime ? splitPickerValue(minDateTime) : null;
   const minTimeForSelectedDay =
     minParts && parts.date === minParts.date ? minParts.time : undefined;
+  const maxParts = maxDateTime ? splitPickerValue(maxDateTime) : null;
+  const maxTimeForSelectedDay =
+    maxParts && parts.date === maxParts.date ? maxParts.time : undefined;
 
   const write = (date: string, time: string) => {
     const nextDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : parts.date;
     let nextTime = /^\d{2}:\d{2}$/.test(time) ? time : parts.time;
+    if (maxParts && nextDate > maxParts.date) {
+      onChange(`${maxParts.date}T${maxParts.time}`);
+      return;
+    }
+    if (maxParts && nextDate === maxParts.date && nextTime > maxParts.time) {
+      nextTime = maxParts.time;
+    }
     if (minParts && nextDate < minParts.date) {
       onChange(`${minParts.date}T${minParts.time}`);
       return;
@@ -99,6 +105,7 @@ export function SimCompletionTimeField({
           required
           allowClear={false}
           minDate={minParts?.date}
+          maxDate={maxParts?.date}
           value={parts.date}
           onChange={(date) => write(date, parts.time)}
         />
@@ -114,6 +121,7 @@ export function SimCompletionTimeField({
           minuteStep={1}
           placeholder="hh:mm AM/PM"
           minTime={minTimeForSelectedDay}
+          maxTime={maxTimeForSelectedDay}
           value={parts.time}
           onChange={(time) => write(parts.date, time)}
         />

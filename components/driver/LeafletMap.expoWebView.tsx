@@ -3,6 +3,7 @@
  * Use a WebView + Leaflet OSM basemap (same tile network path that works on web).
  */
 import { isExpoGo } from "@/lib/expoGoMaps";
+import { mapboxLightRasterTileUrl } from "@/lib/maps/nativeBasemapStyle";
 import React, {
   forwardRef,
   useEffect,
@@ -32,6 +33,26 @@ function buildHtml(payload: {
   polylineColor: string;
 }): string {
   const boot = escapeJsonForScript(payload);
+  // Carto keyless tiles return "API KEY REQUIRED" watermarks inside a WebView
+  // (no browser origin), so use Mapbox Light with the public token. Falls back
+  // to Carto only when the token is missing.
+  const mapboxTiles = mapboxLightRasterTileUrl(512);
+  const tileLayer = escapeJsonForScript(
+    mapboxTiles
+      ? {
+          url: mapboxTiles,
+          options: {
+            tileSize: 512,
+            zoomOffset: -1,
+            maxZoom: 20,
+            attribution: "&copy; Mapbox &copy; OpenStreetMap",
+          },
+        }
+      : {
+          url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+          options: { maxZoom: 19, attribution: "&copy; OSM &copy; CARTO" },
+        },
+  );
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -59,10 +80,8 @@ function buildHtml(payload: {
     const boot = ${boot};
     const map = L.map('map', { zoomControl: false, attributionControl: true })
       .setView([boot.center.latitude, boot.center.longitude], boot.zoom || 12);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OSM &copy; CARTO'
-    }).addTo(map);
+    const tileLayer = ${tileLayer};
+    L.tileLayer(tileLayer.url, tileLayer.options).addTo(map);
 
     const markerLayer = L.layerGroup().addTo(map);
     const lineLayer = L.layerGroup().addTo(map);

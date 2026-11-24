@@ -18,6 +18,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { driverTabBarBottomPad } from './driverTabBarInsets';
+
 const springBounce = { damping: 14, stiffness: 400 };
 const springSettle = { damping: 18, stiffness: 320 };
 const DOCK_HEIGHT = Layout.tabBarHeight + 5;
@@ -56,7 +58,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
   const insets = useSafeAreaInsets();
   const colors = useDriverThemeColors();
   const { isDark } = useDriverTheme();
-  const { isDco } = useDriverOperatingModeQuery();
+  const { canSeeMarketplace } = useDriverOperatingModeQuery();
   const focusedRoute = state.routes[state.index];
   const current = focusedRoute?.name;
 
@@ -96,7 +98,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
   };
 
   const footerPadTop = 6;
-  const footerPadBottom = Math.max(Math.round(insets.bottom * 0.35), 10);
+  const footerPadBottom = driverTabBarBottomPad(insets.bottom);
 
   const dockSurface = {
     backgroundColor: isDark ? 'rgba(10,10,10,0.95)' : 'rgba(255,255,255,0.96)',
@@ -105,7 +107,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
 
   const renderTab = (tab: (typeof TAB_CONFIG)[number]) => {
     const isActive = current === tab.name;
-    const label = tab.name === 'available-loads' && !isDco ? 'Loads' : tab.label;
+    const label = tab.label;
     return (
       <View key={tab.name} style={styles.dockColumn}>
         <View
@@ -166,7 +168,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
       ]}
     >
       <View style={[styles.glassDock, dockSurface]}>
-        {TAB_CONFIG.map(renderTab)}
+        {TAB_CONFIG.filter((tab) => tab.name !== 'available-loads' || canSeeMarketplace).map(renderTab)}
       </View>
     </View>
   );

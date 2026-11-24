@@ -1,4 +1,5 @@
 import { SmartInput } from "@/components/mobile-input";
+import { showAppAlert } from "@/lib/appAlert";
 import type { NumericEntryPartyPreview } from "@/components/mobile-input/NumericEntryPartyBanner";
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
 import {
@@ -244,6 +245,7 @@ export function FuelEntryScreen({
     billScan,
     persistedJob,
     handleCapture,
+    acceptPhoto,
     handleRemovePhoto,
     applyPendingUpdates,
     dismissPendingUpdates,
@@ -318,6 +320,11 @@ export function FuelEntryScreen({
   const saving = saveFuel.isPending || updateFuel.isPending;
 
   const handleSave = async () => {
+    // A ₹0 entry adds a useless expense row (other expenses already block this).
+    if (!(amountInr > 0)) {
+      showAppAlert("Enter the amount", "Enter the fuel amount before saving.");
+      return;
+    }
     const payload = {
       tripId: trip.id,
       amountInr,
@@ -381,7 +388,9 @@ export function FuelEntryScreen({
           uri: photoUri,
           busy: saving || scanning,
           label: "Bill photo",
-          onAttach: handleCapture,
+          onAttach: () => void handleCapture("camera"),
+          onCaptured: (uri) => void acceptPhoto(uri),
+          onPick: () => void handleCapture("library"),
           onRemove: handleRemovePhoto,
         }}
         amountSlot={
@@ -404,6 +413,7 @@ export function FuelEntryScreen({
             onOtherCategoryChange={() => {}}
             onCategoryNavChange={onCategoryNavChange}
             lockCategorySwitch={lockCategorySwitch}
+            lockKindSwitch={isEditing}
           />
           <DriverExpenseFieldDivider />
           <DriverExpenseChipSelect

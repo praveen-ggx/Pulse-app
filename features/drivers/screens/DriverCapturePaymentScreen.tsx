@@ -36,7 +36,7 @@ import { useSafeBack } from "@/lib/useSafeBack";
 import { Banknote, Hash } from "lucide-react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -52,6 +52,10 @@ const CAPTURE_MODES = PAYMENT_MODES.filter((mode) =>
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function newCaptureAttemptId(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function inr(n: number): string {
@@ -107,6 +111,8 @@ export default function DriverCapturePaymentScreen() {
   const [tagOpen, setTagOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [recorded, setRecorded] = useState<{ title: string; message: string } | null>(null);
+  // Same id for retries of one attempt; rotated after a successful save.
+  const attemptIdRef = useRef(newCaptureAttemptId());
 
   const load = useCallback(async () => {
     // Resolve operating mode before choosing Self / indie / employer / exchange path.
@@ -239,11 +245,13 @@ export default function DriverCapturePaymentScreen() {
         driverId: driverId ?? "",
         createdBy: profile?.uid ?? null,
         tripDisplay,
+        attemptId: attemptIdRef.current,
       });
       if (error) {
         showAppAlert("Could not capture payment", error.message);
         return;
       }
+      attemptIdRef.current = newCaptureAttemptId();
       await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
       await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(trip.id) });
       setRecorded({

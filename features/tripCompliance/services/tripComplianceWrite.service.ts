@@ -580,7 +580,20 @@ export async function postCompliancePayment(params: {
     paid_from_account_id: params.paidFromAccountId ?? null,
   };
 
-  const { error } = await createLedgerEntry(params.organizationId, entry);
+  const written = await createLedgerEntry(params.organizationId, entry);
+  const { error } = written;
+  // A Compliance payment counts only when the ledger row exists. If the write
+  // was parked as a Pulse Exchange claim (waiting for the supplier), say so
+  // instead of reporting success: that silent path left 42 trips in Pending
+  // without a UTR (2026-11-22). Compliance categories should never be routed
+  // there; this is the safety net if they ever are.
+  if (!error && written.pendingExchangeConfirmation) {
+    return {
+      error: new Error(
+        "This payment was not posted: it was recorded as a Pulse Exchange claim waiting for the supplier. Contact support before paying this trip again.",
+      ),
+    };
+  }
   if (error && isDuplicateComplianceLedgerWrite(error)) {
     return {
       error: new Error(

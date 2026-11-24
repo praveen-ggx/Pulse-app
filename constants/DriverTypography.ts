@@ -1,47 +1,34 @@
 import type { TextStyle } from 'react-native';
 
 /**
- * Plus Jakarta Sans — loaded in `app/(driver)/_layout.tsx`.
- * PostScript names must match `useFonts({ ... })` keys from `@expo-google-fonts/plus-jakarta-sans`.
+ * Driver app text uses the platform system font, same as the core Pulse app
+ * (SF Pro on iOS, Roboto on Android, system UI on web). Emphasis comes from
+ * weight only; screen styles merged after these keep their own size/tracking.
  */
-export const DriverFontFamily = {
-  regular: 'PlusJakartaSans_400Regular',
-  medium: 'PlusJakartaSans_500Medium',
-  semiBold: 'PlusJakartaSans_600SemiBold',
-  bold: 'PlusJakartaSans_700Bold',
-  extraBold: 'PlusJakartaSans_800ExtraBold',
-} as const;
 
-/**
- * Wallet trip row secondary line (route / meta): regular + tracking — match existing sizes/weights via merge order.
- */
+/** Wallet trip row secondary line (route / meta). */
 export const driverBodySecondary: TextStyle = {
-  fontFamily: DriverFontFamily.regular,
-  letterSpacing: 0.1,
+  fontWeight: '400',
 };
 
-/** Primary title line on compact rows (15/500 etc.) */
+/** Primary title line on compact rows. */
 export const driverBodyPrimary: TextStyle = {
-  fontFamily: DriverFontFamily.medium,
-  letterSpacing: 0.05,
+  fontWeight: '500',
 };
 
 export const driverUISemiBold: TextStyle = {
-  fontFamily: DriverFontFamily.semiBold,
-  letterSpacing: 0.08,
+  fontWeight: '600',
 };
 
 export const driverUIBold: TextStyle = {
-  fontFamily: DriverFontFamily.bold,
-  letterSpacing: 0.06,
+  fontWeight: '700',
 };
 
 export const driverUIExtraBold: TextStyle = {
-  fontFamily: DriverFontFamily.extraBold,
-  letterSpacing: 0.06,
+  fontWeight: '800',
 };
 
-/** Tab bar micro labels — keeps Typography sizing; adds family only */
+/** Tab bar micro labels — keeps Typography sizing; adds weight only. */
 export const driverTabMicroLabel: TextStyle = {
-  fontFamily: DriverFontFamily.bold,
+  fontWeight: '700',
 };

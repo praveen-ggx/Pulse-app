@@ -20,13 +20,20 @@ import {
   clampEwayBillNumber,
   EMPTY_EWAY_FIELD_VALUES,
   EWAY_BILL_NUMBER_MAX_DIGITS,
+  ewayEntriesFromRows,
   ewayExpiryLabel,
   ewayExpiryTone,
   isEwayBillMetaPath,
+  nextEwayEntries,
   type EwayBillStripRow,
   type EwayFieldValues,
 } from "@/features/trips/services/ewayBillFields.util";
 import { fetchAdjustmentActorNames } from "@/features/trips/components/trip-detail/adjustment/tripAdjustmentAddedLog.util";
+import {
+  pickComplianceVaultFile,
+  type ComplianceVaultFile,
+} from "@/features/tripCompliance/services/complianceVaultUpload.service";
+import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { formatLedgerDateTime } from "@/lib/format";
@@ -78,11 +85,19 @@ type Props = {
   canUpload?: boolean;
   canEdit?: boolean;
   onSave?: (values: EwayFieldValues[]) => Promise<boolean>;
+  /**
+   * "Add e-way number": a new e-way bill needs its own document. When set,
+   * the add form asks for the file (required) and this saves both — the file
+   * uploaded and the number linked to it.
+   */
+  onAddWithFile?: (entry: EwayFieldValues, file: ComplianceVaultFile) => Promise<boolean>;
   /** Delete the uploaded file for this row so a correct bill can be added. */
   onRemoveDocument?: (row: EwayBillStripRow) => void;
   /** Same notification card on phone and desktop. Pass `table` only for the old grid. */
   variant?: "table" | "feed";
   compact?: boolean;
+  /** Why the e-way bill cannot be changed right now (Ground Ops lock), shown under the title. */
+  lockedLabel?: string | null;
 };
 
 const EMPTY_ROW: EwayBillStripRow = {
@@ -197,22 +212,27 @@ function displayToDraft(value: string): string {
 }
 
 function rowToDraft(row: EwayBillStripRow): EwayFieldValues {
-  return {
+  const draft: EwayFieldValues = {
     ewayNo: clampEwayBillNumber(displayToDraft(row.ewayNo)),
     createdDate: displayToDraft(row.createdDate),
     validTill: displayToDraft(row.validTill),
     docNo: displayToDraft(row.docNo),
   };
+  // Keep each entry's own save stamp and file link when another entry is saved.
+  if (row.entryUpdatedAt) draft.updatedAt = row.entryUpdatedAt;
+  if (row.entryUpdatedBy) draft.updatedBy = row.entryUpdatedBy;
+  // Pin the entry to the file it is shown with, so a later upload (cards are
+  // newest first) cannot move an unlinked number onto the new file.
+  if (row.entryFilePath) draft.filePath = row.entryFilePath;
+  else if (row.entryIndex >= 0 && row.fileStoragePath) draft.filePath = row.fileStoragePath;
+  return draft;
 }
 
 function rowsToEntries(rows: EwayBillStripRow[]): EwayFieldValues[] {
-  return rows
-    .filter((row) => row.id !== EMPTY_ROW.id)
-    .map(rowToDraft)
-    .filter(
-      (entry) =>
-        entry.ewayNo || entry.createdDate || entry.validTill || entry.docNo,
-    );
+  return ewayEntriesFromRows(
+    rows.filter((row) => row.id !== EMPTY_ROW.id),
+    rowToDraft,
+  );
 }
 
 function toIsoToday(): string {
@@ -395,8 +415,10 @@ export function EwayBillLrStrip({
   canUpload,
   canEdit,
   onSave,
+  onAddWithFile,
   onRemoveDocument,
   variant = "feed",
+  lockedLabel,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -447,6 +469,9 @@ export function EwayBillLrStrip({
   const [editing, setEditing] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | "new">(0);
   const [saving, setSaving] = useState(false);
+  /** Document picked for a new e-way bill (required when onAddWithFile is set). */
+  const [addFile, setAddFile] = useState<ComplianceVaultFile | null>(null);
+  const [pickingFile, setPickingFile] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState<
     null | "createdDate" | "validTill"
   >(null);
@@ -468,13 +493,18 @@ export function EwayBillLrStrip({
 
   const openEditor = (row: EwayBillStripRow) => {
     const next = rowToDraft(row);
+    // Tie the number to the file on this card, so it stays on this card
+    // whatever order the cards are filled in.
+    if (row.fileStoragePath) next.filePath = row.fileStoragePath;
     setDraft(next);
-    setEditingIndex(row.id === EMPTY_ROW.id ? "new" : row.entryIndex);
+    // A card with a file but no number yet (entryIndex -1) adds a new entry.
+    setEditingIndex(row.id === EMPTY_ROW.id || row.entryIndex < 0 ? "new" : row.entryIndex);
     setShowDatePicker(next.validTill ? null : "validTill");
     setEditing(true);
   };
 
   const openAdd = () => {
+    setAddFile(null);
     setDraft({ ...EMPTY_EWAY_FIELD_VALUES });
     setEditingIndex("new");
     setShowDatePicker("validTill");
@@ -487,24 +517,45 @@ export function EwayBillLrStrip({
     setEditing(false);
   };
 
-  const buildNextEntries = (mode: "save" | "remove"): EwayFieldValues[] => {
-    if (mode === "remove") {
-      if (editingIndex === "new") return existingEntries;
-      return existingEntries.filter((_, index) => index !== editingIndex);
+  // Only the added / edited entry gets a new "On … by …" stamp.
+  const stampedDraft = (): EwayFieldValues => ({
+    ...draft,
+    updatedAt: new Date().toISOString(),
+    ...(currentUserId ? { updatedBy: currentUserId } : {}),
+  });
+
+  const buildNextEntries = (mode: "save" | "remove"): EwayFieldValues[] =>
+    nextEwayEntries({ existing: existingEntries, editingIndex, draft: stampedDraft(), mode });
+
+  /** A brand-new e-way bill (not a card that already has its file) must come with its document. */
+  const requiresFile = editingIndex === "new" && !draft.filePath && !!onAddWithFile;
+
+  const chooseAddFile = async () => {
+    if (pickingFile || saving) return;
+    setPickingFile(true);
+    try {
+      const file = await pickComplianceVaultFile("eway_bill");
+      if (file) setAddFile(file);
+    } catch (error) {
+      alertMessage("File not accepted", error instanceof Error ? error.message : "Choose the file again.");
+    } finally {
+      setPickingFile(false);
     }
-    if (editingIndex === "new") return [...existingEntries, draft];
-    if (existingEntries.length === 0) return [draft];
-    return existingEntries.map((entry, index) =>
-      index === editingIndex ? draft : entry,
-    );
   };
 
   const saveEditor = async (mode: "save" | "remove" = "save") => {
     if (!onSave || saving) return;
+    if (mode === "save" && requiresFile && !addFile) return;
     setSaving(true);
     try {
-      const ok = await onSave(buildNextEntries(mode));
-      if (ok) setEditing(false);
+      const ok =
+        mode === "save" && requiresFile && addFile && onAddWithFile
+          ? await onAddWithFile(stampedDraft(), addFile)
+          : await onSave(buildNextEntries(mode));
+      if (ok) {
+        setEditing(false);
+        setAddFile(null);
+      }
     } finally {
       setSaving(false);
     }
@@ -520,6 +571,9 @@ export function EwayBillLrStrip({
       {feed ? (
         <>
           <Text style={[styles.sectionTitle, WEB_COPY]}>E-way Bill</Text>
+          {lockedLabel ? (
+            <Text style={[styles.lockedNote, WEB_COPY]}>{lockedLabel}</Text>
+          ) : null}
           <View style={styles.feedGrid}>
           {displayRows.map((row) => {
             const expiry = ewayExpiryLabel(row.validTill);
@@ -961,6 +1015,32 @@ export function EwayBillLrStrip({
                     editable={!saving}
                   />
                 </View>
+                {requiresFile ? (
+                  <View style={styles.fieldWrap}>
+                    <Text style={[styles.fieldLabel, WEB_COPY]}>E-way bill document (required)</Text>
+                    <Pressable
+                      onPress={() => void chooseAddFile()}
+                      disabled={saving || pickingFile}
+                      style={[styles.fieldInput, styles.addFileButton, WEB_POINTER]}
+                      accessibilityRole="button"
+                      accessibilityLabel={addFile ? `Change e-way bill document ${addFile.fileName}` : "Choose e-way bill document"}
+                    >
+                      <Feather name={addFile ? "file-text" : "upload"} size={14} color={Theme.textMuted} />
+                      <Text style={[styles.addFileLabel, WEB_COPY]} numberOfLines={1}>
+                        {pickingFile
+                          ? "Opening…"
+                          : addFile
+                            ? addFile.fileName
+                            : "Choose the e-way bill file"}
+                      </Text>
+                    </Pressable>
+                    {!addFile ? (
+                      <Text style={[styles.addFileHint, WEB_COPY]}>
+                        Each e-way bill needs its own document. Save stays off until you choose it.
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
               </ScrollView>
               <View style={styles.modalActions}>
                 {canRemove ? (
@@ -981,7 +1061,7 @@ export function EwayBillLrStrip({
                   <RegistryPrimaryButton
                     label={saving ? "Saving" : "Save"}
                     onPress={() => void saveEditor("save")}
-                    disabled={saving}
+                    disabled={saving || (requiresFile && !addFile)}
                     style={HUG_BTN}
                   />
                 </View>
@@ -1025,6 +1105,11 @@ const styles = StyleSheet.create({
     color: SHOP.ink,
     paddingHorizontal: 2,
     paddingTop: 4,
+  },
+  lockedNote: {
+    fontSize: 12,
+    color: Theme.textSecondary,
+    paddingHorizontal: 2,
   },
   orderCard: {
     width: "100%",
@@ -1127,6 +1212,9 @@ const styles = StyleSheet.create({
   },
   chipRow: {
     flexDirection: "row",
+    // Wrap on narrow cards: four chips do not fit a phone-width card, and
+    // without wrapping Upload was pushed out of view (only Remove showed).
+    flexWrap: "wrap",
     alignItems: "center",
     flexShrink: 0,
     gap: 8,
@@ -1381,6 +1469,22 @@ const styles = StyleSheet.create({
   },
   fieldWrap: {
     gap: 6,
+  },
+  addFileButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 44,
+  },
+  addFileLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: Theme.textPrimary,
+  },
+  addFileHint: {
+    marginTop: 4,
+    fontSize: 12,
+    color: Theme.textMuted,
   },
   fieldLabel: {
     fontSize: 12,

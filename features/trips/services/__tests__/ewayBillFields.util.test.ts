@@ -140,6 +140,7 @@ describe("buildEwayBillStripRows", () => {
         previewFileName: null,
         previewMime: null,
         documentId: null,
+        fileStoragePath: null,
         reviewStatus: null,
         rejectionReason: null,
       },
@@ -193,7 +194,10 @@ describe("buildEwayBillStripRows", () => {
     expect(rows[0]).toMatchObject({ id: "file-1", ewayNo: "102594941830" });
     expect(rows[1]).toMatchObject({
       id: "file-2",
-      entryIndex: 1,
+      // No saved entry yet: Edit adds one linked to this file (was 1, which
+      // pointed at an entry that did not exist, so the typed details were dropped).
+      entryIndex: -1,
+      fileStoragePath: "trip-1/eway_bill/b.pdf",
       ewayNo: "—",
       canView: true,
       previewPath: "trip-1/eway_bill/b.pdf",
@@ -309,6 +313,62 @@ describe("buildEwayBillStripRows", () => {
       previewFileName: "bill.pdf",
       previewMime: "PDF",
       documentId: "doc-bill",
+    });
+  });
+});
+
+describe("per-entry save stamp", () => {
+  const doc = (documentNumber: string) => ({
+    id: "eway_bill",
+    label: "Eway Bill",
+    type: "PDF",
+    status: "Uploaded",
+    documentNumber,
+    storagePath: ewayBillFieldsStoragePath("trip-1"),
+    uploadedAt: "2026-10-22T06:58:00.000Z",
+    uploadedBy: "user-first",
+  });
+
+  it("keeps each entry's stamp through parse and save", () => {
+    const raw = serializeEwayFieldEntries([
+      { ewayNo: "112581898430", createdDate: "", validTill: "", docNo: "" },
+      {
+        ewayNo: "665585858667",
+        createdDate: "",
+        validTill: "",
+        docNo: "",
+        updatedAt: "2026-11-21T09:00:00.000Z",
+        updatedBy: "user-second",
+      },
+    ]);
+    const entries = JSON.parse(raw).entries;
+    expect(entries[0]).not.toHaveProperty("updatedAt");
+    expect(entries[1]).toMatchObject({ updatedAt: "2026-11-21T09:00:00.000Z", updatedBy: "user-second" });
+  });
+
+  it("shows the second entry's own time and person, the legacy entry keeps the row's", () => {
+    const rows = buildEwayBillStripRows({
+      ewayDoc: doc(
+        serializeEwayFieldEntries([
+          { ewayNo: "112581898430", createdDate: "", validTill: "", docNo: "" },
+          {
+            ewayNo: "665585858667",
+            createdDate: "",
+            validTill: "",
+            docNo: "",
+            updatedAt: "2026-11-21T09:00:00.000Z",
+            updatedBy: "user-second",
+          },
+        ]),
+      ),
+    });
+    expect(rows[0]).toMatchObject({ updatedAt: "2026-10-22T06:58:00.000Z", updatedById: "user-first" });
+    expect(rows[0]).not.toHaveProperty("entryUpdatedAt");
+    expect(rows[1]).toMatchObject({
+      updatedAt: "2026-11-21T09:00:00.000Z",
+      updatedById: "user-second",
+      entryUpdatedAt: "2026-11-21T09:00:00.000Z",
+      entryUpdatedBy: "user-second",
     });
   });
 });

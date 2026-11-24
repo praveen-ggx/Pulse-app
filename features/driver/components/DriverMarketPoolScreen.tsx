@@ -171,10 +171,11 @@ export default function DriverMarketPoolScreen() {
       setResult(poolDriftResult(fresh.complete));
       return false;
     }
+    // Only attach a vehicle that fits the load (no wrong-type fallback).
     const preferredVehicle =
       activeVehicles.find((v) =>
         members[0] ? isLoadCompatibleWithFleet(members[0], [v.vehicle_type]) : false,
-      ) ?? activeVehicles[0];
+      ) ?? null;
     const outcome = await submitDcoPoolBid(
       { indentIds: bidTargets, memberIds: new Set(fresh.members.map((m) => m.id)) },
       amount,

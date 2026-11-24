@@ -40,6 +40,9 @@ function mockMakeThenable<T>(result: { data: T; error: null }) {
   builder.select = chain;
   builder.eq = chain;
   builder.in = chain;
+  builder.neq = chain;
+  builder.order = chain;
+  builder.limit = chain;
   builder.then = (resolve: (v: typeof result) => void) => resolve(result);
   builder.delete = () => {
     const del: Record<string, unknown> = {};
@@ -53,6 +56,9 @@ function mockMakeThenable<T>(result: { data: T; error: null }) {
 }
 
 let mockTxnsResult: { data: unknown[]; error: null };
+let mockPaymentRequestsResult: { data: unknown[]; error: null };
+let mockMarkApprovedAmount: number | null = null;
+const mockRpcCalls: Array<{ name: string; args?: Record<string, unknown> }> = [];
 let mockDeleteResult: { data: { id: string } | null; error: { message?: string } | null };
 /** Live `trips` flags read by postCompliancePayment; null = row not readable (falls back to the passed trip). */
 let mockLiveTripFlags: Partial<Pick<TripRow, "compliance_verified_at" | "finance_verified_at" | "pod_received_at">> | null = null;
@@ -70,9 +76,18 @@ jest.mock("@/lib/supabase", () => ({
         builder.select = () => builder;
         builder.eq = () => builder;
         builder.maybeSingle = async () => ({ data: mockLiveTripError ? null : mockLiveTripFlags, error: mockLiveTripError });
+        builder.limit = async () => ({ data: [{ supplier_rate_basis: "per_trip" }], error: null });
         return builder;
       }
+      if (table === "payment_requests") return mockMakeThenable(mockPaymentRequestsResult);
       throw new Error(`unexpected table ${table}`);
+    },
+    rpc: (name: string, args?: Record<string, unknown>) => {
+      mockRpcCalls.push({ name, args });
+      if (name === "mark_trip_finance_verified") {
+        return Promise.resolve({ data: { approved_amount: mockMarkApprovedAmount }, error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
     },
   }),
 }));
@@ -80,6 +95,9 @@ jest.mock("@/lib/supabase", () => ({
 beforeEach(() => {
   mockLiveTripFlags = null;
   mockLiveTripError = null;
+  mockPaymentRequestsResult = { data: [{ approved_amount: 25000, terms_snapshot: { supplier_rate_basis: "per_trip" } }], error: null };
+  mockMarkApprovedAmount = null;
+  mockRpcCalls.length = 0;
   mockDeleteResult = { data: { id: "tx-adv-1" }, error: null };
 });
 
@@ -444,6 +462,36 @@ describe("processComplianceBulkPayments — same advance gate per row", () => {
     expect(results[0].error).toBeNull();
     expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
   });
+
+  it("passes the updated percent to advance alignment and posts the file amount", async () => {
+    mockPaymentRequestsResult = { data: [{ approved_amount: 8000 }], error: null };
+    mockMarkApprovedAmount = 9000;
+    const trip = makeTrip();
+    const results = await processComplianceBulkPayments({
+      organizationId: "org-1",
+      category: "compliance_advance",
+      rows: [{ row: { rowIndex: 2, tripId: trip.id, amount: 9000, advancePercent: 45, paymentModeId: "UPI", utr: "UTR-ALIGN" }, errors: [] }] as never,
+      tripsById: new Map([[trip.id, trip]]),
+    });
+    const marked = mockRpcCalls.find((call) => call.name === "mark_trip_finance_verified");
+    expect(marked?.args?.p_advance_percent).toBe(45);
+    expect(results[0].error).toBeNull();
+    expect(mockCreateLedgerEntry).toHaveBeenCalledWith("org-1", expect.objectContaining({ amount_out: 9000 }));
+  });
+
+  it("does not post when alignment cannot produce the file amount", async () => {
+    mockPaymentRequestsResult = { data: [{ approved_amount: 8000 }], error: null };
+    mockMarkApprovedAmount = 8000;
+    const trip = makeTrip();
+    const results = await processComplianceBulkPayments({
+      organizationId: "org-1",
+      category: "compliance_advance",
+      rows: [{ row: { rowIndex: 2, tripId: trip.id, amount: 9000, advancePercent: 45, paymentModeId: "UPI", utr: "UTR-ALIGN" }, errors: [] }] as never,
+      tripsById: new Map([[trip.id, trip]]),
+    });
+    expect(results[0].error?.message).toMatch(/was not changed/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
 });
 
 describe("withdrawComplianceAdvancePayment", () => {
@@ -516,5 +564,41 @@ describe("compliancePayoutParty", () => {
     expect(party.contact_type).toBeNull();
     expect(party.party_name).toBe("Petthu Selvam");
     expect(party.ledger_flow_type).toBe("payable");
+  });
+});
+
+describe("postCompliancePayment — never reports success without a ledger row", () => {
+  beforeEach(() => {
+    mockTxnsResult = { data: [], error: null };
+    mockCreateLedgerEntry.mockReset();
+  });
+
+  it("returns an error when the write was parked as a Pulse Exchange claim", async () => {
+    mockCreateLedgerEntry.mockResolvedValue({ error: null, row: null, pendingExchangeConfirmation: true });
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip(),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "BANK",
+      paymentModeLabel: "Bank",
+      utr: "HSBCN32309042576",
+    });
+    expect(result.error?.message).toMatch(/not posted/i);
+    expect(result.error?.message).toMatch(/Pulse Exchange claim/);
+  });
+
+  it("succeeds when the ledger row was written", async () => {
+    mockCreateLedgerEntry.mockResolvedValue({ error: null, row: { id: "tx-1" } });
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip(),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "BANK",
+      paymentModeLabel: "Bank",
+      utr: "HSBCN32309042576",
+    });
+    expect(result.error).toBeNull();
   });
 });

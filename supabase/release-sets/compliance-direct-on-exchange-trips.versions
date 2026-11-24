@@ -1,0 +1,9 @@
+# Compliance advance / balance on Marketplace (Exchange) trips post straight to the payer's ledger
+# (Vasanth decision 2026-11-22, option b; nihas V1.0.67). Replaces tg_transactions_pulse_exchange_guard
+# (prod body + early return for compliance_advance / compliance_balance) and cancels the open payer claims
+# that Compliance payments created (42 on prod 2026-11-22, all GOGOVAN), so a later supplier confirm cannot
+# post a second payment. Tested on preprod inside BEGIN ... ROLLBACK.
+#
+# Apply only via: npm run db:push-set -- compliance-direct-on-exchange-trips   (dry-run first; prod apply needs Vasanth's GO)
+# sha256 35c607972eca30383f22d62b6073b2e43d93aab862b562903258b12d72b86aa6  20261122124730_compliance_payments_post_directly_on_exchange_trips.sql
+20261122124730

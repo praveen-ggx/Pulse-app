@@ -218,11 +218,19 @@ async function upsertWorkflowValidationEvent(input: {
   idempotencyKey: string;
   payload: Record<string, unknown>;
 }): Promise<{ ok: boolean; message?: string }> {
-  // Read before insert. A second save of the same milestone used to collide
-  // with the partial unique index and show up as HTTP 409.
-  if (await workflowEventAlreadyStored(input.idempotencyKey)) {
-    return replaceWorkflowValidationPayload(input);
-  }
+  const updateExisting = () =>
+    supabase()
+      .from("trip_workflow_events")
+      .update({ actor_id: input.actorId, payload: input.payload })
+      .eq("trip_id", input.tripId)
+      .eq("event_type", input.eventType)
+      .eq("idempotency_key", input.idempotencyKey)
+      .select("id");
+  // Update first: a repeat save hits the existing row instead of a
+  // duplicate-key insert (444 such errors in prod logs, 17–20 Nov 2026).
+  const existing = await updateExisting();
+  if (existing.error) return { ok: false, message: existing.error.message };
+  if ((existing.data ?? []).length > 0) return { ok: true };
   const { error } = await supabase()
     .from("trip_workflow_events")
     .insert({
@@ -236,7 +244,10 @@ async function upsertWorkflowValidationEvent(input: {
   if (!error) return { ok: true };
   const code = String((error as { code?: string }).code ?? "");
   if (code !== "23505") return { ok: false, message: error.message };
-  return replaceWorkflowValidationPayload(input);
+  // A concurrent save inserted it first.
+  const retried = await updateExisting();
+  if (retried.error) return { ok: false, message: retried.error.message };
+  return { ok: true };
 }
 
 async function loadInvoiceNumberByTripId(
@@ -347,6 +358,15 @@ export async function recordAdvanceDocumentCostSnapshot(
   tripId: string,
   fallback?: AdvanceDocumentCostSource,
 ): Promise<void> {
+  const idempotencyKey = `${tripId}:${ADVANCE_DOCUMENT_COST_EVENT}`;
+  // First snapshot wins; skip the insert when it already exists.
+  const { data: frozen } = await supabase()
+    .from("trip_workflow_events")
+    .select("id")
+    .eq("idempotency_key", idempotencyKey)
+    .limit(1)
+    .maybeSingle();
+  if (frozen) return;
   const amount = await resolveLiveDocumentCost(tripId, fallback);
   const { data } = await supabase()
     .from("trips")

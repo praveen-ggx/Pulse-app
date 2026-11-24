@@ -49,6 +49,9 @@ jest.mock('@/lib/supabase', () => ({
   }),
 }));
 jest.mock('@/lib/realtimeRegistry', () => ({ subscribeSharedPostgresChanges: jest.fn() }));
+jest.mock('@/lib/queries/useDriverOperatingModeQuery', () => ({
+  useDriverOperatingModeQuery: () => ({ canSeeMarketplace: false }),
+}));
 jest.mock('@/features/drivers/services/drivers.service', () => ({
   getLinkedDriversForCurrentUser: jest.fn(),
 }));

@@ -5,9 +5,11 @@
  * deleted mid-walk is settled by one fresh count.
  */
 const mockRpc = jest.fn();
+const mockToken = jest.fn();
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({ rpc: (...a: unknown[]) => mockRpc(...a) }),
-  getAccessToken: async () => "test-token",
+  getAccessToken: () => mockToken(),
+  SESSION_EXPIRED_MESSAGE: "Your session has expired. Please sign in again.",
 }));
 
 import { getAllTripsForOrg, getHubTripKeysetPage, loadHubTripKeysetRange } from "../trips.service";
@@ -43,7 +45,36 @@ function serve(opts: { cap?: number; rowsMissing?: boolean } = {}) {
 
 const calls = (fn: string) => mockRpc.mock.calls.filter((c) => c[0] === fn).length;
 
-beforeEach(() => mockRpc.mockReset());
+beforeEach(() => {
+  mockRpc.mockReset();
+  mockToken.mockReset();
+  mockToken.mockResolvedValue("token");
+});
+
+describe("getHubTripKeysetPage", () => {
+  it("does not call the server as anon when the session is gone", async () => {
+    mockToken.mockResolvedValue(null);
+    const page = await getHubTripKeysetPage("org-1");
+    expect(page.error?.message).toMatch(/sign in again/);
+    expect(page.trips).toEqual([]);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it("sends the rail tile and the attribution filter on the first page", async () => {
+    mockTrips = makeTrips(1);
+    serve();
+    const page = await getHubTripKeysetPage("org-1", {
+      bucket: "unassigned",
+      attributed: "attributed",
+      withCounts: true,
+    });
+    expect(page.error).toBeNull();
+    expect(mockRpc.mock.calls[0][0]).toBe("list_org_hub_trips_keyset");
+    expect(mockRpc.mock.calls[0][1].p_bucket).toBe("unassigned");
+    expect(mockRpc.mock.calls[0][1].p_attributed).toBe("attributed");
+    expect(mockRpc.mock.calls[0][1].p_compliance).toBe(false);
+  });
+});
 
 describe("getHubTripKeysetPage", () => {
   it("sends the rail tile and the attribution filter on the first page", async () => {

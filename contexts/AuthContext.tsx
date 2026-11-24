@@ -48,7 +48,11 @@ import { resetIndexBootRedirect } from "@/lib/indexBootRedirect.util";
 import { getKeepSignedIn, setKeepSignedIn } from "@/lib/keepSignedInPreference";
 import { clearAllRealtimeChannels } from "@/lib/realtimeRegistry";
 import { getQueryClient } from "@/lib/queryClient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { purgeSessionScopedLaneOfferQueries } from "@/lib/queryKeys";
+
+/** Must match the persister key in app/_layout.tsx. */
+const PERSISTED_QUERY_CACHE_KEY = "pulse-cache-v1";
 import {
   createContext,
   useCallback,
@@ -322,7 +326,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     signOutRequestedRef.current = true;
     try {
-      await withTimeout(() => authService.signOut(), AUTH_TIMEOUT_MS);
+      await withTimeout(() => authService.signOut({ scope: "local" }), AUTH_TIMEOUT_MS);
     } catch (e) {
       // Local state is cleared below regardless, so a remote-revoke timeout is
       // not an error — same rationale as signOut().
@@ -521,7 +525,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!mounted || !isCurrentAuthAttempt(initAttemptId)) return;
           if (!keep) {
             signOutRequestedRef.current = true;
-            await authService.signOut();
+            await authService.signOut({ scope: "local" });
             if (!mounted || !isCurrentAuthAttempt(initAttemptId)) return;
             setUser(null);
             setProfile(null);
@@ -858,6 +862,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     signOutRequestedRef.current = true;
+    // Stop trip GPS / background task / live broadcast while the session still
+    // exists — otherwise a driver who logs out mid-trip keeps being tracked.
+    try {
+      const { stopDriverLiveTracking } = await import(
+        "@/features/tracking/services/driverLiveTracking.service"
+      );
+      await withTimeout(() => stopDriverLiveTracking(), AUTH_TIMEOUT_MS);
+    } catch (e) {
+      logAuth("sign_out_stop_tracking_failed", { message: String((e as Error)?.message ?? e) }, "warn");
+    }
     clearAllRealtimeChannels();
     // Remove the signed-in carrier's invite inbox before the next account
     // can mount. Unrelated persisted state (theme, drafts) is left alone.
@@ -875,6 +889,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setRestoreError(null);
     clearAuthState(false);
+    // Shared phones: don't leave the previous user's trips / earnings in the
+    // in-memory cache or the 6-hour on-device cache for the next person.
+    try {
+      getQueryClient().clear();
+    } catch {
+      // cache already gone — nothing to clear
+    }
+    void AsyncStorage.removeItem(PERSISTED_QUERY_CACHE_KEY).catch(() => undefined);
   }, [clearAuthState]);
 
   // ---- render ----

@@ -51,8 +51,10 @@ export type TripSupplierFreight = {
 
 /**
  * The compliance trip list comes from get_trips_for_org, which returns
- * supplier_rate but not supplier_rate_basis. Without the basis the amount
- * panel treats freight as unset. Read the stored terms for these trips.
+ * supplier_rate but not supplier_rate_basis. Read the stored terms for these trips.
+ * `trips.supplier_rate` is the total freight. A blank trip basis stays blank
+ * (read as per trip); the indent's per-MT basis is not inherited, or the total
+ * would be multiplied by tons a second time.
  */
 export async function readTripSupplierFreightByIds(
   tripIds: readonly string[],
@@ -63,39 +65,13 @@ export async function readTripSupplierFreightByIds(
     const chunk = ids.slice(i, i + 100);
     const { data, error } = await supabase()
       .from("trips")
-      .select("id, supplier_rate, supplier_rate_basis, load_tons, indent_id, source_indent_id")
+      .select("id, supplier_rate, supplier_rate_basis, load_tons")
       .in("id", chunk);
     if (error) throw new Error(error.message);
-    const rows = data ?? [];
-    const indentIds = [
-      ...new Set(
-        rows
-          .filter((row) => !(row.supplier_rate_basis ?? "").trim())
-          .map((row) => (row.indent_id ?? row.source_indent_id ?? "").trim())
-          .filter((id) => id.length > 0),
-      ),
-    ];
-    const indentBasis = new Map<string, string | null>();
-    if (indentIds.length > 0) {
-      const indentRead = await supabase()
-        .from("indents")
-        .select("id, supplier_rate_basis")
-        .in("id", indentIds);
-      if (!indentRead.error) {
-        for (const indent of indentRead.data ?? []) {
-          indentBasis.set(indent.id, indent.supplier_rate_basis ?? null);
-        }
-      }
-    }
-    for (const row of rows) {
-      const indentId = (row.indent_id ?? row.source_indent_id ?? "").trim();
-      const basis =
-        (row.supplier_rate_basis ?? "").trim() ||
-        (indentId ? indentBasis.get(indentId) : null) ||
-        null;
+    for (const row of data ?? []) {
       out.set(row.id, {
         supplierRate: row.supplier_rate == null ? null : Number(row.supplier_rate),
-        supplierRateBasis: basis,
+        supplierRateBasis: (row.supplier_rate_basis ?? "").trim() || null,
         loadTons: row.load_tons == null ? null : Number(row.load_tons),
       });
     }
@@ -311,6 +287,80 @@ export async function quoteAdvancePayablesForTrips(
   trips: Array<{ id: string; supplierId: string | null }>,
 ): Promise<Map<string, { payable: number; percent: number; baseFreight: number; tdsAmount: number; documentationCharges: number }>> {
   const out = new Map<string, { payable: number; percent: number; baseFreight: number; tdsAmount: number; documentationCharges: number }>();
+  const rows = trips.filter((trip) => trip.id.trim());
+  if (!organizationId.trim() || rows.length === 0) return out;
+  const freightByTrip = await readTripSupplierFreightByIds(rows.map((trip) => trip.id));
+  const doc = await getDocumentChargeConfig(organizationId);
+  const supplierIds = [...new Set(rows.map((trip) => (trip.supplierId ?? "").trim()).filter(Boolean))];
+  const terms = new Map<string, { profile: VendorOnboardingProfile | null; rates: SupplierTdsRate[] }>();
+  await mapWithConcurrency(supplierIds, TERMS_FETCH_CONCURRENCY, async (supplierId) => {
+    const [tdsResult, profileResult] = await Promise.all([
+      listSupplierTdsRates(organizationId, supplierId),
+      getVendorOnboardingProfile(organizationId, supplierId),
+    ]);
+    terms.set(supplierId, { profile: profileResult.profile, rates: tdsResult.rates });
+  });
+  for (const trip of rows) {
+    const freight = freightByTrip.get(trip.id);
+    if (!freight) continue;
+    const supplierId = (trip.supplierId ?? "").trim();
+    const vault = supplierId ? terms.get(supplierId) : undefined;
+    const quote = quoteFromVaultTerms(
+      freight,
+      vault?.profile ?? null,
+      vault?.rates ?? [],
+      doc.data,
+    );
+    if (quote) out.set(trip.id, quote);
+  }
+  return out;
+}
+
+type AdvanceVaultQuote = {
+  payable: number;
+  percent: number;
+  baseFreight: number;
+  tdsAmount: number;
+  documentationCharges: number;
+};
+
+function quoteFromVaultTerms(
+  input: {
+    supplierRate: number | null | undefined;
+    supplierRateBasis: string | null | undefined;
+    loadTons: number | null | undefined;
+  },
+  profile: VendorOnboardingProfile | null,
+  rates: SupplierTdsRate[],
+  docCharge: Awaited<ReturnType<typeof getDocumentChargeConfig>>["data"],
+): AdvanceVaultQuote | null {
+  const baseFreight = supplierBaseFreight(input);
+  if (baseFreight == null || baseFreight <= 0) return null;
+  const resolvedTds = resolveComplianceTdsRate(rates);
+  const tdsAmount = computeComplianceTdsAmount(baseFreight, resolvedTds?.ratePercent ?? null);
+  const adv = profile?.advance_percentage;
+  const vendorPct = adv != null && Number.isFinite(Number(adv)) ? Number(adv) : null;
+  const percent =
+    vendorPct != null
+      ? Math.min(100, Math.max(0, vendorPct))
+      : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
+  const documentationCharges = resolveComplianceDocumentationCharge(docCharge, baseFreight).amount;
+  const payable = computeCompliancePaymentAmount({
+    baseFreight,
+    advancePercent: percent,
+    documentationCharges,
+    tdsAmount,
+  });
+  if (payable <= 0) return null;
+  return { payable, percent, baseFreight, tdsAmount, documentationCharges };
+}
+
+/** Supplier advance percent, or 90 when the supplier has none, with the payable it produces. */
+export async function quoteAdvancePayablesForTrips(
+  organizationId: string,
+  trips: Array<{ id: string; supplierId: string | null }>,
+): Promise<Map<string, AdvanceVaultQuote>> {
+  const out = new Map<string, AdvanceVaultQuote>();
   const rows = trips.filter((trip) => trip.id.trim());
   if (!organizationId.trim() || rows.length === 0) return out;
   const freightByTrip = await readTripSupplierFreightByIds(rows.map((trip) => trip.id));

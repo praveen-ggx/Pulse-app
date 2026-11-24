@@ -11,6 +11,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { DriverAvatarProvider } from '@/contexts/DriverAvatarContext';
 import { DriverThemeProvider } from '@/contexts/DriverThemeContext';
 import { DriverCommunicationProvider } from '@/features/driver/communication';
+import { DriverTripCompletedHost } from '@/features/driver/components/DriverTripCompletedModal';
+import { DcoEmploymentConflictModal } from '@/features/drivers/components/DcoEmploymentConflictModal';
+import { useDriverIndieOutboxFlush } from '@/features/driver-indie/hooks/useDriverIndieOutboxFlush';
 import {
   consumePendingDriverInviteAfterAuth,
 } from '@/lib/driverInviteDeepLink.util';
@@ -146,6 +149,10 @@ export default function DriverAppLayout() {
     void consumePendingDriverInviteAfterAuth();
   }, [loading, user, profile?.role]);
 
+  // Payments / parties saved with no signal: send them when the app opens,
+  // returns to the foreground, or the network comes back.
+  useDriverIndieOutboxFlush(!loading && Boolean(user) && profile?.role === 'driver');
+
   // Deep links remount auth from JWT metadata. If metadata lags public.profiles
   // (or vice versa), refresh once so DB hydration can resolve driver role before
   // we bounce to the organisation shell.
@@ -258,6 +265,8 @@ export default function DriverAppLayout() {
           <DriverInviteModalProvider>
             <DriverTripOpsProvider>
               <DriverTabsNavigator />
+              <DriverTripCompletedHost />
+              <DcoEmploymentConflictModal />
             </DriverTripOpsProvider>
           </DriverInviteModalProvider>
         </DriverCommunicationProvider>

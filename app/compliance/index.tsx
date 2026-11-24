@@ -33,7 +33,12 @@ import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/
 import { isComplianceMobileViewport } from "@/features/tripCompliance/utils/complianceMobileLayout.util";
 import { setRootDockHidden } from "@/contexts/DemoTabBarScrollContext";
 import { HubMobileUnderlineTab, HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
+import { ComplianceIncompleteBanner } from "@/features/tripCompliance/components/ComplianceIncompleteBanner";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
+import {
+  complianceCountLabel,
+  complianceExportBlockedMessage,
+} from "@/features/tripCompliance/utils/complianceIncomplete.util";
 import { DebitControlTripsTable } from "@/features/tripCompliance/components/DebitControlTripsTable";
 import {
     COMPLIANCE_QUEUE_WINDOW_SIZE,
@@ -250,11 +255,14 @@ function StageFilterRail({
   podReceivedCount,
   onSelectStage,
   visibleStages,
+  incomplete = false,
 }: {
   stage: ComplianceQueueFilter;
   counts: ComplianceStageCounts;
   podReceivedCount: number;
   onSelectStage: (next: ComplianceQueueFilter) => void;
+  /** Queue still loading or failed: counts are "at least" and carry a "+". */
+  incomplete?: boolean;
   /** When set, All and any stage outside the set are hidden. */
   visibleStages?: ReadonlySet<ComplianceQueueFilter> | null;
 }) {
@@ -262,10 +270,14 @@ function StageFilterRail({
   const tab = (id: ComplianceQueueFilter, label: string, count: number, caption?: string) => (
     <HubMobileUnderlineTab
       key={id}
-      label={`${label} (${count})`}
+      label={`${label} (${complianceCountLabel(count, incomplete)})`}
       isActive={stage === id}
       onPress={() => onSelectStage(id)}
-      accessibilityLabel={caption ? `${label}, ${caption}, ${count}` : `${label}, ${count}`}
+      accessibilityLabel={
+        caption
+          ? `${label}, ${caption}, ${incomplete ? "at least " : ""}${count}`
+          : `${label}, ${incomplete ? "at least " : ""}${count}`
+      }
     />
   );
   return (
@@ -438,7 +450,11 @@ export default function ComplianceScreen() {
 
   const {
     summaries: queueSummaries,
-    pipelinePartial,
+    pipelineIncomplete,
+    pipelineLoadFailed,
+    pipelineLoadedCount,
+    pipelineTotalCount,
+    retryTail,
     isLoading,
     isError,
     error,
@@ -1547,7 +1563,9 @@ export default function ComplianceScreen() {
   }, [isAdvanceProcessedStage, searched, tableDateSort, viewMode]);
   const visible = ordered;
   const filteredTotal = ordered.length;
-  const queueStillFilling = pipelinePartial && filteredTotal === 0 && !search.trim();
+  // Actual loading only: a failed load shows the banner and the empty state, never a spinner.
+  const queueStillFilling =
+    pipelineIncomplete && !pipelineLoadFailed && filteredTotal === 0 && !search.trim();
   const tableResetKey = useMemo(
     () =>
       [
@@ -1693,6 +1711,30 @@ export default function ComplianceScreen() {
   } | null>(null);
   const reportPreviewRequest = useRef(0);
 
+  // The queue on screen is partial while trips load or after a failed load. Counts carry
+  // a "+", the banner says how many are loaded, and every export is blocked.
+  const queueBanner =
+    (pipelineIncomplete || pipelineLoadFailed) && (summaries.length > 0 || pipelineLoadFailed) ? (
+      <ComplianceIncompleteBanner
+        loaded={pipelineLoadedCount}
+        total={pipelineTotalCount}
+        failed={pipelineLoadFailed}
+        onRetry={() => void retryTail()}
+      />
+    ) : null;
+  const exportBlockedByIncompleteQueue = useCallback((): boolean => {
+    if (!pipelineIncomplete) return false;
+    alertMessage(
+      "Can't export yet",
+      complianceExportBlockedMessage({
+        loaded: pipelineLoadedCount,
+        total: pipelineTotalCount,
+        failed: pipelineLoadFailed,
+      }),
+    );
+    return true;
+  }, [pipelineIncomplete, pipelineLoadFailed, pipelineLoadedCount, pipelineTotalCount]);
+
   const failReportPreview = useCallback((request: number, error: unknown) => {
     if (request !== reportPreviewRequest.current) return;
     setReportPreview(null);
@@ -1707,6 +1749,7 @@ export default function ComplianceScreen() {
   }, []);
 
   const openAdvancePaymentExport = useCallback(() => {
+    if (exportBlockedByIncompleteQueue()) return;
     const orgId = currentOrganization?.id;
     if (!orgId) return;
     const request = ++reportPreviewRequest.current;
@@ -1723,9 +1766,10 @@ export default function ComplianceScreen() {
         setReportPreview((cur) => (cur ? { ...cur, preparing: false, rows } : cur));
       })
       .catch((error: unknown) => failReportPreview(request, error));
-  }, [advancePaidPool, currentOrganization?.id, failReportPreview, filtered]);
+  }, [advancePaidPool, currentOrganization?.id, exportBlockedByIncompleteQueue, failReportPreview, filtered]);
 
   const openAdvanceProcessedExport = useCallback(() => {
+    if (exportBlockedByIncompleteQueue()) return;
     const orgId = currentOrganization?.id;
     if (!orgId) return;
     const request = ++reportPreviewRequest.current;
@@ -1745,9 +1789,10 @@ export default function ComplianceScreen() {
         setReportPreview((cur) => (cur ? { ...cur, preparing: false, rows } : cur));
       })
       .catch((error: unknown) => failReportPreview(request, error));
-  }, [currentOrganization?.id, failReportPreview, filtered]);
+  }, [currentOrganization?.id, exportBlockedByIncompleteQueue, failReportPreview, filtered]);
 
   const openVerifiedExport = useCallback(() => {
+    if (exportBlockedByIncompleteQueue()) return;
     const orgId = currentOrganization?.id;
     if (!orgId) return;
     const request = ++reportPreviewRequest.current;
@@ -1764,7 +1809,7 @@ export default function ComplianceScreen() {
         setReportPreview((cur) => (cur ? { ...cur, preparing: false, rows } : cur));
       })
       .catch((error: unknown) => failReportPreview(request, error));
-  }, [currentOrganization?.id, failReportPreview, summaries]);
+  }, [currentOrganization?.id, exportBlockedByIncompleteQueue, failReportPreview, summaries]);
 
   const closeReportPreview = useCallback(() => {
     if (reportPreview?.preparing) return;
@@ -1779,6 +1824,7 @@ export default function ComplianceScreen() {
   }, [exportToast]);
 
   const exportTable = useCallback(async () => {
+    if (exportBlockedByIncompleteQueue()) return;
     const rows = sortComplianceTableRows(searched, tableDateSort);
     const span = complianceExportDateSpan(rows);
     const extra: string[] = [];
@@ -1806,13 +1852,18 @@ export default function ComplianceScreen() {
     setExportToast(message);
     if (rows.length === 0) return;
     try {
-      await downloadComplianceTableExport(rows, stage === "compliance_pending" || hideCommercials);
+      await downloadComplianceTableExport(
+        rows,
+        stage === "compliance_pending" || hideCommercials,
+        supplierNameByTripId,
+      );
     } catch (error) {
       alertMessage("Couldn't export", error instanceof Error ? error.message : "Please try again.");
     }
   }, [
     advancePaySlice,
     awaitingPodSubview,
+    exportBlockedByIncompleteQueue,
     pendingSlice,
     podReceivedSubview,
     podSlice,
@@ -1821,6 +1872,7 @@ export default function ComplianceScreen() {
     search,
     searched,
     stage,
+    supplierNameByTripId,
     tableDateSort,
     verifiedSlice,
   ]);
@@ -1980,6 +2032,8 @@ export default function ComplianceScreen() {
       canExport={mobileCanExport}
       onExport={onMobileExport}
       exportLabel="Export Report"
+      countsIncomplete={pipelineIncomplete}
+      banner={queueBanner}
       refreshControl={
         <ComplianceRefreshButton
           compact
@@ -2007,6 +2061,7 @@ export default function ComplianceScreen() {
     >
       {isMobile ? null : (
       <View style={styles.chrome}>
+      {queueBanner}
       <View>
       <View style={[styles.toolbarRow, stackToolbar && styles.toolbarStack]}>
         {viewMode !== "card" ? (
@@ -2046,6 +2101,7 @@ export default function ComplianceScreen() {
                 podReceivedCount={podReceivedCount}
                 onSelectStage={selectStage}
                 visibleStages={visibleStages}
+                incomplete={pipelineIncomplete}
               />
           </ScrollView>
         </View>
@@ -2389,7 +2445,7 @@ export default function ComplianceScreen() {
           />
         </View>
         <View style={[styles.footerSide, styles.footerSideEnd]}>
-          {viewMode === "table" && !isAdvanceProcessedStage && !isVerifiedStage ? (
+          {!isAdvanceProcessedStage && !isVerifiedStage ? (
             <TouchableOpacity
               style={[styles.reportBtn, compactActions && styles.actionBtnCompact]}
               onPress={() => {
@@ -2397,7 +2453,7 @@ export default function ComplianceScreen() {
               }}
               hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
               accessibilityRole="button"
-              accessibilityLabel="Export table"
+              accessibilityLabel="Export"
             >
               <Download size={11} color={Theme.actionBtnInk} strokeWidth={2} />
               {!isNarrow ? <Text style={styles.reportBtnText}>Export</Text> : null}

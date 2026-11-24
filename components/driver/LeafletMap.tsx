@@ -28,11 +28,11 @@ export const LeafletMap = React.forwardRef<LeafletMapRef, LeafletMapProps>(
           nativeRef.current?.setMarkerCoordinate(id, coordinate);
         }
       },
-      fitBounds: (ne, sw, paddingPx, maxZoom) => {
+      fitBounds: (ne, sw, paddingPx, maxZoom, insets) => {
         if (Platform.OS === "web") {
-          webRef.current?.fitBounds(ne, sw, paddingPx, maxZoom);
+          webRef.current?.fitBounds(ne, sw, paddingPx, maxZoom, insets);
         } else {
-          nativeRef.current?.fitBounds(ne, sw, paddingPx, maxZoom);
+          nativeRef.current?.fitBounds(ne, sw, paddingPx, maxZoom, insets);
         }
       },
       zoomIn: () => {

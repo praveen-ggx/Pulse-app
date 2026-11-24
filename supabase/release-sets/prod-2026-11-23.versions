@@ -1,0 +1,8 @@
+# Release 2026-11-23, two migrations in apply order.
+# 20271123063000: auto-release a stale cross-org driver phone row (4 functions + helper), PR #153.
+# 20271123101500: Ground Ops simulate p_event_at (drops + recreates simulate_ground_ops_pickup_status), PR #158. Must be applied BEFORE the app code (the code passes p_event_at).
+# Excluded: the Godrej test receipt migration (never applied).
+# sha256 d01597042cbb82928beb4f8e8205e100fb5439e5dd3ecf53f3eb79f699d54ce9  20271123063000_release_stale_driver_phone_row.sql
+20271123063000
+# sha256 7b6dd1a619c6a6033a22d6487723aab7522e2c8ade4a9a37321f06d38d5be3ed  20271123101500_ground_ops_pickup_event_at.sql
+20271123101500

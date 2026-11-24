@@ -2,8 +2,10 @@ import Theme from '@/constants/Theme';
 import { resolveDriverOrgAvatarUri } from '@/features/drivers/utils/resolveDriverOrgAvatar.util';
 import type { DriverInviteRow } from '@/features/drivers/services/drivers.service';
 import { useOrgBrandingByIds } from '@/lib/hooks/useOrgBrandingByIds';
+import { getDriverInviteDetails } from '@/features/drivers/services/driverInviteNegotiation.service';
+import { useQuery } from '@tanstack/react-query';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type InviteCardColors = {
@@ -26,6 +28,16 @@ type Props = {
   onAccept: () => void;
   onClose?: () => void;
   acceptLabel?: string;
+  /** Fleet's job description (vehicle, route, shift, duties). */
+  jobDescription?: string | null;
+  /** Fleet's terms & conditions — Accept stays off until the driver agrees. */
+  termsText?: string | null;
+  /** Driver can send changed pay terms back to the fleet. */
+  onRequestChanges?: () => void;
+  /** Driver already asked for changes; waiting for the fleet's answer. */
+  waitingForFleet?: boolean;
+  /** Short note shown above the actions (e.g. "Fleet agreed to your terms"). */
+  statusNote?: string | null;
 };
 
 export function DriverInviteCard({
@@ -38,7 +50,30 @@ export function DriverInviteCard({
   onAccept,
   onClose,
   acceptLabel = 'Accept Invite',
+  jobDescription: jobDescriptionProp,
+  termsText: termsTextProp,
+  onRequestChanges,
+  waitingForFleet = false,
+  statusNote = null,
 }: Props) {
+  // Loads job description / T&C itself so every screen showing this card
+  // (Home popups included) enforces "I agree" before Accept.
+  const detailsQ = useQuery({
+    queryKey: ['q', 'driverInviteDetails', invite.id],
+    queryFn: async () => (await getDriverInviteDetails([invite.id]))[invite.id] ?? null,
+    enabled: !!invite.id && (jobDescriptionProp === undefined || termsTextProp === undefined),
+    staleTime: 30_000,
+  });
+  const jobDescription = jobDescriptionProp ?? detailsQ.data?.job_description ?? null;
+  const termsText = termsTextProp ?? detailsQ.data?.terms_text ?? null;
+  const hasTerms = !!String(termsText ?? '').trim();
+  const fleetReplied =
+    (detailsQ.data?.rounds?.length ?? 0) > 1 && detailsQ.data?.last_action_by === 'fleet';
+  const note =
+    statusNote ??
+    (fleetReplied ? 'The fleet replied to your request. Review the offer and accept.' : null);
+  const [agreed, setAgreed] = useState(false);
+  const acceptBlocked = busy || waitingForFleet || (hasTerms && !agreed);
   const orgId = invite.from_organization_id ?? '';
   const brandingById = useOrgBrandingByIds([orgId]);
   const orgLogo = useMemo(
@@ -89,6 +124,42 @@ export function DriverInviteCard({
         </View>
       </View>
 
+      {jobDescription ? (
+        <View style={[styles.detailBox, { borderColor: colors.border }]}>
+          <Text style={[styles.detailLabel, { color: colors.textMuted }]}>JOB DESCRIPTION</Text>
+          <Text style={[styles.detailText, { color: colors.text }]}>{jobDescription}</Text>
+        </View>
+      ) : null}
+      {hasTerms ? (
+        <View style={[styles.detailBox, { borderColor: colors.border }]}>
+          <Text style={[styles.detailLabel, { color: colors.textMuted }]}>TERMS & CONDITIONS</Text>
+          <Text style={[styles.detailText, { color: colors.text }]}>{termsText}</Text>
+          {!waitingForFleet ? (
+            <TouchableOpacity
+              style={styles.agreeRow}
+              onPress={() => setAgreed((v) => !v)}
+              activeOpacity={0.8}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: agreed }}
+            >
+              <FontAwesome
+                name={agreed ? 'check-square' : 'square-o'}
+                size={16}
+                color={agreed ? colors.emerald : colors.textMuted}
+              />
+              <Text style={[styles.detailText, { color: colors.text }]}>
+                I agree to the terms & conditions
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+      {waitingForFleet || note ? (
+        <Text style={[styles.statusNote, { color: colors.textMuted }]}>
+          {waitingForFleet ? 'You asked for changes. Waiting for the fleet to reply.' : note}
+        </Text>
+      ) : null}
+
       <View style={styles.actionsRow}>
         <View style={[styles.offerBadge, { backgroundColor: colors.surfaceElevated, borderColor: colors.border }]}>
           <FontAwesome name="bolt" size={12} color={colors.primary} />
@@ -106,20 +177,53 @@ export function DriverInviteCard({
             <Text style={[styles.ignoreText, { color: colors.textMuted }]}>Ignore</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.acceptBtn, { backgroundColor: colors.primary }, busy && styles.disabled]}
+            style={[styles.acceptBtn, { backgroundColor: colors.primary }, acceptBlocked && styles.disabled]}
             onPress={onAccept}
-            disabled={busy}
+            disabled={acceptBlocked}
             activeOpacity={0.8}
           >
             <Text style={styles.acceptText}>{acceptLabel}</Text>
           </TouchableOpacity>
         </View>
       </View>
+      {onRequestChanges && !waitingForFleet ? (
+        <TouchableOpacity
+          style={[styles.changesBtn, { borderColor: colors.border }, busy && styles.disabled]}
+          onPress={onRequestChanges}
+          disabled={busy}
+          activeOpacity={0.8}
+        >
+          <FontAwesome name="comment-o" size={12} color={colors.text} />
+          <Text style={[styles.changesText, { color: colors.text }]}>Request changes</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  detailBox: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 10,
+    gap: 4,
+  },
+  detailLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
+  detailText: { fontSize: 13, lineHeight: 18 },
+  agreeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
+  statusNote: { fontSize: 12, marginTop: 10 },
+  changesBtn: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  changesText: { fontSize: 13, fontWeight: '600' },
   card: {
     width: '100%',
     borderWidth: 1,

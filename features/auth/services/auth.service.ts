@@ -1363,7 +1363,23 @@ export async function applyPendingOAuthMetadata(): Promise<PendingOAuthMetadataR
   return { status: 'success' };
 }
 
-export async function signOut(): Promise<void> {
+/**
+ * `global` (default) revokes EVERY session of this user on every device and tab, so it is only
+ * for a deliberate user "Sign out". Automatic sign-outs (app backgrounded with keep-signed-in
+ * off, forced recovery after an auth failure, session-expired error screen) must pass
+ * `local`: a global revoke from one device leaves the user's other tabs/phones running
+ * without a session, and their next writes reach the DB anonymously
+ * (prod 2026-11-23/24: "Session not found", then 401 on document_audit_log).
+ */
+export async function signOut(options?: { scope?: "global" | "local" }): Promise<void> {
+  if (options?.scope === "local") {
+    try {
+      await supabase().auth.signOut({ scope: "local" });
+    } catch {
+      // Nothing left to clear on this device.
+    }
+    return;
+  }
   try {
     const { error } = await supabase().auth.signOut();
     if (error) {

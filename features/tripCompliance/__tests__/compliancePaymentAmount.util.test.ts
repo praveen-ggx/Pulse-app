@@ -29,6 +29,14 @@ describe("advancePostAmount", () => {
     expect(result.notice).toContain("₹9,000 will be posted");
   });
 
+  it("uses the current payable when the file amount is blank", () => {
+    const result = advancePostAmount({ fileAmount: null, payable: 8300, advancePercent: 90 });
+    expect(result.amount).toBe(8300);
+    expect(result.advancePercent).toBe(90);
+    expect(result.error).toBeNull();
+    expect(result.tone).toBe("preview");
+  });
+
   it("previews a matching amount without changing it", () => {
     const result = advancePostAmount({ fileAmount: 8300, payable: 8300, advancePercent: 90 });
     expect(result.amount).toBe(8300);

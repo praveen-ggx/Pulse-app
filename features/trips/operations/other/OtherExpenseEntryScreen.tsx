@@ -138,6 +138,10 @@ function RevealToggle({
   );
 }
 
+function newOtherExpenseSaveKey(): string {
+  return `other-exp:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function OtherExpenseEntryScreen({
   trip,
   entryId,
@@ -171,6 +175,8 @@ export function OtherExpenseEntryScreen({
 
   const [loadingEntry, setLoadingEntry] = useState(isEditing);
   const [amountInr, setAmountInr] = useState<number>(0);
+  // One key per expense being added; reused if Save is tapped again after a timeout.
+  const saveAttemptKeyRef = useRef(newOtherExpenseSaveKey());
   const [amountError, setAmountError] = useState<string | null>(null);
   const [showMoreCategories, setShowMoreCategories] = useState(false);
   const [showMoreOwners, setShowMoreOwners] = useState(false);
@@ -265,6 +271,7 @@ export function OtherExpenseEntryScreen({
     billScan,
     persistedJob,
     handleCapture,
+    acceptPhoto,
     handleRemovePhoto,
     applyPendingUpdates,
     dismissPendingUpdates,
@@ -431,7 +438,9 @@ export function OtherExpenseEntryScreen({
         await saveExpense.mutateAsync({
           ...payload,
           actorRole: profile?.role ?? null,
+          idempotencyKey: saveAttemptKeyRef.current,
         });
+        saveAttemptKeyRef.current = newOtherExpenseSaveKey();
         finishSave("Expense saved");
       }
     } catch (e) {
@@ -472,7 +481,9 @@ export function OtherExpenseEntryScreen({
             uri: photoUri,
             busy: saving || scanning,
             label: "Receipt",
-            onAttach: handleCapture,
+            onAttach: () => void handleCapture("camera"),
+            onCaptured: (uri) => void acceptPhoto(uri),
+            onPick: () => void handleCapture("library"),
             onRemove: handleRemovePhoto,
           }}
           amountSlot={
@@ -506,6 +517,7 @@ export function OtherExpenseEntryScreen({
               onOtherCategoryChange={handleSelectCategory}
               onCategoryNavChange={onCategoryNavChange}
               lockCategorySwitch={lockCategorySwitch}
+              lockKindSwitch={isEditing}
             />
             <DriverExpenseFieldDivider />
             <DriverExpenseChipSelect

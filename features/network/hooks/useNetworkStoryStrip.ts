@@ -88,7 +88,7 @@ export function useNetworkStoryStrip(
   return {
     posts,
     indentCountByPostId,
-    isLoading: feedQ.isLoading && (feedQ.data?.length ?? 0) === 0 && posts.length === 0,
+    isLoading: feedQ.isLoading && posts.length === 0,
     connectedOrgIds,
     connectionsReady,
   };

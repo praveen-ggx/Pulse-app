@@ -156,16 +156,17 @@ export async function recordTripWorkflowEvent(params: {
     ? `${params.tripId}:${params.eventType}`
     : null;
 
-  // The unique index is partial, so INSERT ... ON CONFLICT cannot target it.
-  // A read first keeps a repeat of the same milestone from raising 23505.
+  // Check first: a failed insert is still logged by Postgres as a 23505 error,
+  // even though we treat it as a no-op. (on_conflict can't target the partial index.)
   if (idempotencyKey) {
-    const existing = await supabase()
+    const { data: existing } = await supabase()
       .from('trip_workflow_events')
-      .select('*')
+      .select('id')
       .eq('idempotency_key', idempotencyKey)
+      .limit(1)
       .maybeSingle();
-    if (!existing.error && existing.data) {
-      return { error: null, event: existing.data as TripWorkflowEvent, alreadyExists: true };
+    if (existing) {
+      return { error: null, event: null, alreadyExists: true };
     }
   }
 

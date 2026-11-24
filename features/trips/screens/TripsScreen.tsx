@@ -44,6 +44,7 @@ import {
 import { downloadTripOpsReportExcel } from "@/features/trips/utils/tripOpsReportExport.util";
 import {
   buildTripIndentReport,
+  loadSalesReportWindow,
   loadTripIndentReportCatalog,
 } from "@/features/trips/services/tripIndentReport.service";
 import { shouldShowAggregateTripKindPill } from "@/features/drivers/utils/driverUtils.util";
@@ -216,6 +217,7 @@ import {
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripHubPartyMeta } from "@/features/trips/utils/tripHubPartyMeta";
 import { buildTripHubPartyMetaByTripId } from "@/features/trips/utils/tripHubPartyMeta";
+import { fetchSupplierNamesByIds } from "@/features/trips/services/tripReportSupplierNames.service";
 import { tripMatchesHubSearch } from "@/features/trips/utils/tripHubSearch.util";
 import { tripNonSupplierOutflowTotal } from "@/features/trips/utils/tripManifestFreightCost";
 import { showAppAlert } from "@/lib/appAlert";
@@ -737,7 +739,7 @@ export default function TripsScreen() {
     (workspaceCtx!.isLoading || !workspaceCtx!.membershipResolved);
   const orgBootPending = orgLoading || workspaceResolving;
   const orgId = canAccess ? (currentOrganization?.id ?? null) : null;
-  const { pendingCount: pendingInviteCount } = useProtocolInvitesWithDriverSent(orgId);
+  const { pendingCount: _pendingInviteCount } = useProtocolInvitesWithDriverSent(orgId);
   const networkLoadsQ = useMarketIndentsQuery(canOpenLoadNetwork ? orgId : null);
   const networkLoadCount = useMemo(() => {
     let count = 0;
@@ -837,6 +839,7 @@ export default function TripsScreen() {
     total: hubServerTotal,
     activeCount: hubActiveCount,
     historyCount: hubHistoryCount,
+    cancelledCount: hubCancelledCount,
     attributedCount: hubAttributedCount,
     hasMore: hubHasMore,
     loadMore: loadMoreHubTrips,
@@ -848,6 +851,30 @@ export default function TripsScreen() {
     hubDateBounds ?? HUB_ALL_TIME_BOUNDS,
     hubTileBucket,
     attributionFilter,
+  );
+  // History -> Cancelled trips: the History page is completed trips only, so the
+  // server's cancelled bucket is read on its own while that tile is open.
+  const hubCancelledTabActive =
+    tripFilter === "History" && activeHistoryMetricTab === "cancelled";
+  const {
+    trips: hubCancelledRaw,
+    hasMore: hubCancelledHasMore,
+    loadMore: loadMoreHubCancelled,
+    isFetching: hubCancelledFetching,
+  } = useTripsHubDateRange(
+    hubCancelledTabActive ? orgId : null,
+    hubDateBounds ?? HUB_ALL_TIME_BOUNDS,
+    "cancelled",
+    attributionFilter,
+  );
+  useEffect(() => {
+    if (hubCancelledTabActive && hubCancelledHasMore && !hubCancelledFetching) {
+      void loadMoreHubCancelled();
+    }
+  }, [hubCancelledTabActive, hubCancelledHasMore, hubCancelledFetching, loadMoreHubCancelled]);
+  const hubCancelledRows = useMemo(
+    () => (hubCancelledTabActive ? sourcingScope.filterTrips(hubCancelledRaw) : []),
+    [hubCancelledTabActive, sourcingScope, hubCancelledRaw],
   );
   const hubDateRangeTrips = useMemo(
     () => sourcingScope.filterTrips(hubDateRangeTripsRaw),
@@ -900,8 +927,9 @@ export default function TripsScreen() {
   }, [hubDateRangeTrips, hubSearchHits, hubSearchHitsCurrent, trips, useRangeList]);
   const hubTrips = useMemo(() => {
     const source = useRangeList ? hubDateRangeTrips : trips;
-    return hubExtraTrips.length > 0 ? source.concat(hubExtraTrips) : source;
-  }, [hubDateRangeTrips, hubExtraTrips, trips, useRangeList]);
+    const withExtra = hubExtraTrips.length > 0 ? source.concat(hubExtraTrips) : source;
+    return hubCancelledRows.length > 0 ? withExtra.concat(hubCancelledRows) : withExtra;
+  }, [hubCancelledRows, hubDateRangeTrips, hubExtraTrips, trips, useRangeList]);
   // INDENT stage: same `useIndentsQuery` Give Load already runs (shared
   // TanStack Query cache — no duplicate fetch), filtered to indents this org
   // owns that have not yet been allocated to a trip. Allocation is read from
@@ -3092,7 +3120,7 @@ export default function TripsScreen() {
    * Trip Report Excel — same date bounds as the hub pills (All time →
    * HUB_ALL_TIME_BOUNDS) and Asset/Aggregate scope.
    * - Sales → Sales indent report (Indent ID + costs when finance).
-   * - TripOps-only → All Trips ops sheet (20 columns + stage times).
+   * - TripOps-only → All Trips ops sheet (19 columns + stage times).
    */
   const handleDownloadTripReport = useCallback(async (exportFrom: string, exportTo: string) => {
     if (!orgId || tripReportInFlight.current || isGroundOpsMember || isSourcingMember) return;
@@ -3105,6 +3133,38 @@ export default function TripsScreen() {
     }, 20_000);
     try {
       const audience = resolveTripIndentReportAudience(memberDomains);
+
+      // The export can include trips not loaded on screen. Resolve supplier
+      // names for all of them (not just the on-screen list) so SUPPLIER isn't blank.
+      const partyMetaForExport = async (
+        exportTrips: Parameters<typeof buildTripHubPartyMetaByTripId>[0],
+      ) => {
+        const knownSupplierIds = new Set(
+          suppliers.map((s) => String(s.id ?? "").trim().toLowerCase()),
+        );
+        const missingSupplierIds = exportTrips
+          .map((t) => String(t.supplier_id ?? "").trim().toLowerCase())
+          .filter((id) => id && !knownSupplierIds.has(id) && !supplierNameFallbackById[id]);
+        const exportSupplierNames: Record<string, string> = {
+          ...supplierNameById,
+          ...(await fetchSupplierNamesByIds(missingSupplierIds)),
+        };
+        return buildTripHubPartyMetaByTripId(
+          exportTrips,
+          clients,
+          suppliersForHubParty,
+          drivers,
+          transactions,
+          exportSupplierNames,
+          {
+            viewerOrgId: orgId,
+            subcontracts: hubTripSubcontracts,
+            driverImageById,
+          },
+        );
+      };
+
+      if (audience === "tripops") {
       const catalog = await loadTripIndentReportCatalog(
         orgId,
         hubTrips,
@@ -3125,7 +3185,8 @@ export default function TripsScreen() {
       }
       const scopedTrips = sourcingScope.filterTrips(catalog.trips);
 
-      if (audience === "tripops") {
+      const exportPartyMetaByTripId = await partyMetaForExport(scopedTrips);
+
         const tripIds = scopedTrips.map((t) => t.id);
         const indentCreatedAtByIndentId: Record<string, string> = {};
         for (const indent of catalog.indents) {
@@ -3168,7 +3229,7 @@ export default function TripsScreen() {
           },
           driverPhoneByTripId,
           driverPhoneByDriverId: driverPhoneById,
-          partyMetaByTripId: tripHubPartyMetaByTripId,
+          partyMetaByTripId: exportPartyMetaByTripId,
           clientNameForTrip: tripCardClientName,
           stageLabelForTrip: getStageLabelForTrip,
           softCopyUploaderByTripId,
@@ -3186,13 +3247,22 @@ export default function TripsScreen() {
         return;
       }
 
-      const scopedIndents = sourcingScope.filterIndents(catalog.indents);
-      const driverPhoneByTripId = await loadDriverPhonesByTripId(scopedTrips);
+      const salesWindow = await loadSalesReportWindow(orgId, exportFrom, exportTo);
+      if (salesWindow.error) {
+        showAppAlert(
+          "Export failed",
+          salesWindow.error.message || "Could not load indents for the selected date range.",
+        );
+        return;
+      }
+      const salesTrips = sourcingScope.filterTrips(salesWindow.trips);
+      const salesIndents = sourcingScope.filterIndents(salesWindow.indents);
+      const driverPhoneByTripId = await loadDriverPhonesByTripId(salesTrips);
       const { error, rows, warnings } = await buildTripIndentReport({
         orgId,
-        trips: scopedTrips,
-        indents: scopedIndents,
-        partyMetaByTripId: tripHubPartyMetaByTripId,
+        trips: salesTrips,
+        indents: salesIndents,
+        partyMetaByTripId: await partyMetaForExport(salesTrips),
         driverPhoneByTripId,
         stageLabelForTrip: getStageLabelForTrip,
       });
@@ -3200,7 +3270,7 @@ export default function TripsScreen() {
         showAppAlert("Export failed", error.message || "Could not build the trip report.");
         return;
       }
-      const notes: string[] = [...catalog.notes, ...warnings];
+      const notes: string[] = [...salesWindow.notes, ...warnings];
       await downloadTripIndentReportExcel(rows, {
         companyName: currentOrganization?.name ?? undefined,
         includeCosts: memberDomains.finance,
@@ -3225,7 +3295,15 @@ export default function TripsScreen() {
     hubTrips,
     allIndents,
     sourcingScope,
-    tripHubPartyMetaByTripId,
+    suppliers,
+    supplierNameFallbackById,
+    suppliersForHubParty,
+    supplierNameById,
+    clients,
+    drivers,
+    transactions,
+    hubTripSubcontracts,
+    driverImageById,
     getStageLabelForTrip,
     currentOrganization?.name,
     memberDomains,
@@ -3595,7 +3673,10 @@ export default function TripsScreen() {
         hint: "Hard copy not received",
       },
       cancelled: {
-        count: hubScopedTrips.filter((trip) => isTripCancelledForHub(trip.status)).length,
+        count: hubCancelledTabActive
+          ? hubScopedTrips.filter((trip) => isTripCancelledForHub(trip.status)).length
+          : (hubCancelledCount ??
+            hubScopedTrips.filter((trip) => isTripCancelledForHub(trip.status)).length),
         amount: 0,
         title: "Cancelled trips",
         hint: "Same dates as this view",
@@ -3643,6 +3724,8 @@ export default function TripsScreen() {
   }, [
     baseFilteredTrips,
     currentOrganization?.id,
+    hubCancelledCount,
+    hubCancelledTabActive,
     hubScopedTrips,
     showCompletedList,
     transactionsByTripId,
@@ -5447,7 +5530,7 @@ export default function TripsScreen() {
                   key: column.key,
                   label: column.label,
                   align:
-                    column.key === "clientCost" || column.key === "supplierCost"
+                    column.key === "customerPrice" || column.key === "supplierPrice"
                       ? ("right" as const)
                       : ("left" as const),
                 })),

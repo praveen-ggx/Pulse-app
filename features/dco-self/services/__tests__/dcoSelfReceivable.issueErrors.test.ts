@@ -21,7 +21,7 @@ jest.mock("@/features/dco-self/offline/dcoSelfLocalBook", () => ({
   cancelLocalDcoSelfTripTag: jest.fn(),
   listLocalDcoSelfTripTags: jest.fn().mockResolvedValue([]),
   mergeDcoSelfParties: jest.fn().mockResolvedValue([]),
-  rememberLocalDcoSelfParty: jest.fn(),
+  rememberLocalDcoSelfParty: jest.fn().mockResolvedValue({ id: "local-1", localId: "local-1", name: "Ravi" }),
   rememberLocalDcoSelfTripTag: jest.fn(),
 }));
 
@@ -29,7 +29,10 @@ jest.mock("@/features/dco-self/offline/dcoSelfSync", () => ({
   flushDcoSelfOutbox: jest.fn(),
 }));
 
-import { issueDcoSelfReceivable } from "@/features/dco-self/services/dcoSelfReceivable.service";
+import {
+  issueDcoSelfReceivable,
+  upsertDcoSelfParty,
+} from "@/features/dco-self/services/dcoSelfReceivable.service";
 
 const INPUT = { partyBId: "party-1", billed: 1000, idempotencyKey: "dco-self-issue:trip-1", tripId: "trip-1" };
 
@@ -76,5 +79,17 @@ describe("issueDcoSelfReceivable: trip scope errors", () => {
     const result = await issueDcoSelfReceivable(INPUT);
     expect(result).toEqual({ error: null, receivableId: "recv-1", replayed: true });
     expect(mockAcknowledge).toHaveBeenCalledWith("outbox-1");
+  });
+});
+
+describe("upsertDcoSelfParty", () => {
+  it("always sends an idempotency key so PostgREST picks the 3-arg overload", async () => {
+    mockRpc.mockResolvedValue({ data: { ok: true, id: "party-1", name: "Ravi" }, error: null });
+    await upsertDcoSelfParty({ name: "Ravi" });
+    expect(mockRpc).toHaveBeenCalledWith("upsert_dco_self_party", {
+      p_name: "Ravi",
+      p_phone: null,
+      p_idempotency_key: "dco-self-party:local-1",
+    });
   });
 });

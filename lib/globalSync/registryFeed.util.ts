@@ -108,6 +108,9 @@ export function entryMatchesRegistryFilter(
   if (filter === 'all' || filter === 'archive') return true;
   if (filter === 'driver') {
     if (entry.kind === 'salary') return true;
+    if (entry.kind === 'network' && entry.network?.event_type === 'driver_disconnected') {
+      return true;
+    }
     if (entry.kind === 'ops' && entry.ops?.category === 'unassigned_trip') return true;
     if (entry.kind === 'ops' && entry.ops?.category === 'salary') return true;
     return false;
@@ -119,7 +122,10 @@ export function entryMatchesRegistryFilter(
     if (cat === 'unassigned_trip') return false;
     return cat !== 'payment_received' && cat !== 'payment_paid';
   }
-  if (filter === 'indent') return entry.kind === 'network';
+  if (filter === 'indent') {
+    // Fleet disconnect is a driver relationship signal (Driver tab), not a load event.
+    return entry.kind === 'network' && entry.network?.event_type !== 'driver_disconnected';
+  }
   if (filter === 'payment') {
     return entry.kind === 'ops' && entry.ops?.category === 'payment_paid';
   }

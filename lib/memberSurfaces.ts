@@ -1654,6 +1654,54 @@ export function defaultSurfacesForRole(
         "trip_compliance.tab",
         "trip_compliance.documents.view",
       ]);
+    case "rbm":
+      // View-only oversight. Every surface here is a read: no create / edit /
+      // bid / award / assign, no add / edit transaction, no finance.manage, no
+      // Compliance verify / mark verified / reject / advance or final payment.
+      return allOn([
+        "sales.tab",
+        "sales.clients.view",
+        "sales.clients.detail",
+        "sales.suppliers.view",
+        "sales.suppliers.detail",
+        "tripops.tab",
+        "tripops.indents.view",
+        "tripops.trips.view",
+        "tripops.trips.detail",
+        "finance.tab",
+        "finance.view",
+        "finance.subtab.cash",
+        "finance.subtab.customers",
+        "finance.subtab.suppliers",
+        "finance.ledger.customers",
+        "finance.ledger.suppliers",
+        "finance.subtab.garage",
+        "finance.subtab.drivers",
+        "finance.ledger.vehicle",
+        "finance.ledger.driver",
+        "finance.business_pulse",
+        "finance.reports",
+        "finance.shared_ledger",
+        "finance.trip_ledger",
+        "finance.expenses.view",
+        "sales.clients.analytics",
+        "sales.suppliers.analytics",
+        "tripops.trips.tracking",
+        // Trip finance tab is read-only: add-payment and void / adjust are
+        // gated separately (finance.add_transaction, finance.void_adjustments).
+        "tripops.trips.finance",
+        "tripops.pulse_loads",
+        "trip_compliance.tab",
+        "trip_compliance.documents.view",
+        "trip_compliance.finance.view",
+        "trip_compliance.tab.view_all",
+        // Fleet, view only: rosters and analytics. No create / edit / invite /
+        // assign vehicle / documents.
+        "fleet.vehicles.view",
+        "fleet.vehicles.analytics",
+        "fleet.drivers.view",
+        "fleet.drivers.analytics",
+      ]);
     case "restricted":
       return {};
     default: {

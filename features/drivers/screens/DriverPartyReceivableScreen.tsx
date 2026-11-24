@@ -29,6 +29,7 @@ import {
   tripsForDriverParty,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
 import * as tripsService from "@/features/trips/services/trips.service";
+import { showAppAlert } from "@/lib/appAlert";
 import { ROUTES } from "@/lib/routes";
 import { useSafeBack } from "@/lib/useSafeBack";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
@@ -84,6 +85,18 @@ export default function DriverPartyReceivableScreen() {
         tripsService.getDriverUiTripsByDriverIds(driverIds),
         driversService.getDriverLedgerByDriverIds(driverIds),
       ]);
+      // A failed load used to show every trip as fully unpaid (no ledger →
+      // nothing received), inviting the driver to collect again. Keep the
+      // last good numbers and say so instead.
+      if (tRes.error || ledgerRes.error) {
+        showAppAlert(
+          "Couldn't refresh",
+          hasLoadedRef.current
+            ? "Showing the last loaded amounts. Pull back in when you have signal."
+            : "Could not load payments for this party. Check your connection and try again.",
+        );
+        return;
+      }
       setTrips(tRes.trips ?? []);
       const byTrip: Record<string, number> = {};
       for (const entry of ledgerRes.entries ?? []) {
@@ -298,15 +311,29 @@ export default function DriverPartyReceivableScreen() {
                     </Text>
                   </View>
                   <Text style={[styles.amt, { color: Theme.positive }]}>{inr(line.received)}</Text>
+                </Pressable>
+                {/* Capture sits under Due: the 44pt action column is narrower than the button. */}
+                <View style={styles.dueCell}>
                   <Text
                     style={[
                       styles.amt,
                       { color: line.due > 0 ? Theme.negative : Theme.positive },
                     ]}
+                    numberOfLines={1}
                   >
                     {inr(line.due)}
                   </Text>
-                </Pressable>
+                  {!needsTag && line.due > 0 &&
+                  (isMarketplace || isTripTaggedToParty(line.trip)) ? (
+                    <DriverCapturePaymentButton
+                      tripId={line.trip.id}
+                      due={line.due}
+                      lane={captureLane}
+                      partyName={showParty ? partyName : party?.name}
+                      compact
+                    />
+                  ) : null}
+                </View>
                 <View style={styles.actionCol}>
                   {needsTag ? (
                     <Pressable
@@ -321,15 +348,6 @@ export default function DriverPartyReceivableScreen() {
                     >
                       <Tag size={13} color={Theme.driverEmerald} strokeWidth={2.4} />
                     </Pressable>
-                  ) : line.due > 0 &&
-                    (isMarketplace || isTripTaggedToParty(line.trip)) ? (
-                    <DriverCapturePaymentButton
-                      tripId={line.trip.id}
-                      due={line.due}
-                      lane={captureLane}
-                      partyName={showParty ? partyName : party?.name}
-                      compact
-                    />
                   ) : null}
                 </View>
               </View>
@@ -510,6 +528,13 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "500",
     color: Theme.textMuted,
+  },
+  dueCell: {
+    width: 72,
+    marginLeft: 4,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 4,
   },
   amt: {
     width: 72,

@@ -16,10 +16,15 @@ import {
 import Theme from "@/constants/Theme";
 import { listTagPartyChoices } from "@/features/drivers/utils/driverSelectableParties.util";
 import { useAuth } from "@/contexts/AuthContext";
+import { rememberDriverOfflineParty } from "@/features/drivers/offline/driverOfflineParty";
 import {
   markTripAsFleetTrip,
   tagTripWithDcoClient,
 } from "@/features/drivers/services/driverTripClient.service";
+import {
+  getMyActiveFleet,
+  type DriverActiveFleet,
+} from "@/features/drivers/utils/driverActiveFleet.util";
 import { type DriverCaptureLane } from "@/features/drivers/utils/driverCapturePayment.util";
 import { parseDcoPartyTagFromNotes } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import {
@@ -135,6 +140,7 @@ export function DriverCollectFromSheet({
   const [receivableAmount, setReceivableAmount] = useState("");
   const [billedForTag, setBilledForTag] = useState<number | null>(null);
   const [successParty, setSuccessParty] = useState<{ id: string; name: string } | null>(null);
+  const [activeFleet, setActiveFleet] = useState<DriverActiveFleet | null>(null);
 
   const fleetAssignerName = useMemo(() => {
     return (
@@ -161,7 +167,12 @@ export function DriverCollectFromSheet({
 
   const loadParties = useCallback(async () => {
     const assigner = fleetAssignerName || currentName;
-    const local = await listTagPartyChoices(profile?.uid).catch(() => []);
+    const [local, fleet] = await Promise.all([
+      listTagPartyChoices(profile?.uid).catch(() => []),
+      // DCOs never work under a fleet; only employee drivers get the fleet option.
+      isDco ? Promise.resolve(null) : getMyActiveFleet(profile?.uid).catch(() => null),
+    ]);
+    setActiveFleet(fleet);
     const nextParties = knownPartyOptions(local, taggedPartyId, assigner, !isDco);
     setParties((prev) => (samePartyOptions(prev, nextParties) ? prev : nextParties));
     setLoading(false);
@@ -232,14 +243,44 @@ export function DriverCollectFromSheet({
     );
   }, [onClose, router, trip.id]);
 
-  const handleMarkFleet = useCallback(async () => {
+  const handleTagAssigner = useCallback(async () => {
     if (!fleetAssignerName || busyId || confirmingRef.current) return;
+    confirmingRef.current = true;
+    setBusyId("assigner");
+    try {
+      // The assigner is the driver's own offline party (client-direct trip),
+      // not fleet work. Tag it so the trip stays in the Offline lane.
+      const key = fleetAssignerName.trim().toLowerCase();
+      const saved = parties.find((row) => row.name.trim().toLowerCase() === key);
+      const party = saved
+        ? { id: saved.id, name: saved.name }
+        : await rememberDriverOfflineParty({ name: fleetAssignerName });
+      const { error } = await tagTripWithDcoClient(trip.id, {
+        id: party.id,
+        name: party.name,
+      });
+      if (error) {
+        showAppAlert("Could not tag party", error.message);
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(trip.id) });
+      setSuccessParty({ id: party.id, name: party.name });
+    } finally {
+      confirmingRef.current = false;
+      setBusyId(null);
+    }
+  }, [busyId, fleetAssignerName, parties, queryClient, trip.id]);
+
+  /** Fleet-connected driver only: this trip is my own fleet's work. */
+  const handleMarkMyFleet = useCallback(async () => {
+    if (!activeFleet || busyId || confirmingRef.current) return;
     confirmingRef.current = true;
     setBusyId("fleet");
     try {
       const { error } = await markTripAsFleetTrip(trip.id, {
-        name: fleetAssignerName,
-        orgId: trip.organization_id,
+        name: activeFleet.name,
+        fleetOrgId: activeFleet.orgId,
       });
       if (error) {
         showAppAlert("Could not mark fleet trip", error.message);
@@ -247,12 +288,12 @@ export function DriverCollectFromSheet({
       }
       await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
       await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(trip.id) });
-      setSuccessParty({ id: `fleet:${fleetAssignerName}`, name: fleetAssignerName });
+      setSuccessParty({ id: `fleet:${activeFleet.name}`, name: activeFleet.name });
     } finally {
       confirmingRef.current = false;
       setBusyId(null);
     }
-  }, [busyId, fleetAssignerName, queryClient, trip.id, trip.organization_id]);
+  }, [activeFleet, busyId, queryClient, trip.id]);
 
   const flowOpen = !!(pendingParty || receivableParty || successParty);
   if (!visible && !flowOpen) return null;
@@ -294,16 +335,33 @@ export function DriverCollectFromSheet({
               {fleetAssignerName ? (
                 <TouchableOpacity
                   style={styles.addPrimary}
-                  onPress={() => void handleMarkFleet()}
+                  onPress={() => void handleTagAssigner()}
                   disabled={!!busyId}
                   accessibilityRole="button"
-                  accessibilityLabel={`Mark ${fleetAssignerName} fleet trip`}
+                  accessibilityLabel={`Tag ${fleetAssignerName} as party`}
                 >
-                  {busyId === "fleet" ? (
+                  {busyId === "assigner" ? (
                     <ActivityIndicator size="small" color={Theme.buttonDarkText} />
                   ) : (
                     <Text style={styles.addPrimaryText} numberOfLines={1}>
-                      Mark {fleetAssignerName} fleet trip
+                      Tag {fleetAssignerName} as party
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              ) : null}
+              {activeFleet ? (
+                <TouchableOpacity
+                  style={[styles.addSecondary, { marginTop: 10 }]}
+                  onPress={() => void handleMarkMyFleet()}
+                  disabled={!!busyId}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Mark as ${activeFleet.name} fleet trip`}
+                >
+                  {busyId === "fleet" ? (
+                    <ActivityIndicator size="small" color={Theme.primary} />
+                  ) : (
+                    <Text style={styles.addSecondaryText} numberOfLines={1}>
+                      Mark as {activeFleet.name} fleet trip
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -401,7 +459,7 @@ export function DriverCollectFromSheet({
       successName={successParty?.name ?? null}
       successTitle={
         successParty?.id.startsWith("fleet:")
-          ? `Marked ${successParty.name} fleet trip`
+          ? `Marked as ${successParty.name} fleet trip`
           : null
       }
       successMessage={

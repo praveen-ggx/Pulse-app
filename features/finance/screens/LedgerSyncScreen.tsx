@@ -37,7 +37,16 @@ import type { SupplierRow } from "@/features/suppliers/services/suppliers.servic
 import type { TripAdjustment } from "@/features/trips/services/tripAdjustments";
 import { getTripDisplayNumber, type TripRow } from "@/features/trips/services/trips.service";
 import { buildUniqueLinkedOrgIdMap, isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
-import { updateSalaryRequestStatus } from "@/features/drivers/services/salaryRequests.service";
+import {
+  getDriverPayoutsSince,
+  getSalaryRequestStatus,
+  markSalaryRequestPaidOnce,
+} from "@/features/drivers/services/salaryRequests.service";
+import {
+  findDuplicateDriverPayout,
+  monthStartOf,
+} from "@/features/drivers/utils/driverPayoutDuplicate.util";
+import { confirmDialog } from "@/lib/confirmDialog";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { normalizeVehicleNumberForMatch } from "@/lib/format";
 import { queryKeys } from "@/lib/queryKeys";
@@ -542,7 +551,83 @@ export default function LedgerSyncScreen() {
     else safeBack();
   }, [navigateAfterLedgerSuccess, safeBack]);
 
+  /** Blocks a second submit while the first is still saving (double tap). */
+  const submitInFlightRef = useRef(false);
+
+  /**
+   * Fleet → driver payout guards (new entries only):
+   * - a linked salary request must still be open (never pay one request twice);
+   * - same-month salary / same-day same-amount payout asks before paying again.
+   * Returns false when the user cancels or the request is already paid.
+   */
+  const confirmDriverPayoutAllowed = useCallback(
+    async (data: AddTransactionData, transactionDate: string): Promise<boolean> => {
+      if (!orgId) return false;
+      if (params.salaryRequestId) {
+        const { status } = await getSalaryRequestStatus(params.salaryRequestId);
+        if (status != null && status !== "pending" && status !== "approved") {
+          showAppAlert(
+            "Already paid",
+            "This payment request is already closed. Refresh to see the latest status.",
+          );
+          return false;
+        }
+      }
+      if (
+        data.type !== "out" ||
+        data.contactType !== "driver" ||
+        !data.contactId ||
+        !data.driverPaymentType
+      ) {
+        return true;
+      }
+      const { rows, error } = await getDriverPayoutsSince(
+        orgId,
+        data.contactId,
+        monthStartOf(transactionDate),
+      );
+      if (error) return true; // never block a payment on a failed lookup
+      const dup = findDuplicateDriverPayout(rows, {
+        amount: data.amount,
+        driverPaymentType: data.driverPaymentType,
+        transactionDate,
+      });
+      if (!dup) return true;
+      const amountLabel = `₹${dup.amount.toLocaleString("en-IN")}`;
+      return confirmDialog({
+        title: dup.kind === "same_month_salary" ? "Salary already paid" : "Possible duplicate",
+        message:
+          dup.kind === "same_month_salary"
+            ? `Monthly salary of ${amountLabel} was already paid to this driver on ${dup.date}. Pay again?`
+            : `${amountLabel} was already paid to this driver on ${dup.date}. Pay again?`,
+        confirmLabel: "Pay again",
+        cancelLabel: "Cancel",
+      });
+    },
+    [orgId, params.salaryRequestId],
+  );
+
   const handleSubmit = useCallback(
+    async (data: AddTransactionData, options?: AddTransactionSubmitOptions) => {
+      if (!orgId) return;
+      if (submitInFlightRef.current) {
+        throw new Error("Already saving");
+      }
+      submitInFlightRef.current = true;
+      try {
+        await handleSubmitInnerRef.current?.(data, options);
+      } finally {
+        submitInFlightRef.current = false;
+      }
+    },
+    [orgId],
+  );
+  /** Latest submit body (declared below) — read through a ref so handleSubmit stays stable. */
+  const handleSubmitInnerRef = useRef<
+    ((data: AddTransactionData, options?: AddTransactionSubmitOptions) => Promise<void>) | null
+  >(null);
+
+  const handleSubmitInner = useCallback(
     async (data: AddTransactionData, options?: AddTransactionSubmitOptions) => {
       if (!orgId) return;
       const today = new Date().toISOString().slice(0, 10);
@@ -552,6 +637,12 @@ export default function LedgerSyncScreen() {
           : options?.entryId && editingEntry?.transaction_date
             ? editingEntry.transaction_date.slice(0, 10)
             : today;
+
+      if (!options?.entryId) {
+        const allowed = await confirmDriverPayoutAllowed(data, transactionDate);
+        // Throw so the form stays open without showing success (modal swallows it).
+        if (!allowed) throw new Error("Payment cancelled");
+      }
 
       const ledgerRuns: {
         data: AddTransactionData;
@@ -832,8 +923,19 @@ export default function LedgerSyncScreen() {
 
       }
 
-      if (params.salaryRequestId) {
-        await updateSalaryRequestStatus(params.salaryRequestId, "paid");
+      if (params.salaryRequestId && !options?.entryId) {
+        const { error: markErr } = await markSalaryRequestPaidOnce(params.salaryRequestId);
+        if (markErr) {
+          showAppAlert(
+            "Payment saved",
+            `The payment was recorded, but the request could not be marked paid: ${markErr.message}`,
+          );
+        }
+        if (orgId && data.contactId) {
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.drivers.detail(orgId, data.contactId),
+          });
+        }
       }
 
       lastSubmittedDataRef.current = data;
@@ -861,8 +963,10 @@ export default function LedgerSyncScreen() {
       params.salaryRequestId,
       t,
       tripDueMetaById,
+      confirmDriverPayoutAllowed,
     ]
   );
+  handleSubmitInnerRef.current = handleSubmitInner;
 
   const handleClose = useCallback(() => {
     safeBack();

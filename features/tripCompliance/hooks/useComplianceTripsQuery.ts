@@ -36,7 +36,9 @@ import type {
 } from "@/features/tripCompliance/tripCompliance.types";
 import { invalidateComplianceTripActivity } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ensureComplianceChecklist } from "@/features/tripCompliance/utils/complianceChecklist.util";
+import { reconcilePipelineTrips, upsertTripInputs } from "@/features/tripCompliance/utils/compliancePipelinePatch.util";
 import { selectCompliancePipelineTrips } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
+import { logger } from "@/lib/logger";
 import { syncFinanceComplianceCaches } from "@/lib/queries/syncFinanceComplianceCaches";
 import {
   isCompliancePaymentPending,
@@ -53,7 +55,7 @@ import { getTripById, type TripRow } from "@/features/trips/services/trips.servi
 import { useComplianceTripCatalogQuery } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
 import { patchTripInEveryCatalog } from "@/lib/queries/tripCatalogFreshness";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type { ComplianceChange } from "@/features/tripCompliance/services/compliancePipelineSync.service";
@@ -135,6 +137,40 @@ function protectedTripIds(
   return ids;
 }
 
+/** Stable empty list so memoised consumers do not re-run while nothing is loaded. */
+const NO_SUMMARIES: ComplianceTripSummary[] = [];
+
+/**
+ * Folds freshly read inputs (tail / retry) into the cache. Upsert by trip id keeps
+ * ids unique, follows the latest pipeline order and drops trips that left it.
+ * Rows a newer local write touched stay as they are (write-log protection).
+ * With no pipeline order (catalog not loaded) the cache is left untouched.
+ */
+function mergeLoadedInputs(
+  qc: QueryClient,
+  pipelineKey: readonly unknown[],
+  rows: ComplianceTripInputs[],
+  orderTripIds: string[],
+  base: ComplianceTripInputs[] | undefined,
+  guard: { log: ComplianceWriteLog; startedAt: number; snapshot: ComplianceTripInputs[] | undefined },
+): void {
+  if (orderTripIds.length === 0) return;
+  qc.setQueryData<ComplianceTripInputs[]>(pipelineKey, (cur) =>
+    preserveNewerWrites(
+      upsertTripInputs(cur ?? base ?? [], rows, orderTripIds),
+      cur,
+      protectedTripIds(guard.log, guard.startedAt, guard.snapshot, cur),
+    ),
+  );
+}
+
+/**
+ * Background inputs load for trips the head read did not cover (and trips a
+ * catalog change added). "failed" means some trips may be missing from the
+ * queue; it is set per org:user session so another session never inherits it.
+ */
+type InputsLoadState = { sessionKey: string; status: "loading" | "failed" } | null;
+
 function useComplianceOrgId(): string {
   const orgCtx = useOptionalOrganization();
   return orgCtx?.currentOrganization?.id ?? "";
@@ -156,6 +192,16 @@ export type ComplianceQueueResult = {
   dataUpdatedAt: number;
   /** Manual full refresh; a call while one is in flight is ignored. */
   refetch: () => Promise<void>;
+  /** Pipeline trips that have loaded inputs (the rest are not in `summaries`). */
+  pipelineLoadedCount: number;
+  /** Trips in the pipeline: loaded + still missing. */
+  pipelineTotalCount: number;
+  /** Some pipeline trips are not in `summaries`: counts, lists and exports cover a partial queue. */
+  pipelineIncomplete: boolean;
+  /** A background / reconcile read failed. Cleared by a successful retry or full read. */
+  pipelineLoadFailed: boolean;
+  /** Reads only the trips that still need inputs. A call while one is in flight is ignored. */
+  retryTail: () => Promise<void>;
 };
 
 /**
@@ -186,9 +232,17 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   const pipelineTripsRef = useRef<TripRow[]>(pipelineTrips);
   pipelineTripsRef.current = pipelineTrips;
   const fullRefreshRef = useRef(false);
-  const [tailSettled, setTailSettled] = useState(false);
-  const setTailSettledRef = useRef(setTailSettled);
-  setTailSettledRef.current = setTailSettled;
+  const [loadState, setLoadState] = useState<InputsLoadState>(null);
+  const loadStatus = loadState && loadState.sessionKey === sessionKey ? loadState.status : "idle";
+  // A read is stale once a newer full read / retry started or the org:user session
+  // changed. Stale reads never write the cache or the load state.
+  const runIdRef = useRef(0);
+  const sessionKeyRef = useRef(sessionKey);
+  if (sessionKeyRef.current !== sessionKey) {
+    sessionKeyRef.current = sessionKey;
+    runIdRef.current += 1;
+  }
+  const retryingRef = useRef(false);
   const pipelineKey = queryKeys.tripCompliance.pipeline(orgId);
 
   const summariesQuery = useQuery({
@@ -196,6 +250,8 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     queryFn: async (): Promise<ComplianceTripInputs[]> => {
       const full = fullRefreshRef.current || !fullyLoadedSessions.has(sessionKey);
       fullRefreshRef.current = false;
+      // A full read supersedes any tail / retry still running from before.
+      const runId = full ? ++runIdRef.current : runIdRef.current;
       const log = writeLogFor(orgId);
       const startedAt = log.generation;
       const previous = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);
@@ -220,29 +276,35 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
         const tailTrips = tripsNow.slice(COMPLIANCE_FIRST_PAINT_TRIPS);
         const tailStartedAt = startedAt;
         const loadTail = () => {
+          if (runIdRef.current !== runId) return;
           void loadCompliancePipelineInputs(undefined, tailTrips, {
             full: true,
             viewerOrgId: orgId,
           })
             .then((rowsTail) => {
-              const merged = rowsHead.concat(rowsTail);
-              qc.setQueryData<ComplianceTripInputs[]>(pipelineKey, (cur) =>
-                preserveNewerWrites(
-                  cur && cur.length > merged.length ? cur : merged,
-                  cur,
-                  protectedTripIds(log, tailStartedAt, previous, cur),
-                ),
+              if (runIdRef.current !== runId) return;
+              mergeLoadedInputs(
+                qc,
+                pipelineKey,
+                rowsTail,
+                pipelineTripsRef.current.map((trip) => trip.id),
+                headPaint,
+                { log, startedAt: tailStartedAt, snapshot: previous },
               );
               fullyLoadedSessions.add(sessionKey);
+              setLoadState(null);
             })
-            .catch(() => {
-              // The next manual refresh loads the tail again.
-            })
-            .finally(() => {
-              setTailSettledRef.current(true);
+            .catch((error: unknown) => {
+              if (runIdRef.current !== runId) return;
+              logger.warn("[compliance] background trip load failed", {
+                orgId,
+                trips: tailTrips.length,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              setLoadState({ sessionKey, status: "failed" });
             });
         };
-        setTailSettledRef.current(false);
+        if (runIdRef.current === runId) setLoadState({ sessionKey, status: "loading" });
         const idle = (globalThis as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void })
           .requestIdleCallback;
         if (idle) idle(loadTail, { timeout: 400 });
@@ -250,6 +312,8 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
         return headPaint;
       }
       if (full) fullyLoadedSessions.add(sessionKey);
+      // Every trip this read needed is in `rows`: an earlier failed load no longer applies.
+      if (runIdRef.current === runId) setLoadState(null);
       // A write that landed while this read was in flight wins over its snapshot.
       const current = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);
       return preserveNewerWrites(rows, current, protectedTripIds(log, startedAt, previous, current));
@@ -269,6 +333,9 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
 
   // Trips catalog changed (focus refetch, realtime, a patched row): reconcile
   // into the cached inputs — never re-key, never rebuild every summary.
+  // While the background load runs (or failed), trips still missing are not
+  // fetched here: the load / retry owns them, so a catalog change cannot start
+  // a second read of the same tail. The effect re-runs when the load settles.
   useEffect(() => {
     if (!orgId || !tripsQuery.data) return;
     const current = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);
@@ -276,9 +343,12 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     let cancelled = false;
     const log = writeLogFor(orgId);
     const startedAt = log.generation;
-    void patchForPipelineTrips(current, pipelineTrips, orgId)
+    const cachedIds = loadStatus === "idle" ? null : new Set(current.map((row) => row.trip.id));
+    const scopedTrips = cachedIds ? pipelineTrips.filter((trip) => cachedIds.has(trip.id)) : pipelineTrips;
+    void patchForPipelineTrips(current, scopedTrips, orgId)
       .then((patch) => {
-        if (cancelled) return;
+        // Rows a newer read or write changed since `current` stay (protectedTripIds).
+        if (cancelled || sessionKeyRef.current !== sessionKey) return;
         let before: ComplianceTripInputs[] | undefined;
         qc.setQueryData<ComplianceTripInputs[]>(pipelineKey, (cur) => {
           before = cur;
@@ -291,20 +361,28 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
           for (const row of stored) if (!prior.has(row)) reconciledRows.add(row);
         }
       })
-      .catch(() => {
-        // Next pipeline refetch will reconcile.
+      .catch((error: unknown) => {
+        if (cancelled || sessionKeyRef.current !== sessionKey) return;
+        logger.warn("[compliance] trip reconcile failed", {
+          orgId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        setLoadState({ sessionKey, status: "failed" });
       });
     return () => {
       cancelled = true;
     };
-    // pipelineKey is derived from orgId.
+    // pipelineKey is derived from orgId; sessionKey from orgId + user.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, qc, pipelineTrips]);
+  }, [orgId, qc, pipelineTrips, loadStatus]);
 
-  const summaries = summariesQuery.data ?? [];
+  // keepPreviousData shows the previous org's rows while a new org's pipeline loads.
+  // Those rows are never this org's queue: no summaries, counts or exports from them.
+  const ownRows = summariesQuery.isPlaceholderData ? undefined : summariesQuery.data;
+  const summaries = ownRows ?? NO_SUMMARIES;
   const isLoading =
     (tripsQuery.isPending && !tripsQuery.data) ||
-    (summariesQuery.isPending && tripsQuery.isSuccess && !summariesQuery.data);
+    ((summariesQuery.isPending || summariesQuery.isPlaceholderData) && tripsQuery.isSuccess && !ownRows);
   const isFetching = tripsQuery.isFetching || summariesQuery.isFetching;
   const isError = tripsQuery.isError || summariesQuery.isError;
   const error = (tripsQuery.error ?? summariesQuery.error) as Error | null;
@@ -323,6 +401,65 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     return refreshingRef.current;
   }, [tripsQuery, summariesQuery]);
 
+  // Completeness is derived from the data: a pipeline trip with no loaded inputs
+  // is missing, whatever the reason (loading, failed read, catalog change).
+  const pipelineLoadedCount = useMemo(() => {
+    if (pipelineTrips.length === 0 || summaries.length === 0) return 0;
+    const loaded = new Set(summaries.map((summary) => summary.trip.id));
+    let count = 0;
+    for (const trip of pipelineTrips) if (loaded.has(trip.id)) count += 1;
+    return count;
+  }, [pipelineTrips, summaries]);
+  const pipelineTotalCount = pipelineTrips.length;
+  const pipelineIncomplete = pipelineLoadedCount < pipelineTotalCount;
+
+  // Reads only what genuinely needs inputs: trips with none (tail, or new since
+  // the catalog changed) and trips whose vehicle/driver identity changed. Covers
+  // both a failed background load and a failed reconcile.
+  const retryTail = useCallback(async (): Promise<void> => {
+    if (!orgId || retryingRef.current) return;
+    const snapshot = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);
+    const { needsInputs } = reconcilePipelineTrips(snapshot ?? [], pipelineTripsRef.current);
+    if (needsInputs.length === 0) {
+      setLoadState(null);
+      return;
+    }
+    retryingRef.current = true;
+    const runId = ++runIdRef.current;
+    const log = writeLogFor(orgId);
+    const startedAt = log.generation;
+    setLoadState({ sessionKey, status: "loading" });
+    try {
+      const rows = await loadCompliancePipelineInputs(undefined, needsInputs, {
+        full: true,
+        viewerOrgId: orgId,
+      });
+      if (runIdRef.current !== runId) return;
+      mergeLoadedInputs(
+        qc,
+        pipelineKey,
+        rows,
+        pipelineTripsRef.current.map((trip) => trip.id),
+        snapshot,
+        { log, startedAt, snapshot },
+      );
+      fullyLoadedSessions.add(sessionKey);
+      setLoadState(null);
+    } catch (error) {
+      if (runIdRef.current !== runId) return;
+      logger.warn("[compliance] retry of trip load failed", {
+        orgId,
+        trips: needsInputs.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      setLoadState({ sessionKey, status: "failed" });
+    } finally {
+      retryingRef.current = false;
+    }
+    // pipelineKey is derived from orgId; sessionKey from orgId + user.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, qc, sessionKey]);
+
   return {
     data: {
       summaries,
@@ -332,16 +469,18 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     summaries,
     pipelineTripCount: pipelineTrips.length,
     tripsLoading: tripsQuery.isPending && !tripsQuery.data,
-    summariesLoading: summariesQuery.isPending && !summariesQuery.data,
-    pipelinePartial:
-      pipelineTrips.length > summaries.length &&
-      !fullyLoadedSessions.has(sessionKey) &&
-      !tailSettled,
+    summariesLoading: summariesQuery.isPending && !ownRows,
+    pipelinePartial: pipelineIncomplete,
+    pipelineLoadedCount,
+    pipelineTotalCount,
+    pipelineIncomplete,
+    pipelineLoadFailed: loadStatus === "failed",
+    retryTail,
     isLoading,
     isError,
     error,
     isFetching,
-    dataUpdatedAt: summariesQuery.dataUpdatedAt,
+    dataUpdatedAt: summariesQuery.isPlaceholderData ? 0 : summariesQuery.dataUpdatedAt,
     refetch,
   };
 }

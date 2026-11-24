@@ -1,4 +1,5 @@
 import { LoadingIndicator } from '@/components/LoadingIndicator';
+import type { ComplianceVaultFile } from "@/features/tripCompliance/services/complianceVaultUpload.service";
 import Layout from '@/constants/Layout';
 import { Theme } from '@/constants/Theme';
 import {
@@ -66,6 +67,8 @@ type Props = {
   canUploadEwayBill?: boolean;
   canEditEwayBill?: boolean;
   onSaveEwayBill?: (values: EwayFieldValues[]) => Promise<boolean>;
+  /** "Add e-way number" with its required document (number + file saved together). */
+  onAddEwayBillWithFile?: (entry: EwayFieldValues, file: ComplianceVaultFile) => Promise<boolean>;
 };
 
 export function TripAssetVaultPanel({
@@ -81,6 +84,7 @@ export function TripAssetVaultPanel({
   canUploadEwayBill,
   canEditEwayBill,
   onSaveEwayBill,
+  onAddEwayBillWithFile,
 }: Props) {
   const cardDocs = docs.filter((doc) => !isEwayBillVaultDoc(doc));
   const verifiedCount = cardDocs.filter((doc) => doc.status !== 'Pending').length;
@@ -240,6 +244,7 @@ export function TripAssetVaultPanel({
           canUpload={canUploadEwayBill}
           canEdit={canEditEwayBill}
           onSave={onSaveEwayBill}
+          onAddWithFile={onAddEwayBillWithFile}
         />
       </View>
     </View>

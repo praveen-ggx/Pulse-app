@@ -1,6 +1,7 @@
 /**
  * Narrow-screen vault — stacked category cards + e-way feed.
  */
+import type { ComplianceVaultFile } from "@/features/tripCompliance/services/complianceVaultUpload.service";
 import { HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub/hubMobileTicketTokens";
 import Theme from "@/constants/Theme";
 import Layout from "@/constants/Layout";
@@ -49,6 +50,8 @@ type Props = {
   /** Ground Ops lock note for the e-way strip. */
   ewayLockedLabel?: string | null;
   onSaveEwayBill?: (values: EwayFieldValues[]) => Promise<boolean>;
+  /** "Add e-way number" with its required document (number + file saved together). */
+  onAddEwayBillWithFile?: (entry: EwayFieldValues, file: ComplianceVaultFile) => Promise<boolean>;
   onRemoveEwayBill?: (row: EwayBillStripRow) => void;
   tripIdLabel: string;
   createdAtLabel: string;
@@ -97,6 +100,7 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
   canEditEwayBill = false,
   ewayLockedLabel,
   onSaveEwayBill,
+  onAddEwayBillWithFile,
   onRemoveEwayBill,
   tripIdLabel,
   createdAtLabel,
@@ -145,6 +149,7 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
           canEdit={canEditEwayBill}
           lockedLabel={ewayLockedLabel}
           onSave={onSaveEwayBill ?? (async () => false)}
+          onAddWithFile={onAddEwayBillWithFile}
           onRemoveDocument={onRemoveEwayBill}
           variant="feed"
         />

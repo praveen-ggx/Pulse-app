@@ -326,7 +326,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     signOutRequestedRef.current = true;
     try {
-      await withTimeout(() => authService.signOut(), AUTH_TIMEOUT_MS);
+      await withTimeout(() => authService.signOut({ scope: "local" }), AUTH_TIMEOUT_MS);
     } catch (e) {
       // Local state is cleared below regardless, so a remote-revoke timeout is
       // not an error — same rationale as signOut().
@@ -525,7 +525,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!mounted || !isCurrentAuthAttempt(initAttemptId)) return;
           if (!keep) {
             signOutRequestedRef.current = true;
-            await authService.signOut();
+            await authService.signOut({ scope: "local" });
             if (!mounted || !isCurrentAuthAttempt(initAttemptId)) return;
             setUser(null);
             setProfile(null);

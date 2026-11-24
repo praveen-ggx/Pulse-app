@@ -2,7 +2,6 @@ const mockInsert = jest.fn();
 const mockUpdate = jest.fn();
 let mockUpdatedRows: Array<{ id: string }> = [];
 let mockDraftSelectData: Array<{ trip_id: string; payload: unknown; created_at: string }> = [];
-let mockStoredIdempotencyKeys = new Set<string>();
 
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
@@ -11,7 +10,7 @@ jest.mock("@/lib/supabase", () => ({
         mockInsert(row);
         return Promise.resolve({ error: null });
       },
-      select: (columns?: string) => ({
+      select: () => ({
         in: () => ({
           eq: () => Promise.resolve({ data: mockDraftSelectData, error: null }),
         }),
@@ -28,16 +27,6 @@ jest.mock("@/lib/supabase", () => ({
           }),
         }),
       }),
-      update: (row: unknown) => {
-        mockUpdate(row);
-        return {
-          eq: () => ({
-            eq: () => ({
-              eq: () => Promise.resolve({ error: null }),
-            }),
-          }),
-        };
-      },
     }),
     rpc: jest.fn(async () => ({ error: null })),
   }),
@@ -66,7 +55,6 @@ describe("validateDebitControlPods", () => {
     mockUpdate.mockClear();
     mockUpdatedRows = [];
     mockDraftSelectData = [];
-    mockStoredIdempotencyKeys = new Set();
   });
 
   it("updates the existing event on a repeat save instead of inserting a duplicate", async () => {
@@ -183,31 +171,5 @@ describe("validateDebitControlPods", () => {
       .map((call) => call[0] as { event_type: string; payload?: { action?: string } })
       .find((row) => row.event_type === POD_CHARGES_CHANGED_EVENT);
     expect(changed?.payload?.action).toBe("removed");
-  });
-
-  it("updates a stored validation event instead of inserting a duplicate", async () => {
-    mockStoredIdempotencyKeys = new Set(["trip-a:pod.debit_control_validated"]);
-    const result = await validateDebitControlPods({
-      orgId: "org-1",
-      actorId: "user-1",
-      trips: [
-        {
-          tripId: "trip-a",
-          remarks: "Checked again",
-          clientInvoiceNumber: null,
-          client: { ...EMPTY_CHARGE_LINES, cost: 100 },
-          vendor: { ...EMPTY_CHARGE_LINES, cost: 80 },
-        },
-      ],
-    });
-
-    expect(result.error).toBeNull();
-    expect(mockInsert).not.toHaveBeenCalled();
-    expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        actor_id: "user-1",
-        payload: expect.objectContaining({ remarks: "Checked again" }),
-      }),
-    );
   });
 });

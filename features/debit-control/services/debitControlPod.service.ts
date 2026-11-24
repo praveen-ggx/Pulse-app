@@ -183,33 +183,6 @@ function validationEventPayload(trip: ValidatePodTripInput) {
   };
 }
 
-async function workflowEventAlreadyStored(idempotencyKey: string): Promise<boolean> {
-  const { data, error } = await supabase()
-    .from("trip_workflow_events")
-    .select("id")
-    .eq("idempotency_key", idempotencyKey)
-    .maybeSingle();
-  if (error) return false;
-  return data != null;
-}
-
-async function replaceWorkflowValidationPayload(input: {
-  actorId: string | null;
-  tripId: string;
-  eventType: string;
-  idempotencyKey: string;
-  payload: Record<string, unknown>;
-}): Promise<{ ok: boolean; message?: string }> {
-  const { error } = await supabase()
-    .from("trip_workflow_events")
-    .update({ actor_id: input.actorId, payload: input.payload })
-    .eq("trip_id", input.tripId)
-    .eq("event_type", input.eventType)
-    .eq("idempotency_key", input.idempotencyKey);
-  if (error) return { ok: false, message: error.message };
-  return { ok: true };
-}
-
 async function upsertWorkflowValidationEvent(input: {
   orgId: string;
   actorId: string | null;
@@ -375,8 +348,6 @@ export async function recordAdvanceDocumentCostSnapshot(
     .maybeSingle();
   const orgId = text(data?.organization_id) || text(fallback?.organizationId);
   if (!orgId) return;
-  const idempotencyKey = `${tripId}:${ADVANCE_DOCUMENT_COST_EVENT}`;
-  if (await workflowEventAlreadyStored(idempotencyKey)) return;
   const { error } = await supabase()
     .from("trip_workflow_events")
     .insert({

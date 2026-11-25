@@ -4,6 +4,11 @@
 
 No production migration, merge, or gogopulse.com production deploy was performed.
 
+> **Status update 2026-11-25**
+> - **GitHub Actions:** still refused for billing on every PR #149 head. Runs `45476913202` (`242ebc4c3`), `45480492499` (`0998a9027`) and `45480878844` (`845d85afc`) all have 0 billable ms. The owner accepted this as a documented exception for this release. It is **not** recorded as a CI pass. The seven jobs were run locally on `845d85afc`; see `release-2026-11-24-execution-stop.md`.
+> - **Netlify preview: RESOLVED.** `242ebc4c3` (deploy `6b05edcd…`, 179s) and `0998a9027` (deploy `6b05f27d…`, 115s) are both **ready**. The `package_path = packages/platform/identity` setting was left unchanged and did not block either build. The root cause of the `c41b2563c` exit 2 was the merge-introduced duplicate `quoteFromVaultTerms` declaration (Babel parse error), which `242ebc4c3` fixed.
+> - **Preprod acceptance:** still not run (no approved credentials). The owner chose to proceed.
+
 ---
 
 ## 1. GitHub Actions — ROOT CAUSE IDENTIFIED

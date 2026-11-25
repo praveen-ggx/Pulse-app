@@ -1,6 +1,8 @@
 # Amendment — migration isolation (post-`242ebc4c3`)
 
-Follow-up isolation commit removes all SQL migration-file differences from PR #149 vs `V1.0.1`. Ten files preserved on `vasanth/migration-reconcile-20261124` @ `c41b2563c`. Local validation after isolation: Jest 6546 pass, lint 97, typecheck 322, nav/V2/`build:ci` PASS. GitHub Architecture Check remains **BLOCKED** (billing). Node 22 parity **NOT RUN**. Browser/preprod smoke **NOT RUN**. Zero DB apply. **Do not merge** without GO 1/2/3.
+Follow-up isolation commit removes all SQL migration-file differences from PR #149 vs `V1.0.1`. Ten files preserved on `vasanth/migration-reconcile-20261124` @ `c41b2563c`. Local validation after isolation: Jest 6546 pass, lint 97, typecheck 322, nav/V2/`build:ci` PASS. GitHub Architecture Check remains **BLOCKED** (billing). Node 22 parity **NOT RUN**. Browser/preprod smoke **NOT RUN**. Zero DB apply.
+
+**2026-11-25 final status: APPROVED FOR RELEASE.** The owner granted GO 1 (zero migrations), GO 2 (merge) and GO 3 (production), and accepted the GitHub CI billing exception. Local CI was re-run on head `845d85afc`: all seven Architecture Check jobs plus `build:ci`, results in `release-2026-11-24-execution-stop.md`. The verdict in §A below is historical (written at `c41b2563c`); its blockers B1 (fix pushed: `242ebc4c3`), B4 (merge = deploy, GO 3 granted) and B5 (migrations isolated: `0998a9027`) are closed. B2 (Actions billing) is accepted as an exception. B3 (preprod acceptance) was not run and the owner chose to proceed.
 
 See `changes/release-2026-11-24-migration-isolation.md` and updated `changes/release-2026-11-24-execution-stop.md`.
 
@@ -76,7 +78,9 @@ All commands were run from the repo root on HEAD `c41b2563c` plus the working-tr
 
 ### C.1 Results completed after the main table
 
-_(filled in below once the long-running gates finished)_
+- **Cycles (first run):** `node scripts/ci-baseline.js cycles`, 2026-11-24 19:38:30–20:13:16 UTC, exit 0, **PASS**: current 94 = baseline 94. It started before the two fixes landed, but neither fix changes an import, so the measured graph equals the fixed tree's.
+- **Typecheck after fixes:** 322 (was 334; the duplicate declarations accounted for 12 diagnostics). Lint after fixes: 97.
+- **Cycles (re-run on `845d85afc`, 2026-11-25):** **PASS**: current 94 = baseline 94, exit 0, 2026-11-25 09:31:13–10:07:13 UTC on `845d85afc`
 
 ### C.2 Why the earlier "combined cycles/tests" job aborted
 

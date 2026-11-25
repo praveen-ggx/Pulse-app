@@ -160,7 +160,7 @@ const MAPBOX_CIRCUIT_BREAKER_MS = 5 * 60 * 1000;
 
 const PLACES_DEBUG =
   typeof process !== 'undefined' &&
-  String(process.env?.EXPO_PUBLIC_PLACES_DEBUG ?? '').trim() === '1';
+  String(process.env.EXPO_PUBLIC_PLACES_DEBUG ?? '').trim() === '1';
 
 const PROVIDER_COOLDOWN_MS = {
   mapbox: 250,
@@ -253,7 +253,7 @@ function canCallProvider(provider: Provider): boolean {
 
 /** Mapbox Geocoding: fast, 100k free/month. India-only. center is [lon, lat]. */
 async function searchMapbox(query: string, opts?: SearchOpts): Promise<PlaceResult[]> {
-  const token = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
+  const token = typeof process !== 'undefined' && process.env.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
   if (!token) return [];
 
   const trimmed = query.trim();
@@ -373,7 +373,7 @@ const GOOGLE_PENDING_PREFIX = 'google:';
 const GOOGLE_PLACES_BASE = 'https://places.googleapis.com/v1';
 
 function googlePlacesKey(): string {
-  return (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY?.trim()) || '';
+  return (typeof process !== 'undefined' && process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY?.trim()) || '';
 }
 
 /**
@@ -720,8 +720,8 @@ export async function searchPlacesInIndia(query: string, opts?: SearchOpts): Pro
   const inflightHit = inflight.get(cacheKey);
   if (inflightHit) return inflightHit;
 
-  const hasMapbox = typeof process !== 'undefined' && !!process.env?.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
-  const hasGoogle = typeof process !== 'undefined' && !!process.env?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY?.trim();
+  const hasMapbox = typeof process !== 'undefined' && !!process.env.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
+  const hasGoogle = typeof process !== 'undefined' && !!process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY?.trim();
 
   const p = (async () => {
     let apiResults: PlaceResult[] = [];
@@ -784,7 +784,7 @@ export async function searchPlacesInIndia(query: string, opts?: SearchOpts): Pro
 }
 
 async function reverseMapboxPostcode(lat: number, lon: number): Promise<string | null> {
-  const token = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
+  const token = typeof process !== 'undefined' && process.env.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
   if (!token) return null;
 
   const params = new URLSearchParams({
@@ -812,7 +812,7 @@ async function reverseMapboxPostcode(lat: number, lon: number): Promise<string |
 }
 
 async function reverseMapbox(lat: number, lon: number): Promise<ReverseGeocodeIndiaResult> {
-  const token = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
+  const token = typeof process !== 'undefined' && process.env.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
   if (!token) return EMPTY_REVERSE_GEOCODE;
 
   const params = new URLSearchParams({
@@ -959,7 +959,7 @@ async function forwardPincodeFromCity(
     // ignore
   }
 
-  const token = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
+  const token = typeof process !== 'undefined' && process.env.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
   if (!token) return null;
 
   try {

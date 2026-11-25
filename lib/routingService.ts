@@ -87,7 +87,7 @@ function buildWebRouteProxyUrl(from: LatLon, to: LatLon): string | null {
   if (typeof window === 'undefined' || !window.location) return null;
 
   const explicit =
-    typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_ROUTE_PROXY_URL?.trim();
+    typeof process !== 'undefined' && process.env.EXPO_PUBLIC_ROUTE_PROXY_URL?.trim();
   const params = new URLSearchParams({
     fromLat: String(from.latitude),
     fromLon: String(from.longitude),
@@ -204,7 +204,7 @@ async function getOSRMRoute(from: LatLon, to: LatLon): Promise<RouteResult | nul
  */
 async function getMapboxRoute(from: LatLon, to: LatLon): Promise<RouteResult | null> {
   if (!isRoutableLatLon(from) || !isRoutableLatLon(to)) return null;
-  const token = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
+  const token = typeof process !== 'undefined' && process.env.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
   if (!token) return null;
 
   const coords = `${from.longitude},${from.latitude};${to.longitude},${to.latitude}`;
@@ -248,7 +248,7 @@ async function getMapboxRoute(from: LatLon, to: LatLon): Promise<RouteResult | n
  */
 async function getGoogleRoute(from: LatLon, to: LatLon): Promise<RouteResult | null> {
   if (!isRoutableLatLon(from) || !isRoutableLatLon(to)) return null;
-  const apiKey = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY?.trim();
+  const apiKey = typeof process !== 'undefined' && process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY?.trim();
   if (!apiKey) return null;
 
   const origin = `${from.latitude},${from.longitude}`;

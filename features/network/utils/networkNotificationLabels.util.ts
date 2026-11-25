@@ -8,6 +8,7 @@ export function networkNotificationActionLabel(
   eventType: NetworkNotificationEventType,
 ): string {
   if (eventType === 'driver_disconnected') return 'View drivers';
+  if (eventType === 'expense_reminder') return 'Review expense';
   if (eventType === 'indent_created') return 'Place bid';
   if (eventType === 'bid_received') return 'Review bid';
   if (eventType === 'awarded') return 'View award';
@@ -20,6 +21,7 @@ export function networkNotificationTagLabel(
   eventType: NetworkNotificationEventType,
 ): string {
   if (eventType === 'driver_disconnected') return 'Left fleet';
+  if (eventType === 'expense_reminder') return 'Expense reminder';
   if (eventType === 'indent_created') return 'New load';
   if (eventType === 'bid_received') return 'Bid';
   if (eventType === 'awarded') return 'Awarded';
@@ -32,6 +34,7 @@ export function networkNotificationActionText(
   eventType: NetworkNotificationEventType,
 ): string {
   if (eventType === 'driver_disconnected') return 'left your fleet';
+  if (eventType === 'expense_reminder') return 'reminded you about';
   if (eventType === 'indent_created') return 'posted';
   if (eventType === 'bid_received') return 'quoted';
   if (eventType === 'awarded') return 'awarded';
@@ -42,6 +45,12 @@ export function networkNotificationActionText(
 /** Card highlight override; null keeps the caller's default (amount or title). */
 export function networkNotificationHighlightText(row: NetworkNotificationRow): string | null {
   if (row.event_type === 'driver_disconnected') return 'Disconnected';
+  if (row.event_type === 'expense_reminder') {
+    const kind = payloadString(row, 'expense_kind');
+    const label = kind === 'fuel' ? 'Fuel expense' : kind === 'toll' ? 'Toll expense' : 'Expense';
+    const amount = Number(row.payload_json?.amount_inr ?? 0);
+    return amount > 0 ? `${label} · ₹${amount.toLocaleString('en-IN')}` : label;
+  }
   return null;
 }
 

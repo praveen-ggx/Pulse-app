@@ -12,7 +12,11 @@ import { getSignupPresetAvatars } from '@/constants/DriverLevels';
 import Theme from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
-import { checkExistingUserByPhone, setPendingOAuthMetadata } from '@/features/auth/services/auth.service';
+import {
+  checkEmailRegisteredForSignup,
+  checkExistingUserByPhone,
+  setPendingOAuthMetadata,
+} from '@/features/auth/services/auth.service';
 import { useKeyboardVisible } from '@/lib/hooks/useKeyboardVisible';
 import { validateEmail } from '@/lib/emailValidation';
 import { isPhoneValid, validatePhone } from '@/lib/phoneValidation';
@@ -244,7 +248,9 @@ export default function DriverSignUpScreen() {
   const { width } = useWindowDimensions();
   const router = useRouter();
   const safeBack = useSafeBack('/sign-in');
-  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const { signIn, signUp, signInWithGoogle, signOut } = useAuth();
+  /** Auth email this screen itself created — only that one may be signed into on retry. */
+  const createdAuthEmailRef = useRef<string | null>(null);
   const isOnline = useIsOnline();
   /** Per-page vertical scroll (horizontal pager does not scroll vertically). */
   const pageVerticalScrollRefs = useRef<Array<ScrollView | null>>([]);
@@ -541,7 +547,7 @@ export default function DriverSignUpScreen() {
     }
   };
 
-  const confirmRegistry = () => {
+  const confirmRegistry = async () => {
     const name = callsign.trim();
     if (name.length === 0) {
       showAppAlert('Required', 'Enter your full name.');
@@ -571,6 +577,28 @@ export default function DriverSignUpScreen() {
       showAppAlert('Invalid', 'Passwords do not match.');
       return;
     }
+    const typedEmail = email.trim();
+    if (typedEmail) {
+      if (!isOnline) {
+        showAppAlert('No internet', 'Connect to the internet to continue.');
+        return;
+      }
+      setLoading(true);
+      const existing = await checkEmailRegisteredForSignup(typedEmail);
+      setLoading(false);
+      if (existing.error) {
+        showAppAlert('Check failed', existing.error.message);
+        return;
+      }
+      if (existing.exists) {
+        const shown = existing.masked_email ?? 'this email';
+        showAppAlert(
+          'Account already exists',
+          `An account with ${shown} already exists. Sign in instead, or use a different email.`,
+        );
+        return;
+      }
+    }
     goToPage(3);
   };
 
@@ -598,8 +626,18 @@ export default function DriverSignUpScreen() {
         operatingModel: 'ASSET_BASED',
         phone: fullPhoneForApi || undefined,
       });
-      if (error && !error.message.toLowerCase().includes('already registered')) {
-        throw error;
+      const authEmailKey = authEmail.trim().toLowerCase();
+      if (error) {
+        const alreadyRegistered = error.message.toLowerCase().includes('already registered');
+        // Never turn sign-up into a login of someone else's account. Only a
+        // retry of the account this screen just created may sign in.
+        if (!alreadyRegistered || createdAuthEmailRef.current !== authEmailKey) {
+          throw alreadyRegistered
+            ? new Error('An account with this email already exists. Sign in instead, or use a different email.')
+            : error;
+        }
+      } else {
+        createdAuthEmailRef.current = authEmailKey;
       }
       const signInResult = await signIn(authEmail, password, true);
       if (signInResult.error) {
@@ -609,6 +647,13 @@ export default function DriverSignUpScreen() {
       const {
         data: { user: signedInUser },
       } = await supabase().auth.getUser();
+      // Safety net: driver sign-up must end in a driver account.
+      if (signedInUser && signedInUser.user_metadata?.role !== 'driver') {
+        await signOut();
+        throw new Error(
+          'This email belongs to a business account. Use a different email for driver sign up.',
+        );
+      }
       if (signedInUser?.id) {
         // Auth email was phone-derived — don’t surface it as the contact email.
         if (!providedEmail) {

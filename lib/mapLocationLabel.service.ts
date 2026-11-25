@@ -121,7 +121,7 @@ async function reverseMapbox(
   signal?: AbortSignal,
 ): Promise<string | null> {
   const token =
-    typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
+    typeof process !== 'undefined' && process.env.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
   if (!token || !canCallMapbox()) return null;
 
   const params = new URLSearchParams({

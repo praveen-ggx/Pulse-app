@@ -644,7 +644,7 @@ export function TripMap({
 
         const el = document.createElement('div');
         el.style.cssText =
-          'position:absolute;top:10px;left:10px;z-index:1000;width:300px;max-width:calc(100% - 20px);' +
+          'position:absolute;top:10px;left:10px;z-index:1000;width:272px;max-width:calc(100% - 20px);' +
           'background:#ffffff;border-radius:12px;overflow:hidden;' +
           'box-shadow:0 4px 20px rgba(15,23,42,0.10),0 1px 3px rgba(15,23,42,0.06);';
 
@@ -903,7 +903,8 @@ export function TripMap({
             haltMarkers,
             withDate,
             showGapKey: gaps.length > 0,
-            defaultExpanded: !compactMapPreview,
+            // Collapsed by default — the timeline + key open on tap, so the route stays visible.
+            defaultExpanded: false,
           });
           trailLegendElRef.current = card.el;
         }
@@ -1139,8 +1140,10 @@ export function TripMap({
             });
             return;
           }
+          // Keep the route clear of the top-left trip card (collapsed height).
+          const cardH = trailLegendElRef.current?.offsetHeight ?? 0;
           map.fitBounds(coords as LatLngTuple[], {
-            paddingTopLeft: [48, 72],
+            paddingTopLeft: [48, Math.max(72, cardH + 28)],
             paddingBottomRight: [fitPaddingRight, fitPaddingBottom],
             maxZoom: 14,
             animate: false,

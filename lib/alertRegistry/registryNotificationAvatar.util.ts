@@ -134,7 +134,7 @@ export function resolveNetworkRegistryAvatar(
   item: NetworkNotificationRow,
   ctx: NetworkRegistryAvatarContext,
 ): RegistryNotificationAvatar {
-  if (item.event_type === "driver_disconnected") {
+  if (item.event_type === "driver_disconnected" || item.event_type === "expense_reminder") {
     const payloadName =
       typeof item.payload_json?.driver_name === "string"
         ? item.payload_json.driver_name.trim()

@@ -108,7 +108,11 @@ export function entryMatchesRegistryFilter(
   if (filter === 'all' || filter === 'archive') return true;
   if (filter === 'driver') {
     if (entry.kind === 'salary') return true;
-    if (entry.kind === 'network' && entry.network?.event_type === 'driver_disconnected') {
+    if (
+      entry.kind === 'network' &&
+      (entry.network?.event_type === 'driver_disconnected' ||
+        entry.network?.event_type === 'expense_reminder')
+    ) {
       return true;
     }
     if (entry.kind === 'ops' && entry.ops?.category === 'unassigned_trip') return true;
@@ -124,7 +128,12 @@ export function entryMatchesRegistryFilter(
   }
   if (filter === 'indent') {
     // Fleet disconnect is a driver relationship signal (Driver tab), not a load event.
-    return entry.kind === 'network' && entry.network?.event_type !== 'driver_disconnected';
+    // Driver expense reminders are driver signals too (Driver tab).
+    return (
+      entry.kind === 'network' &&
+      entry.network?.event_type !== 'driver_disconnected' &&
+      entry.network?.event_type !== 'expense_reminder'
+    );
   }
   if (filter === 'payment') {
     return entry.kind === 'ops' && entry.ops?.category === 'payment_paid';

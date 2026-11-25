@@ -1335,9 +1335,38 @@ function PartyRegistrationPortalInner(
   const driverTripCommissionLabel =
     driverCommissionPercent != null && driverCommissionPercent > 0
       ? `${driverCommissionPercent}%`
-      : driverCommissionPerKm != null && driverCommissionPerKm > 0
-        ? `₹${driverCommissionPerKm}/km`
-        : "Not set";
+      : "Not set";
+  const driverPerKmLabel =
+    driverCommissionPerKm != null && driverCommissionPerKm > 0
+      ? `₹${driverCommissionPerKm.toLocaleString("en-IN")}/km`
+      : "Not set";
+  const driverOfferCards = [
+    {
+      key: "salary",
+      value: driverFixedSalaryLabel,
+      label: "Fixed salary",
+      primary: true,
+      set: driverPayableAmount != null && driverPayableAmount > 0,
+    },
+    {
+      key: "commission",
+      value: driverTripCommissionLabel,
+      label: "Trip commission",
+      primary: false,
+      set: driverCommissionPercent != null && driverCommissionPercent > 0,
+    },
+    {
+      key: "perKm",
+      value: driverPerKmLabel,
+      label: "Per km",
+      primary: false,
+      set: driverCommissionPerKm != null && driverCommissionPerKm > 0,
+    },
+  ];
+  const driverOfferCardsToShow =
+    driverCompensationBitsCount > 0
+      ? driverOfferCards.filter((card) => card.set)
+      : driverOfferCards.slice(0, 2);
 
   const orgBannerMobile = !organizationId ? (
     <View style={[styles.banner, { marginHorizontal: 20 }]}>
@@ -1379,14 +1408,21 @@ function PartyRegistrationPortalInner(
           </View>
 
           <View style={styles.driverPreviewOfferGrid}>
-            <View style={[styles.driverPreviewOfferCard, styles.driverPreviewOfferCardPrimary]}>
-              <Text style={styles.driverPreviewOfferValue}>{driverFixedSalaryLabel}</Text>
-              <Text style={styles.driverPreviewOfferLabel}>Fixed salary</Text>
-            </View>
-            <View style={styles.driverPreviewOfferCard}>
-              <Text style={styles.driverPreviewOfferValue}>{driverTripCommissionLabel}</Text>
-              <Text style={styles.driverPreviewOfferLabel}>Trip commission</Text>
-            </View>
+            {driverOfferCardsToShow.map((card, index) => (
+              <View
+                key={card.key}
+                style={[
+                  styles.driverPreviewOfferCard,
+                  (card.primary || index === 0) && styles.driverPreviewOfferCardPrimary,
+                  driverOfferCardsToShow.length === 3 &&
+                    index === 2 &&
+                    styles.driverPreviewOfferCardThird,
+                ]}
+              >
+                <Text style={styles.driverPreviewOfferValue}>{card.value}</Text>
+                <Text style={styles.driverPreviewOfferLabel}>{card.label}</Text>
+              </View>
+            ))}
           </View>
 
           <View style={styles.driverPreviewNextCard}>
@@ -3788,10 +3824,12 @@ const styles = StyleSheet.create({
   },
   driverPreviewOfferGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
   },
   driverPreviewOfferCard: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: "45%",
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -3799,6 +3837,9 @@ const styles = StyleSheet.create({
     padding: 12,
     minHeight: 92,
     justifyContent: "space-between",
+  },
+  driverPreviewOfferCardThird: {
+    flexBasis: "100%",
   },
   driverPreviewOfferCardPrimary: {
     backgroundColor: "#dcfce7",

@@ -676,6 +676,7 @@ export default function TripDetailScreen({
   const { t } = useLanguage();
   const { width: screenWidth } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? "trip");
+  const [showFullMap, setShowFullMap] = useState(false);
   const tripOperationsSummaryQuery = useTripOperationsSummary(tripId || null, {
     enabled: shouldFetchOperationsSummary(tripId, activeTab),
   });
@@ -8096,6 +8097,25 @@ export default function TripDetailScreen({
                           />
                         ) : null}
                       </View>
+                      {Platform.OS === "web" ? (
+                        <TouchableOpacity
+                          style={[
+                            neoStyles.radarFullViewBtn,
+                            {
+                              top:
+                                trackingState?.broadcastActive || driverMapTrackingEligible
+                                  ? 76
+                                  : 24,
+                            },
+                          ]}
+                          onPress={() => setShowFullMap(true)}
+                          activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel="View map full screen"
+                        >
+                          <Feather name="maximize-2" size={18} color={Theme.textPrimaryDark} />
+                        </TouchableOpacity>
+                      ) : null}
                       {trackingState?.broadcastActive ? (
                         <View style={neoStyles.radarLive} pointerEvents="none">
                           <View style={neoStyles.radarLiveDot} />
@@ -10884,6 +10904,42 @@ export default function TripDetailScreen({
             : undefined
         }
       />
+
+      {Platform.OS === "web" && showFullMap ? (
+        <Modal
+          visible
+          animationType="fade"
+          onRequestClose={() => setShowFullMap(false)}
+        >
+          <View style={neoStyles.fullMapRoot}>
+            <DeferredTripMap
+              source={(trip.pickup_area ?? "").trim() || undefined}
+              destination={(trip.drop_location ?? "").trim() || undefined}
+              sourceCoords={detail.trackingMapOriginCoordinate ?? undefined}
+              destCoords={detail.trackingMapDestinationCoordinate ?? undefined}
+              truckLocation={mapTruckLocation}
+              dbLocationTrail={mapDbLocationTrail}
+              completedTrip={detail.tripCompleted}
+              truckStatus={mapTruckStatus}
+              height="100%"
+              tripId={trip.id}
+              trackingEnabled={trackingState?.broadcastActive ?? false}
+              driverAvatarUri={detail.driverAvatarUri}
+              driverAvatarSeed={trip.driver_id}
+              driverOnline={trackingState?.broadcastActive ?? false}
+            />
+            <TouchableOpacity
+              style={[neoStyles.fullMapClose, { top: insets.top + 12 }]}
+              onPress={() => setShowFullMap(false)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Close full screen map"
+            >
+              <Feather name="x" size={20} color={Theme.textPrimaryDark} />
+            </TouchableOpacity>
+          </View>
+        </Modal>
+      ) : null}
 
       <Suspense fallback={null}>
         <LiveTrackingModal

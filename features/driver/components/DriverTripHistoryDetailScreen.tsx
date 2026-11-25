@@ -1,104 +1,104 @@
 /**
  * Full-screen trip history detail (stack route).
  */
-import { releaseStoragePreviewUrl } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDriverTheme, useDriverThemeColors } from "@/contexts/DriverThemeContext";
-import { getLatestAssignmentAuditByTripIds } from "@/features/trips/services/trip-assignment-audit.service";
+import { useRegisterDriverContextTrip } from "@/contexts/DriverTripOpsContext";
+import { DriverDocumentGalleryPreview } from "@/features/driver/components/DriverDocumentGalleryPreview";
+import { DriverTripOperationsTab } from "@/features/driver/components/DriverTripOperationsTab";
+import { TripDetailSettlementPanel } from "@/features/driver/components/TripDetailSettlementPanel";
+import { getTripAppLocationsForTimeline } from "@/features/driver/services/driverLocation.service";
+import { tripHistoryDetailStyles as styles } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
 import {
-  buildAssignerDisplayForTrip,
-} from "@/features/trips/utils/driverAssignerDisplay.util";
+    attachDriverAppLocations,
+    buildMissionLog,
+    formatDistance,
+    formatDurationForTrip,
+    getTripProgressTitle,
+    isCompleted,
+    isInTransitStatus,
+    parseTripCoordinate,
+    splitLocationPrimarySecondary,
+    toEtaInterval,
+    type DriverAppLocationPoint,
+} from "@/features/driver/tripHistory/tripHistoryDetail.util";
 import {
-  buildDriverTripNumberMap,
-  getDriverTripDisplayNumber,
+    buildDriverTripNumberMap,
+    getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
+import { isClientSupplierTaggedTrip } from "@/features/drivers/domain/driverOperatingMode";
+import * as driversService from "@/features/drivers/services/drivers.service";
+import * as salaryRequestsService from "@/features/drivers/services/salaryRequests.service";
+import { driverCaptureLaneForTrip } from "@/features/drivers/utils/driverCapturePayment.util";
+import {
+    canTagPartyOnTrip,
+    isTripTaggedToParty,
+    tripNeedsPartyTag,
+    tripReceivablePartyName,
+} from "@/features/drivers/utils/driverPartyReceivables.util";
+import { resolveAgreedPayTerms } from "@/features/drivers/utils/driverPayTerms.util";
+import { resolveDriverTripPayoutTerms } from "@/features/drivers/utils/driverUtils.util";
+import { getLatestAssignmentAuditByTripIds } from "@/features/trips/services/trip-assignment-audit.service";
+import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
+import * as tripsService from "@/features/trips/services/trips.service";
+import {
+    buildAssignerDisplayForTrip,
+} from "@/features/trips/utils/driverAssignerDisplay.util";
+import { releaseStoragePreviewUrl } from "@/features/trips/utils/storagePreviewObjectUrl.util";
+import { useTripVerificationSync } from "@/features/trips/verification";
 import { formatLedgerDateTime } from "@/lib/format";
 import { formatEstimatedDuration } from "@/lib/formatEstimatedDuration";
 import { withWebSafeShadows } from "@/lib/platformViewStyle.util";
-import { getOptimalRoute } from "@/lib/routingService";
-import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
-import * as driversService from "@/features/drivers/services/drivers.service";
-import * as salaryRequestsService from "@/features/drivers/services/salaryRequests.service";
-import * as tripsService from "@/features/trips/services/trips.service";
-import {
-  canTagPartyOnTrip,
-  isTripTaggedToParty,
-  tripNeedsPartyTag,
-  tripReceivablePartyName,
-} from "@/features/drivers/utils/driverPartyReceivables.util";
 import {
   buildGpsOdometerCompareModel,
   resolveDriverDisplayDistanceKm,
 } from "@/features/drivers/utils/driverDisplayDistance.util";
-import { resolveDriverTripPayoutTerms } from "@/features/drivers/utils/driverUtils.util";
-import { isClientSupplierTaggedTrip } from "@/features/drivers/domain/driverOperatingMode";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
+import { reverseGeocodeCityStateLabel } from "@/lib/reverseGeocodePlace.util";
 import { ROUTES } from "@/lib/routes";
+import { getOptimalRoute } from "@/lib/routingService";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
-import { type Href, useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import {
-  Calendar,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Clock,
-  FileImage,
-  MessageSquare,
-  Navigation,
-  Route,
-  Share2,
-  ShieldCheck,
-  Tag,
+    Calendar,
+    CheckCircle2,
+    ChevronDown,
+    ChevronUp,
+    Clock,
+    FileImage,
+    MessageSquare,
+    Navigation,
+    Route,
+    Share2,
+    ShieldCheck,
+    Tag,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Alert,
-  ScrollView,
-  Image,
-  Share,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    Image,
+    ScrollView,
+    Share,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Animated, {
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
+    cancelAnimation,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withSequence,
+    withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getTripAppLocationsForTimeline } from "@/features/driver/services/driverLocation.service";
-import { reverseGeocodeCityStateLabel } from "@/lib/reverseGeocodePlace.util";
-import {
-  attachDriverAppLocations,
-  buildMissionLog,
-  formatDistance,
-  formatDurationForTrip,
-  getTripProgressTitle,
-  isCompleted,
-  isInTransitStatus,
-  parseTripCoordinate,
-  splitLocationPrimarySecondary,
-  toEtaInterval,
-  type DriverAppLocationPoint,
-} from "@/features/driver/tripHistory/tripHistoryDetail.util";
-import { tripHistoryDetailStyles as styles } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
-import { TripDetailSettlementPanel } from "@/features/driver/components/TripDetailSettlementPanel";
-import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
-import { driverCaptureLaneForTrip } from "@/features/drivers/utils/driverCapturePayment.util";
-import { DriverDocumentGalleryPreview } from "@/features/driver/components/DriverDocumentGalleryPreview";
-import { useTripVerificationSync } from "@/features/trips/verification";
-import { DriverTripOperationsTab } from "@/features/driver/components/DriverTripOperationsTab";
-import { useRegisterDriverContextTrip } from "@/contexts/DriverTripOpsContext";
-import { resolveAgreedPayTerms } from "@/features/drivers/utils/driverPayTerms.util";
 
 function TimelinePulseIcon({
   expanded,

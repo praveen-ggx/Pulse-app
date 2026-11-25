@@ -1,7 +1,7 @@
 import { getTripOperationalDisplay } from "@/features/operations/display";
 import { listOperationsOutbox } from "@/features/trips/operations/offline/outbox";
 import { supabase } from "@/lib/supabase";
-import { buildQueueSections } from "../selectors/buildQueueSections";
+import { buildQueueSections, compareQueueItems } from "../selectors/buildQueueSections";
 import type {
   OperationalQueueItem,
   OperationalQueueKind,
@@ -129,6 +129,35 @@ function mapOperationalRow(
   };
 }
 
+/**
+ * Latest driver "Remind" per expense (20271124101500). Fail-soft: without the
+ * table (migration not applied) the queue keeps its entered-time order.
+ */
+async function attachDriverReminders(
+  organizationId: string,
+  items: OperationalQueueItem[],
+): Promise<void> {
+  const ids = items.map((item) => item.sourceId);
+  if (ids.length === 0) return;
+  try {
+    const { data, error } = await supabase()
+      .from("driver_expense_reminders" as never)
+      .select("expense_kind,entry_id,reminded_at")
+      .eq("organization_id", organizationId)
+      .in("entry_id", ids);
+    if (error || !data) return;
+    const latest = new Map<string, string>();
+    for (const row of data as Array<{ expense_kind: string; entry_id: string; reminded_at: string }>) {
+      const key = `${row.expense_kind}:${row.entry_id}`;
+      const prev = latest.get(key);
+      if (!prev || +new Date(row.reminded_at) > +new Date(prev)) latest.set(key, row.reminded_at);
+    }
+    for (const item of items) item.remindedAt = latest.get(item.id) ?? null;
+  } catch {
+    // Ordering hint only; never block the queue.
+  }
+}
+
 export async function getOperationsControlCenterPage(input: {
   organizationId: string;
   offset?: number;
@@ -164,6 +193,7 @@ export async function getOperationsControlCenterPage(input: {
   const tollItems = (tollRes.data ?? []).map((row) =>
     mapOperationalRow(row as TollRow, "toll"),
   );
+  await attachDriverReminders(input.organizationId, [...fuelItems, ...tollItems]);
   const syncFailures = outbox
     .filter((entry) => entry.status === "failed")
     .map((entry): OperationalQueueItem => ({
@@ -183,7 +213,7 @@ export async function getOperationsControlCenterPage(input: {
     }));
   const merged = [...fuelItems, ...tollItems, ...syncFailures]
     .filter((row) => row.queueKinds.length > 0)
-    .sort((a, b) => +new Date(b.enteredAt) - +new Date(a.enteredAt));
+    .sort(compareQueueItems);
   const sections = buildQueueSections(merged);
   const hasMore = (fuelRes.data?.length ?? 0) === limit || (tollRes.data?.length ?? 0) === limit;
   return {

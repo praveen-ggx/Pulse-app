@@ -28,6 +28,7 @@ import {
   filterDriverWalletTransactions,
   groupDriverWalletTransactions,
   walletTxnAssignerPayer,
+  walletTxnPartyFallback,
   walletTxnPayerName,
   type DriverWalletTxn,
 } from '@/features/drivers/utils/driverWalletTransactions.util';

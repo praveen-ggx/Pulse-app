@@ -156,8 +156,28 @@ export async function recordTripWorkflowEvent(params: {
     ? `${params.tripId}:${params.eventType}`
     : null;
 
-  // Check first: a failed insert is still logged by Postgres as a 23505 error,
-  // even though we treat it as a no-op. (on_conflict can't target the partial index.)
+  // Preferred path: server-side insert with ON CONFLICT DO NOTHING (no 23505 noise in Postgres logs,
+  // and no RLS blind spot when another org already recorded the event).
+  const rpc = await supabase().rpc('record_trip_workflow_event', {
+    p_trip_id: params.tripId,
+    p_org_id: params.orgId,
+    p_event_type: params.eventType,
+    p_payload: (params.payload ?? {}) as never,
+    p_idempotency_key: idempotencyKey as never,
+  });
+  if (!rpc.error) {
+    const row = rpc.data as unknown as TripWorkflowEvent | null;
+    return row
+      ? { error: null, event: row, alreadyExists: false }
+      : { error: null, event: null, alreadyExists: true };
+  }
+  // Function not deployed yet (code can ship before the migration): use the legacy path below.
+  const missingRpc = rpc.error.code === 'PGRST202' || rpc.error.code === '42883';
+  if (!missingRpc) {
+    return { error: new Error(rpc.error.message), event: null, alreadyExists: false };
+  }
+
+  // Legacy path. Check first: a failed insert is still logged by Postgres as a 23505 error.
   if (idempotencyKey) {
     const { data: existing } = await supabase()
       .from('trip_workflow_events')

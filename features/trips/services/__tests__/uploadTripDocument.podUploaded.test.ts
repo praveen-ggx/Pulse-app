@@ -1,6 +1,7 @@
 import { uploadTripDocument } from '../tripDocuments.service';
 
 const mockFrom = jest.fn();
+const mockRpc = jest.fn(async () => ({ data: { id: 'evt-1' }, error: null }));
 const mockStorageUpload = jest.fn();
 const mockPublish = jest.fn().mockResolvedValue(undefined);
 
@@ -9,6 +10,7 @@ const mockAuditInsert = jest.fn(async () => ({ error: null }));
 jest.mock('@/lib/supabase', () => ({
   supabase: () => ({
     from: mockFrom,
+    rpc: mockRpc,
     auth: {
       getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }),
     },
@@ -211,7 +213,16 @@ describe('uploadTripDocument — PODUploaded event', () => {
     await uploadTripDocument('trip-1', 'user-1', file, 'pod');
     await flushPromises();
 
-    expect(mockFrom).toHaveBeenCalledWith('trip_workflow_events');
+    // The workflow event is now written through the idempotent server function.
+    expect(mockRpc).toHaveBeenCalledWith(
+      'record_trip_workflow_event',
+      expect.objectContaining({
+        p_trip_id: 'trip-1',
+        p_org_id: 'org-1',
+        p_event_type: 'pod.uploaded',
+        p_idempotency_key: 'trip-1:pod.uploaded',
+      }),
+    );
   });
 
   it('does not publish for a non-pod document type (e.g. manifest)', async () => {

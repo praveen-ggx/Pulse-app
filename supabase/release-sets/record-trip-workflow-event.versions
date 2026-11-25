@@ -1,0 +1,4 @@
+# record_trip_workflow_event: quiet idempotent insert for trip_workflow_events (no 23505 log noise).
+# New function only; no table, policy or data change. Client falls back to the old path if absent.
+# sha256 9e097741e1ccf111e240f71b6ce564d1f4ac8b15c11c1a6f4dd5922050455b29  20261125124952_record_trip_workflow_event.sql
+20261125124952

@@ -35,22 +35,40 @@ export async function appendTripOperationalTimelineEvent(input: {
   actorUserId?: string | null;
   payload?: Record<string, unknown>;
 }) {
-  let organizationId = String(input.organizationId ?? "").trim();
-  if (!organizationId) {
+  const organizationId = String(input.organizationId ?? "").trim();
+
+  // Preferred path: server function. Members behave exactly as before; the trip's assigned driver
+  // (not an org member) is now allowed too. The org defaults to the trip's own org when omitted.
+  const rpc = await supabase().rpc("record_trip_operational_timeline_event", {
+    p_trip_id: input.tripId,
+    p_event_type: input.eventType,
+    p_organization_id: (organizationId || null) as never,
+    p_source_type: (input.sourceType ?? null) as never,
+    p_source_id: (input.sourceId ?? null) as never,
+    p_actor_user_id: (input.actorUserId ?? null) as never,
+    p_payload: (input.payload ?? {}) as never,
+  });
+  if (!rpc.error) return { error: null };
+  // Function not deployed yet (code can ship before the migration): use the direct insert below.
+  const missingRpc = rpc.error.code === "PGRST202" || rpc.error.code === "42883";
+  if (!missingRpc) return { error: new Error(rpc.error.message) };
+
+  let legacyOrganizationId = organizationId;
+  if (!legacyOrganizationId) {
     const tripRes = await supabase()
       .from("trips")
       .select("organization_id")
       .eq("id", input.tripId)
       .maybeSingle();
-    organizationId = String(
+    legacyOrganizationId = String(
       (tripRes.data as { organization_id?: string | null } | null)?.organization_id ?? "",
     ).trim();
   }
-  if (!organizationId) {
+  if (!legacyOrganizationId) {
     return { error: new Error("organization_id missing for timeline event") };
   }
   const payload = {
-    organization_id: organizationId,
+    organization_id: legacyOrganizationId,
     trip_id: input.tripId,
     event_type: input.eventType,
     source_type: input.sourceType ?? null,

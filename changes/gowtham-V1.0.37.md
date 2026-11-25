@@ -76,8 +76,8 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" â
 - `supabase/tests/dco_operating_model_boundary.sql`
 - `features/tracking/**` (driverLiveTracking.service, driverLiveLocationTask.service, useDriverLiveTracking, constants, flags, movement filter, map store, checkpoint service + tests), `features/driver/communication/hooks/useDriverLocationStream.ts`, `features/trips/components/trip-detail/hooks/useTripDetail.ts`, `app/_layout.tsx`, `app.config.js` (expo-location plugin: background + foreground service), `types/expo-location.d.ts`, `package.json` (`expo-task-manager`)
 - `components/driver/DriverInviteModal.tsx` (queue arrows), `contexts/DriverInviteModalContext.tsx` (active invite, next/prev, hide others after accept)
-- `supabase/migrations/20271123110000_dco_approve_before_leaving_fleet.sql`, `features/driver/components/DcoStatusScreen.tsx`, `features/driver/components/DcoApprovalPromptHost.tsx` (new), `app/(driver)/_layout.tsx`, `features/driver/services/dco.service.ts`, `features/drivers/domain/driverOperatingMode.ts`, `features/drivers/screens/DriverProfileScreen.tsx`, `analytics/src/lib/dco.ts`, `analytics/src/components/queue/DcoReviewPanel.tsx`, `docs/RBAC_OPERATING_MODEL_CHANGELOG.md`
-- `analytics/src/components/queue/DriverKycPanel.tsx` (DCO docs filter), `features/drivers/services/drivers.service.ts` (`dco_awaiting_fleet_exit` message), `supabase/migrations/20271123113000_dco_block_new_fleet_while_awaiting_exit.sql`
+- `supabase/migrations/20271125125050_dco_approve_before_leaving_fleet.sql`, `features/driver/components/DcoStatusScreen.tsx`, `features/driver/components/DcoApprovalPromptHost.tsx` (new), `app/(driver)/_layout.tsx`, `features/driver/services/dco.service.ts`, `features/drivers/domain/driverOperatingMode.ts`, `features/drivers/screens/DriverProfileScreen.tsx`, `analytics/src/lib/dco.ts`, `analytics/src/components/queue/DcoReviewPanel.tsx`, `docs/RBAC_OPERATING_MODEL_CHANGELOG.md`
+- `analytics/src/components/queue/DriverKycPanel.tsx` (DCO docs filter), `features/drivers/services/drivers.service.ts` (`dco_awaiting_fleet_exit` message), `supabase/migrations/20271125125054_dco_block_new_fleet_while_awaiting_exit.sql`
 
 ## Migrations
 - `20271113100000_booking_ref_skip_taken_refs.sql`
@@ -85,8 +85,10 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" â
 - `20271113103000_fleet_disconnect_notify_and_dco_request_gate.sql`
 - `20271113104500_dco_require_verified_kyc.sql`
 - `20271113110000_ocr_jobs_insert_allow_trip_access.sql`
-- `20271123110000_dco_approve_before_leaving_fleet.sql`
-- `20271123113000_dco_block_new_fleet_while_awaiting_exit.sql`
+- `20271125125050_dco_approve_before_leaving_fleet.sql`
+- `20271125125054_dco_block_new_fleet_while_awaiting_exit.sql`
+- `20271125125057_driver_expense_reminder_notify.sql`
+- 2026-11-25 sync: these three were re-timed after V1's `20271124154500` (were `20271123110000`, `20271123113000`, `20271124101500`). Content unchanged.
 - Not applied from this branch. Nihas applies to preprod after merge; Vasanth applies to prod on release.
 - `lib/maps/placeSearch.util.ts` (`cleanOsmAreaName`), `lib/placesService.ts`, `lib/placeCityState.util.ts`, `lib/mapLocationLabel.service.ts` (+ `lib/__tests__/placeWardName.test.ts`)
 - `lib/placesService.ts` (`searchGooglePlaces` â†’ Places API (New), `resolvePlaceSelection`, `isPendingGooglePlace`), `features/trips/components/add-trip/LocationSearchField.tsx` (+ `lib/__tests__/placesGoogleNew.test.ts`)

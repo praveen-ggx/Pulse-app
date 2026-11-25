@@ -74,9 +74,10 @@ export type DriverPodCompletionPageProps = {
   lrNumber?: string;
   onChangeLrNumber?: (value: string) => void;
   tripId?: string | null;
-  /** Resolves a signed preview URL (and caches on parent). */
+  /** Resolves a signed preview URL (and caches on parent). Pass force to bypass cache. */
   onResolvePreview: (
     doc: tripDocumentsService.TripDocumentRow,
+    opts?: { force?: boolean },
   ) => Promise<string | null>;
   onDelete: (doc: tripDocumentsService.TripDocumentRow) => void;
   /** Runs after user confirms Complete in the dialog. */

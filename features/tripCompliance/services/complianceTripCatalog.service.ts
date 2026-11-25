@@ -11,9 +11,9 @@ import {
  *
  * Rows use the same status and driver rule as isComplianceOpsPipelineTrip.
  * Assigned and draft trips are included only for Ground Ops and Sourcing.
- * list_compliance_ops_pipeline_keyset is not installed on the live database,
- * so the catalog uses the hub walk. A short walk, a repeated id, or a stuck
- * cursor returns no rows.
+ * The dedicated keyset is used when it is installed. Otherwise the catalog
+ * walks hub active and history together and skips cancelled trips. A short
+ * walk, a repeated id, or a stuck cursor returns no rows.
  */
 export async function loadComplianceTripCatalog(
   orgId: string,
@@ -67,15 +67,31 @@ async function walkCompliancePages(
   return { error: null, trips };
 }
 
+function byNewestTrip(a: TripRow, b: TripRow): number {
+  const created = String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
+  if (created !== 0) return created;
+  return String(b.id ?? "").localeCompare(String(a.id ?? ""));
+}
+
 async function loadComplianceTripCatalogFromHub(
   orgId: string,
 ): Promise<{ error: Error | null; trips: TripRow[] }> {
-  const res = await loadHubTripKeysetRange(orgId);
-  if (res.error) return { error: res.error, trips: [] };
-  return {
-    error: null,
-    trips: res.trips.filter((trip) =>
-      isComplianceOpsPipelineTrip(trip, { includeAssigned: true }),
-    ),
-  };
+  // Active and history partition every non-cancelled trip. Walking them
+  // together avoids a third pass over cancelled rows and does not wait for
+  // one book to finish before the other starts.
+  const [active, history] = await Promise.all([
+    loadHubTripKeysetRange(orgId, { bucket: "active" }),
+    loadHubTripKeysetRange(orgId, { bucket: "history" }),
+  ]);
+  if (active.error || history.error) return { error: active.error ?? history.error, trips: [] };
+  const seen = new Set<string>();
+  const trips: TripRow[] = [];
+  for (const trip of [...active.trips, ...history.trips].sort(byNewestTrip)) {
+    if (!trip.id || seen.has(trip.id)) {
+      return { error: new Error("Compliance page cursor repeated a trip."), trips: [] };
+    }
+    seen.add(trip.id);
+    if (isComplianceOpsPipelineTrip(trip, { includeAssigned: true })) trips.push(trip);
+  }
+  return { error: null, trips };
 }

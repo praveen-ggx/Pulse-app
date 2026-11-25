@@ -249,12 +249,18 @@ function buildUnassignedPresentation(
       ? partyAvatarFromClient(client, clientName)
       : resolveOpsRegistryAvatar(ops, ctx);
 
+  const declined =
+    /declin/i.test(ops.title) || /update driver details/i.test(ops.subtitle ?? "");
   return {
     avatar,
     actorName: tripLabel,
-    actionText: "needs a driver change for",
+    actionText: declined ? "driver declined — update for" : "needs a driver change for",
     highlightText: clientName,
-    detail: ops.subtitle?.trim() || `${tripLabel} · Change driver to continue`,
+    detail:
+      ops.subtitle?.trim() ||
+      (declined
+        ? `${tripLabel} · Update driver details`
+        : `${tripLabel} · Change driver to continue`),
     detailMeta: tripTinyLine(trip, ctx, { client: true, date: true }),
   };
 }
@@ -384,7 +390,9 @@ function tripHasDriver(ops: GlobalOperationAlert, ctx: RegistryPartyLookup): boo
 
 export function opsRegistryActionLabel(ops: GlobalOperationAlert): string {
   if (ops.category === "payment_received" || ops.category === "payment_paid") return "View payment";
-  if (ops.category === "unassigned_trip") return "Change driver";
+  if (ops.category === "unassigned_trip") {
+    return /declin/i.test(ops.title) ? "Update driver" : "Change driver";
+  }
   if (ops.category === "late_log") return "View trip";
   if (ops.category === "vehicle_idle") return "View trip";
   return "View trip";

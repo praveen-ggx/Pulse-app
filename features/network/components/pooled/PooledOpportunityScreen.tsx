@@ -266,6 +266,9 @@ export function PooledOpportunityScreen() {
   const bidNow = paramString(params.bid) === "1";
   const openedDirectBid = useRef(false);
   const directBidIds = summary.biddableIds.join(",");
+  /** Rate entered while the pool manifest is still in flight. */
+  const queuedRate = useRef<number | null>(null);
+  const queuedResolvers = useRef<Array<(ok: boolean) => void>>([]);
 
   useEffect(() => {
     if (!bidNow || openedDirectBid.current || !readiness.ready || !directBidIds) return;
@@ -307,10 +310,17 @@ export function PooledOpportunityScreen() {
 
   /** Returns true only when every eligible load took the rate; anything less never celebrates. */
   const submitPoolRate = async (amount: number): Promise<boolean> => {
-    if (!orgId || !bidTargets) return false;
-    if (!readiness.ready) {
-      setBidError(readiness.blocked ?? "This pool is still being prepared.");
-      return false;
+    if (!orgId) return false;
+    if (!bidTargets || !readiness.ready) {
+      if (!bidNow) {
+        setBidError(readiness.blocked ?? "This pool is still being prepared.");
+        return false;
+      }
+      // The rate pad is already open. Hold this amount until the lane manifest arrives.
+      queuedRate.current = amount;
+      return new Promise((resolve) => {
+        queuedResolvers.current.push(resolve);
+      });
     }
     const blocked = poolSubmissionBlockReason(bidTargets, summary.memberIds);
     if (blocked) {
@@ -361,6 +371,24 @@ export function PooledOpportunityScreen() {
     }
     return true;
   };
+  const submitPoolRateRef = useRef(submitPoolRate);
+  submitPoolRateRef.current = submitPoolRate;
+
+  useEffect(() => {
+    if (queuedRate.current == null) return;
+    if (preparing || (readiness.ready && bidTargets == null)) return;
+    const waiters = queuedResolvers.current.splice(0);
+    const amount = queuedRate.current;
+    queuedRate.current = null;
+    if (!readiness.ready || bidTargets == null || amount == null) {
+      setBidError(readiness.blocked ?? "This pool is not open for a bid.");
+      waiters.forEach((resolve) => resolve(false));
+      return;
+    }
+    void submitPoolRateRef.current(amount).then((ok) => {
+      waiters.forEach((resolve) => resolve(ok));
+    });
+  }, [preparing, readiness.ready, readiness.blocked, bidTargets]);
 
   /** The pool rate is the lane commitment: later loads on this lane receive it. */
   const keepLaneRate = async (amount: number): Promise<boolean> => {
@@ -640,8 +668,7 @@ export function PooledOpportunityScreen() {
           accessibilityLabel="Back to marketplace"
         />
       )}
-      {bidNow || bidTargets != null ? (
-        bidTargets == null ? (
+      {bidNow && bidTargets == null && !preparing && !readiness.ready ? (
           <View
             style={[
               pageMode ? styles.pageBody : [styles.dialog, styles.dialogNarrow],
@@ -652,9 +679,7 @@ export function PooledOpportunityScreen() {
               {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
             </Text>
             <Text style={styles.message}>
-              {preparing
-                ? "Opening the bid…"
-                : readiness.blocked ?? "This pool is not open for a bid."}
+              {readiness.blocked ?? "This pool is not open for a bid."}
             </Text>
             <Pressable
               onPress={handleBack}
@@ -665,8 +690,7 @@ export function PooledOpportunityScreen() {
               <Text style={styles.retryBtnText}>Back</Text>
             </Pressable>
           </View>
-        ) : null
-      ) : (
+      ) : bidNow || bidTargets != null ? null : (
       <View
         style={
           pageMode
@@ -714,21 +738,25 @@ export function PooledOpportunityScreen() {
       )}
 
       <MarketLoadBidSheet
-        visible={bidTargets != null}
+        visible={bidTargets != null || (bidNow && (preparing || readiness.ready))}
         onClose={closeBid}
         onSubmitAmount={submitPoolRate}
         onSuccessDone={() => {
           refreshAfterBid();
           if (laneRateAmount != null && viewerCanBidCapability) setLaneRateOpen(true);
         }}
-        shipperName={`Pooled opportunity · ${countLabel}`}
+        shipperName={poolCount > 0 ? `Pooled opportunity · ${countLabel}` : "Pooled opportunity"}
         pickup={key.pickup}
         drop={key.drop}
         vehicleType={key.vehicleType}
         targetRateInr={summary.targetRateMin}
         targetRateMaxInr={summary.targetRateMax}
         entryLabel="Your rate for this pooled opportunity"
-        contextLine={`Covers the ${targetsLabel} open now and loads added on this lane for 48 hours. Each load gets its own bid, and the shipper accepts it.`}
+        contextLine={
+          bidTargets == null
+            ? "Enter your rate now. This lane is opening, and the rate is saved when it is ready."
+            : `Covers the ${targetsLabel} open now and loads added on this lane for 48 hours. Each load gets its own bid, and the shipper accepts it.`
+        }
         submitLabel="Submit rate for pool"
         confirmCopy={{
           scopeNote: `Your rate is saved on this lane for 48 hours. It is placed on the ${targetsLabel} open now, and a later eligible load receives the same bid. Each shipper accepts its own load. This does not reserve a vehicle or award the load.`,

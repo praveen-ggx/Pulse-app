@@ -1937,17 +1937,51 @@ export default function ClientDetailScreen({
                 style={[
                   styles.scorecardGridRight,
                   isWebDesktop && styles.scorecardGridStat,
+                  styles.scorecardDueCaptureCol,
                 ]}
               >
                 <Text style={styles.scorecardGridLabelDue}>DUE</Text>
-                <Text
-                  style={[
-                    styles.scorecardGridDue,
-                    isWebDesktop && styles.scorecardGridDueWebDesktop,
-                  ]}
-                >
-                  {formatCustomerLedgerFigure(due, detailLedgerState)}
-                </Text>
+                <View style={styles.scorecardDueCaptureRow}>
+                  <Text
+                    style={[
+                      styles.scorecardGridDue,
+                      isWebDesktop && styles.scorecardGridDueWebDesktop,
+                      styles.scorecardDueInline,
+                    ]}
+                  >
+                    {formatCustomerLedgerFigure(due, detailLedgerState)}
+                  </Text>
+                  {canAddTransaction ? (
+                    <Pressable
+                      onPress={() => {
+                        const q = new URLSearchParams({
+                          entityType: "CLIENT",
+                          entityId: clientId,
+                          partyName:
+                            (
+                              client?.name ||
+                              client?.contact_person ||
+                              t("client")
+                            ).trim() || t("client"),
+                          partyContext: "customers",
+                          partyId: clientId,
+                          defaultType: "in",
+                        });
+                        if (due != null && due > 0) q.set("dueAmountIn", String(due));
+                        router.push(`/(modals)/ledger-sync?${q.toString()}` as const);
+                      }}
+                      style={({ pressed }) => [
+                        styles.scorecardCaptureBtn,
+                        pressed && { opacity: 0.88 },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Capture payment"
+                      hitSlop={8}
+                    >
+                      <Text style={styles.scorecardCaptureBtnText}>Capture</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               </View>
             </View>
           </LinearGradient>
@@ -3331,6 +3365,41 @@ const styles = StyleSheet.create({
   scorecardGridPaidWebDesktop: ehs.scorecardGridPaidWebDesktop,
   scorecardGridDue: ehs.scorecardGridDue,
   scorecardGridDueWebDesktop: ehs.scorecardGridDueWebDesktop,
+  scorecardDueCaptureCol: {
+    alignItems: "flex-end",
+    minWidth: 0,
+  },
+  scorecardDueCaptureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 4,
+    flexWrap: "nowrap",
+    maxWidth: "100%",
+  },
+  scorecardDueInline: {
+    marginTop: 0,
+    flexShrink: 1,
+  },
+  scorecardCaptureBtn: {
+    minHeight: 32,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  scorecardCaptureBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Theme.textOnDark,
+    letterSpacing: 0.3,
+  },
   profilePreviewCard: ecc.card,
   profilePreviewTopRow: {
     flexDirection: "row",

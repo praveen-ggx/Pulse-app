@@ -81,6 +81,8 @@ export const ROUTES = {
   driverGeneralExpense: () => '/(driver)/general-expense' as const,
   /** Become a DCO (driver-come-owner / owner-operator) — the single owner-operator onboarding path. */
   driverDcoStatus: () => '/(driver)/dco-status' as const,
+  /** Fleet-assigned vehicle detail (opened from DCO onboarding checklist). */
+  driverAssignedVehicle: () => '/(driver)/assigned-vehicle' as const,
   /** Driver wallet, Self tab (DCO self ledger + linked fleets to disconnect). */
   driverWalletSelf: () => '/(driver)/wallet?tab=self' as const,
   driverPartyReceivable: (partyId: string) =>

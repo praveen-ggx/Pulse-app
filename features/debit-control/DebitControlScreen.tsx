@@ -329,7 +329,10 @@ function PendingList({
 }
 
 async function openSoftPod(tripId: string) {
-  const { documents } = await getDocumentsByTripId(tripId, { includeOcr: false });
+  const { documents } = await getDocumentsByTripId(tripId, {
+    includeOcr: false,
+    includeStorageFallback: true,
+  });
   const pod = documents.find((doc) => isSoftPodDocumentType(doc.document_type) && doc.storage_path);
   if (!pod) return;
   const url = await tryGetDocumentViewUrl(pod.storage_path);

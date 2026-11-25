@@ -1,5 +1,7 @@
 import { memo, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { IndianRupee, TrendingDown, TrendingUp } from "lucide-react-native";
 
 import Theme from "@/constants/Theme";
 
@@ -13,9 +15,9 @@ function parseAmount(raw: string): number | null {
 }
 
 function formatInr(amount: number): string {
-  return `₹${amount.toLocaleString("en-IN", {
+  return amount.toLocaleString("en-IN", {
     maximumFractionDigits: 0,
-  })}`;
+  });
 }
 
 export type PartnerRateSaleMarginStripProps = {
@@ -39,6 +41,7 @@ export type PartnerRateSaleMarginStripProps = {
 
 /**
  * Live sale vs margin under partner-rate / supplier-target entry — updates while typing.
+ * Twin hero tiles: Sale (ink) + Margin (emerald / loss), edge-to-edge, borderless.
  */
 export const PartnerRateSaleMarginStrip = memo(function PartnerRateSaleMarginStrip({
   saleValue,
@@ -77,6 +80,10 @@ export const PartnerRateSaleMarginStrip = memo(function PartnerRateSaleMarginStr
           ? "negative"
           : "neutral";
 
+  const marginReady = hasSale && hasRate && margin != null;
+  const MarginIcon =
+    marginTone === "negative" ? TrendingDown : TrendingUp;
+
   return (
     <View
       style={styles.root}
@@ -90,50 +97,122 @@ export const PartnerRateSaleMarginStrip = memo(function PartnerRateSaleMarginStr
             : undefined
       }
     >
-      <View style={styles.cell}>
-        <Text style={styles.label}>{saleLabel}</Text>
-        <Text style={styles.value} numberOfLines={1}>
-          {hasSale ? `${formatInr(sale!)}${unitSuffix}` : "—"}
-        </Text>
-      </View>
+      <LinearGradient
+        colors={[Theme.actionBtnInk, Theme.driverEmeraldDark]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.heroTile, styles.saleTile]}
+      >
+        <View style={styles.heroTop}>
+          <View style={styles.heroBadge}>
+            <IndianRupee size={11} color={Theme.textOnDark} strokeWidth={2.4} />
+            <Text style={styles.heroBadgeText}>{saleLabel}</Text>
+          </View>
+        </View>
+        <View style={styles.heroAmountRow}>
+          <Text style={styles.heroRupee}>₹</Text>
+          <Text style={styles.heroAmount} numberOfLines={1} adjustsFontSizeToFit>
+            {hasSale ? formatInr(sale!) : "—"}
+          </Text>
+        </View>
+        {unitSuffix ? (
+          <Text style={styles.heroSub}>{unitSuffix.replace(/^\//, "")} basis</Text>
+        ) : (
+          <Text style={styles.heroSub}>Client billed</Text>
+        )}
+      </LinearGradient>
 
-      <View style={styles.divider} />
-
-      <View style={[styles.cell, styles.cellEnd]}>
-        <Text style={styles.label}>Margin</Text>
-        {hasSale && hasRate && margin != null ? (
-          <View style={styles.marginValueRow}>
+      <LinearGradient
+        colors={
+          marginTone === "negative"
+            ? [Theme.negative, Theme.actionBtnInk]
+            : marginTone === "positive"
+              ? [Theme.driverEmerald, Theme.driverEmeraldDark]
+              : [Theme.surfaceLight, Theme.surfaceGray]
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.heroTile, styles.marginTile]}
+      >
+        <View style={styles.heroTop}>
+          <View
+            style={[
+              styles.heroBadge,
+              marginTone === "neutral" && styles.heroBadgeMuted,
+            ]}
+          >
+            <MarginIcon
+              size={11}
+              color={marginTone === "neutral" ? Theme.textMuted : Theme.textOnDark}
+              strokeWidth={2.4}
+            />
             <Text
               style={[
-                styles.value,
-                marginTone === "positive" && styles.valuePositive,
-                marginTone === "negative" && styles.valueNegative,
+                styles.heroBadgeText,
+                marginTone === "neutral" && styles.heroBadgeTextMuted,
+              ]}
+            >
+              Margin
+            </Text>
+          </View>
+          {marginReady && marginPct != null ? (
+            <Text
+              style={[
+                styles.pctPill,
+                marginTone === "neutral" && styles.pctPillMuted,
+              ]}
+            >
+              {marginPct >= 0 ? "+" : ""}
+              {marginPct.toFixed(0)}%
+            </Text>
+          ) : null}
+        </View>
+        {marginReady ? (
+          <View style={styles.heroAmountRow}>
+            <Text
+              style={[
+                styles.heroRupee,
+                marginTone === "neutral" && styles.heroRupeeMuted,
+              ]}
+            >
+              {margin! < 0 ? "−₹" : "₹"}
+            </Text>
+            <Text
+              style={[
+                styles.heroAmount,
+                marginTone === "neutral" && styles.heroAmountMuted,
               ]}
               numberOfLines={1}
+              adjustsFontSizeToFit
             >
-              {margin < 0 ? "−" : ""}
-              {formatInr(Math.abs(margin))}
-              {unitSuffix}
+              {formatInr(Math.abs(margin!))}
             </Text>
-            {marginPct != null ? (
-              <Text
-                style={[
-                  styles.pct,
-                  marginTone === "positive" && styles.valuePositive,
-                  marginTone === "negative" && styles.valueNegative,
-                ]}
-              >
-                {marginPct >= 0 ? "+" : ""}
-                {marginPct.toFixed(0)}%
-              </Text>
-            ) : null}
           </View>
         ) : (
-          <Text style={styles.valueMuted} numberOfLines={1}>
+          <Text
+            style={[
+              styles.heroPlaceholder,
+              marginTone === "neutral" && styles.heroPlaceholderMuted,
+            ]}
+            numberOfLines={2}
+          >
             {hasSale ? rateEmptyHint : "Set sale first"}
           </Text>
         )}
-      </View>
+        <Text
+          style={[
+            styles.heroSub,
+            marginTone === "neutral" && styles.heroSubMuted,
+          ]}
+        >
+          {marginReady
+            ? marginTone === "negative"
+              ? "Below sale"
+              : "After partner rate"
+            : "Live vs partner"}
+          {unitSuffix ? ` ${unitSuffix}` : ""}
+        </Text>
+      </LinearGradient>
     </View>
   );
 });
@@ -143,65 +222,102 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "stretch",
     width: "100%",
-    maxWidth: 320,
-    alignSelf: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.surface,
-    gap: 0,
+    alignSelf: "stretch",
+    gap: 8,
   },
-  cell: {
+  heroTile: {
     flex: 1,
     minWidth: 0,
-    gap: 3,
-    justifyContent: "center",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
+    gap: 4,
+    overflow: "hidden",
   },
-  cellEnd: {
-    alignItems: "flex-end",
+  saleTile: {},
+  marginTile: {},
+  heroTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+    marginBottom: 2,
   },
-  divider: {
-    width: StyleSheet.hairlineWidth,
-    alignSelf: "stretch",
+  heroBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: Theme.tripSelectionInsetBorder,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  heroBadgeMuted: {
     backgroundColor: Theme.borderLight,
-    marginHorizontal: 12,
   },
-  label: {
+  heroBadgeText: {
     fontSize: 9,
-    fontWeight: "700",
+    fontWeight: "800",
     letterSpacing: 0.55,
     textTransform: "uppercase",
+    color: Theme.textOnDark,
+  },
+  heroBadgeTextMuted: {
     color: Theme.textMuted,
   },
-  value: {
+  pctPill: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: Theme.textOnDark,
+  },
+  pctPillMuted: {
+    color: Theme.textMuted,
+  },
+  heroAmountRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 1,
+    minHeight: 34,
+  },
+  heroRupee: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: Theme.textOnDarkMuted,
+    marginTop: 6,
+  },
+  heroRupeeMuted: {
+    color: Theme.textMuted,
+  },
+  heroAmount: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: -0.8,
+    color: Theme.textOnDark,
+    lineHeight: 32,
+    fontVariant: ["tabular-nums"],
+  },
+  heroAmountMuted: {
+    color: Theme.textPrimaryDark,
+  },
+  heroSub: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: Theme.textOnDarkMuted,
+  },
+  heroSubMuted: {
+    color: Theme.textMuted,
+  },
+  heroPlaceholder: {
     fontSize: 13,
     fontWeight: "700",
-    color: Theme.textPrimaryDark,
-    letterSpacing: -0.2,
+    color: Theme.textOnDark,
+    minHeight: 32,
+    paddingTop: 4,
   },
-  valueMuted: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Theme.textMuted,
-  },
-  valuePositive: {
-    color: Theme.positive,
-  },
-  valueNegative: {
-    color: Theme.negative,
-  },
-  marginValueRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 6,
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-  },
-  pct: {
-    fontSize: 11,
-    fontWeight: "700",
+  heroPlaceholderMuted: {
     color: Theme.textMuted,
   },
 });

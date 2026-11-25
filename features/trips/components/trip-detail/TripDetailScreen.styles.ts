@@ -911,6 +911,14 @@ export const neoStyles = StyleSheet.create({
     fontWeight: "900",
     fontStyle: "italic",
   },
+  heroMetricSub: {
+    marginTop: 4,
+    color: Theme.textRouteCard,
+    fontSize: 9,
+    fontWeight: "700",
+    lineHeight: 12,
+    letterSpacing: 0.2,
+  },
   heroMetricStatusPill: {
     borderRadius: 8,
     paddingHorizontal: 10,

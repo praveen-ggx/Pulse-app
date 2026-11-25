@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import Theme from "@/constants/Theme";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import { DistanceComparisonCard } from "@/features/trips/verification/DistanceComparisonCard";
 import { useGPSDistanceEstimate } from "@/features/trips/verification/GPSDistanceHook";
 import { VerificationStatusChip } from "@/features/trips/verification/VerificationStatusChip";
 import { useTripVerification } from "@/features/trips/verification/queries/useTripVerification";
@@ -87,12 +88,16 @@ export const TripOdometerPreviewCard = memo(function TripOdometerPreviewCard({
   const hasWarn =
     metrics.distanceDiscrepancyKm != null && metrics.distanceDiscrepancyKm >= 10;
   const loading = verificationQuery.isLoading && !verificationQuery.data;
+  const showComparison =
+    metrics.odometerDistanceKm != null || metrics.gpsDistanceKm != null;
   const distanceLine =
-    metrics.odometerDistanceKm != null
-      ? `${formatKm(metrics.odometerDistanceKm)} trip`
-      : metrics.gpsDistanceKm != null
-        ? `${formatKm(metrics.gpsDistanceKm)} GPS`
-        : "Record start & end";
+    metrics.odometerDistanceKm != null && metrics.gpsDistanceKm != null
+      ? `Odo ${formatKm(metrics.odometerDistanceKm)} · GPS ${formatKm(metrics.gpsDistanceKm)}`
+      : metrics.odometerDistanceKm != null
+        ? `${formatKm(metrics.odometerDistanceKm)} trip`
+        : metrics.gpsDistanceKm != null
+          ? `${formatKm(metrics.gpsDistanceKm)} GPS`
+          : "Record start & end";
 
   return (
     <View
@@ -243,40 +248,46 @@ export const TripOdometerPreviewCard = memo(function TripOdometerPreviewCard({
         </Pressable>
       </View>
 
-      <View style={[styles.footer, comfortable && styles.footerComfortable]}>
-        {loading ? (
-          <ActivityIndicator size="small" color={Theme.primary} />
-        ) : (
-          <View
+      {showComparison ? (
+        <View style={styles.compareWrap}>
+          <DistanceComparisonCard
+            odometerDistanceKm={metrics.odometerDistanceKm}
+            gpsDistanceKm={metrics.gpsDistanceKm}
+            discrepancyKm={metrics.distanceDiscrepancyKm}
+          />
+        </View>
+      ) : (
+        <View style={[styles.footer, comfortable && styles.footerComfortable]}>
+          {loading ? (
+            <ActivityIndicator size="small" color={Theme.primary} />
+          ) : (
+            <View
+              style={[
+                styles.footerIcon,
+                comfortable && styles.footerIconComfortable,
+                hasWarn && styles.footerIconWarn,
+              ]}
+            >
+              <Feather
+                name={hasWarn ? "alert-circle" : "activity"}
+                size={comfortable ? 14 : 10}
+                color={hasWarn ? Theme.warning : Theme.primary}
+              />
+            </View>
+          )}
+          <Text
             style={[
-              styles.footerIcon,
-              comfortable && styles.footerIconComfortable,
-              hasWarn && styles.footerIconWarn,
+              styles.meta,
+              compact && styles.metaCompact,
+              comfortable && styles.metaComfortable,
+              hasWarn && styles.metaWarn,
             ]}
+            numberOfLines={2}
           >
-            <Feather
-              name={hasWarn ? "alert-circle" : "activity"}
-              size={comfortable ? 14 : 10}
-              color={hasWarn ? Theme.warning : Theme.primary}
-            />
-          </View>
-        )}
-        <Text
-          style={[
-            styles.meta,
-            compact && styles.metaCompact,
-            comfortable && styles.metaComfortable,
-            hasWarn && styles.metaWarn,
-          ]}
-          numberOfLines={1}
-        >
-          {loading
-            ? "Syncing readings…"
-            : hasWarn
-              ? `${distanceLine} · Δ ${formatKm(metrics.distanceDiscrepancyKm)}`
-              : distanceLine}
-        </Text>
-      </View>
+            {loading ? "Syncing readings…" : distanceLine}
+          </Text>
+        </View>
+      )}
       </View>
     </View>
   );
@@ -309,6 +320,9 @@ const styles = StyleSheet.create({
     gap: 8,
     overflow: "hidden",
     backgroundColor: Theme.cardWhite,
+  },
+  compareWrap: {
+    marginTop: 2,
   },
   headerCompact: {
     paddingHorizontal: 0,

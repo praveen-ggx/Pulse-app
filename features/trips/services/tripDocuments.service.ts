@@ -8,6 +8,7 @@
  */
 import {
   canMaterializeStoragePreview,
+  invalidateStoragePreviewPath,
   previewPrivateObject,
 } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { supabase } from "@/lib/supabase";
@@ -43,6 +44,55 @@ import {
 } from "@/features/trips/services/ewayBillFields.util";
 
 const BUCKET = "trip-documents";
+/**
+ * `storage.search` sorts by name with the bucket/name index. Sorting by
+ * `updated_at` switches it to a case-insensitive scan of the whole bucket:
+ * production measured 946 ms mean, 24 s max, and about 81,000 buffer hits
+ * per call. Page by name, then order the files here.
+ * A single page of 500 would hide later names. Current folders top out at 29
+ * objects; the page loop still continues while a page comes back full.
+ */
+const LEGACY_STORAGE_PAGE = 500;
+const LEGACY_STORAGE_MAX_OBJECTS = 2000;
+const LEGACY_STORAGE_SORT = { column: "name", order: "asc" } as const;
+const LEGACY_STORAGE_TRUNCATED = "Storage listing stopped at 2000 objects and is incomplete.";
+
+type LegacyStorageEntry = { name: string; id?: string; updated_at?: string | null };
+
+async function listLegacyStorageFolder(path: string): Promise<{
+  data: LegacyStorageEntry[] | null;
+  error: { message: string } | null;
+  truncated: boolean;
+}> {
+  const rows: LegacyStorageEntry[] = [];
+  for (let offset = 0; offset < LEGACY_STORAGE_MAX_OBJECTS; offset += LEGACY_STORAGE_PAGE) {
+    const { data, error } = await supabase()
+      .storage
+      .from(BUCKET)
+      .list(path, { limit: LEGACY_STORAGE_PAGE, offset, sortBy: LEGACY_STORAGE_SORT });
+    if (error) {
+      return { data: rows.length > 0 ? rows : null, error, truncated: false };
+    }
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < LEGACY_STORAGE_PAGE) {
+      return { data: rows, error: null, truncated: false };
+    }
+  }
+  return { data: null, error: { message: LEGACY_STORAGE_TRUNCATED }, truncated: true };
+}
+
+function newestStorageObjectsFirst<T extends { name?: string | null; updated_at?: string | null }>(
+  files: T[],
+): T[] {
+  return [...files].sort((a, b) => {
+    const at = a.updated_at ?? "";
+    const bt = b.updated_at ?? "";
+    if (at !== bt) return at < bt ? 1 : -1;
+    return (a.name ?? "").localeCompare(b.name ?? "");
+  });
+}
+
 /** Synthetic marker written by use_vehicle_document_for_trip — never a trip-documents object. */
 const VEHICLE_DOCUMENT_REF_PREFIX = "ref:vehicle-document:";
 
@@ -285,6 +335,21 @@ export async function tryGetDocumentViewUrl(
   return preview.url;
 }
 
+/**
+ * Drop cached signed / blob preview for a path and resolve a fresh view URL.
+ * Use when Image/PDF paint fails so Retry is not stuck on a dead cache entry.
+ */
+export async function refreshDocumentViewUrl(
+  storagePath: string,
+): Promise<string | null> {
+  const path = storagePath.trim();
+  if (!path) return null;
+  if (/^(blob:|data:|file:|content:)/i.test(path)) return path;
+  tripDocSignedUrls.invalidate(path);
+  invalidateStoragePreviewPath(BUCKET, path);
+  return tryGetDocumentViewUrl(path);
+}
+
 /** One storage round-trip for all uncached paths. Cached / in-flight paths are reused. */
 function isDetailsMarkerPath(path: string): boolean {
   const base = path.trim().split("?")[0]?.split("/").pop()?.toLowerCase() ?? "";
@@ -336,26 +401,42 @@ export function isUsableStorageListObject(name: string | undefined | null): bool
  * 2) If table returns no rows and includeStorageFallback is true, list storage
  *    prefix {tripId}/ so POD still shows when the file exists in storage but the
  *    table row is missing. Trip Detail defers this until the Documents/POD viewer.
+ *
+ * Storage listing is off unless the caller opts in. Production `storage.search`
+ * has a 401 ms floor and a 24 s worst case, so a list or count must not pay it.
  */
 export type GetDocumentsByTripIdOptions = {
   /** Join OCR jobs for LR rows. Default true for non–trip-detail callers. */
   includeOcr?: boolean;
   /**
-   * List Storage when the table returns no rows. Default true for callers that
-   * still need the historical storage-only POD path. Trip Detail defers this
-   * until the Documents/POD viewer is opened.
+   * List Storage when the table returns no rows. Off by default. Pass true only
+   * for a viewer that must still show a legacy file with no trip_documents row.
    */
   includeStorageFallback?: boolean;
   /** Cap table rows (trip detail Docs tab). */
   limit?: number;
 };
 
+/** Same folder is not listed again while a viewer remounts or a second card asks. */
+const STORAGE_FALLBACK_TTL_MS = 60_000;
+
+type StorageFallbackResult = { documents: TripDocumentRow[]; error: Error | null };
+
+const storageFallbackCache = new Map<string, { at: number; result: StorageFallbackResult }>();
+const storageFallbackInflight = new Map<string, Promise<StorageFallbackResult>>();
+
+/** Test hook. A real upload writes a trip_documents row, so the next read skips this cache. */
+export function clearTripDocumentStorageFallbackCache(): void {
+  storageFallbackCache.clear();
+  storageFallbackInflight.clear();
+}
+
 export async function getDocumentsByTripId(
   tripId: string,
   options?: GetDocumentsByTripIdOptions,
 ): Promise<{ documents: TripDocumentRow[]; error: Error | null }> {
   const includeOcr = options?.includeOcr !== false;
-  const includeStorageFallback = options?.includeStorageFallback !== false;
+  const includeStorageFallback = options?.includeStorageFallback === true;
   const runSelect = (columns: string) => {
     const q = supabase()
       .from("trip_documents")
@@ -392,11 +473,34 @@ export async function getDocumentsByTripId(
     return { documents: [], error: tableError };
   }
 
+  const cachedFallback = storageFallbackCache.get(tripId);
+  if (cachedFallback && Date.now() - cachedFallback.at < STORAGE_FALLBACK_TTL_MS) {
+    return cachedFallback.result;
+  }
+  const pendingFallback = storageFallbackInflight.get(tripId);
+  if (pendingFallback) return pendingFallback;
+
+  const listing = loadLegacyStorageDocuments(tripId, tableError).then((result) => {
+    storageFallbackCache.set(tripId, { at: Date.now(), result });
+    return result;
+  });
+  storageFallbackInflight.set(tripId, listing);
+  void listing.finally(() => {
+    if (storageFallbackInflight.get(tripId) === listing) storageFallbackInflight.delete(tripId);
+  });
+  return listing;
+}
+
+async function loadLegacyStorageDocuments(
+  tripId: string,
+  tableError: Error | null,
+): Promise<{ documents: TripDocumentRow[]; error: Error | null }> {
   // Fallback: list storage folder for this trip so dispatcher/supplier can still preview POD
-  const { data: listData, error: listError } = await supabase()
-    .storage
-    .from(BUCKET)
-    .list(tripId, { limit: 50, sortBy: { column: "updated_at", order: "desc" } });
+  const listed = await listLegacyStorageFolder(tripId);
+  if (listed.truncated) {
+    return { documents: [], error: new Error(LEGACY_STORAGE_TRUNCATED) };
+  }
+  const { data: listData, error: listError } = listed;
   if (listError || !listData || listData.length === 0) {
     return {
       documents: [],
@@ -425,7 +529,9 @@ export async function getDocumentsByTripId(
     'maintenance_invoice_photo',
   ];
 
-  const topLevelFiles = listData.filter((f) => isUsableStorageListObject(f.name));
+  const topLevelFiles = newestStorageObjectsFirst(
+    listData.filter((f) => isUsableStorageListObject(f.name)),
+  );
   const subFolderEntries = listData.filter(
     (f) => f.name && !f.name.includes('.') && KNOWN_SUBFOLDER_TYPES.includes(f.name as TripDocumentType),
   );
@@ -439,13 +545,13 @@ export async function getDocumentsByTripId(
     subFolderEntries,
     SUBFOLDER_LIST_CONCURRENCY,
     async (entry) => {
-      const { data: sub } = await supabase()
-        .storage
-        .from(BUCKET)
-        .list(`${tripId}/${entry.name}`, { limit: 50, sortBy: { column: "updated_at", order: "desc" } });
+      const subListed = await listLegacyStorageFolder(`${tripId}/${entry.name}`);
       return {
         type: entry.name as TripDocumentType,
-        files: (sub ?? []).filter((f) => isUsableStorageListObject(f.name)),
+        truncated: subListed.truncated,
+        files: newestStorageObjectsFirst(
+          (subListed.data ?? []).filter((f) => isUsableStorageListObject(f.name)),
+        ),
       };
     },
   );
@@ -467,6 +573,10 @@ export async function getDocumentsByTripId(
       uploaded_by: null,
       document_type: docType,
     };
+  }
+
+  if (subFolderFilePairs.some((pair) => pair.truncated)) {
+    return { documents: [], error: new Error(LEGACY_STORAGE_TRUNCATED) };
   }
 
   const fallbackRows: TripDocumentRow[] = [

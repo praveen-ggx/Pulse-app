@@ -558,11 +558,12 @@ describe("compliancePayoutParty", () => {
     });
   });
 
-  it("keeps the supplier tag with no contact when the trip has no supplier record", () => {
-    const party = compliancePayoutParty({ supplier_id: null, supplier_name: null } as TripRow);
+  it("posts by supplier name when the trip has no supplier record", () => {
+    const party = compliancePayoutParty({ supplier_id: null, supplier_name: "Petthu Selvam" } as TripRow);
     expect(party.contact_id).toBeNull();
-    expect(party.contact_type).toBe("supplier");
-    expect(party.party_name).toBe("Supplier");
+    expect(party.contact_type).toBeNull();
+    expect(party.party_name).toBe("Petthu Selvam");
+    expect(party.ledger_flow_type).toBe("payable");
   });
 });
 

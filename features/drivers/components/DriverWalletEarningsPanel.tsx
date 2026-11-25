@@ -6,6 +6,11 @@ import { NativeHtmlWebView } from "@/components/NativeHtmlWebView";
 import { DriverCapturePaymentButton } from "@/features/drivers/components/DriverCapturePaymentButton";
 import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import {
+  DriverLedgerReceiptPreviewModal,
+  type DriverLedgerReceiptPreview,
+} from "@/features/drivers/components/DriverLedgerReceiptPreviewModal";
+import { ROUTES } from "@/lib/routes";
+import {
   driverBodyPrimary,
   driverBodySecondary,
   driverUIBold,
@@ -288,6 +293,8 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectHint, setSelectHint] = useState<string | null>(null);
+  const [tripReceiptPreview, setTripReceiptPreview] =
+    useState<DriverLedgerReceiptPreview | null>(null);
   const [followUp, setFollowUp] = useState<FollowUpTarget | null>(null);
   const [bulkLines, setBulkLines] = useState<DayTripLine[] | null>(null);
   const [localReminderAt, setLocalReminderAt] = useState<string | null>(null);
@@ -549,6 +556,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
 
   const openFollowUp = (line: DayTripLine) => {
     if (selectMode) return;
+    setTripReceiptPreview(null);
     setBulkLines(null);
     setPulseError(null);
     setLocalReminderAt(line.meta.lastReminderAt);
@@ -558,6 +566,93 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
       ...line,
       driverName,
       driverPhone,
+    });
+  };
+
+  const openTripCollectionPreview = (line: DayTripLine) => {
+    if (selectMode) return;
+    const isPending = line.pending > 0;
+    const routeLabel =
+      [line.meta.from, line.meta.to].filter(Boolean).join(" → ") ||
+      line.route ||
+      "—";
+    const formatKm = (v: number | null | undefined) => {
+      if (v == null || !Number.isFinite(Number(v)) || Number(v) <= 0) return "—";
+      return `${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 1 })} km`;
+    };
+    const sourceTrip = completedTrips.find((t) => String(t.id) === String(line.id));
+    const details = [
+      { label: "Party", value: line.meta.fleetName?.trim() || "Fleet" },
+      { label: "Trip", value: line.meta.displayId?.trim() || "Trip" },
+      { label: "Route", value: routeLabel, multiline: true },
+      { label: "Odometer", value: formatKm(sourceTrip?.odometer_distance_km) },
+      { label: "GPS", value: formatKm(sourceTrip?.gps_distance_km) },
+      { label: "Earned", value: `₹${line.earned.toLocaleString("en-IN")}` },
+    ];
+    if (showMonthPnl) {
+      details.push({
+        label: "Spend",
+        value: `₹${line.spent.toLocaleString("en-IN")}`,
+      });
+    }
+    details.push(
+      { label: "Received", value: `₹${line.received.toLocaleString("en-IN")}` },
+      { label: "Due", value: `₹${line.pending.toLocaleString("en-IN")}` },
+    );
+    if (line.meta.lastReminderAt) {
+      try {
+        details.push({
+          label: "Last reminder",
+          value: new Date(line.meta.lastReminderAt).toLocaleString("en-IN", {
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        });
+      } catch {
+        /* ignore bad dates */
+      }
+    }
+
+    const heroAmount = isPending ? line.pending : line.received > 0 ? line.received : line.earned;
+    const openCapture = () => {
+      setTripReceiptPreview(null);
+      router.push(
+        ROUTES.driverCapturePayment({
+          tripId: line.id,
+          due: line.pending,
+          lane: "fleet",
+          partyName: line.meta.fleetName,
+        }) as Parameters<typeof router.push>[0],
+      );
+    };
+
+    setTripReceiptPreview({
+      statusLabel: isPending ? "Due" : "Settled",
+      title: line.meta.fleetName?.trim() || "Fleet",
+      amount: heroAmount,
+      isIn: !isPending && line.received > 0,
+      details,
+      tripAction: {
+        label: "View trip",
+        onPress: () => {
+          setTripReceiptPreview(null);
+          router.push(`/driver-trip/${line.id}` as Parameters<typeof router.push>[0]);
+        },
+      },
+      secondaryAction: isPending
+        ? {
+            label: line.meta.lastReminderAt ? "Follow up" : "Request",
+            onPress: () => {
+              setTripReceiptPreview(null);
+              openFollowUp(line);
+            },
+          }
+        : undefined,
+      primaryAction: isPending
+        ? { label: "Capture", onPress: openCapture }
+        : { label: "Done", onPress: () => setTripReceiptPreview(null) },
     });
   };
 
@@ -940,95 +1035,102 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
           </Text>
         </View>
 
-        <View style={styles.progressPairRow}>
-          <View style={styles.progressPairCol}>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${collectedPct}%` }]} />
-            </View>
-            <Text style={styles.progressCaption} numberOfLines={2}>
-              {collectedPct}% received · ₹{pendingTotal.toLocaleString("en-IN")} pending
-            </Text>
-          </View>
-          {showMonthPnl ? (
-            <View style={styles.progressPairCol}>
-              <View style={styles.pnlBarTrack}>
-                {monthPnl.spent > 0 ? (
-                  <View
-                    style={[
-                      styles.pnlBarSpent,
-                      { width: `${monthPnl.isLoss ? 100 : monthPnl.spentShare}%` },
-                    ]}
-                  />
-                ) : null}
-                {!monthPnl.isLoss && (monthPnl.marginShare > 0 || monthPnl.spent === 0) ? (
-                  <View
-                    style={[
-                      styles.pnlBarKeep,
-                      { width: `${monthPnl.spent === 0 ? 100 : monthPnl.marginShare}%` },
-                    ]}
-                  />
-                ) : null}
-              </View>
-              <Text style={[styles.progressCaption, styles.progressCaptionEnd]} numberOfLines={2}>
-                {monthPnl.spentShare}% spent · ₹
-                {Math.abs(monthPnl.margin).toLocaleString("en-IN")}{" "}
-                {monthPnl.isLoss ? "loss" : "margin"}
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${collectedPct}%` }]} />
+        </View>
+        <Text style={styles.progressCaption} numberOfLines={1}>
+          {collectedPct}% collected this month
+        </Text>
+      </LinearGradient>
+
+      <View style={styles.splitMetricRow}>
+        <View
+          style={[
+            styles.splitMetricCard,
+            styles.paymentMetricCard,
+            {
+              borderColor: isDark ? colors.border : Theme.borderLight,
+              backgroundColor: colors.surface,
+            },
+          ]}
+        >
+          <Text style={[styles.splitMetricEyebrow, { color: colors.textMuted }]}>
+            Payment
+          </Text>
+          <View style={styles.splitMetricPair}>
+            <View style={styles.splitMetricCell}>
+              <Text style={[styles.splitMetricLabel, { color: colors.textMuted }]}>
+                Received
+              </Text>
+              <Text
+                style={[styles.splitMetricValue, { color: colors.emerald }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                ₹{receivedTotal.toLocaleString("en-IN")}
               </Text>
             </View>
-          ) : null}
+            <View style={styles.splitMetricCell}>
+              <Text style={[styles.splitMetricLabel, { color: colors.textMuted }]}>
+                Pending
+              </Text>
+              <Text
+                style={[
+                  styles.splitMetricValue,
+                  { color: pendingTotal > 0 ? Theme.negative : colors.emerald },
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                ₹{pendingTotal.toLocaleString("en-IN")}
+              </Text>
+            </View>
+          </View>
         </View>
 
-        <View style={styles.heroMetricRow}>
-          <View style={styles.heroMetric}>
-            <Text style={styles.heroMetricLabel}>Received</Text>
-            <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-              ₹{receivedTotal.toLocaleString("en-IN")}
+        {showMonthPnl ? (
+          <LinearGradient
+            colors={
+              monthPnl.isLoss
+                ? [Theme.negative, Theme.actionBtnInk]
+                : isDark
+                  ? [Theme.driverEmeraldDark, "#022c22"]
+                  : [Theme.driverEmerald, Theme.driverEmeraldDark]
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.splitMetricCard, styles.marginHeroCard]}
+          >
+            <View style={styles.marginHeroTop}>
+              <Text style={styles.marginHeroEyebrow}>
+                {monthPnl.isLoss ? "Loss" : "Margin"}
+              </Text>
+              <Text style={styles.marginHeroPct}>
+                {monthPnl.isLoss ? "" : "+"}
+                {monthPnl.marginPct}%
+              </Text>
+            </View>
+            <View style={styles.heroAmountRow}>
+              <Text style={styles.marginHeroRupee}>
+                {monthPnl.isLoss ? "−₹" : "₹"}
+              </Text>
+              <Text
+                style={styles.marginHeroAmount}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {Math.abs(monthPnl.margin).toLocaleString("en-IN")}
+              </Text>
+            </View>
+            <Text style={styles.marginHeroSub} numberOfLines={1}>
+              Spent ₹{monthPnl.spent.toLocaleString("en-IN")}
             </Text>
-          </View>
-          <View style={styles.heroMetricDivider} />
-          <View style={styles.heroMetric}>
-            <Text style={styles.heroMetricLabel}>Pending</Text>
-            <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-              ₹{pendingTotal.toLocaleString("en-IN")}
-            </Text>
-          </View>
-          {showMonthPnl ? (
-            <>
-              <View style={styles.heroMetricDivider} />
-              <View style={styles.heroMetric}>
-                <Text style={styles.heroMetricLabel}>Spent</Text>
-                <Text
-                  style={[styles.heroMetricValue, styles.pnlSpentValue]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.65}
-                >
-                  ₹{monthPnl.spent.toLocaleString("en-IN")}
-                </Text>
-              </View>
-              <View style={styles.heroMetricDivider} />
-              <View style={styles.heroMetric}>
-                <Text style={styles.heroMetricLabel}>
-                  {monthPnl.isLoss ? "Loss" : "Margin"}
-                  {` ${monthPnl.isLoss ? "" : "+"}${monthPnl.marginPct}%`}
-                </Text>
-                <Text
-                  style={[
-                    styles.heroMetricValue,
-                    monthPnl.isLoss ? styles.pnlLossValue : null,
-                  ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.65}
-                >
-                  {monthPnl.isLoss ? "−" : ""}₹
-                  {Math.abs(monthPnl.margin).toLocaleString("en-IN")}
-                </Text>
-              </View>
-            </>
-          ) : null}
-        </View>
-      </LinearGradient>
+          </LinearGradient>
+        ) : null}
+      </View>
 
       {/* Due filter + multi-select — directly under green earned card */}
       <View style={styles.toolsSection}>
@@ -1308,17 +1410,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                   </Pressable>
 
                   {expanded ? (
-                    <View
-                      style={[
-                        styles.dayTripList,
-                        {
-                          borderTopColor: isDark ? colors.borderSubtle : "rgba(226,232,240,0.95)",
-                          backgroundColor: isDark
-                            ? "rgba(15,23,42,0.35)"
-                            : "rgba(248,250,252,0.92)",
-                        },
-                      ]}
-                    >
+                    <View style={styles.dayTripList}>
                       {day.trips.map((line) => {
                         const isPending = line.pending > 0;
                         const lineCooldown = reminderCooldown(line.meta.lastReminderAt);
@@ -1332,18 +1424,26 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                           <Pressable
                             key={tripId}
                             onPress={() => {
-                              if (!selectMode) return;
-                              if (!canSelect) {
-                                setSelectHint(
-                                  lineCooldown.blocked
-                                    ? "Reminder already sent for this trip (24h lock)."
-                                    : "Only due trips can be selected.",
-                                );
+                              if (selectMode) {
+                                if (!canSelect) {
+                                  setSelectHint(
+                                    lineCooldown.blocked
+                                      ? "Reminder already sent for this trip (24h lock)."
+                                      : "Only due trips can be selected.",
+                                  );
+                                  return;
+                                }
+                                toggleSelected(line);
                                 return;
                               }
-                              toggleSelected(line);
+                              openTripCollectionPreview(line);
                             }}
-                            accessibilityRole={selectMode ? "checkbox" : "none"}
+                            accessibilityRole={selectMode ? "checkbox" : "button"}
+                            accessibilityLabel={
+                              selectMode
+                                ? undefined
+                                : `Preview collection for ${tripLabel}`
+                            }
                             accessibilityState={
                               selectMode ? { checked: isSelected, disabled: !canSelect } : undefined
                             }
@@ -1354,15 +1454,17 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                   ? isDark
                                     ? "rgba(4,120,87,0.16)"
                                     : Theme.driverEmeraldMuted
-                                  : colors.surface,
+                                  : isDark
+                                    ? colors.surfaceElevated
+                                    : "#ffffff",
                                 borderColor: isSelected
                                   ? Theme.driverEmeraldBorder
                                   : isPending
                                     ? isDark
-                                      ? "rgba(251,191,36,0.35)"
-                                      : "rgba(245,158,11,0.28)"
+                                      ? "rgba(251,191,36,0.28)"
+                                      : "rgba(245,158,11,0.22)"
                                     : cardBorder,
-                                opacity: selectMode && !canSelect ? 0.55 : pressed ? 0.92 : 1,
+                                opacity: selectMode && !canSelect ? 0.55 : pressed ? 0.94 : 1,
                               },
                             ]}
                           >
@@ -1499,17 +1601,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                               </Text>
                             )}
 
-                            <View
-                              style={[
-                                styles.dayTripStats,
-                                {
-                                  backgroundColor: isDark
-                                    ? "rgba(15,23,42,0.35)"
-                                    : "rgba(248,250,252,0.95)",
-                                  borderColor: isDark ? colors.borderSubtle : "rgba(226,232,240,0.95)",
-                                },
-                              ]}
-                            >
+                            <View style={styles.dayTripStats}>
                               <View style={styles.dayTripStat}>
                                 <Text style={[styles.dayTripStatLabel, { color: colors.textMuted }]}>
                                   Earned
@@ -1586,18 +1678,22 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                   lane="fleet"
                                   partyName={line.meta.fleetName}
                                   block
-                                  label="Capture commission"
+                                  label="Capture"
+                                  onPressBeforeNavigate={() => setTripReceiptPreview(null)}
                                 />
                                 <Pressable
-                                  onPress={() => openFollowUp(line)}
+                                  onPress={(event) => {
+                                    event?.stopPropagation?.();
+                                    openFollowUp(line);
+                                  }}
                                   style={({ pressed }) => [
                                     styles.followUpBtn,
                                     {
                                       backgroundColor: isDark
-                                        ? "rgba(4,120,87,0.18)"
-                                        : Theme.driverEmeraldMuted,
+                                        ? "rgba(15,23,42,0.35)"
+                                        : "#ffffff",
                                       borderColor: isDark
-                                        ? "rgba(4,120,87,0.35)"
+                                        ? "rgba(4,120,87,0.4)"
                                         : Theme.driverEmeraldBorderSoft,
                                       opacity: pressed ? 0.88 : 1,
                                     },
@@ -1608,7 +1704,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                   <Bell size={14} color={colors.emerald} strokeWidth={2.4} />
                                   <Text style={[styles.followUpBtnText, { color: colors.emerald }]}>
                                     {lineCooldown.blocked
-                                      ? "View reminder"
+                                      ? "Reminder"
                                       : line.meta.lastReminderAt
                                         ? "Follow up"
                                         : "Request"}
@@ -1908,6 +2004,11 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
           onTagged={() => setTagTrip(null)}
         />
       ) : null}
+      <DriverLedgerReceiptPreviewModal
+        visible={tripReceiptPreview != null}
+        receipt={tripReceiptPreview}
+        onClose={() => setTripReceiptPreview(null)}
+      />
     </View>
   );
 });
@@ -2201,6 +2302,100 @@ const styles = StyleSheet.create({
       android: { elevation: 6 },
       default: {},
     }),
+  },
+  splitMetricRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+    marginTop: 2,
+  },
+  splitMetricCard: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 8,
+    overflow: "hidden",
+  },
+  paymentMetricCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  splitMetricEyebrow: {
+    ...driverUISemiBold,
+    fontSize: 9,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+  },
+  splitMetricPair: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  splitMetricCell: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  splitMetricLabel: {
+    ...driverUISemiBold,
+    fontSize: 9,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  splitMetricValue: {
+    ...driverUIExtraBold,
+    fontSize: 15,
+    letterSpacing: -0.3,
+  },
+  marginHeroCard: {
+    justifyContent: "center",
+    ...Platform.select({
+      ios: {
+        shadowColor: Theme.driverEmeraldDark,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.18,
+        shadowRadius: 12,
+      },
+      android: { elevation: 4 },
+      default: {},
+    }),
+  },
+  marginHeroTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+  },
+  marginHeroEyebrow: {
+    ...driverUISemiBold,
+    fontSize: 9,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    color: "rgba(236,253,245,0.95)",
+  },
+  marginHeroPct: {
+    ...driverUIBold,
+    fontSize: 11,
+    color: "#ffffff",
+  },
+  marginHeroRupee: {
+    ...driverUIBold,
+    fontSize: 16,
+    color: "rgba(255,255,255,0.88)",
+    marginTop: 6,
+  },
+  marginHeroAmount: {
+    ...driverUIExtraBold,
+    fontSize: 26,
+    letterSpacing: -0.8,
+    color: "#ffffff",
+    lineHeight: 30,
+    flexShrink: 1,
+  },
+  marginHeroSub: {
+    ...driverBodySecondary,
+    fontSize: 10,
+    color: "rgba(167,243,208,0.9)",
   },
   heroTopRow: {
     flexDirection: "row",
@@ -2504,10 +2699,11 @@ const styles = StyleSheet.create({
   },
   dayTripList: {
     borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(226,232,240,0.95)",
     paddingHorizontal: 10,
     paddingTop: 10,
     paddingBottom: 10,
-    gap: 8,
+    gap: 10,
   },
   dayTripRowWrap: {
     borderRadius: 14,
@@ -2596,9 +2792,7 @@ const styles = StyleSheet.create({
   dayTripStats: {
     flexDirection: "row",
     alignItems: "stretch",
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 8,
+    paddingVertical: 2,
   },
   dayTripStat: {
     flex: 1,
@@ -2642,6 +2836,7 @@ const styles = StyleSheet.create({
   followUpBtnText: {
     ...driverUIBold,
     fontSize: 13,
+    letterSpacing: -0.1,
   },
   fullPage: {
     flex: 1,

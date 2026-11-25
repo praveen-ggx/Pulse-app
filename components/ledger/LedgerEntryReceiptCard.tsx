@@ -1,6 +1,7 @@
+import Feather from "@expo/vector-icons/Feather";
 import LottieView from "lottie-react-native";
 import type { LottieSource } from "@/lib/lottieSource";
-import { memo, useMemo } from "react";
+import { memo, useMemo, type ComponentProps } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -14,6 +15,61 @@ import { PartyAvatar, type PartyEntityType } from "@/components/PartyAvatar";
 import { LEDGER_RECEIPT } from "@/components/ledger/ledgerEntryReceiptPalette";
 import { formatINR } from "@/lib/format";
 import { LEDGER_RECON_LOTTIE } from "@/lib/ledgerReconLottieAssets";
+
+type FeatherName = ComponentProps<typeof Feather>["name"];
+
+function compactActionMeta(label: string): { icon: FeatherName; short: string } {
+  const key = label.trim().toLowerCase();
+  if (key === "close" || key === "done" || key === "dismiss") {
+    return { icon: "x", short: "Close" };
+  }
+  if (key.includes("trip")) return { icon: "map", short: "Trip" };
+  if (key.includes("share")) return { icon: "share-2", short: "Share" };
+  if (key.includes("pdf") || key.includes("receipt")) {
+    return { icon: "file-text", short: "PDF" };
+  }
+  if (key.includes("expense") || key.includes("log")) {
+    return { icon: "plus", short: "Log" };
+  }
+  return { icon: "circle", short: label.trim().slice(0, 8) || "Go" };
+}
+
+function CompactToolbarAction({
+  label,
+  onPress,
+  primary = false,
+}: {
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+}) {
+  const meta = compactActionMeta(label);
+  return (
+    <Pressable
+      hitSlop={6}
+      style={({ pressed }) => [
+        styles.toolbarBtn,
+        primary && styles.toolbarBtnPrimary,
+        pressed && (primary ? styles.primaryBtnPressed : styles.pressed),
+      ]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      <Feather
+        name={meta.icon}
+        size={13}
+        color={primary ? LEDGER_RECEIPT.primaryBtnText : LEDGER_RECEIPT.subtle}
+      />
+      <Text
+        style={primary ? styles.toolbarBtnTextPrimary : styles.toolbarBtnText}
+        numberOfLines={1}
+      >
+        {meta.short}
+      </Text>
+    </Pressable>
+  );
+}
 
 export type LedgerEntryReceiptHeroAnimation = "success" | "in" | "out" | false;
 
@@ -204,108 +260,93 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
       props.secondaryAction ||
       props.primaryAction ? (
         <View style={styles.actions}>
-          <View style={[styles.actionsRowInner, props.compactActions && styles.actionsRow]}>
-            {props.dismissAction ? (
-              <Pressable
-                hitSlop={8}
-                style={({ pressed }) => [
-                  styles.ghostBtn,
-                  props.compactActions && styles.ghostBtnCompact,
-                  pressed && styles.pressed,
-                ]}
-                onPress={props.dismissAction.onPress}
-                accessibilityRole="button"
-                accessibilityLabel={props.dismissAction.label}
-              >
-                <Text
-                  style={[
-                    styles.ghostBtnText,
-                    props.compactActions && styles.ghostBtnTextCompact,
-                  ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.75}
+          {props.compactActions ? (
+            <View style={styles.actionsToolbar}>
+              {props.dismissAction ? (
+                <CompactToolbarAction
+                  label={props.dismissAction.label}
+                  onPress={props.dismissAction.onPress}
+                />
+              ) : null}
+              {props.tripAction ? (
+                <CompactToolbarAction
+                  label={props.tripAction.label}
+                  onPress={props.tripAction.onPress}
+                />
+              ) : null}
+              {props.secondaryAction ? (
+                <CompactToolbarAction
+                  label={props.secondaryAction.label}
+                  onPress={props.secondaryAction.onPress}
+                />
+              ) : null}
+              {props.primaryAction ? (
+                <CompactToolbarAction
+                  label={props.primaryAction.label}
+                  onPress={props.primaryAction.onPress}
+                  primary
+                />
+              ) : null}
+            </View>
+          ) : (
+            <View style={styles.actionsRowInner}>
+              {props.dismissAction ? (
+                <Pressable
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.ghostBtn, pressed && styles.pressed]}
+                  onPress={props.dismissAction.onPress}
+                  accessibilityRole="button"
+                  accessibilityLabel={props.dismissAction.label}
                 >
-                  {props.dismissAction.label}
-                </Text>
-              </Pressable>
-            ) : null}
-            {props.tripAction ? (
-              <Pressable
-                hitSlop={8}
-                style={({ pressed }) => [
-                  styles.ghostBtn,
-                  props.compactActions && styles.ghostBtnCompact,
-                  pressed && styles.pressed,
-                ]}
-                onPress={props.tripAction.onPress}
-                accessibilityRole="button"
-                accessibilityLabel={props.tripAction.label}
-              >
-                <Text
-                  style={[
-                    styles.ghostBtnText,
-                    props.compactActions && styles.ghostBtnTextCompact,
-                  ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.75}
+                  <Text style={styles.ghostBtnText} numberOfLines={1}>
+                    {props.dismissAction.label}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {props.tripAction ? (
+                <Pressable
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.ghostBtn, pressed && styles.pressed]}
+                  onPress={props.tripAction.onPress}
+                  accessibilityRole="button"
+                  accessibilityLabel={props.tripAction.label}
                 >
-                  {props.tripAction.label}
-                </Text>
-              </Pressable>
-            ) : null}
-            {props.secondaryAction ? (
-              <Pressable
-                hitSlop={8}
-                style={({ pressed }) => [
-                  styles.ghostBtn,
-                  props.compactActions && styles.ghostBtnCompact,
-                  pressed && styles.pressed,
-                ]}
-                onPress={props.secondaryAction.onPress}
-                accessibilityRole="button"
-                accessibilityLabel={props.secondaryAction.label}
-              >
-                <Text
-                  style={[
-                    styles.ghostBtnText,
-                    props.compactActions && styles.ghostBtnTextCompact,
-                  ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.75}
+                  <Text style={styles.ghostBtnText} numberOfLines={1}>
+                    {props.tripAction.label}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {props.secondaryAction ? (
+                <Pressable
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.ghostBtn, pressed && styles.pressed]}
+                  onPress={props.secondaryAction.onPress}
+                  accessibilityRole="button"
+                  accessibilityLabel={props.secondaryAction.label}
                 >
-                  {props.secondaryAction.label}
-                </Text>
-              </Pressable>
-            ) : null}
-            {props.primaryAction ? (
-              <Pressable
-                hitSlop={8}
-                style={({ pressed }) => [
-                  styles.primaryBtn,
-                  props.compactActions && styles.primaryBtnCompact,
-                  pressed && styles.primaryBtnPressed,
-                ]}
-                onPress={props.primaryAction.onPress}
-                accessibilityRole="button"
-                accessibilityLabel={props.primaryAction.label}
-              >
-                <Text
-                  style={[
-                    styles.primaryBtnText,
-                    props.compactActions && styles.primaryBtnTextCompact,
+                  <Text style={styles.ghostBtnText} numberOfLines={1}>
+                    {props.secondaryAction.label}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {props.primaryAction ? (
+                <Pressable
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    pressed && styles.primaryBtnPressed,
                   ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
+                  onPress={props.primaryAction.onPress}
+                  accessibilityRole="button"
+                  accessibilityLabel={props.primaryAction.label}
                 >
-                  {props.primaryAction.label}
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
+                  <Text style={styles.primaryBtnText} numberOfLines={1}>
+                    {props.primaryAction.label}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          )}
         </View>
       ) : null}
       </View>
@@ -327,9 +368,9 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: LEDGER_RECEIPT.cardBg,
     borderRadius: 16,
-    paddingHorizontal: 16,
+    paddingHorizontal: 0,
     paddingTop: 16,
-    paddingBottom: 16,
+    paddingBottom: 0,
     borderWidth: 1,
     borderColor: LEDGER_RECEIPT.border,
     maxWidth: 360,
@@ -347,7 +388,7 @@ const styles = StyleSheet.create({
     position: "relative",
     zIndex: 1,
     width: "100%",
-    gap: 12,
+    gap: 0,
   },
   cardWatermark: {
     ...StyleSheet.absoluteFillObject,
@@ -358,16 +399,17 @@ const styles = StyleSheet.create({
   },
   cardDesktop: {
     maxWidth: 380,
-    paddingHorizontal: 18,
+    paddingHorizontal: 0,
     paddingTop: 18,
-    paddingBottom: 18,
+    paddingBottom: 0,
     borderRadius: 18,
   },
   hero: {
     alignItems: "center",
     width: "100%",
     gap: 4,
-    paddingBottom: 2,
+    paddingBottom: 14,
+    paddingHorizontal: 16,
   },
   heroWithParty: {
     alignItems: "stretch",
@@ -501,59 +543,107 @@ const styles = StyleSheet.create({
   },
   detailCard: {
     backgroundColor: LEDGER_RECEIPT.detailBg,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: LEDGER_RECEIPT.border,
+    borderRadius: 0,
+    borderWidth: 0,
     overflow: "hidden",
     width: "100%",
     alignSelf: "stretch",
     minWidth: 0,
+    paddingVertical: 4,
   },
   detailRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    justifyContent: "space-between",
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
     width: "100%",
     minWidth: 0,
   },
   detailRowBorder: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: LEDGER_RECEIPT.border,
+    borderBottomWidth: 0,
   },
   detailLabel: {
-    width: 100,
-    fontSize: 8,
-    fontWeight: "600",
+    width: 104,
+    fontSize: 9,
+    fontWeight: "700",
     color: LEDGER_RECEIPT.label,
-    letterSpacing: 0.4,
+    letterSpacing: 0.35,
     textTransform: "uppercase",
-    paddingTop: 2,
+    paddingTop: 1,
     flexShrink: 0,
   },
   detailValue: {
     flex: 1,
     minWidth: 0,
-    fontSize: 11,
-    fontWeight: "400",
+    fontSize: 12,
+    fontWeight: "600",
     color: LEDGER_RECEIPT.value,
-    textAlign: "left",
-    lineHeight: 15,
-  },
-  detailValueMultiline: {
+    textAlign: "right",
     lineHeight: 16,
   },
+  detailValueMultiline: {
+    textAlign: "right",
+    lineHeight: 17,
+  },
   actions: {
-    gap: 10,
-    paddingTop: 2,
+    gap: 0,
+    paddingTop: 0,
     width: "100%",
     alignSelf: "stretch",
   },
-  actionsRow: {
+  actionsToolbar: {
     flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "stretch",
+    gap: 0,
+    width: "100%",
+    alignSelf: "stretch",
+    backgroundColor: LEDGER_RECEIPT.detailBg,
+    borderRadius: 0,
+    overflow: "hidden",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(148,163,184,0.28)",
+  },
+  toolbarBtn: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "50%",
+    width: "50%",
+    minWidth: "50%",
+    maxWidth: "50%",
+    minHeight: 52,
+    borderRadius: 0,
+    borderWidth: 0,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(148,163,184,0.22)",
+    backgroundColor: "transparent",
     alignItems: "center",
-    gap: 6,
+    justifyContent: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
+  },
+  toolbarBtnPrimary: {
+    backgroundColor: LEDGER_RECEIPT.primaryBtn,
+    borderColor: LEDGER_RECEIPT.primaryBtn,
+  },
+  toolbarBtnText: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.15,
+    color: LEDGER_RECEIPT.subtle,
+    textAlign: "center",
+  },
+  toolbarBtnTextPrimary: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.25,
+    color: LEDGER_RECEIPT.primaryBtnText,
+    textAlign: "center",
+    textTransform: "uppercase",
   },
   actionsRowInner: {
     width: "100%",
@@ -562,26 +652,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 6,
   },
-  ghostBtnCompact: {
-    flex: 1,
-    minHeight: 32,
-    minWidth: 0,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: LEDGER_RECEIPT.border,
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-    justifyContent: "center",
-  },
   ghostBtnText: {
     fontSize: 13,
     fontWeight: "500",
     color: LEDGER_RECEIPT.subtle,
-  },
-  ghostBtnTextCompact: {
-    fontSize: 9,
-    fontWeight: "600",
-    letterSpacing: 0,
   },
   primaryBtn: {
     backgroundColor: LEDGER_RECEIPT.primaryBtn,
@@ -593,16 +667,6 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "stretch",
   },
-  primaryBtnCompact: {
-    flex: 1,
-    width: undefined,
-    minWidth: 0,
-    alignSelf: "auto",
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-    minHeight: 32,
-  },
   primaryBtnPressed: {
     opacity: 0.92,
   },
@@ -612,10 +676,6 @@ const styles = StyleSheet.create({
     color: LEDGER_RECEIPT.primaryBtnText,
     letterSpacing: 0.6,
     textTransform: "uppercase",
-  },
-  primaryBtnTextCompact: {
-    fontSize: 9,
-    letterSpacing: 0,
   },
   pressed: {
     opacity: 0.88,

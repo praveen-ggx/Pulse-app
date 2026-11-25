@@ -3,6 +3,8 @@
  * even when React Navigation keeps multiple Index mounts alive (web HMR, stack).
  */
 let bootRedirectUid: string | null = null;
+/** One browser-URL restore per href. Repeating replace() trips Safari's history limit and remounts the splash forever. */
+let webRefreshHrefClaimed: string | null = null;
 
 export function hasIndexBootRedirected(uid: string): boolean {
   return bootRedirectUid === uid;
@@ -15,8 +17,16 @@ export function claimIndexBootRedirect(uid: string): boolean {
   return true;
 }
 
+/** Returns true the first time this browser href should be restored. */
+export function claimWebRefreshRedirect(href: string): boolean {
+  if (!href || webRefreshHrefClaimed === href) return false;
+  webRefreshHrefClaimed = href;
+  return true;
+}
+
 export function resetIndexBootRedirect(): void {
   bootRedirectUid = null;
+  webRefreshHrefClaimed = null;
   freshSignInLanding = false;
   writeFreshSignInStorage(false);
 }

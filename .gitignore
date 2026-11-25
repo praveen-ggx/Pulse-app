@@ -116,3 +116,7 @@ MIR/
 # Local Android SDK / JDK used by scripts/build-release-apk.sh, and APK builds
 .tools/
 *.apk
+
+# Local prod env snapshots (secrets — never commit)
+.env.prod-backup
+.env.prod*

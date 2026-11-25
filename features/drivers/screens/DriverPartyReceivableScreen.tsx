@@ -33,12 +33,25 @@ import { showAppAlert } from "@/lib/appAlert";
 import { ROUTES } from "@/lib/routes";
 import { useSafeBack } from "@/lib/useSafeBack";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
-import { Tag } from "lucide-react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { ArrowDownLeft, ArrowUpRight, Gauge, Navigation, Tag } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 function inr(n: number): string {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
+}
+
+function formatKm(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(Number(v)) || Number(v) <= 0) return "—";
+  return `${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 1 })} km`;
+}
+
+function cleanPlace(raw: string | null | undefined): string {
+  return String(raw ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*·\s*/g, ", ")
+    .trim();
 }
 
 function decodePartyId(raw: string | string[] | undefined): string {
@@ -194,6 +207,10 @@ export default function DriverPartyReceivableScreen() {
   const kicker = isMarketplace ? "Pulse Exchange" : "Shipper · Client";
   const entityType = isMarketplace ? "supplier" : "client";
   const captureLane = isMarketplace ? "marketplace" : "shipper";
+  const billed = party?.billed ?? 0;
+  const received = party?.received ?? 0;
+  const due = party?.due ?? 0;
+  const collectPct = billed > 0 ? Math.min(100, Math.round((received / billed) * 100)) : 0;
 
   return (
     <DetailPageLayout
@@ -223,25 +240,53 @@ export default function DriverPartyReceivableScreen() {
       }
     >
       <View style={styles.scorecard}>
-        <Text style={styles.scoreLabel}>Financial overview</Text>
-        <Text style={styles.scoreBilled}>{inr(party?.billed ?? 0)}</Text>
-        <View style={styles.scoreGrid}>
-          <View style={styles.scoreCell}>
-            <Text style={styles.scoreGridLabel}>Received</Text>
-            <Text style={[styles.scoreAmt, { color: Theme.positive }]}>
-              {inr(party?.received ?? 0)}
-            </Text>
+        <LinearGradient
+          colors={[Theme.actionBtnInk, Theme.driverEmeraldDark]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.scoreHero}
+        >
+          <View style={styles.scoreHeroTop}>
+            <Text style={styles.scoreLabel}>Financial overview</Text>
+            <Text style={styles.scorePct}>{collectPct}% collected</Text>
           </View>
-          <View style={styles.scoreCell}>
-            <Text style={styles.scoreGridLabel}>Due</Text>
-            <Text
-              style={[
-                styles.scoreAmt,
-                { color: (party?.due ?? 0) > 0 ? Theme.negative : Theme.positive },
-              ]}
-            >
-              {inr(party?.due ?? 0)}
-            </Text>
+          <Text style={styles.scoreBilledLabel}>Billed</Text>
+          <Text style={styles.scoreBilled}>{inr(billed)}</Text>
+          <View style={styles.scoreTrack}>
+            <View style={[styles.scoreFill, { width: `${collectPct}%` }]} />
+          </View>
+        </LinearGradient>
+        <View style={styles.scoreGrid}>
+          <View style={[styles.scoreCell, styles.scoreCellReceived]}>
+            <View style={styles.scoreCellIcon}>
+              <ArrowDownLeft size={14} color={Theme.positive} strokeWidth={2.5} />
+            </View>
+            <View style={styles.scoreCellCopy}>
+              <Text style={styles.scoreGridLabel}>Received</Text>
+              <Text style={[styles.scoreAmt, { color: Theme.positive }]}>
+                {inr(received)}
+              </Text>
+            </View>
+          </View>
+          <View style={[styles.scoreCell, styles.scoreCellDue]}>
+            <View style={[styles.scoreCellIcon, styles.scoreCellIconDue]}>
+              <ArrowUpRight
+                size={14}
+                color={due > 0 ? Theme.negative : Theme.positive}
+                strokeWidth={2.5}
+              />
+            </View>
+            <View style={styles.scoreCellCopy}>
+              <Text style={styles.scoreGridLabel}>Due</Text>
+              <Text
+                style={[
+                  styles.scoreAmt,
+                  { color: due > 0 ? Theme.negative : Theme.positive },
+                ]}
+              >
+                {inr(due)}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
@@ -249,10 +294,15 @@ export default function DriverPartyReceivableScreen() {
       <Text style={styles.sectionTitle}>Receivables</Text>
       <View style={styles.table}>
         <View style={styles.head}>
-          <Text style={[styles.headCell, styles.missionCol]}>Mission</Text>
-          <Text style={[styles.headCell, styles.amtCol]}>Received</Text>
-          <Text style={[styles.headCell, styles.amtCol]}>Due</Text>
-          <View style={styles.actionCol} />
+          <View style={styles.missionHead}>
+            <Text style={styles.headCell}>Mission</Text>
+          </View>
+          <View style={styles.receivedCol}>
+            <Text style={[styles.headCell, styles.headRight]}>Received</Text>
+          </View>
+          <View style={styles.dueActionCol}>
+            <Text style={[styles.headCell, styles.headRight]}>Due</Text>
+          </View>
         </View>
         {partyTrips.length === 0 ? (
           <Text style={styles.empty}>No trips for this party.</Text>
@@ -267,18 +317,23 @@ export default function DriverPartyReceivableScreen() {
               partyName !== "Shipper" &&
               partyName !== "Untagged";
             const needsTag = tripNeedsPartyTag(line.trip, false);
+            const canCapture =
+              !needsTag &&
+              line.due > 0 &&
+              (isMarketplace || isTripTaggedToParty(line.trip));
             const rowAvatar =
               tripAvatarById[line.trip.id] ?? (isMarketplace ? EMPTY_DRIVER_PARTY_AVATAR : avatar);
-            const route =
-              `${line.trip.pickup_area ?? ""} → ${line.trip.drop_location ?? ""}`.trim() ||
-              "—";
+            const fromPlace = cleanPlace(line.trip.pickup_area) || "—";
+            const toPlace = cleanPlace(line.trip.drop_location) || "—";
+            const odoKm = formatKm(line.trip.odometer_distance_km);
+            const gpsKm = formatKm(line.trip.gps_distance_km);
             return (
               <View
                 key={line.trip.id}
                 style={[styles.row, !last && styles.rowBorder]}
               >
                 <Pressable
-                  style={styles.rowMain}
+                  style={styles.missionCell}
                   onPress={() => router.push(`/driver-trip/${line.trip.id}`)}
                   accessibilityRole="button"
                   accessibilityLabel={`Open trip ${tripNo}${showParty ? `, ${partyName}` : ""}`}
@@ -294,10 +349,10 @@ export default function DriverPartyReceivableScreen() {
                       entityType="client"
                       isIntegrated={rowAvatar.isIntegrated}
                       showIntegrationBadge={false}
-                      size={32}
+                      size={34}
                     />
                   </View>
-                  <View style={styles.missionCol}>
+                  <View style={styles.missionCopy}>
                     {showParty ? (
                       <Text style={styles.partyName} numberOfLines={1}>
                         {partyName}
@@ -306,35 +361,39 @@ export default function DriverPartyReceivableScreen() {
                     <Text style={styles.missionId} numberOfLines={1}>
                       {tripNo}
                     </Text>
-                    <Text style={styles.missionRoute} numberOfLines={1}>
-                      {route}
+                    <Text style={styles.missionRouteFrom} numberOfLines={1}>
+                      {fromPlace}
                     </Text>
+                    <Text style={styles.missionRouteTo} numberOfLines={1}>
+                      → {toPlace}
+                    </Text>
+                    <View style={styles.distanceRow}>
+                      <View style={styles.distanceChip}>
+                        <Gauge size={11} color={Theme.textRouteCard} strokeWidth={2} />
+                        <Text style={styles.distanceChipText}>Odo {odoKm}</Text>
+                      </View>
+                      <View style={styles.distanceChip}>
+                        <Navigation size={11} color={Theme.textRouteCard} strokeWidth={2} />
+                        <Text style={styles.distanceChipText}>GPS {gpsKm}</Text>
+                      </View>
+                    </View>
                   </View>
-                  <Text style={[styles.amt, { color: Theme.positive }]}>{inr(line.received)}</Text>
                 </Pressable>
-                {/* Capture sits under Due: the 44pt action column is narrower than the button. */}
-                <View style={styles.dueCell}>
+                <View style={styles.receivedCol}>
+                  <Text style={[styles.amt, { color: Theme.positive }]} numberOfLines={1}>
+                    {inr(line.received)}
+                  </Text>
+                </View>
+                <View style={styles.dueActionCol}>
                   <Text
                     style={[
-                      styles.amt,
+                      styles.dueAmt,
                       { color: line.due > 0 ? Theme.negative : Theme.positive },
                     ]}
                     numberOfLines={1}
                   >
                     {inr(line.due)}
                   </Text>
-                  {!needsTag && line.due > 0 &&
-                  (isMarketplace || isTripTaggedToParty(line.trip)) ? (
-                    <DriverCapturePaymentButton
-                      tripId={line.trip.id}
-                      due={line.due}
-                      lane={captureLane}
-                      partyName={showParty ? partyName : party?.name}
-                      compact
-                    />
-                  ) : null}
-                </View>
-                <View style={styles.actionCol}>
                   {needsTag ? (
                     <Pressable
                       onPress={() => setTagTrip(line.trip)}
@@ -347,8 +406,19 @@ export default function DriverPartyReceivableScreen() {
                       ]}
                     >
                       <Tag size={13} color={Theme.driverEmerald} strokeWidth={2.4} />
+                      <Text style={styles.tagBtnText}>Tag</Text>
                     </Pressable>
-                  ) : null}
+                  ) : canCapture ? (
+                    <DriverCapturePaymentButton
+                      tripId={line.trip.id}
+                      due={line.due}
+                      lane={captureLane}
+                      partyName={showParty ? partyName : party?.name}
+                      compact
+                    />
+                  ) : (
+                    <Text style={styles.actionIdle}>—</Text>
+                  )}
                 </View>
               </View>
             );
@@ -387,49 +457,111 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   scorecard: {
+    borderRadius: 16,
+    borderWidth: 0,
+    overflow: "hidden",
+    marginBottom: 16,
     backgroundColor: Theme.surfaceLight,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 14,
+  },
+  scoreHero: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+  },
+  scoreHeroTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
   },
   scoreLabel: {
     fontSize: 9,
-    fontWeight: "700",
+    fontWeight: "800",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    color: Theme.textMuted,
+    color: Theme.textOnDarkMuted,
+  },
+  scorePct: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Theme.textOnDark,
+  },
+  scoreBilledLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: Theme.textOnDarkMuted,
+    marginBottom: 2,
   },
   scoreBilled: {
-    marginTop: 4,
-    fontSize: 22,
-    fontWeight: "700",
-    letterSpacing: -0.4,
-    color: Theme.textPrimaryDark,
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.6,
+    color: Theme.textOnDark,
+    fontVariant: ["tabular-nums"],
+  },
+  scoreTrack: {
+    marginTop: 14,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: Theme.tripSelectionInsetBorder,
+    overflow: "hidden",
+  },
+  scoreFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: Theme.driverPrimary,
   },
   scoreGrid: {
     flexDirection: "row",
-    marginTop: 10,
-    gap: 16,
+    gap: 8,
+    padding: 10,
+    alignItems: "stretch",
   },
   scoreCell: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    minHeight: 64,
+  },
+  scoreCellReceived: {
+    backgroundColor: Theme.positiveMuted,
+  },
+  scoreCellDue: {
+    backgroundColor: Theme.negativeMuted,
+  },
+  scoreCellIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.screenBackground,
+  },
+  scoreCellIconDue: {
+    backgroundColor: Theme.screenBackground,
+  },
+  scoreCellCopy: {
     flex: 1,
     minWidth: 0,
   },
   scoreGridLabel: {
     fontSize: 9,
-    fontWeight: "700",
+    fontWeight: "800",
     letterSpacing: 0.5,
     textTransform: "uppercase",
     color: Theme.textMuted,
-    marginBottom: 3,
+    marginBottom: 2,
   },
   scoreAmt: {
-    fontSize: 15,
-    fontWeight: "700",
-    letterSpacing: -0.2,
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+    fontVariant: ["tabular-nums"],
   },
   sectionTitle: {
     fontSize: 10,
@@ -440,111 +572,168 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   table: {
-    backgroundColor: Theme.surfaceLight,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
+    backgroundColor: Theme.screenBackground,
+    borderRadius: 14,
+    borderWidth: 0,
     overflow: "hidden",
   },
   head: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.borderLight,
-    backgroundColor: Theme.screenBackground,
+    paddingVertical: 10,
+    gap: 8,
+    backgroundColor: Theme.surfaceLight,
   },
   headCell: {
     fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 0.5,
+    fontWeight: "800",
+    letterSpacing: 0.55,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
-  missionCol: {
+  missionHead: {
     flex: 1,
     minWidth: 0,
+    paddingLeft: 44,
   },
-  amtCol: {
-    width: 72,
+  headRight: {
     textAlign: "right",
+    width: "100%",
   },
-  actionCol: {
-    width: 44,
+  receivedCol: {
+    width: 72,
     alignItems: "flex-end",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    flexShrink: 0,
+    paddingTop: 2,
+  },
+  dueActionCol: {
+    width: 88,
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    gap: 8,
     flexShrink: 0,
   },
   tagBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    minHeight: 32,
+    minWidth: 68,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 4,
     backgroundColor: Theme.driverEmeraldMuted,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.driverEmeraldBorder,
+  },
+  tagBtnText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: Theme.driverEmeraldDark,
+  },
+  actionIdle: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textMuted,
+    paddingRight: 4,
   },
   row: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    minHeight: 52,
-    gap: 4,
+    paddingVertical: 14,
+    gap: 8,
+    backgroundColor: Theme.screenBackground,
   },
-  rowMain: {
+  missionCell: {
     flex: 1,
     minWidth: 0,
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    alignItems: "flex-start",
+    gap: 10,
     minHeight: 44,
   },
   rowAvatar: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  missionCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
   rowBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.borderLight,
   },
   partyName: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: Theme.textPrimaryDark,
-    marginBottom: 1,
-  },
-  missionId: {
     fontSize: 11,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
-  missionRoute: {
-    marginTop: 2,
-    fontSize: 10,
-    fontWeight: "500",
-    color: Theme.textMuted,
+  missionId: {
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+    color: Theme.textPrimaryDark,
   },
-  dueCell: {
-    width: 72,
-    marginLeft: 4,
-    alignItems: "flex-end",
-    justifyContent: "center",
+  missionRouteFrom: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  missionRouteTo: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.textRouteCard,
+    lineHeight: 15,
+  },
+  distanceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 6,
+  },
+  distanceChip: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Theme.surfaceGray,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+  },
+  distanceChipText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Theme.textRouteCard,
+    letterSpacing: 0.1,
   },
   amt: {
-    width: 72,
     textAlign: "right",
     fontSize: 12,
-    fontWeight: "700",
-    paddingTop: 1,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+    letterSpacing: -0.15,
+  },
+  dueAmt: {
+    textAlign: "right",
+    fontSize: 12,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+    letterSpacing: -0.15,
+    width: "100%",
   },
   empty: {
-    padding: 14,
+    padding: 16,
     fontSize: 12,
     color: Theme.textMuted,
   },

@@ -1028,95 +1028,102 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
           </Text>
         </View>
 
-        <View style={styles.progressPairRow}>
-          <View style={styles.progressPairCol}>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${collectedPct}%` }]} />
-            </View>
-            <Text style={styles.progressCaption} numberOfLines={2}>
-              {collectedPct}% received · ₹{pendingTotal.toLocaleString("en-IN")} pending
-            </Text>
-          </View>
-          {showMonthPnl ? (
-            <View style={styles.progressPairCol}>
-              <View style={styles.pnlBarTrack}>
-                {monthPnl.spent > 0 ? (
-                  <View
-                    style={[
-                      styles.pnlBarSpent,
-                      { width: `${monthPnl.isLoss ? 100 : monthPnl.spentShare}%` },
-                    ]}
-                  />
-                ) : null}
-                {!monthPnl.isLoss && (monthPnl.marginShare > 0 || monthPnl.spent === 0) ? (
-                  <View
-                    style={[
-                      styles.pnlBarKeep,
-                      { width: `${monthPnl.spent === 0 ? 100 : monthPnl.marginShare}%` },
-                    ]}
-                  />
-                ) : null}
-              </View>
-              <Text style={[styles.progressCaption, styles.progressCaptionEnd]} numberOfLines={2}>
-                {monthPnl.spentShare}% spent · ₹
-                {Math.abs(monthPnl.margin).toLocaleString("en-IN")}{" "}
-                {monthPnl.isLoss ? "loss" : "margin"}
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${collectedPct}%` }]} />
+        </View>
+        <Text style={styles.progressCaption} numberOfLines={1}>
+          {collectedPct}% collected this month
+        </Text>
+      </LinearGradient>
+
+      <View style={styles.splitMetricRow}>
+        <View
+          style={[
+            styles.splitMetricCard,
+            styles.paymentMetricCard,
+            {
+              borderColor: isDark ? colors.border : Theme.borderLight,
+              backgroundColor: colors.surface,
+            },
+          ]}
+        >
+          <Text style={[styles.splitMetricEyebrow, { color: colors.textMuted }]}>
+            Payment
+          </Text>
+          <View style={styles.splitMetricPair}>
+            <View style={styles.splitMetricCell}>
+              <Text style={[styles.splitMetricLabel, { color: colors.textMuted }]}>
+                Received
+              </Text>
+              <Text
+                style={[styles.splitMetricValue, { color: colors.emerald }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                ₹{receivedTotal.toLocaleString("en-IN")}
               </Text>
             </View>
-          ) : null}
+            <View style={styles.splitMetricCell}>
+              <Text style={[styles.splitMetricLabel, { color: colors.textMuted }]}>
+                Pending
+              </Text>
+              <Text
+                style={[
+                  styles.splitMetricValue,
+                  { color: pendingTotal > 0 ? Theme.negative : colors.emerald },
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                ₹{pendingTotal.toLocaleString("en-IN")}
+              </Text>
+            </View>
+          </View>
         </View>
 
-        <View style={styles.heroMetricRow}>
-          <View style={styles.heroMetric}>
-            <Text style={styles.heroMetricLabel}>Received</Text>
-            <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-              ₹{receivedTotal.toLocaleString("en-IN")}
+        {showMonthPnl ? (
+          <LinearGradient
+            colors={
+              monthPnl.isLoss
+                ? [Theme.negative, Theme.actionBtnInk]
+                : isDark
+                  ? [Theme.driverEmeraldDark, "#022c22"]
+                  : [Theme.driverEmerald, Theme.driverEmeraldDark]
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.splitMetricCard, styles.marginHeroCard]}
+          >
+            <View style={styles.marginHeroTop}>
+              <Text style={styles.marginHeroEyebrow}>
+                {monthPnl.isLoss ? "Loss" : "Margin"}
+              </Text>
+              <Text style={styles.marginHeroPct}>
+                {monthPnl.isLoss ? "" : "+"}
+                {monthPnl.marginPct}%
+              </Text>
+            </View>
+            <View style={styles.heroAmountRow}>
+              <Text style={styles.marginHeroRupee}>
+                {monthPnl.isLoss ? "−₹" : "₹"}
+              </Text>
+              <Text
+                style={styles.marginHeroAmount}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {Math.abs(monthPnl.margin).toLocaleString("en-IN")}
+              </Text>
+            </View>
+            <Text style={styles.marginHeroSub} numberOfLines={1}>
+              Spent ₹{monthPnl.spent.toLocaleString("en-IN")}
             </Text>
-          </View>
-          <View style={styles.heroMetricDivider} />
-          <View style={styles.heroMetric}>
-            <Text style={styles.heroMetricLabel}>Pending</Text>
-            <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-              ₹{pendingTotal.toLocaleString("en-IN")}
-            </Text>
-          </View>
-          {showMonthPnl ? (
-            <>
-              <View style={styles.heroMetricDivider} />
-              <View style={styles.heroMetric}>
-                <Text style={styles.heroMetricLabel}>Spent</Text>
-                <Text
-                  style={[styles.heroMetricValue, styles.pnlSpentValue]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.65}
-                >
-                  ₹{monthPnl.spent.toLocaleString("en-IN")}
-                </Text>
-              </View>
-              <View style={styles.heroMetricDivider} />
-              <View style={styles.heroMetric}>
-                <Text style={styles.heroMetricLabel}>
-                  {monthPnl.isLoss ? "Loss" : "Margin"}
-                  {` ${monthPnl.isLoss ? "" : "+"}${monthPnl.marginPct}%`}
-                </Text>
-                <Text
-                  style={[
-                    styles.heroMetricValue,
-                    monthPnl.isLoss ? styles.pnlLossValue : null,
-                  ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.65}
-                >
-                  {monthPnl.isLoss ? "−" : ""}₹
-                  {Math.abs(monthPnl.margin).toLocaleString("en-IN")}
-                </Text>
-              </View>
-            </>
-          ) : null}
-        </View>
-      </LinearGradient>
+          </LinearGradient>
+        ) : null}
+      </View>
 
       {/* Due filter + multi-select — directly under green earned card */}
       <View style={styles.toolsSection}>
@@ -2288,6 +2295,100 @@ const styles = StyleSheet.create({
       android: { elevation: 6 },
       default: {},
     }),
+  },
+  splitMetricRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+    marginTop: 2,
+  },
+  splitMetricCard: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 8,
+    overflow: "hidden",
+  },
+  paymentMetricCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  splitMetricEyebrow: {
+    ...driverUISemiBold,
+    fontSize: 9,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+  },
+  splitMetricPair: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  splitMetricCell: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  splitMetricLabel: {
+    ...driverUISemiBold,
+    fontSize: 9,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  splitMetricValue: {
+    ...driverUIExtraBold,
+    fontSize: 15,
+    letterSpacing: -0.3,
+  },
+  marginHeroCard: {
+    justifyContent: "center",
+    ...Platform.select({
+      ios: {
+        shadowColor: Theme.driverEmeraldDark,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.18,
+        shadowRadius: 12,
+      },
+      android: { elevation: 4 },
+      default: {},
+    }),
+  },
+  marginHeroTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+  },
+  marginHeroEyebrow: {
+    ...driverUISemiBold,
+    fontSize: 9,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    color: "rgba(236,253,245,0.95)",
+  },
+  marginHeroPct: {
+    ...driverUIBold,
+    fontSize: 11,
+    color: "#ffffff",
+  },
+  marginHeroRupee: {
+    ...driverUIBold,
+    fontSize: 16,
+    color: "rgba(255,255,255,0.88)",
+    marginTop: 6,
+  },
+  marginHeroAmount: {
+    ...driverUIExtraBold,
+    fontSize: 26,
+    letterSpacing: -0.8,
+    color: "#ffffff",
+    lineHeight: 30,
+    flexShrink: 1,
+  },
+  marginHeroSub: {
+    ...driverBodySecondary,
+    fontSize: 10,
+    color: "rgba(167,243,208,0.9)",
   },
   heroTopRow: {
     flexDirection: "row",

@@ -446,7 +446,6 @@ export function AddClientModal({
           ) : null}
         </View>
       ) : null}
-      {existingPartyPicker}
       {/* First block: same layout as Ledger amount block (label on top, input row). Tappable so label/block focuses input. */}
       <Pressable
         style={styles.ledgerAmountBlock}
@@ -586,6 +585,7 @@ export function AddClientModal({
           {error}
         </Text>
       ) : null}
+      {existingPartyPicker}
       {!hidePrimaryActionForDriverMatch ? (
         <TouchableOpacity
           style={[
@@ -755,8 +755,6 @@ export function AddClientModal({
                 ) : null}
               </View>
             ) : null}
-
-            {existingPartyPicker}
 
             <Pressable
               onPress={() => phoneInputRef.current?.focus()}
@@ -932,6 +930,8 @@ export function AddClientModal({
                 <Text style={styles.screenErrorText}>{error}</Text>
               </View>
             ) : null}
+
+            {existingPartyPicker}
           </View>
         </ScrollView>
 
@@ -1527,13 +1527,14 @@ const styles = StyleSheet.create({
     textDecorationLine: "underline",
   },
   existingWrap: {
-    marginBottom: 12,
-    gap: 4,
+    marginTop: 4,
+    marginBottom: 4,
+    gap: 6,
   },
   existingTitle: {
     fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.5,
+    fontWeight: "800",
+    letterSpacing: 0.55,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
@@ -1545,29 +1546,29 @@ const styles = StyleSheet.create({
   },
   existingRow: {
     gap: 8,
-    paddingVertical: 10,
-    paddingRight: 8,
+    paddingVertical: 4,
+    paddingRight: 4,
   },
   existingChip: {
-    minWidth: 132,
-    maxWidth: 180,
-    minHeight: 52,
+    minWidth: 148,
+    maxWidth: 200,
+    minHeight: 56,
     borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.surfaceBorder,
+    borderWidth: 0,
     backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     justifyContent: "center",
   },
   existingChipName: {
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "800",
     color: Theme.textPrimary,
   },
   existingChipMeta: {
-    marginTop: 2,
+    marginTop: 3,
     fontSize: 11,
+    fontWeight: "600",
     color: Theme.textMuted,
   },
   screenStatusCard: {

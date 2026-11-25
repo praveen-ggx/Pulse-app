@@ -77,10 +77,10 @@ export function DriverCapturePaymentButton({
 
 const styles = StyleSheet.create({
   btn: {
-    height: 26,
+    height: 32,
     minWidth: 68,
     paddingHorizontal: 10,
-    borderRadius: 4,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: Theme.actionBtnInk,
     backgroundColor: Theme.actionBtnInk,
@@ -88,10 +88,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   btnCompact: {
-    height: 26,
+    height: 32,
     minWidth: 68,
     paddingHorizontal: 10,
-    borderRadius: 4,
+    borderRadius: 8,
   },
   btnBlock: {
     flex: 1,

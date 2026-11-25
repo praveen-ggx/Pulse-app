@@ -33,7 +33,7 @@ import { ROUTES } from "@/lib/routes";
 import { showAppAlert } from "@/lib/appAlert";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { useSafeBack } from "@/lib/useSafeBack";
-import { Banknote, Hash } from "lucide-react-native";
+import { Banknote, CalendarDays, Hash } from "lucide-react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -373,7 +373,7 @@ export default function DriverCapturePaymentScreen() {
         </View>
       </View>
 
-      <View style={styles.card}>
+      <View style={styles.refCard}>
         <View style={styles.sectionHead}>
           <View style={[styles.sectionIcon, { backgroundColor: Theme.avatarIndigo }]}>
             <Hash size={15} color={Theme.primary} strokeWidth={2.2} />
@@ -385,24 +385,40 @@ export default function DriverCapturePaymentScreen() {
             </Text>
           </View>
         </View>
-        <TextInput
-          style={styles.input}
-          value={reference}
-          onChangeText={setReference}
-          placeholder="UTR / reference"
-          placeholderTextColor={Theme.textMuted}
-          autoCapitalize="characters"
-          editable={!submitting}
-        />
-        <Text style={styles.dateLabel}>Paid on</Text>
-        <TextInput
-          style={styles.input}
-          value={paidOn}
-          onChangeText={setPaidOn}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={Theme.textMuted}
-          editable={!submitting}
-        />
+        <View style={styles.refRow}>
+          <View style={[styles.fieldWell, styles.refWell]}>
+            <Text style={styles.fieldLabel}>UTR</Text>
+            <View style={styles.fieldInner}>
+              <Hash size={13} color={Theme.textMuted} strokeWidth={2.2} />
+              <TextInput
+                style={styles.fieldInput}
+                value={reference}
+                onChangeText={setReference}
+                placeholder="UTR / reference"
+                placeholderTextColor={Theme.textMuted}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={!submitting}
+                accessibilityLabel="UTR / reference"
+              />
+            </View>
+          </View>
+          <View style={[styles.fieldWell, styles.dateWell]}>
+            <Text style={styles.fieldLabel}>Paid on</Text>
+            <View style={styles.fieldInner}>
+              <CalendarDays size={13} color={Theme.driverEmerald} strokeWidth={2.2} />
+              <TextInput
+                style={styles.fieldInput}
+                value={paidOn}
+                onChangeText={setPaidOn}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={Theme.textMuted}
+                editable={!submitting}
+                accessibilityLabel="Paid on date"
+              />
+            </View>
+          </View>
+        </View>
       </View>
 
       {lane === "marketplace" ? (
@@ -555,26 +571,58 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    borderRadius: 10,
+  refCard: {
+    backgroundColor: Theme.surfaceLight,
+    borderRadius: 14,
+    borderWidth: 0,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    fontWeight: "600",
-    color: Theme.textPrimaryDark,
-    backgroundColor: Theme.screenBackground,
-    minHeight: 44,
+    paddingVertical: 12,
+    marginBottom: 12,
   },
-  dateLabel: {
-    marginTop: 10,
-    marginBottom: 6,
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.4,
+  refRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+  },
+  fieldWell: {
+    backgroundColor: Theme.screenBackground,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 10,
+    minHeight: 64,
+  },
+  refWell: {
+    flex: 1.35,
+    minWidth: 0,
+  },
+  dateWell: {
+    flex: 1,
+    minWidth: 0,
+  },
+  fieldLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.55,
     textTransform: "uppercase",
     color: Theme.textMuted,
+    marginBottom: 6,
+  },
+  fieldInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 28,
+  },
+  fieldInput: {
+    flex: 1,
+    minWidth: 0,
+    padding: 0,
+    margin: 0,
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+    color: Theme.textPrimaryDark,
   },
   exchangeNote: {
     fontSize: 11,

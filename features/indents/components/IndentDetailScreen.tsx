@@ -431,6 +431,9 @@ export function IndentDetailScreen({
   }, [indent?.id, listsWarm]);
 
   const isLikelyOwner = !indent || indent.organization_id === orgId;
+  // list_market_bids_for_indent raises P0001 for non-owner callers, so wait until the indent
+  // row is loaded and confirmed to belong to this org before calling it.
+  const isConfirmedOwner = Boolean(indent) && indent?.organization_id === orgId;
   const {
     data: directQuotes = [],
     refetch: refetchQuotes,
@@ -455,7 +458,7 @@ export function IndentDetailScreen({
     isLikelyOwner ? (linkedPostQ.data ?? null) : null,
   );
   const marketBidsQ = useMarketBidsForIndentQuery(
-    isLikelyOwner && !hideCommercials ? indentId : null,
+    isConfirmedOwner && !hideCommercials ? indentId : null,
   );
   const refetchMarketBids = marketBidsQ.refetch;
   const refreshMarketBids = useCallback(() => {
@@ -478,7 +481,7 @@ export function IndentDetailScreen({
   );
   const quotesLoading =
     (directQuotesPending && !directQuotesFetched) ||
-    (Boolean(isLikelyOwner && indentId) &&
+    (Boolean(isConfirmedOwner && !hideCommercials && indentId) &&
       marketBidsQ.isPending &&
       !marketBidsQ.isFetched);
   const { data: myQuotes = [], refetch: refetchMyQuotes } =

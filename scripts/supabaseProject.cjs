@@ -8,10 +8,9 @@
  * There is no silent fallback. A missing target does not use .env, because
  * .env on a developer machine may be a cloud project.
  *
- * Netlify production context means production, with one named exception:
- * the site whose SITE_NAME is exactly "gx-pulse" builds V1 for preprod in its
- * production context. That site is locked to preprod. Every other site name,
- * including an unset one, stays locked to production.
+ * Netlify production context means production, with named Preprod exceptions:
+ * SITE_NAME exactly "gx-pulse" or "pulse-preprod" is locked to preprod.
+ * Every other site name, including unset and "pulse-gx", stays locked to production.
  */
 "use strict";
 
@@ -22,9 +21,15 @@ const PREPROD_REF = "xbisiveavvbifbzyfhgy";
 const PRODUCTION_REF = "nafxpivddesgsrthmosv";
 const PREPROD_URL = `https://${PREPROD_REF}.supabase.co`;
 const TARGETS = new Set(["local", "preprod", "production"]);
-/** Netlify SITE_NAME of the preprod site (gx-pulse.netlify.app). Exact match only. */
+/** Exact Netlify SITE_NAME values locked to preprod in production context. */
+const PREPROD_NETLIFY_SITES = Object.freeze(["gx-pulse", "pulse-preprod"]);
+/** @deprecated use PREPROD_NETLIFY_SITES — retained for older callers/tests */
 const PREPROD_NETLIFY_SITE = "gx-pulse";
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "10.0.2.2", "::1"]);
+
+function isPreprodNetlifySite(siteName) {
+  return PREPROD_NETLIFY_SITES.includes(String(siteName || ""));
+}
 
 function hostOf(url) {
   try {
@@ -114,10 +119,10 @@ function resolveSupabaseProject(input) {
       );
     }
     selected = "preprod";
-  } else if (netlifyContext === "production" && netlifySiteName === PREPROD_NETLIFY_SITE) {
+  } else if (netlifyContext === "production" && isPreprodNetlifySite(netlifySiteName)) {
     if (requested && requested !== "preprod") {
       throw new Error(
-        `Netlify site ${PREPROD_NETLIFY_SITE} cannot use Supabase target "${requested}". It is locked to preprod ${PREPROD_REF}.`,
+        `Netlify site ${netlifySiteName} cannot use Supabase target "${requested}". It is locked to preprod ${PREPROD_REF}.`,
       );
     }
     selected = "preprod";
@@ -351,6 +356,8 @@ function serviceRoleKeyForTarget(serviceRoleKey, resolved) {
 
 module.exports = {
   PREPROD_NETLIFY_SITE,
+  PREPROD_NETLIFY_SITES,
+  isPreprodNetlifySite,
   PREPROD_REF,
   PRODUCTION_REF,
   classifySupabaseUrl,

@@ -29,10 +29,13 @@ Deploy Chat V2 to preprod without driver pay-run, finance, auth recovery, networ
 - 20271126232000_chat_conversations_immutable_allow_legacy_fk.sql
 - 20271126235045_chat_v2_channel_update_acl_and_archive.sql
 
-Not included (not on allowlist, needs a decision): `20271126235530_ensure_direct_chat_requires_auth_user.sql` (Team DM eligibility requires an auth.users row).
+- 20271126235530_ensure_direct_chat_requires_auth_user.sql (Team DM eligibility requires an auth.users row; added in the second commit)
+
+## Preprod lock
+`scripts/supabaseProject.cjs` (+ test) now locks Netlify sites `gx-pulse` and `pulse-preprod` to preprod `xbisiveavvbifbzyfhgy` (second commit).
 
 ## Excluded
-`features/pay-run/**`, `app/finance-pay-run/**`, all driver_pay_run / terminate_driver migrations, `features/drivers/**`, `features/finance/**`, `features/auth/**`, auth reset-password, emailValidation, `app/_layout.tsx`, `lib/routes.ts`, `lib/queryKeys.ts`, `lib/memberSurfaces.ts`, `lib/navigationPolicy/**` (all dirty hunks there are pay-run), `scripts/supabaseProject.cjs`, driver incoming-message popup/FAB/host/toast + `useDriverIncomingMessageAlerts`, location-ping (`ChatPingLocationAction`, `useChatPingDriverLocation`, `locationPingChatPayload`, `ChatLocationSystemCard` and `DriverChatSlackThread` left at V1; ChatScreen ping hunks removed) — they need `constants/Theme.ts`, tracking broadcast and `features/driver/**` changes from `24e1dc65c`.
+`features/pay-run/**`, `app/finance-pay-run/**`, all driver_pay_run / terminate_driver migrations, `features/drivers/**`, `features/finance/**`, `features/auth/**`, auth reset-password, emailValidation, `app/_layout.tsx`, `lib/routes.ts`, `lib/queryKeys.ts`, `lib/memberSurfaces.ts`, `lib/navigationPolicy/**` (all dirty hunks there are pay-run), driver incoming-message popup/FAB/host/toast + `useDriverIncomingMessageAlerts`, location-ping (`ChatPingLocationAction`, `useChatPingDriverLocation`, `locationPingChatPayload`, `ChatLocationSystemCard` and `DriverChatSlackThread` left at V1; ChatScreen ping hunks removed) — they need `constants/Theme.ts`, tracking broadcast and `features/driver/**` changes from `24e1dc65c`.
 
 ## Tested
 Targeted Jest: chatPlatform.flags, chatSlackStreamTabs, features/chat/services, teamChannelSlug.

@@ -166,8 +166,13 @@ describe("resolveSupabaseProject: Netlify site lock", () => {
     EXPO_PUBLIC_SUPABASE_ANON_KEY: jwt(PRODUCTION_REF),
   };
 
-  it("names gx-pulse as the only preprod site", () => {
+  it("names gx-pulse and pulse-preprod as locked preprod sites", () => {
     expect(PREPROD_NETLIFY_SITE).toBe("gx-pulse");
+    const { PREPROD_NETLIFY_SITES, isPreprodNetlifySite } = require("../supabaseProject.cjs");
+    expect(PREPROD_NETLIFY_SITES).toEqual(["gx-pulse", "pulse-preprod"]);
+    expect(isPreprodNetlifySite("gx-pulse")).toBe(true);
+    expect(isPreprodNetlifySite("pulse-preprod")).toBe(true);
+    expect(isPreprodNetlifySite("pulse-gx")).toBe(false);
   });
 
   it("locks gx-pulse in production context to preprod", () => {
@@ -179,6 +184,28 @@ describe("resolveSupabaseProject: Netlify site lock", () => {
     expect(resolved.target).toBe("preprod");
     expect(resolved.projectRef).toBe(PREPROD_REF);
     expect(resolved.url).toBe(PREPROD_URL);
+  });
+
+  it("locks pulse-preprod in production context to preprod", () => {
+    const resolved = resolveSupabaseProject({
+      netlifyContext: "production",
+      netlifySiteName: "pulse-preprod",
+      processEnv: preprodEnv,
+    });
+    expect(resolved.target).toBe("preprod");
+    expect(resolved.projectRef).toBe(PREPROD_REF);
+    expect(resolved.url).toBe(PREPROD_URL);
+  });
+
+  it("rejects an explicit production target on pulse-preprod", () => {
+    expect(() =>
+      resolveSupabaseProject({
+        explicitTarget: "production",
+        netlifyContext: "production",
+        netlifySiteName: "pulse-preprod",
+        processEnv: prodEnv,
+      }),
+    ).toThrow(/pulse-preprod cannot use Supabase target "production".*locked to preprod/);
   });
 
   it("keeps gx-pulse on preprod when the injected URL is production", () => {

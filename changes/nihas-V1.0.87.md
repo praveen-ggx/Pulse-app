@@ -13,3 +13,6 @@
 
 ## Timeline events: drivers can write them
 - New RPC record_trip_operational_timeline_event lets the trips assigned driver (not an org member) write timeline rows; members behave as before and the table policies are unchanged. Fixes the 42501 errors where driver flows silently lost the entry. Set: record-trip-operational-timeline-event.
+
+## Test fix after V1 sync
+- tripWorkflow.idempotency.test now follows the record_trip_workflow_event path (V1 was red after the merge of #174 because the test still expected the old insert).

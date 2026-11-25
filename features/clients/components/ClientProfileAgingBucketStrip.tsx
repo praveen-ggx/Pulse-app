@@ -7,7 +7,7 @@ import type {
   ClientPaymentAging,
 } from "@/features/clients/components/analytics/clientAnalyticsUtils";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 export const AGING_BUCKET_CARDS: Array<{
   key: AgingBucketKey;
@@ -87,10 +87,10 @@ export function ClientProfileAgingBucketStrip({
             <FontAwesome name="clock-o" size={11} color={Theme.textRouteCard} />
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={[styles.title, compact && styles.titleSm]}>
+            <Text style={[styles.title, compact && styles.titleSm]} numberOfLines={1}>
               {title}
             </Text>
-            <Text style={styles.subtitle} numberOfLines={1}>
+            <Text style={styles.subtitle} numberOfLines={compact ? 2 : 1}>
               {total > 0
                 ? `${formatInr(total)} open across ${aging.totalOverdueTrips} trip${aging.totalOverdueTrips === 1 ? "" : "s"}`
                 : emptyLabel}
@@ -113,8 +113,8 @@ export function ClientProfileAgingBucketStrip({
         )}
       </View>
 
-      <View style={[styles.strip, compact && styles.stripCompact]}>
-        {AGING_BUCKET_CARDS.map((card, index) => {
+      {(() => {
+        const stripCells = AGING_BUCKET_CARDS.map((card, index) => {
           const amount = aging[card.key];
           const active = selected === card.key;
           const muted = !active && selected != null;
@@ -128,7 +128,7 @@ export function ClientProfileAgingBucketStrip({
               onPress={() => onChange(active ? null : card.key)}
               style={[
                 styles.cell,
-                compact && styles.cellCompact,
+                compact && styles.cellCompactScroll,
                 !isLast && styles.cellDivider,
                 active && { backgroundColor: card.tint },
                 muted && styles.cellMuted,
@@ -146,6 +146,7 @@ export function ClientProfileAgingBucketStrip({
                       compact && styles.cellLabelSm,
                       active && { color: card.color },
                     ]}
+                    numberOfLines={1}
                   >
                     {card.short}
                   </Text>
@@ -181,8 +182,28 @@ export function ClientProfileAgingBucketStrip({
               </View>
             </Pressable>
           );
-        })}
-      </View>
+        });
+
+        // Compact: keep the same single-row strip as desktop, scroll horizontally
+        // so cells don't crush into a clustered 2×2 grid.
+        if (compact) {
+          return (
+            <ScrollView
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator
+              style={styles.stripScroll}
+              contentContainerStyle={styles.stripScrollContent}
+            >
+              <View style={[styles.strip, styles.stripCompactScroll]}>
+                {stripCells}
+              </View>
+            </ScrollView>
+          );
+        }
+
+        return <View style={styles.strip}>{stripCells}</View>;
+      })()}
     </View>
   );
 }
@@ -239,6 +260,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "600",
     color: Theme.textMuted,
+    flexShrink: 0,
   },
   clearBtn: {
     flexDirection: "row",
@@ -250,6 +272,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     backgroundColor: Theme.cardWhite,
     minHeight: 26,
+    flexShrink: 0,
   },
   clearText: {
     fontSize: 9,
@@ -260,9 +283,24 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     minHeight: 86,
   },
-  stripCompact: {
-    flexWrap: "wrap",
-    minHeight: 0,
+  stripScroll: {
+    width: "100%",
+    maxWidth: "100%",
+    alignSelf: "stretch",
+  },
+  // flexGrow:1 collapses horizontal scroll width on web — keep content-sized.
+  stripScrollContent: {
+    flexGrow: 0,
+    paddingRight: 12,
+    alignItems: "flex-start",
+  },
+  stripCompactScroll: {
+    width: 600,
+    minWidth: 600,
+    minHeight: 86,
+    flexGrow: 0,
+    flexShrink: 0,
+    alignSelf: "flex-start",
   },
   cell: {
     flex: 1,
@@ -271,12 +309,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingRight: 8,
   },
-  cellCompact: {
-    flexBasis: "50%",
-    maxWidth: "50%",
-    minHeight: 78,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.borderInput,
+  cellCompactScroll: {
+    width: 150,
+    minWidth: 150,
+    flexGrow: 0,
+    flexShrink: 0,
+    minHeight: 86,
   },
   cellDivider: {
     borderRightWidth: StyleSheet.hairlineWidth,

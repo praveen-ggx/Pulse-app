@@ -30,6 +30,8 @@ jest.mock("@/features/suppliers/services/supplierKycDocuments.service", () => ({
   updateSupplierKycDocumentStatus: jest.fn(async () => ({ error: null })),
 }));
 
+const mockUpdateAdvance = jest.fn(async () => ({ error: null }));
+
 jest.mock("@/features/suppliers/services/supplierVendorOnboarding.service", () => ({
   deleteSupplierBankAccount: jest.fn(async () => ({ error: null })),
   deleteSupplierTdsRate: jest.fn(async () => ({ error: null })),
@@ -54,7 +56,7 @@ jest.mock("@/features/suppliers/services/supplierVendorOnboarding.service", () =
   listSupplierTdsRates: jest.fn(async () => ({ error: null, rates: [] })),
   saveSupplierBankAccount: jest.fn(async () => ({ error: null })),
   setVendorStatus: jest.fn(async () => ({ error: null })),
-  updateVendorAdvancePercentage: jest.fn(async () => ({ error: null })),
+  updateVendorAdvancePercentage: (...args: unknown[]) => mockUpdateAdvance(...(args as [])),
   updateVendorIdentityNumbers: jest.fn(async () => ({ error: null })),
   upsertSupplierTdsRate: (...args: unknown[]) => mockUpsertTds(...(args as [])),
 }));
@@ -97,6 +99,7 @@ async function renderVault() {
 beforeEach(() => {
   mockDocs = [];
   mockUpsertTds.mockClear();
+  mockUpdateAdvance.mockClear();
   mockRemoveDoc.mockClear();
   mockNotify.mockClear();
 });
@@ -159,6 +162,17 @@ describe("Supplier vault — TDS supporting document", () => {
       fireEvent.press(screen.getByText("Save"));
     });
     expect(mockUpsertTds).toHaveBeenCalledWith("org-1", "sup-1", expect.any(String), 2);
+  });
+
+  it("accepts Advance % typing and saves it", async () => {
+    await renderVault();
+    const advance = screen.getByPlaceholderText("e.g. 30");
+    fireEvent.changeText(advance, "30");
+    expect(advance.props.value).toBe("30");
+    await act(async () => {
+      fireEvent.press(screen.getByText("Save"));
+    });
+    await waitFor(() => expect(mockUpdateAdvance).toHaveBeenCalledWith("org-1", "sup-1", 30));
   });
 
   it("removes an uploaded file after confirmation", async () => {

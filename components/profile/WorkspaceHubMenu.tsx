@@ -15,7 +15,9 @@ import {
   hubStyles,
 } from "@/components/profile/workspaceHubMenu.styles";
 import { LinearGradient } from "expo-linear-gradient";
+import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import { useWebLayoutWidth } from "@/lib/useWebLayoutWidth";
 import {
   DEFAULT_USER_2D_AVATAR_SEED,
   getUser2DAvatarUriForSeed,
@@ -133,6 +135,9 @@ export function WorkspaceHubMenu({
 }: Props) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const layoutWidth = useWebLayoutWidth();
+  /** Full-screen mobile hub — keep footer under content (no tall empty band). */
+  const isMobileHub = layoutWidth < Layout.workspaceSplitMinWidth;
   const { user, profile, signOut } = useAuth();
   const capabilities = useCapabilities();
   const { can: canSurface } = useMemberAccess();
@@ -597,10 +602,71 @@ export function WorkspaceHubMenu({
     </View>
   );
 
+  const footer = (
+    <View
+      style={[
+        hubStyles.footerWrap,
+        isMobileHub && hubStyles.footerWrapInScroll,
+        { paddingBottom: insets.bottom + 10 },
+      ]}
+    >
+      <View style={hubStyles.footerDivider} />
+      <View style={hubStyles.footerRow}>
+        <Pressable
+          onPress={() => onSelectPanel("account")}
+          style={({ pressed }) => [hubStyles.footerIdentity, pressed && { opacity: 0.85 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Open my account"
+        >
+          {avatarUri ? (
+            <Image source={{ uri: avatarUri }} style={hubStyles.footerAvatar} />
+          ) : (
+            <View style={hubStyles.footerAvatarFallback}>
+              <Text style={hubStyles.footerAvatarInitials}>
+                {firstName.slice(0, 2).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          <View style={hubStyles.footerText}>
+            <Text style={hubStyles.footerName} numberOfLines={1}>
+              {displayName}
+            </Text>
+            <Text style={hubStyles.footerEmail} numberOfLines={1}>
+              {email || "—"}
+            </Text>
+          </View>
+        </Pressable>
+        <Pressable
+          onPress={() => setShowSignOutConfirm(true)}
+          disabled={signingOut}
+          style={({ pressed }) => [
+            hubStyles.signOutBtn,
+            pressed && hubStyles.signOutBtnPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+          hitSlop={8}
+        >
+          {signingOut ? (
+            <LoadingIndicator size="small" color={Theme.textMuted} />
+          ) : (
+            <LogOut size={14} color={Theme.textMuted} strokeWidth={2.2} />
+          )}
+        </Pressable>
+      </View>
+    </View>
+  );
+
   return (
     <>
       <View style={hubStyles.root}>
-        <View style={[hubStyles.headerBand, { paddingTop: insets.top + 14 }]}>
+        <View
+          style={[
+            hubStyles.headerBand,
+            { paddingTop: insets.top + (isMobileHub ? 10 : 14) },
+            isMobileHub && hubStyles.headerBandMobile,
+          ]}
+        >
           <LinearGradient
             colors={[...HUB_HEADER_GRADIENT]}
             start={{ x: 0, y: 0 }}
@@ -655,7 +721,10 @@ export function WorkspaceHubMenu({
 
         <ScrollView
           style={hubStyles.scroll}
-          contentContainerStyle={hubStyles.scrollContent}
+          contentContainerStyle={[
+            hubStyles.scrollContent,
+            isMobileHub && hubStyles.scrollContentMobile,
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
@@ -736,54 +805,10 @@ export function WorkspaceHubMenu({
           {renderHubSection("Workspace", workspaceRows, HUB_PURPLE)}
           {renderHubSection("Products", productRows, "#7c3aed")}
           {renderPartyGridSection("Operations", partyRows, Theme.driverEmerald)}
+          {isMobileHub ? footer : null}
         </ScrollView>
 
-        <View style={[hubStyles.footerWrap, { paddingBottom: insets.bottom + 10 }]}>
-          <View style={hubStyles.footerDivider} />
-          <View style={hubStyles.footerRow}>
-            <Pressable
-              onPress={() => onSelectPanel("account")}
-              style={({ pressed }) => [hubStyles.footerIdentity, pressed && { opacity: 0.85 }]}
-              accessibilityRole="button"
-              accessibilityLabel="Open my account"
-            >
-              {avatarUri ? (
-                <Image source={{ uri: avatarUri }} style={hubStyles.footerAvatar} />
-              ) : (
-                <View style={hubStyles.footerAvatarFallback}>
-                  <Text style={hubStyles.footerAvatarInitials}>
-                    {firstName.slice(0, 2).toUpperCase()}
-                  </Text>
-                </View>
-              )}
-              <View style={hubStyles.footerText}>
-                <Text style={hubStyles.footerName} numberOfLines={1}>
-                  {displayName}
-                </Text>
-                <Text style={hubStyles.footerEmail} numberOfLines={1}>
-                  {email || "—"}
-                </Text>
-              </View>
-            </Pressable>
-            <Pressable
-              onPress={() => setShowSignOutConfirm(true)}
-              disabled={signingOut}
-              style={({ pressed }) => [
-                hubStyles.signOutBtn,
-                pressed && hubStyles.signOutBtnPressed,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Sign out"
-              hitSlop={8}
-            >
-              {signingOut ? (
-                <LoadingIndicator size="small" color={Theme.textMuted} />
-              ) : (
-                <LogOut size={14} color={Theme.textMuted} strokeWidth={2.2} />
-              )}
-            </Pressable>
-          </View>
-        </View>
+        {isMobileHub ? null : footer}
 
         {inlinePanel === "language" && onCloseInlinePanel ? (
           <WorkspaceLanguagePanel variant="inline" onBack={onCloseInlinePanel} />

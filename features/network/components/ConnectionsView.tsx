@@ -1429,8 +1429,8 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   embeddedEmptyWrap: {
-    minHeight: 200,
-    paddingBottom: 16,
+    minHeight: 120,
+    paddingBottom: 12,
     paddingHorizontal: 14,
   },
   /** Avatar grid sits inside the connections hub card shell. */

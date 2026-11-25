@@ -1033,9 +1033,24 @@ function NetworkScreenInner() {
           </Text>
         </View>
         <View style={[styles.topCluster, isCompactPhone && styles.topClusterCompact]}>
-          <View style={styles.topClusterMain}>
-        <View style={styles.commandStatsWrap}>
-          <View style={styles.commandMainCard}>
+          <View
+            style={[
+              styles.topClusterMain,
+              !isWideNetwork && styles.topClusterMainScroll,
+            ]}
+          >
+        <View
+          style={[
+            styles.commandStatsWrap,
+            !isWideNetwork && styles.commandStatsWrapScroll,
+          ]}
+        >
+          <View
+            style={[
+              styles.commandMainCard,
+              !isWideNetwork && styles.commandMainCardScroll,
+            ]}
+          >
             <View style={styles.commandMainBgOrb} />
                 <View style={[styles.commandMainContent, isMobileLayout && styles.commandMainContentCompact]}>
                   <View style={[styles.commandMainHead, isMobileLayout && styles.commandMainHeadMobile]}>
@@ -1871,7 +1886,7 @@ const styles = StyleSheet.create({
   },
   topTicker: {
     marginHorizontal: Layout.screenPaddingHorizontal,
-    marginTop: 12,
+    marginTop: 8,
     borderRadius: 14,
     backgroundColor: Theme.textPrimaryDark,
     paddingVertical: 9,
@@ -1890,17 +1905,25 @@ const styles = StyleSheet.create({
   },
   topCluster: {
     marginHorizontal: Layout.screenPaddingHorizontal,
-    marginTop: 14,
-    gap: 14,
+    marginTop: 10,
+    gap: 12,
   },
   topClusterCompact: {
     marginHorizontal: 10,
-    gap: 10,
+    marginTop: 8,
+    gap: 8,
   },
   topClusterMain: {
     flex: 1,
     minWidth: 0,
     gap: 16,
+  },
+  /** Inside ScrollView, flex:1 expands to the viewport and leaves a white dead zone. */
+  topClusterMainScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "auto",
+    width: "100%",
   },
   storyMarketRow: {
     flexDirection: "row",
@@ -1916,6 +1939,10 @@ const styles = StyleSheet.create({
     maxWidth: "60%",
     flexShrink: 0,
   },
+  commandStatsWrapScroll: {
+    flexGrow: 0,
+    width: "100%",
+  },
   commandMainCard: {
     flex: 1,
     minWidth: 0,
@@ -1924,6 +1951,13 @@ const styles = StyleSheet.create({
     borderColor: Theme.borderMedium,
     backgroundColor: Theme.screenBackground,
     overflow: "hidden",
+  },
+  commandMainCardScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "auto",
+    width: "100%",
+    alignSelf: "stretch",
   },
   connectionsHubCardWrap: {
     width: "auto",

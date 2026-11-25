@@ -707,7 +707,13 @@ const styles = StyleSheet.create({
   headingSm: { fontSize: 13 },
   hint: { fontSize: 11, fontWeight: "500", color: Theme.textMuted, marginTop: 2 },
   hintSm: { fontSize: 10 },
-  chipRow: { flexDirection: "row", gap: 6, paddingVertical: 2 },
+  chipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 2,
+    paddingRight: 4,
+  },
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -715,6 +721,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.borderInput,
     backgroundColor: Theme.cardWhite,
+    flexShrink: 0,
   },
   chipActive: {
     backgroundColor: Theme.textPrimaryDark,

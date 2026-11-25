@@ -535,9 +535,10 @@ export function CounterpartyProfileSystemCard({
     () => [
       styles.viewScrollContent,
       isPage && styles.viewScrollContentPage,
+      isPage && !isWide && styles.viewScrollContentPageNarrow,
       isPage ? { paddingHorizontal: pagePad, maxWidth: pageMaxWidth } : null,
     ],
-    [isPage, pagePad, pageMaxWidth],
+    [isPage, isWide, pagePad, pageMaxWidth],
   );
   const editDialogScrollStyle = useMemo(
     () => ({ maxHeight: Math.max(280, windowHeight - 180) }),
@@ -548,6 +549,28 @@ export function CounterpartyProfileSystemCard({
   const showAnalyticsTabs = Boolean(organizationId && analyticsPartyId);
   const analyticsPartyRole: "client" | "supplier" =
     type === "supplier" ? "supplier" : "client";
+  const pageViewTabs = useMemo(
+    () =>
+      (
+        [
+          { id: "OVERVIEW" as const, label: "Overview" },
+          ...(type === "client"
+            ? ([
+                { id: "HUBS" as const, label: "Operations Hubs" },
+                { id: "CONTRACTS" as const, label: "Route Contracts" },
+                { id: "AGREEMENT" as const, label: "Agreement" },
+              ] as const)
+            : []),
+          ...(type === "supplier" && supplierVaultSlot
+            ? ([{ id: "VAULT" as const, label: "Documents & Data" }] as const)
+            : []),
+          { id: "FINANCE" as const, label: "Finance · Statement" },
+          { id: "PERFORMANCE" as const, label: "Lane Performance" },
+          { id: "MARGIN" as const, label: "Margin Analysis" },
+        ] as const
+      ),
+    [type, supplierVaultSlot],
+  );
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [editPanel, setEditPanel] = useState<EditPanel>("BASIC");
   const [viewTab, setViewTab] = useState<ViewTab>("OVERVIEW");
@@ -1461,50 +1484,113 @@ export function CounterpartyProfileSystemCard({
                   </View>
                 </View>
                 <View style={styles.contractTableWrap}>
-                  <View style={styles.contractTableHead}>
-                    <Text style={[styles.contractTh, styles.contractColPickup]}>Hub (Pickup)</Text>
-                    <Text style={[styles.contractTh, styles.contractColDest]}>Destination</Text>
-                    <Text style={[styles.contractTh, styles.contractColVehicle]}>Vehicle</Text>
-                    <Text style={[styles.contractTh, styles.contractColPricing]}>Pricing</Text>
-                    <Text style={[styles.contractTh, styles.contractColRate]}>Lane Rate</Text>
-                  </View>
-                  {contracts.length === 0 ? (
-                    <Text style={styles.emptyMutedPadded}>No contracts yet.</Text>
-                  ) : (
-                    contracts.map((cnt) => (
-                      <View key={cnt.id} style={styles.contractTr}>
-                        <Text style={[styles.contractTdPickup, styles.contractColPickup]} numberOfLines={2}>
-                          {cnt.pickup}
-                        </Text>
-                        <Text style={[styles.contractTdDest, styles.contractColDest]} numberOfLines={2}>
-                          {cnt.destination}
-                        </Text>
-                        <Text style={[styles.simpleTdVehicle, styles.contractColVehicle]} numberOfLines={1}>
-                          {(cnt.vehicleType ?? "").trim() || "—"}
-                        </Text>
-                        <View style={[styles.contractPricingCol, styles.contractColPricing]}>
-                          <View
-                            style={[
-                              styles.perPill,
-                              cnt.pricingType === "per_trip" ? styles.perPillTrip : styles.perPillTon,
-                            ]}
+                  {(() => {
+                    const contractTableInner = (
+                      <View style={!isWide ? styles.contractTableInnerNarrow : undefined}>
+                        <View style={styles.contractTableHead}>
+                          <Text
+                            style={[styles.contractTh, styles.contractColPickup]}
+                            numberOfLines={1}
                           >
-                            <Text
-                              style={[
-                                styles.perPillText,
-                                cnt.pricingType === "per_trip" ? styles.perPillTextTrip : styles.perPillTextTon,
-                              ]}
-                            >
-                              {cnt.pricingType === "per_trip" ? "Per trip" : "Per ton"}
-                            </Text>
-                          </View>
+                            Hub (Pickup)
+                          </Text>
+                          <Text
+                            style={[styles.contractTh, styles.contractColDest]}
+                            numberOfLines={1}
+                          >
+                            Destination
+                          </Text>
+                          <Text
+                            style={[styles.contractTh, styles.contractColVehicle]}
+                            numberOfLines={1}
+                          >
+                            Vehicle
+                          </Text>
+                          <Text
+                            style={[styles.contractTh, styles.contractColPricing]}
+                            numberOfLines={1}
+                          >
+                            Pricing
+                          </Text>
+                          <Text
+                            style={[styles.contractTh, styles.contractColRate]}
+                            numberOfLines={1}
+                          >
+                            Lane Rate
+                          </Text>
                         </View>
-                        <Text style={[styles.laneRate, styles.contractColRate]} numberOfLines={1}>
-                          ₹{Math.round(cnt.price).toLocaleString("en-IN")}
-                        </Text>
+                        {contracts.length === 0 ? (
+                          <Text style={styles.emptyMutedPadded}>No contracts yet.</Text>
+                        ) : (
+                          contracts.map((cnt) => (
+                            <View key={cnt.id} style={styles.contractTr}>
+                              <Text
+                                style={[styles.contractTdPickup, styles.contractColPickup]}
+                                numberOfLines={2}
+                              >
+                                {cnt.pickup}
+                              </Text>
+                              <Text
+                                style={[styles.contractTdDest, styles.contractColDest]}
+                                numberOfLines={2}
+                              >
+                                {cnt.destination}
+                              </Text>
+                              <Text
+                                style={[styles.simpleTdVehicle, styles.contractColVehicle]}
+                                numberOfLines={1}
+                              >
+                                {(cnt.vehicleType ?? "").trim() || "—"}
+                              </Text>
+                              <View
+                                style={[styles.contractPricingCol, styles.contractColPricing]}
+                              >
+                                <View
+                                  style={[
+                                    styles.perPill,
+                                    cnt.pricingType === "per_trip"
+                                      ? styles.perPillTrip
+                                      : styles.perPillTon,
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.perPillText,
+                                      cnt.pricingType === "per_trip"
+                                        ? styles.perPillTextTrip
+                                        : styles.perPillTextTon,
+                                    ]}
+                                  >
+                                    {cnt.pricingType === "per_trip" ? "Per trip" : "Per ton"}
+                                  </Text>
+                                </View>
+                              </View>
+                              <Text
+                                style={[styles.laneRate, styles.contractColRate]}
+                                numberOfLines={1}
+                              >
+                                ₹{Math.round(cnt.price).toLocaleString("en-IN")}
+                              </Text>
+                            </View>
+                          ))
+                        )}
                       </View>
-                    ))
-                  )}
+                    );
+                    if (!isWide) {
+                      return (
+                        <ScrollView
+                          horizontal
+                          nestedScrollEnabled
+                          showsHorizontalScrollIndicator
+                          style={styles.contractTableScroll}
+                          contentContainerStyle={styles.contractTableScrollContent}
+                        >
+                          {contractTableInner}
+                        </ScrollView>
+                      );
+                    }
+                    return contractTableInner;
+                  })()}
                 </View>
               </View>
             ) : null}
@@ -1549,9 +1635,10 @@ export function CounterpartyProfileSystemCard({
               paddingVertical: isWide ? 6 : 8,
               maxWidth: pageMaxWidth,
             },
+            isPage && !isWide && styles.viewStickyHeaderInnerNarrow,
           ]}
         >
-          <View style={styles.viewStickyLeft}>
+          <View style={[styles.viewStickyLeft, isPage && !isWide && styles.viewStickyLeftNarrow]}>
             <TouchableOpacity
               onPress={onClose}
               style={[styles.iconBtn, isPage && styles.iconBtnPage]}
@@ -1565,8 +1652,13 @@ export function CounterpartyProfileSystemCard({
                 <View style={[styles.avatarCircle, styles.avatarCirclePage]}>
                   <Text style={[styles.avatarInitials, styles.avatarInitialsPage]}>{initials}</Text>
                 </View>
-                <View style={styles.pageHeaderIdentity}>
-                  <Text style={styles.pageHeaderName} numberOfLines={1}>
+                <View
+                  style={[
+                    styles.pageHeaderIdentity,
+                    !isWide && styles.pageHeaderIdentityNarrow,
+                  ]}
+                >
+                  <Text style={styles.pageHeaderName} numberOfLines={isWide ? 1 : 2}>
                     {organizationName}
                   </Text>
                   <View style={styles.identityMetaInline}>
@@ -1606,11 +1698,25 @@ export function CounterpartyProfileSystemCard({
               </Text>
             )}
           </View>
-          <View style={styles.viewStickyRight}>
+          <View
+            style={[
+              styles.viewStickyRight,
+              isPage && !isWide && styles.viewStickyRightNarrow,
+            ]}
+          >
             {isPage ? null : (
               <Badge variant={type === "client" ? "blue" : "orange"}>{typeBadge}</Badge>
             )}
-            {headerSlot ? <View style={styles.pageHeaderPod}>{headerSlot}</View> : null}
+            {headerSlot ? (
+              <View
+                style={[
+                  styles.pageHeaderPod,
+                  isPage && !isWide && styles.pageHeaderPodNarrow,
+                ]}
+              >
+                {headerSlot}
+              </View>
+            ) : null}
             {canEdit ? (
               <Pressable
                 onPress={() => {
@@ -1648,38 +1754,29 @@ export function CounterpartyProfileSystemCard({
               alignSelf: "center",
               width: "100%",
             },
+            isPage && !isWide && styles.viewTabBarPageNarrow,
           ]}
         >
           {isPage ? (
-          <View style={styles.viewTabTrackPage}>
-          {(
-            [
-              { id: "OVERVIEW" as const, label: "Overview" },
-              ...(type === "client" && isPage
-                ? ([
-                    { id: "HUBS" as const, label: "Operations Hubs" },
-                    { id: "CONTRACTS" as const, label: "Route Contracts" },
-                    { id: "AGREEMENT" as const, label: "Agreement" },
-                  ] as const)
-                : []),
-              ...(type === "supplier" && supplierVaultSlot
-                ? ([{ id: "VAULT" as const, label: "Documents & Data" }] as const)
-                : []),
-              { id: "FINANCE" as const, label: "Finance · Statement" },
-              { id: "PERFORMANCE" as const, label: "Lane Performance" },
-              { id: "MARGIN" as const, label: "Margin Analysis" },
-            ] as const
-          ).map((tab) => {
+          !isWide ? (
+          <ScrollView
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator
+            style={[styles.viewTabScroll, styles.viewTabScrollPage]}
+            contentContainerStyle={styles.viewTabScrollPageContent}
+            keyboardShouldPersistTaps="handled"
+          >
+          {pageViewTabs.map((tab) => {
             const active = viewTab === tab.id;
             return (
               <Pressable
                 key={tab.id}
                 style={(state) => [
                   styles.viewTabChip,
-                  isPage && styles.viewTabChipPage,
-                  active && (isPage ? styles.viewTabChipActivePage : styles.viewTabChipActive),
+                  styles.viewTabChipPage,
+                  active && styles.viewTabChipActivePage,
                   !active &&
-                    isPage &&
                     (state.pressed || Boolean((state as { hovered?: boolean }).hovered)) &&
                     styles.viewTabChipHover,
                 ]}
@@ -1690,8 +1787,41 @@ export function CounterpartyProfileSystemCard({
                 <Text
                   style={[
                     styles.viewTabChipText,
-                    isPage && styles.viewTabChipTextPage,
-                    active && (isPage ? styles.viewTabChipTextActivePage : styles.viewTabChipTextActive),
+                    styles.viewTabChipTextPage,
+                    active && styles.viewTabChipTextActivePage,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {tab.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+          </ScrollView>
+          ) : (
+          <View style={styles.viewTabTrackPage}>
+          {pageViewTabs.map((tab) => {
+            const active = viewTab === tab.id;
+            return (
+              <Pressable
+                key={tab.id}
+                style={(state) => [
+                  styles.viewTabChip,
+                  styles.viewTabChipPage,
+                  active && styles.viewTabChipActivePage,
+                  !active &&
+                    (state.pressed || Boolean((state as { hovered?: boolean }).hovered)) &&
+                    styles.viewTabChipHover,
+                ]}
+                onPress={() => setViewTab(tab.id)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+              >
+                <Text
+                  style={[
+                    styles.viewTabChipText,
+                    styles.viewTabChipTextPage,
+                    active && styles.viewTabChipTextActivePage,
                   ]}
                 >
                   {tab.label}
@@ -1700,6 +1830,7 @@ export function CounterpartyProfileSystemCard({
             );
           })}
           </View>
+          )
           ) : (
           <ScrollView
             horizontal
@@ -1750,6 +1881,8 @@ export function CounterpartyProfileSystemCard({
         style={styles.viewScroll}
         contentContainerStyle={pageScrollContentStyle}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         {showAnalyticsTabs && organizationId && analyticsPartyId && viewTab === "FINANCE" ? (
           <>
@@ -1872,7 +2005,7 @@ export function CounterpartyProfileSystemCard({
         ) : null}
 
         {isPage ? (
-          <View style={styles.overviewBlock}>
+          <View style={[styles.overviewBlock, !isWide && styles.overviewBlockNarrow]}>
             <View style={[styles.blockHeadingRow, styles.overviewHeadingRow]}>
               <View style={styles.overviewTitleWrap}>
                 <View style={styles.accentNavy} />
@@ -1963,10 +2096,16 @@ export function CounterpartyProfileSystemCard({
                 <Text style={styles.secondaryActionText}>View Rate Cards</Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.overviewLaneToolbar}>
+            <View
+              style={[
+                styles.overviewLaneToolbar,
+                !isWide && styles.overviewLaneToolbarNarrow,
+              ]}
+            >
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                style={styles.overviewLaneChipScroll}
                 contentContainerStyle={styles.mtFilterChips}
               >
                 <TouchableOpacity
@@ -2005,7 +2144,12 @@ export function CounterpartyProfileSystemCard({
                   );
                 })}
               </ScrollView>
-              <Text style={styles.overviewLaneCount}>
+              <Text
+                style={[
+                  styles.overviewLaneCount,
+                  !isWide && styles.overviewLaneCountNarrow,
+                ]}
+              >
                 {filteredContracts.length} lane{filteredContracts.length === 1 ? "" : "s"}
               </Text>
             </View>
@@ -2018,25 +2162,51 @@ export function CounterpartyProfileSystemCard({
                     key={cnt.id}
                     style={(state) => [
                       styles.laneCard,
+                      !isWide && styles.laneCardNarrow,
                       idx === filteredContracts.length - 1 && styles.laneCardLast,
                       (state.pressed || Boolean((state as { hovered?: boolean }).hovered)) &&
                         styles.laneCardHover,
                     ]}
                   >
-                    <FontAwesome name="map-marker" size={12} color={Theme.textMuted} />
-                    <Text style={styles.laneCardRoute} numberOfLines={1}>
-                      {cnt.pickup}
-                      <Text style={styles.laneCardArrow}>{" → "}</Text>
-                      {cnt.destination}
-                    </Text>
-                    <View style={styles.laneTruckChip}>
-                      <Text style={styles.laneCardTruck} numberOfLines={1}>
-                        {(cnt.vehicleType ?? "").trim() || "—"}
-                      </Text>
-                    </View>
-                    <Text style={styles.laneCardRate}>
-                      ₹{Math.round(cnt.price).toLocaleString("en-IN")}
-                    </Text>
+                    {isWide ? (
+                      <>
+                        <FontAwesome name="map-marker" size={12} color={Theme.textMuted} />
+                        <Text style={styles.laneCardRoute} numberOfLines={1}>
+                          {cnt.pickup}
+                          <Text style={styles.laneCardArrow}>{" → "}</Text>
+                          {cnt.destination}
+                        </Text>
+                        <View style={styles.laneTruckChip}>
+                          <Text style={styles.laneCardTruck} numberOfLines={1}>
+                            {(cnt.vehicleType ?? "").trim() || "—"}
+                          </Text>
+                        </View>
+                        <Text style={styles.laneCardRate}>
+                          ₹{Math.round(cnt.price).toLocaleString("en-IN")}
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.laneCardTopNarrow}>
+                          <FontAwesome name="map-marker" size={12} color={Theme.textMuted} />
+                          <Text style={styles.laneCardRouteNarrow} numberOfLines={2}>
+                            {cnt.pickup}
+                            <Text style={styles.laneCardArrow}>{" → "}</Text>
+                            {cnt.destination}
+                          </Text>
+                        </View>
+                        <View style={styles.laneCardMetaNarrow}>
+                          <View style={styles.laneTruckChip}>
+                            <Text style={styles.laneCardTruck} numberOfLines={1}>
+                              {(cnt.vehicleType ?? "").trim() || "—"}
+                            </Text>
+                          </View>
+                          <Text style={styles.laneCardRateNarrow}>
+                            ₹{Math.round(cnt.price).toLocaleString("en-IN")}
+                          </Text>
+                        </View>
+                      </>
+                    )}
                   </Pressable>
                 ))}
               </View>
@@ -2929,7 +3099,19 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     gap: 12,
   },
+  /** Narrow page header: identity on its own row, actions below — no side crush. */
+  viewStickyHeaderInnerNarrow: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 10,
+  },
   viewStickyLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 },
+  viewStickyLeftNarrow: {
+    width: "100%",
+    flex: 0,
+    alignItems: "center",
+    gap: 10,
+  },
   viewStickyTitle: {
     fontSize: 16,
     fontWeight: "900",
@@ -2948,8 +3130,16 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
   },
   viewStickyRight: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1, minWidth: 0 },
+  viewStickyRightNarrow: {
+    width: "100%",
+    flexShrink: 0,
+    justifyContent: "flex-end",
+    alignSelf: "stretch",
+  },
   pageHeaderIdentity: { flexShrink: 1, minWidth: 120, justifyContent: "center" },
+  pageHeaderIdentityNarrow: { flex: 1, minWidth: 0 },
   pageHeaderPod: { flexShrink: 1, minWidth: 280, justifyContent: "center" },
+  pageHeaderPodNarrow: { minWidth: 0, maxWidth: 160, flexShrink: 1 },
   pageHeaderName: {
     fontSize: 16,
     fontWeight: "700",
@@ -2999,9 +3189,34 @@ const styles = StyleSheet.create({
     paddingTop: 0,
     paddingBottom: 0,
   },
+  /** Narrow page: single-row tabs (horizontal scroll). Desktop keeps wrap track. */
+  viewTabBarPageNarrow: {
+    flexWrap: "nowrap",
+    flexGrow: 0,
+    width: "100%",
+    minWidth: 0,
+    overflow: "hidden",
+  },
   viewTabScroll: { flexGrow: 0, alignSelf: "flex-start", maxWidth: "100%" },
-  viewTabScrollPage: { alignSelf: "stretch", flexGrow: 1 },
+  /** Bound the scroller to the tab bar width so chips overflow into swipe, not the page. */
+  viewTabScrollPage: {
+    alignSelf: "stretch",
+    flexGrow: 0,
+    flexShrink: 1,
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+  },
   viewTabScrollContent: { flexDirection: "row", alignItems: "center", gap: 6 },
+  viewTabScrollPageContent: {
+    flexDirection: "row",
+    flexWrap: "nowrap",
+    alignItems: "center",
+    gap: 2,
+    minHeight: 40,
+    paddingRight: 40,
+    flexGrow: 0,
+  },
   viewTabTrack: {
     flexDirection: "row",
     alignItems: "center",
@@ -3030,6 +3245,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     justifyContent: "center",
+    flexShrink: 0,
   },
   viewTabChipHover: {
     backgroundColor: Theme.surface,
@@ -3130,6 +3346,14 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "center",
     gap: 10,
+  },
+  viewScrollContentPageNarrow: {
+    gap: 14,
+    paddingBottom: 32,
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
+    alignSelf: "stretch",
   },
   identityCard: {
     backgroundColor: Theme.cardWhite,
@@ -3526,6 +3750,7 @@ const styles = StyleSheet.create({
   registryValue: { fontSize: 16, fontWeight: "700", color: Theme.textPrimary },
   registryValuePage: { fontSize: 12, fontWeight: "600", color: Theme.textPrimaryDark, lineHeight: 15 },
   overviewBlock: { gap: 10, marginBottom: 4 },
+  overviewBlockNarrow: { gap: 14, marginBottom: 8 },
   overviewHeadingRow: { marginBottom: 0, minHeight: 0 },
   overviewTitleWrap: {
     flexDirection: "row",
@@ -3545,10 +3770,26 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
+  overviewLaneToolbarNarrow: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 8,
+  },
+  overviewLaneChipScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+    minWidth: 0,
+    width: "100%",
+  },
   overviewLaneCount: {
     fontSize: 12,
     fontWeight: "600",
     color: Theme.textSecondary,
+    flexShrink: 0,
+  },
+  overviewLaneCountNarrow: {
+    alignSelf: "flex-end",
+    paddingHorizontal: 2,
   },
   detailGrid: {
     width: "100%",
@@ -3617,6 +3858,26 @@ const styles = StyleSheet.create({
     borderBottomColor: Theme.borderInput,
     backgroundColor: Theme.cardWhite,
   },
+  laneCardNarrow: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  laneCardTopNarrow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    width: "100%",
+  },
+  laneCardMetaNarrow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingLeft: 22,
+  },
   laneCardHover: { backgroundColor: Theme.surface },
   laneCardLast: { borderBottomWidth: 0 },
   laneCardRoute: {
@@ -3626,6 +3887,14 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Theme.textPrimaryDark,
   },
+  laneCardRouteNarrow: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    lineHeight: 18,
+  },
   laneCardArrow: {
     fontSize: 12,
     fontWeight: "600",
@@ -3633,11 +3902,13 @@ const styles = StyleSheet.create({
   },
   laneTruckChip: {
     minWidth: 52,
+    maxWidth: "60%",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
     backgroundColor: Theme.surfaceGray,
     alignItems: "center",
+    flexShrink: 1,
   },
   laneCardTruck: {
     fontSize: 11,
@@ -3650,6 +3921,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: Theme.primary,
+  },
+  laneCardRateNarrow: {
+    flexShrink: 0,
+    textAlign: "right",
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.primary,
+    fontVariant: ["tabular-nums"],
   },
   taxLabel: {
     fontSize: 10,
@@ -4509,6 +4788,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.borderInput,
   },
+  contractTableScroll: { width: "100%" },
+  contractTableScrollContent: { flexGrow: 1 },
+  contractTableInnerNarrow: { minWidth: 680, width: "100%" },
   contractTableHead: {
     flexDirection: "row",
     alignItems: "center",
@@ -4524,9 +4806,9 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.55,
   },
-  contractColPickup: { flex: 1.35, minWidth: 0 },
-  contractColDest: { flex: 1.2, minWidth: 0 },
-  contractColVehicle: { flex: 0.85, minWidth: 0 },
+  contractColPickup: { flex: 1.35, minWidth: 140 },
+  contractColDest: { flex: 1.2, minWidth: 120 },
+  contractColVehicle: { flex: 0.85, minWidth: 88 },
   contractColPricing: { width: 92, flexGrow: 0, flexShrink: 0 },
   contractColRate: {
     width: 104,

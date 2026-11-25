@@ -1282,7 +1282,13 @@ const styles = StyleSheet.create({
   hint: { marginTop: 2, fontSize: 10, fontWeight: "500", color: METRONIC.muted },
   hintSm: { fontSize: 9 },
   saving: { fontSize: 10, fontWeight: "600", color: METRONIC.link },
-  chipRow: { gap: 6, paddingBottom: 2, alignItems: "center" },
+  chipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingBottom: 2,
+    paddingRight: 4,
+  },
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -1293,6 +1299,7 @@ const styles = StyleSheet.create({
     minHeight: 30,
     justifyContent: "center",
     maxWidth: 168,
+    flexShrink: 0,
   },
   chipSm: {
     paddingHorizontal: 8,
@@ -1499,10 +1506,11 @@ const styles = StyleSheet.create({
   },
   gridCardFull: {
     flexGrow: 0,
-    flexShrink: 0,
+    flexShrink: 1,
     width: "100%",
     minWidth: 0,
     maxWidth: "100%",
+    alignSelf: "stretch",
   },
   trendRow: {
     flexDirection: "row",

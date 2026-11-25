@@ -15,6 +15,7 @@ import { MapPin } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   Alert,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -77,6 +78,7 @@ export function ClientProfileHubsEditSection({
   const [viewMode, setViewMode] = useState<"cards" | "list">("cards");
   const { width } = useWindowDimensions();
   const cardColumns = width >= 1100 ? 3 : width >= 720 ? 2 : 1;
+  const hubsListScroll = width < 720;
 
   useEffect(() => {
     setWarehouses(initialWarehouses);
@@ -307,38 +309,52 @@ export function ClientProfileHubsEditSection({
           </View>
         ) : (
           <View style={styles.listWrap}>
-            {warehouses.map((wh, index) => (
-              <View
-                key={wh.id}
-                style={[styles.listRow, index === warehouses.length - 1 && styles.listRowLast]}
-              >
-                <View style={styles.hubIcon}>
-                  <FontAwesome name="archive" size={12} color={Theme.textRouteCard} />
-                </View>
-                <View style={styles.listName}>
-                  <Text style={styles.hubName} numberOfLines={1}>
-                    {wh.name}
+            {(() => {
+              const listRows = warehouses.map((wh, index) => (
+                <View
+                  key={wh.id}
+                  style={[styles.listRow, index === warehouses.length - 1 && styles.listRowLast]}
+                >
+                  <View style={styles.hubIcon}>
+                    <FontAwesome name="archive" size={12} color={Theme.textRouteCard} />
+                  </View>
+                  <View style={styles.listName}>
+                    <Text style={styles.hubName} numberOfLines={1}>
+                      {wh.name}
+                    </Text>
+                    <Text style={styles.gstLine} numberOfLines={1}>
+                      GST {(wh.local_gstin ?? "").trim() || "—"}
+                    </Text>
+                  </View>
+                  <Text style={[styles.hubAddr, styles.listAddr]} numberOfLines={1}>
+                    {formatHubAddress(wh)}
                   </Text>
-                  <Text style={styles.gstLine} numberOfLines={1}>
-                    GST {(wh.local_gstin ?? "").trim() || "—"}
+                  <Text style={[styles.hubContact, styles.listPerson]} numberOfLines={1}>
+                    {(wh.contact_name ?? "").trim() || "—"}
                   </Text>
+                  <Text style={[styles.hubPhone, styles.listPhone]} numberOfLines={1}>
+                    {(wh.contact_phone ?? "").trim() || "—"}
+                  </Text>
+                  <HubActions
+                    busy={deletingId === wh.id}
+                    onEdit={() => startEdit(wh)}
+                    onDelete={() => void handleDelete(wh.id, wh.name)}
+                  />
                 </View>
-                <Text style={[styles.hubAddr, styles.listAddr]} numberOfLines={1}>
-                  {formatHubAddress(wh)}
-                </Text>
-                <Text style={[styles.hubContact, styles.listPerson]} numberOfLines={1}>
-                  {(wh.contact_name ?? "").trim() || "—"}
-                </Text>
-                <Text style={[styles.hubPhone, styles.listPhone]} numberOfLines={1}>
-                  {(wh.contact_phone ?? "").trim() || "—"}
-                </Text>
-                <HubActions
-                  busy={deletingId === wh.id}
-                  onEdit={() => startEdit(wh)}
-                  onDelete={() => void handleDelete(wh.id, wh.name)}
-                />
-              </View>
-            ))}
+              ));
+              if (!hubsListScroll) return listRows;
+              return (
+                <ScrollView
+                  horizontal
+                  nestedScrollEnabled
+                  showsHorizontalScrollIndicator
+                  style={styles.listScroll}
+                  contentContainerStyle={styles.listScrollContent}
+                >
+                  <View style={styles.listInnerNarrow}>{listRows}</View>
+                </ScrollView>
+              );
+            })()}
           </View>
         )
       ) : null}
@@ -670,6 +686,9 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
   },
+  listScroll: { width: "100%" },
+  listScrollContent: { flexGrow: 1 },
+  listInnerNarrow: { minWidth: 640, width: "100%" },
   listRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -680,10 +699,10 @@ const styles = StyleSheet.create({
     borderBottomColor: Theme.borderInput,
   },
   listRowLast: { borderBottomWidth: 0 },
-  listName: { width: 148, minWidth: 0 },
-  listAddr: { flex: 1, minWidth: 0 },
-  listPerson: { width: 110 },
-  listPhone: { width: 108 },
+  listName: { width: 148, flexShrink: 0 },
+  listAddr: { flex: 1, minWidth: 160 },
+  listPerson: { width: 110, flexShrink: 0 },
+  listPhone: { width: 108, flexShrink: 0 },
   formCard: {
     marginTop: 4,
     padding: 14,

@@ -166,3 +166,31 @@ describe("driverWalletTripEarnings", () => {
     });
   });
 });
+
+describe("offline flow — earnings are only typed or captured amounts", () => {
+  it("captured with nothing typed earns the captured amount", () => {
+    const t = trip({ id: "o1", client_price: 9000 });
+    expect(driverWalletTripEarnings(t, ctx({ received: 1500 }))).toBe(1500);
+  });
+
+  it("typed amount wins when more than captured", () => {
+    const t = trip({
+      id: "o2",
+      notes: applyDcoPartyTagToNotes(null, { id: "c-1", name: "GK", billed: 2000, entered: true }),
+    });
+    expect(driverWalletTripEarnings(t, ctx({ received: 500 }))).toBe(2000);
+  });
+
+  it("ignores an old app-filled tag amount", () => {
+    const t = trip({
+      id: "o3",
+      notes: applyDcoPartyTagToNotes(null, { id: "c-1", name: "GK", billed: 2500 }),
+    });
+    expect(driverWalletTripEarnings(t, ctx({ received: 2000 }))).toBe(2000);
+  });
+
+  it("marketplace trips are unchanged", () => {
+    const t = trip({ id: "m1", source: "market_bid", operating_mode: "DCO", supplier_rate: 7000 });
+    expect(driverWalletTripEarnings(t, ctx({ received: 0, driverOrgIds: [] }))).toBe(7000);
+  });
+});

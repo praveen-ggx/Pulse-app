@@ -27,9 +27,14 @@ import {
   buildDriverWalletTransactions,
   filterDriverWalletTransactions,
   groupDriverWalletTransactions,
-  walletTxnPartyFallback,
+  walletTxnAssignerPayer,
+  walletTxnPayerName,
   type DriverWalletTxn,
 } from '@/features/drivers/utils/driverWalletTransactions.util';
+import {
+  buildAssignerDisplayForTrip,
+  DRIVER_ASSIGNING_FLEET_UNKNOWN_LABEL,
+} from '@/features/trips/utils/driverAssignerDisplay.util';
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { ThemedConfirmModal } from '@/components/ThemedConfirmModal';
 import {
@@ -591,8 +596,15 @@ export default function DriverWalletScreen() {
         hasAgreedPayoutTerms: hasAgreedPayoutTermsForTrip(t),
         payoutTerms: payoutTermsForTrip(t),
         driverOrgIds,
+        received: receivedByTripId[t.id] ?? 0,
       }),
-    [driverOrgIds, hasAgreedPayoutTermsForTrip, isFleetDispatchedTrip, payoutTermsForTrip],
+    [
+      driverOrgIds,
+      hasAgreedPayoutTermsForTrip,
+      isFleetDispatchedTrip,
+      payoutTermsForTrip,
+      receivedByTripId,
+    ],
   );
 
   const earningsTripHasAmount = useCallback(
@@ -1679,6 +1691,7 @@ export default function DriverWalletScreen() {
     });
   }, [linkedDrivers, invites, orgNameFromTrips]);
 
+
   /** org_id → org display name, covering ALL linked orgs (including left) + all invites. */
   const orgNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -2684,6 +2697,33 @@ export default function DriverWalletScreen() {
     return map;
   }, [trips]);
 
+  /** Same "Assigned by" company the trip card shows — that company pays the driver. */
+  const assignerOrgNameForTrip = useCallback(
+    (trip: tripsService.TripRow | undefined): string | null => {
+      if (!trip) return null;
+      const supplierId = String(trip.supplier_id ?? '').trim();
+      const driverOrgIsSupplier =
+        !!supplierId &&
+        linkedDrivers.some((d) => String(d.organization_id ?? '').trim() === supplierId);
+      const name = buildAssignerDisplayForTrip(
+        trip,
+        invites,
+        driverOrgIsSupplier ? supplierId : null,
+        {
+          assignmentActorByTripId: {},
+          assignerNamesByUserId: {},
+          assignerDisplayByTripId: {},
+          organizationNamesById: orgNameById,
+        },
+      ).assignedByOrgName.trim();
+      if (!name || name === 'Your fleet' || name === DRIVER_ASSIGNING_FLEET_UNKNOWN_LABEL) {
+        return null;
+      }
+      return name;
+    },
+    [invites, linkedDrivers, orgNameById],
+  );
+
   const walletTransactions = useMemo(
     () =>
       buildDriverWalletTransactions({
@@ -2698,12 +2738,15 @@ export default function DriverWalletScreen() {
             orgNameById[orgId] ??
             salaryRequestOrgOptions.find((o) => String(o.orgId ?? "") === orgId)?.orgName ??
             "Party";
-          return walletTxnPartyFallback(trip, orgName);
+          return walletTxnPayerName(trip, orgName, assignerOrgNameForTrip(trip));
         },
+        assignerNameForTrip: (trip) =>
+          walletTxnAssignerPayer(trip, assignerOrgNameForTrip(trip)),
         includeExpenses: true,
         collections: bookCollections,
       }),
     [
+      assignerOrgNameForTrip,
       bookCollections,
       driverTripNumberById,
       orgNameById,
@@ -3781,8 +3824,12 @@ export default function DriverWalletScreen() {
                         branding: cashOrgAvatar,
                       });
                       const ledger = txn.ledger;
-                      const paymentMode = derivePaymentMode(ledger?.description) ?? "—";
-                      const utr = extractUtr(ledger?.description) ?? "—";
+                      // Book receipts have no ledger row — use the mode/reference saved at capture.
+                      const paymentMode =
+                        derivePaymentMode(ledger?.description) ??
+                        (txn.paymentMode ? derivePaymentMode(`Mode: ${txn.paymentMode}`) : null) ??
+                        "—";
+                      const utr = extractUtr(ledger?.description) ?? txn.reference ?? "—";
                       const capturedAt = phonePeMetaDate(txn.at);
                       const txnId = ledger?.id ?? txn.id;
                       const isOut = txn.kind === "out";

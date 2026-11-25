@@ -877,7 +877,11 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
             {formatMonthLabel(monthKey)}
           </Text>
           <Text style={[styles.monthHint, { color: colors.textMuted }]} numberOfLines={1}>
-            {activeFleetName ? activeFleetName : "All fleets · completed trips"}
+            {activeFleetName
+              ? activeFleetName
+              : fleets.length > 0
+                ? "All fleets · completed trips"
+                : "Your trips · completed trips"}
           </Text>
         </View>
 

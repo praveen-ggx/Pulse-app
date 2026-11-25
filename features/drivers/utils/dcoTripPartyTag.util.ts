@@ -3,7 +3,11 @@ export const DCO_PARTY_NOTE_PREFIX = "<!--pulse-dco-party:";
 const DCO_PARTY_NOTE_RE =
   /<!--pulse-dco-party:(\{[^<]*\})-->/;
 
-export type DcoPartyTag = { id: string; name: string; billed?: number };
+/**
+ * `entered` = the driver typed `billed` by hand (offline flow, 2026-11-25).
+ * Older tags without it carry an app-suggested amount (10% guess / trip price).
+ */
+export type DcoPartyTag = { id: string; name: string; billed?: number; entered?: boolean };
 
 function money(value: unknown): number | undefined {
   const n = Math.round(Number(value) || 0);
@@ -21,14 +25,16 @@ export function parseDcoPartyTagFromNotes(
       id?: unknown;
       name?: unknown;
       billed?: unknown;
+      entered?: unknown;
     };
     const id = String(parsed.id ?? "").trim();
     const name = String(parsed.name ?? "").trim();
     if (!id) return null;
     const billed = money(parsed.billed);
-    return billed != null
-      ? { id, name: name || "Party", billed }
-      : { id, name: name || "Party" };
+    if (billed == null) return { id, name: name || "Party" };
+    return parsed.entered === true
+      ? { id, name: name || "Party", billed, entered: true }
+      : { id, name: name || "Party", billed };
   } catch {
     return null;
   }
@@ -46,8 +52,18 @@ export function applyDcoPartyTagToNotes(
     id: party.id,
     name: party.name,
     ...(billed != null ? { billed } : {}),
+    ...(billed != null && party.entered ? { entered: true } : {}),
   })}-->`;
   return stripped ? `${stripped}\n${marker}` : marker;
+}
+
+/**
+ * Offline trip amount the driver typed when tagging the party. 0 when nothing
+ * was typed — never a calculated figure (no 10% guess, no trip price).
+ */
+export function offlineEnteredBilled(notes: string | null | undefined): number {
+  const tag = parseDcoPartyTagFromNotes(notes);
+  return tag?.entered && tag.billed ? tag.billed : 0;
 }
 
 export function offlinePartyId(name: string, phone?: string | null): string {

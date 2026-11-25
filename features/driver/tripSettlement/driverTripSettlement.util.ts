@@ -6,6 +6,8 @@ import {
   type DriverTripPayoutTerms,
 } from "@/features/drivers/utils/driverUtils.util";
 import { getDriverTripDisplayNumber } from "@/features/driver/utils/driverTripSequence.util";
+import { driverHistoryLane } from "@/features/drivers/domain/driverOperatingMode";
+import { offlineEnteredBilled } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import type { DriverLedgerRow } from "@/features/drivers/services/drivers.service";
 import { formatLedgerReceiptDate } from "@/features/finance/utils/ledgerTransactionReceipt.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -334,8 +336,19 @@ export function buildDriverTripSettlementView(input: {
   const to = trip.drop_location?.trim() || "Unknown destination";
   const isSalary = isAggregateTrip(trip);
   const earningsDetail = tripEarningsDetailForDriver(trip, payoutTerms);
-  const expectedAmount = Math.round(earningsDetail.amount);
-  const isEstimated = earningsDetail.isEstimated;
+  const ledgerIndex = indexDriverLedgerForTrips(ledgerEntries);
+  // Offline flow: the driver's own offline trip has no app-calculated amount.
+  // Expected = what the driver typed when tagging, or what they captured if
+  // that is more. Never the 10% guess / trip price / old app-filled amount.
+  const useEnteredAmountOnly =
+    !isFleetLinked && !isSalary && driverHistoryLane(trip, false) === "offline";
+  const expectedAmount = useEnteredAmountOnly
+    ? Math.max(
+        offlineEnteredBilled(trip.notes),
+        Math.round(ledgerIndex.receivedByTripId[trip.id] ?? 0),
+      )
+    : Math.round(earningsDetail.amount);
+  const isEstimated = useEnteredAmountOnly ? false : earningsDetail.isEstimated;
   const commissionApplies =
     isFleetLinked &&
     !isSalary &&
@@ -355,7 +368,8 @@ export function buildDriverTripSettlementView(input: {
     showEstimatedEarning,
     otherIncomeAmount,
     deductionsAmount,
-    payParts: isSalary || isEstimated ? null : (earningsDetail.parts ?? null),
+    payParts:
+      isSalary || isEstimated || useEnteredAmountOnly ? null : (earningsDetail.parts ?? null),
   };
 
   if (isSalary) {
@@ -392,7 +406,7 @@ export function buildDriverTripSettlementView(input: {
   }
 
   const { receivedByTripId, latestCreditLedgerByTripId, latestFleetPaidPendingLedgerByTripId } =
-    indexDriverLedgerForTrips(ledgerEntries);
+    ledgerIndex;
 
   const receivedAmt = receivedByTripId[trip.id] ?? 0;
   const settlementLedgerEarly = latestCreditLedgerByTripId[trip.id] ?? null;

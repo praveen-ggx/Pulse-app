@@ -6,6 +6,7 @@ import {
   resolveTripPartyDisplayName,
   tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
+import { driverJobSource } from "@/features/drivers/domain/driverOperatingMode";
 
 export type DriverWalletTxnKind = "in" | "out";
 
@@ -19,6 +20,9 @@ export type DriverWalletTxn = {
   tripId: string | null;
   tripRef: string;
   ledger: DriverLedgerRow | null;
+  /** Book receipts only (no ledger row): mode and reference typed at capture. */
+  paymentMode?: string | null;
+  reference?: string | null;
 };
 
 export function buildDriverWalletTransactions(input: {
@@ -27,6 +31,8 @@ export function buildDriverWalletTransactions(input: {
   tripsById: Record<string, TripRow>;
   tripDisplay: (trip: TripRow | undefined, tripId: string | null) => string;
   partyNameForTrip: (trip: TripRow | undefined) => string;
+  /** Company that assigned the trip (and so pays the driver); null for the driver's own trips. */
+  assignerNameForTrip?: (trip: TripRow) => string | null;
   includeExpenses: boolean;
   /** Independent and Self book receipts. These are not ledger rows. */
   collections?: DriverBookCollection[];
@@ -66,21 +72,28 @@ export function buildDriverWalletTransactions(input: {
   for (const collection of collections) {
     const trip = collection.tripId ? input.tripsById[collection.tripId] : undefined;
     const tripRef = input.tripDisplay(trip, collection.tripId);
-    // Tagged trip name wins so older captures (AMzg) show as ADANI GROUPS.
+    // A company-assigned trip is paid by that company. The label saved at the
+    // first capture (e.g. the company's own customer) must not override it.
+    const assigner = trip ? String(input.assignerNameForTrip?.(trip) ?? "").trim() : "";
+    // Otherwise the tagged trip name wins so older captures (AMzg) show as ADANI GROUPS.
     const party = resolveTripPartyDisplayName(trip, collection.partyName);
+    const title = assigner
+      ? assigner
+      : party && party !== "Party" && party !== "Untagged"
+        ? party
+        : input.partyNameForTrip(trip);
     rows.push({
       id: `in:${collection.id}`,
       kind: "in",
-      title:
-        party && party !== "Party" && party !== "Untagged"
-          ? party
-          : input.partyNameForTrip(trip),
+      title,
       subtitle: tripRef,
       amount: collection.amount,
       at: collection.at,
       tripId: collection.tripId,
       tripRef,
       ledger: null,
+      paymentMode: collection.paymentMode,
+      reference: collection.reference,
     });
   }
 
@@ -148,4 +161,28 @@ export function walletTxnPartyFallback(trip: TripRow | undefined, orgName: strin
   const tagged = resolveTripPartyDisplayName(trip) || tripReceivablePartyName(trip);
   if (tagged && tagged !== "Untagged" && tagged !== "Shipper") return tagged;
   return orgName || "Party";
+}
+
+/**
+ * Who pays the driver for this trip.
+ * - Assigned by a company (OTP / fleet / supplier): that company. Its own
+ *   customer (e.g. Godrej) pays the company, never the driver.
+ * - Driver's own DCO trip and marketplace: unchanged (tagged party / listing shipper).
+ */
+export function walletTxnPayerName(
+  trip: TripRow | undefined,
+  orgName: string,
+  assignerOrgName: string | null | undefined,
+): string {
+  return walletTxnAssignerPayer(trip, assignerOrgName) ?? walletTxnPartyFallback(trip, orgName);
+}
+
+/** The assigning company when it pays the driver; null for DCO-own and marketplace trips. */
+export function walletTxnAssignerPayer(
+  trip: TripRow | undefined,
+  assignerOrgName: string | null | undefined,
+): string | null {
+  const assigner = String(assignerOrgName ?? "").trim();
+  if (trip && assigner && driverJobSource(trip) === "business_assigned") return assigner;
+  return null;
 }

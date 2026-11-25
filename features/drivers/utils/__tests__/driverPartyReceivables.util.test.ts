@@ -136,13 +136,15 @@ describe("buildDriverPartyReceivables", () => {
       received: 2000,
       due: 6000,
     });
+    // Offline flow: no trip price is used. s1 counts only what was captured
+    // (4,000); s2 has nothing typed or captured, so it adds nothing.
     expect(rows[1]).toMatchObject({
       kind: "shipper",
       name: "Mohana Logistics",
       trips: 2,
-      billed: 12000,
+      billed: 4000,
       received: 4000,
-      due: 8000,
+      due: 0,
     });
   });
 
@@ -210,7 +212,8 @@ describe("tripsForDriverParty", () => {
     const lines = tripsForDriverParty(trips, { s1: 2500 }, fleet, "shipper:c-1");
     expect(lines.map((l) => l.trip.id)).toEqual(["s1"]);
     expect(lines[0]?.received).toBe(2500);
-    expect(lines[0]?.due).toBe(7500);
+    // Offline flow: the trip price is never used — only typed/captured amounts.
+    expect(lines[0]?.due).toBe(0);
   });
 });
 
@@ -403,14 +406,69 @@ describe("untagged offline AR", () => {
       () => false,
     );
     expect(rows.map((r) => r.id)).toEqual([UNTAGGED_PARTY_ID, "shipper:c-mid"]);
+    // Offline flow: no amount is calculated from the trip price.
     expect(rows[0]).toMatchObject({
       name: "Untagged",
       subtitle: "Tag a shipper or middleman",
       trips: 1,
-      billed: 25000,
-      due: 25000,
+      billed: 0,
+      due: 0,
     });
-    expect(rows[1]).toMatchObject({ name: "Middleman Co", trips: 1, billed: 10000 });
+    expect(rows[1]).toMatchObject({ name: "Middleman Co", trips: 1, billed: 0 });
+  });
+});
+
+describe("offline flow — driver-entered amount only", () => {
+  const notesWith = (billed: number, entered: boolean) =>
+    applyDcoPartyTagToNotes(null, { id: "c-9", name: "Ravi Traders", billed, entered });
+
+  it("uses the amount the driver typed when tagging", () => {
+    const [line] = tripsForDriverParty(
+      [trip({ id: "o1", source: "manual", client_price: 40000, notes: notesWith(1000, true) })],
+      {},
+      () => false,
+      "shipper:c-9",
+    );
+    expect(line).toMatchObject({ billed: 1000, received: 0, due: 1000 });
+  });
+
+  it("ignores an old app-suggested amount when nothing is captured", () => {
+    const [line] = tripsForDriverParty(
+      [trip({ id: "o2", source: "manual", client_price: 40000, notes: notesWith(4000, false) })],
+      {},
+      () => false,
+      "shipper:c-9",
+    );
+    expect(line).toMatchObject({ billed: 0, received: 0, due: 0 });
+  });
+
+  it("captured trip with an old app-filled amount shows no due", () => {
+    const [line] = tripsForDriverParty(
+      [trip({ id: "o3", source: "manual", client_price: 40000, notes: notesWith(2500, false) })],
+      { o3: 2000 },
+      () => false,
+      "shipper:c-9",
+    );
+    expect(line).toMatchObject({ billed: 2000, received: 2000, due: 0 });
+  });
+
+  it("partial capture against a driver-typed amount leaves the rest due", () => {
+    const [line] = tripsForDriverParty(
+      [trip({ id: "o4", source: "manual", notes: notesWith(1000, true) })],
+      { o4: 600 },
+      () => false,
+      "shipper:c-9",
+    );
+    expect(line).toMatchObject({ billed: 1000, received: 600, due: 400 });
+  });
+
+  it("does not change marketplace receivables", () => {
+    expect(
+      tripReceivableBilled(
+        trip({ id: "m9", source: "market_bid", operating_mode: "DCO", supplier_rate: 7000 }),
+        { lane: "marketplace", received: 0 },
+      ),
+    ).toBe(7000);
   });
 });
 

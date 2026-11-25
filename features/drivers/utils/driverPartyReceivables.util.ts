@@ -7,7 +7,10 @@ import {
   driverHistoryLane,
   type DriverHistoryLane,
 } from "@/features/drivers/domain/driverOperatingMode";
-import { parseDcoPartyTagFromNotes } from "@/features/drivers/utils/dcoTripPartyTag.util";
+import {
+  offlineEnteredBilled,
+  parseDcoPartyTagFromNotes,
+} from "@/features/drivers/utils/dcoTripPartyTag.util";
 import { tripEarningsDetailForDriver } from "@/features/drivers/utils/driverUtils.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
@@ -187,7 +190,21 @@ export function partyAvatarLookup(
   return { clientId: tripClientId, orgId: shipperOrgFallback };
 }
 
-export function tripReceivableBilled(trip: TripRow): number {
+/**
+ * Offline flow: every amount is typed by the driver — never a 10% guess, the
+ * trip price, or an old app-filled tag amount. Billed = the amount the driver
+ * typed when tagging, or what they captured if that is more (captured money is
+ * the ledger truth). Nothing typed and nothing captured → 0.
+ * Without `opts.lane` the legacy rule applies (marketplace callers).
+ */
+export function tripReceivableBilled(
+  trip: TripRow,
+  opts?: { lane?: DriverHistoryLane; received?: number },
+): number {
+  if (opts?.lane === "offline") {
+    const received = Math.max(0, Math.round(opts.received ?? 0));
+    return Math.max(offlineEnteredBilled(trip.notes), received);
+  }
   const noted = parseDcoPartyTagFromNotes(trip.notes)?.billed;
   if (noted && noted > 0) return noted;
   const agreed = tripEarningsDetailForDriver(trip);
@@ -248,8 +265,8 @@ export function buildDriverPartyReceivables(
   for (const trip of trips) {
     const lane = receivableLaneForTrip(trip, isFleetDispatched(trip));
     if (lane === "fleet") continue;
-    const billed = tripReceivableBilled(trip);
     const received = Math.max(0, Math.round(Number(receivedByTripId[trip.id] ?? 0) || 0));
+    const billed = tripReceivableBilled(trip, { lane, received });
     if (lane === "marketplace") {
       marketTrips += 1;
       marketBilled += billed;
@@ -332,8 +349,8 @@ export function tripsForDriverParty(
         ? lane === "marketplace"
         : lane !== "marketplace" && shipperPartyKey(trip).id === partyId;
     if (!match) continue;
-    const billed = tripReceivableBilled(trip);
     const received = Math.max(0, Math.round(Number(receivedByTripId[trip.id] ?? 0) || 0));
+    const billed = tripReceivableBilled(trip, { lane, received });
     lines.push({
       trip,
       billed,

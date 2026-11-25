@@ -134,7 +134,7 @@ export async function tagTripWithDcoClient(
   const nextNotes = applyDcoPartyTagToNotes(stripFleetTripMarkFromNotes(existing.notes), {
     id: client.id,
     name,
-    ...(billed > 0 ? { billed } : {}),
+    ...(billed > 0 ? { billed, entered: true } : {}),
   });
   const noted = await writeDriverTripNotes(id, nextNotes);
   if (noted.error) return noted;

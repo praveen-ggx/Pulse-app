@@ -22,7 +22,7 @@ import { rememberDriverOfflineParty } from "@/features/drivers/offline/driverOff
 import { listTagPartyChoices } from "@/features/drivers/utils/driverSelectableParties.util";
 import { useAuth } from "@/contexts/AuthContext";
 import { tagTripWithDcoClient } from "@/features/drivers/services/driverTripClient.service";
-import { tripReceivableBilled } from "@/features/drivers/utils/driverPartyReceivables.util";
+import { offlineEnteredBilled } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import {
   driverBodySecondary,
   driverUIBold,
@@ -100,7 +100,8 @@ export default function DriverAddClientScreen() {
   const [createdSuccess, setCreatedSuccess] = useState(false);
   const tripQuery = useTripDetailQuery(tripId || null);
   const currentBilled = useMemo(
-    () => (tripQuery.data ? tripReceivableBilled(tripQuery.data) : 0),
+    // Offline flow: never pre-fill a calculated amount — only what the driver typed before.
+    () => (tripQuery.data ? offlineEnteredBilled(tripQuery.data.notes) : 0),
     [tripQuery.data],
   );
   const beginTag = useCallback(

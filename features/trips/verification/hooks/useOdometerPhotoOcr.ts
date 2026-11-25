@@ -326,6 +326,7 @@ export function useOdometerPhotoOcr({
       permissionTitle: "Camera required",
       permissionMessage,
       preferCamera: true,
+      source: "camera",
     });
     if (!picked) return;
 

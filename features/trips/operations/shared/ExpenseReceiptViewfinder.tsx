@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Animated,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -84,6 +85,15 @@ export function ExpenseReceiptViewfinder({
 
   const openCamera = () => {
     if (busy) return;
+    // Browser without live camera access (e.g. plain http on a phone): open the
+    // phone camera directly in this tap instead of a blank viewfinder.
+    if (
+      Platform.OS === "web" &&
+      (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia)
+    ) {
+      onAttach();
+      return;
+    }
     primeReceiptCamera();
     setCameraOpen(true);
   };

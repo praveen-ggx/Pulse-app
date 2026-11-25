@@ -13,7 +13,27 @@ export type CaptureImageOptions = {
   quality?: number;
   /** When true (default), offer camera first on native. Web always uses file picker. */
   preferCamera?: boolean;
+  /**
+   * "camera" on web opens the phone camera directly (file input with capture),
+   * which also works on plain http where live camera access is blocked.
+   * Native keeps its camera / library chooser.
+   */
+  source?: "camera" | "library";
 };
+
+async function launchWebCamera(quality: number): Promise<CapturedImage | null> {
+  try {
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      quality,
+      allowsEditing: false,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return null;
+    return { uri: result.assets[0].uri };
+  } catch {
+    return launchLibrary(quality);
+  }
+}
 
 function isPermissionGranted(
   response: ImagePicker.CameraPermissionResponse | ImagePicker.MediaLibraryPermissionResponse,
@@ -112,7 +132,7 @@ export function captureOrPickImage(options: CaptureImageOptions = {}): Promise<C
   const preferCamera = options.preferCamera !== false;
 
   if (Platform.OS === "web") {
-    return launchLibrary(quality);
+    return options.source === "camera" ? launchWebCamera(quality) : launchLibrary(quality);
   }
 
   if (!preferCamera) {

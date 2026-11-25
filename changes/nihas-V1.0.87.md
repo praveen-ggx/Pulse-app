@@ -10,3 +10,6 @@
 
 ## Prod error report script
 - scripts/prod-error-report.sh [hours] groups prod Postgres errors from the logs API into app vs manual (hand-run SQL), so a fix can be proven by the app count reaching zero. Read-only.
+
+## Timeline events: drivers can write them
+- New RPC record_trip_operational_timeline_event lets the trips assigned driver (not an org member) write timeline rows; members behave as before and the table policies are unchanged. Fixes the 42501 errors where driver flows silently lost the entry. Set: record-trip-operational-timeline-event.

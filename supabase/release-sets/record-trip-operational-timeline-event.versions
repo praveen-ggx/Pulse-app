@@ -1,0 +1,4 @@
+# record_trip_operational_timeline_event: lets the trip's assigned driver (not an org member) write timeline rows.
+# New function only; table policies unchanged. Client falls back to the direct insert if the function is absent.
+# sha256 90c201ca032194fd1737e76246593458e842101ab8089fe12e8717812ace5fad  20261125132909_record_trip_operational_timeline_event.sql
+20261125132909

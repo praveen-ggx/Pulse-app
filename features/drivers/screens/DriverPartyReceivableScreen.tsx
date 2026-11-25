@@ -34,12 +34,24 @@ import { ROUTES } from "@/lib/routes";
 import { useSafeBack } from "@/lib/useSafeBack";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import { ArrowDownLeft, ArrowUpRight, Tag } from "lucide-react-native";
+import { ArrowDownLeft, ArrowUpRight, Gauge, Navigation, Tag } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 function inr(n: number): string {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
+}
+
+function formatKm(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(Number(v)) || Number(v) <= 0) return "—";
+  return `${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 1 })} km`;
+}
+
+function cleanPlace(raw: string | null | undefined): string {
+  return String(raw ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*·\s*/g, ", ")
+    .trim();
 }
 
 function decodePartyId(raw: string | string[] | undefined): string {
@@ -285,10 +297,11 @@ export default function DriverPartyReceivableScreen() {
           <View style={styles.missionHead}>
             <Text style={styles.headCell}>Mission</Text>
           </View>
-          <Text style={[styles.headCell, styles.amtCol]}>Received</Text>
-          <Text style={[styles.headCell, styles.amtCol]}>Due</Text>
-          <View style={styles.actionCol}>
-            <Text style={[styles.headCell, styles.actionHead]}>Action</Text>
+          <View style={styles.receivedCol}>
+            <Text style={[styles.headCell, styles.headRight]}>Received</Text>
+          </View>
+          <View style={styles.dueActionCol}>
+            <Text style={[styles.headCell, styles.headRight]}>Due</Text>
           </View>
         </View>
         {partyTrips.length === 0 ? (
@@ -310,9 +323,10 @@ export default function DriverPartyReceivableScreen() {
               (isMarketplace || isTripTaggedToParty(line.trip));
             const rowAvatar =
               tripAvatarById[line.trip.id] ?? (isMarketplace ? EMPTY_DRIVER_PARTY_AVATAR : avatar);
-            const route =
-              `${line.trip.pickup_area ?? ""} → ${line.trip.drop_location ?? ""}`.trim() ||
-              "—";
+            const fromPlace = cleanPlace(line.trip.pickup_area) || "—";
+            const toPlace = cleanPlace(line.trip.drop_location) || "—";
+            const odoKm = formatKm(line.trip.odometer_distance_km);
+            const gpsKm = formatKm(line.trip.gps_distance_km);
             return (
               <View
                 key={line.trip.id}
@@ -347,24 +361,39 @@ export default function DriverPartyReceivableScreen() {
                     <Text style={styles.missionId} numberOfLines={1}>
                       {tripNo}
                     </Text>
-                    <Text style={styles.missionRoute} numberOfLines={1}>
-                      {route}
+                    <Text style={styles.missionRouteFrom} numberOfLines={1}>
+                      {fromPlace}
                     </Text>
+                    <Text style={styles.missionRouteTo} numberOfLines={1}>
+                      → {toPlace}
+                    </Text>
+                    <View style={styles.distanceRow}>
+                      <View style={styles.distanceChip}>
+                        <Gauge size={11} color={Theme.textRouteCard} strokeWidth={2} />
+                        <Text style={styles.distanceChipText}>Odo {odoKm}</Text>
+                      </View>
+                      <View style={styles.distanceChip}>
+                        <Navigation size={11} color={Theme.textRouteCard} strokeWidth={2} />
+                        <Text style={styles.distanceChipText}>GPS {gpsKm}</Text>
+                      </View>
+                    </View>
                   </View>
                 </Pressable>
-                <Text style={[styles.amt, { color: Theme.positive }]} numberOfLines={1}>
-                  {inr(line.received)}
-                </Text>
-                <Text
-                  style={[
-                    styles.amt,
-                    { color: line.due > 0 ? Theme.negative : Theme.positive },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {inr(line.due)}
-                </Text>
-                <View style={styles.actionCol}>
+                <View style={styles.receivedCol}>
+                  <Text style={[styles.amt, { color: Theme.positive }]} numberOfLines={1}>
+                    {inr(line.received)}
+                  </Text>
+                </View>
+                <View style={styles.dueActionCol}>
+                  <Text
+                    style={[
+                      styles.dueAmt,
+                      { color: line.due > 0 ? Theme.negative : Theme.positive },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {inr(line.due)}
+                  </Text>
                   {needsTag ? (
                     <Pressable
                       onPress={() => setTagTrip(line.trip)}
@@ -486,6 +515,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     padding: 10,
+    alignItems: "stretch",
   },
   scoreCell: {
     flex: 1,
@@ -496,6 +526,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 12,
+    minHeight: 64,
   },
   scoreCellReceived: {
     backgroundColor: Theme.positiveMuted,
@@ -564,21 +595,25 @@ const styles = StyleSheet.create({
   missionHead: {
     flex: 1,
     minWidth: 0,
-    paddingLeft: 42,
+    paddingLeft: 44,
   },
-  amtCol: {
-    width: 70,
-    textAlign: "right",
-  },
-  actionCol: {
-    width: 76,
-    alignItems: "flex-end",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  actionHead: {
+  headRight: {
     textAlign: "right",
     width: "100%",
+  },
+  receivedCol: {
+    width: 72,
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    flexShrink: 0,
+    paddingTop: 2,
+  },
+  dueActionCol: {
+    width: 88,
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    gap: 8,
+    flexShrink: 0,
   },
   tagBtn: {
     minHeight: 32,
@@ -600,14 +635,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: Theme.textMuted,
-    paddingRight: 10,
+    paddingRight: 4,
   },
   row: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    minHeight: 64,
+    paddingVertical: 14,
     gap: 8,
     backgroundColor: Theme.screenBackground,
   },
@@ -615,7 +649,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 10,
     minHeight: 44,
   },
@@ -625,6 +659,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+    marginTop: 1,
   },
   missionCopy: {
     flex: 1,
@@ -646,19 +681,56 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
     color: Theme.textPrimaryDark,
   },
-  missionRoute: {
-    fontSize: 10,
+  missionRouteFrom: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  missionRouteTo: {
+    fontSize: 11,
     fontWeight: "500",
-    color: Theme.textMuted,
-    lineHeight: 13,
+    color: Theme.textRouteCard,
+    lineHeight: 15,
+  },
+  distanceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 6,
+  },
+  distanceChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Theme.surfaceGray,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+  },
+  distanceChipText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Theme.textRouteCard,
+    letterSpacing: 0.1,
   },
   amt: {
-    width: 70,
     textAlign: "right",
     fontSize: 12,
     fontWeight: "800",
     fontVariant: ["tabular-nums"],
     letterSpacing: -0.15,
+  },
+  dueAmt: {
+    textAlign: "right",
+    fontSize: 12,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+    letterSpacing: -0.15,
+    width: "100%",
   },
   empty: {
     padding: 16,

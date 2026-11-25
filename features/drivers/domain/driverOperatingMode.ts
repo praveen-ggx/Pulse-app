@@ -128,11 +128,11 @@ export function canAttributeToEmployer(m: DriverOperatingMode): boolean {
 
 /**
  * Wallet primary book tab / header label — terminology only, not a destination change.
- * DCO Self → "Self"; independent DRIVER → "Independent"; fleet employee → "Fleet".
+ * DCO Self → "Self"; independent DRIVER → "Receivables"; fleet employee → "Fleet".
  */
 export function driverWalletBookTabLabel(m: DriverOperatingMode): string {
   if (canManageDcoSelfBook(m)) return 'Self';
-  if (canManageIndieBook(m)) return 'Independent';
+  if (canManageIndieBook(m)) return 'Receivables';
   return 'Fleet';
 }
 

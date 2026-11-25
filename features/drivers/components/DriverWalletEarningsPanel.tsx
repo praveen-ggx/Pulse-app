@@ -576,10 +576,17 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
       [line.meta.from, line.meta.to].filter(Boolean).join(" → ") ||
       line.route ||
       "—";
+    const formatKm = (v: number | null | undefined) => {
+      if (v == null || !Number.isFinite(Number(v)) || Number(v) <= 0) return "—";
+      return `${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 1 })} km`;
+    };
+    const sourceTrip = completedTrips.find((t) => String(t.id) === String(line.id));
     const details = [
       { label: "Party", value: line.meta.fleetName?.trim() || "Fleet" },
       { label: "Trip", value: line.meta.displayId?.trim() || "Trip" },
       { label: "Route", value: routeLabel, multiline: true },
+      { label: "Odometer", value: formatKm(sourceTrip?.odometer_distance_km) },
+      { label: "GPS", value: formatKm(sourceTrip?.gps_distance_km) },
       { label: "Earned", value: `₹${line.earned.toLocaleString("en-IN")}` },
     ];
     if (showMonthPnl) {

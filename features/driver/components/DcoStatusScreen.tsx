@@ -21,13 +21,20 @@ import type { DriverOperatingModeKind } from '@/features/drivers/domain/driverOp
 import { canManageOwnerVehicles } from '@/features/drivers/domain/driverOperatingMode';
 import { ROUTES } from '@/lib/routes';
 import { supabase } from '@/lib/supabase';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import {
-  CheckCircle2,
+  BadgeCheck,
+  Building2,
+  Check,
   ChevronRight,
-  Clock,
+  Clock3,
+  FileText,
+  IdCard,
+  Landmark,
   ShieldAlert,
   Truck,
+  Upload,
   XCircle,
 } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -134,7 +141,7 @@ export default function DcoStatusScreen() {
     };
   }, [profile?.uid]);
 
-  const cardBorder = isDark ? colors.borderSubtle : 'rgba(226,232,240,0.95)';
+  const cardBorder = isDark ? colors.borderSubtle : Theme.borderMedium;
   const leftFleet = !operatingMode.isEmployeeDriver;
   const identityDone = Boolean(kyc?.isVerified);
   const ownerVehicleCount = ownerVehicles.length;
@@ -168,6 +175,10 @@ export default function DcoStatusScreen() {
         : leftFleet && !operatingMode.isEmployeeDriver
           ? 'active'
           : 'pending';
+
+  const stepStates = [leaveState, identityState, docsState, vehicleState, submitState];
+  const doneCount = stepStates.filter((s) => s === 'done').length;
+  const progressPct = Math.round((doneCount / stepStates.length) * 100);
 
   const vehicleTitle = useOwnVehiclePath ? 'Your vehicle' : 'Assigned vehicle';
   const vehicleSub = useMemo(() => {
@@ -208,10 +219,12 @@ export default function DcoStatusScreen() {
     router.push('/(driver)/documents' as Parameters<typeof router.push>[0]);
   }, [router]);
 
+  const softSurface = isDark ? colors.surfaceElevated : Theme.surfaceGray;
+
   return (
     <View style={[styles.root, { backgroundColor: pageBg }]}>
       <DriverSubScreenHeader
-        title="DCO status"
+        title="Become a DCO"
         subtitle="Independent owner-operator"
         onBack={handleBack}
       />
@@ -219,24 +232,44 @@ export default function DcoStatusScreen() {
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: DRIVER_DETAIL_HORIZONTAL_PAD,
-          paddingBottom: Math.max(insets.bottom, 16) + 24,
-          paddingTop: 12,
+          paddingBottom: Math.max(insets.bottom, 16) + 28,
+          paddingTop: 10,
           gap: 14,
         }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          <Text style={[styles.heroEyebrow, { color: colors.emerald }]}>
-            DCO · DRIVER-CUM-OWNER
+        <LinearGradient
+          colors={
+            isDark
+              ? [Theme.driverEmeraldDark, '#022c22']
+              : [Theme.driverEmerald, Theme.driverEmeraldDark]
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroCard}
+        >
+          <View style={styles.heroBadge}>
+            <BadgeCheck size={13} color="#ecfdf5" strokeWidth={2.3} />
+            <Text style={styles.heroEyebrow}>DCO · DRIVER-CUM-OWNER</Text>
+          </View>
+          <Text style={styles.heroTitle}>Run as your own operator</Text>
+          <Text style={styles.heroBody}>
+            Keep your driver KYC. Add PAN and bank proof, leave fleet employment, then
+            submit for Pulse approval.
           </Text>
-          <Text style={[styles.heroTitle, { color: colors.text }]}>
-            Operate as an independent owner-operator
-          </Text>
-          <Text style={[styles.heroBody, { color: colors.textMuted }]}>
-            Driver documents stay the same. For DCO, upload PAN and bank proof for Pulse
-            admin verification. Fleet employment must end before Marketplace bids.
-          </Text>
-        </View>
+
+          <View style={styles.progressBlock}>
+            <View style={styles.progressMeta}>
+              <Text style={styles.progressLabel}>Setup progress</Text>
+              <Text style={styles.progressValue}>
+                {doneCount}/{stepStates.length} complete
+              </Text>
+            </View>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+            </View>
+          </View>
+        </LinearGradient>
 
         {isLoading ? (
           <ActivityIndicator color={colors.emerald} style={{ marginTop: 8 }} />
@@ -254,125 +287,151 @@ export default function DcoStatusScreen() {
 
         {!isLoading ? (
           <View
-            style={[styles.checklistCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+            style={[
+              styles.checklistCard,
+              { backgroundColor: colors.surface, borderColor: cardBorder },
+            ]}
           >
-            <ChecklistStep
-              index={1}
-              state={leaveState}
-              title="Leave fleet"
-              body={
-                leftFleet
-                  ? 'Not linked to any fleet.'
-                  : 'You are still linked as an employee driver. Leave that fleet to continue.'
-              }
-              colors={colors}
-              isDark={isDark}
-            />
+            <Text style={[styles.checklistTitle, { color: colors.text }]}>
+              Onboarding path
+            </Text>
+            <Text style={[styles.checklistSub, { color: colors.textMuted }]}>
+              Finish each step in order. Active steps open the right screen.
+            </Text>
 
-            <ChecklistStep
-              index={2}
-              state={identityState}
-              title="Identity documents"
-              body={
-                identityDone
-                  ? 'Identity verified.'
-                  : kyc?.reviewStatus === 'submitted'
-                    ? 'Awaiting verification — our team is reviewing.'
-                    : 'Upload Driving Licence, Aadhaar and Selfie in Documents.'
-              }
-              colors={colors}
-              isDark={isDark}
-              actionLabel="Open Documents"
-              onAction={openDocuments}
-            />
-
-            <ChecklistStep
-              index={3}
-              state={docsState}
-              title="DCO documents"
-              body="Required only for DCO. Tap each to upload in Documents."
-              colors={colors}
-              isDark={isDark}
-            >
-              <NestedActionRow
-                label="PAN card"
-                required
-                actionLabel="Upload"
-                onPress={openDocuments}
-                colors={colors}
-                isDark={isDark}
-                cardBorder={cardBorder}
-              />
-              <NestedActionRow
-                label="Bank proof (cancelled cheque / passbook)"
-                required
-                actionLabel="Upload"
-                onPress={openDocuments}
-                colors={colors}
-                isDark={isDark}
-                cardBorder={cardBorder}
-              />
-            </ChecklistStep>
-
-            <ChecklistStep
-              index={4}
-              state={vehicleState}
-              title={vehicleTitle}
-              body={vehicleSub}
-              colors={colors}
-              isDark={isDark}
-            >
-              <NestedActionRow
-                label={useOwnVehiclePath ? 'My Fleet' : 'Fleet assigned'}
-                actionLabel={
-                  useOwnVehiclePath
-                    ? hasOwnVehicle
-                      ? 'Open'
-                      : 'Add'
-                    : hasAssignment
-                      ? 'View'
-                      : 'Open'
+            <View style={styles.stepList}>
+              <ChecklistStep
+                index={1}
+                state={leaveState}
+                title="Leave fleet"
+                body={
+                  leftFleet
+                    ? 'Not linked to any fleet employer.'
+                    : 'Leave your current fleet employer before Marketplace bids.'
                 }
-                onPress={openVehicleStep}
                 colors={colors}
                 isDark={isDark}
+                softSurface={softSurface}
                 cardBorder={cardBorder}
-                icon={
-                  <View
-                    style={[
-                      styles.nestedIcon,
-                      {
-                        backgroundColor: isDark
-                          ? 'rgba(59,130,246,0.2)'
-                          : 'rgba(219,234,254,0.95)',
-                      },
-                    ]}
-                  >
-                    <Truck size={16} color="#3b82f6" strokeWidth={2.3} />
-                  </View>
-                }
+                icon={<Building2 size={15} color={colors.emerald} strokeWidth={2.2} />}
               />
-            </ChecklistStep>
 
-            <ChecklistStep
-              index={5}
-              state={submitState}
-              title="Submit for DCO approval"
-              body={
-                status === 'PENDING'
-                  ? 'Submitted — waiting for Pulse admin approval.'
-                  : status === 'APPROVED'
-                    ? 'Approved — you can operate as an independent owner-operator.'
-                    : status === 'REJECTED'
-                      ? 'Rejected — request again after fixing issues.'
-                      : status === 'SUSPENDED'
-                        ? 'Suspended — contact Pulse support.'
-                        : 'Request DCO status when fleet leave and documents are ready.'
-              }
-              colors={colors}
-              isDark={isDark}
-              isLast
-            />
+              <ChecklistStep
+                index={2}
+                state={identityState}
+                title="Identity documents"
+                body={
+                  identityDone
+                    ? 'Identity verified.'
+                    : kyc?.reviewStatus === 'submitted'
+                      ? 'Awaiting verification — our team is reviewing.'
+                      : 'Upload Driving Licence, Aadhaar and Selfie.'
+                }
+                colors={colors}
+                isDark={isDark}
+                softSurface={softSurface}
+                cardBorder={cardBorder}
+                icon={<IdCard size={15} color={colors.emerald} strokeWidth={2.2} />}
+                actionLabel="Open Documents"
+                onAction={openDocuments}
+              />
+
+              <ChecklistStep
+                index={3}
+                state={docsState}
+                title="DCO documents"
+                body="Required only for DCO verification."
+                colors={colors}
+                isDark={isDark}
+                softSurface={softSurface}
+                cardBorder={cardBorder}
+                icon={<FileText size={15} color={colors.emerald} strokeWidth={2.2} />}
+              >
+                <NestedActionRow
+                  label="PAN card"
+                  required
+                  actionLabel="Upload"
+                  onPress={openDocuments}
+                  colors={colors}
+                  softSurface={softSurface}
+                  cardBorder={cardBorder}
+                  icon={<IdCard size={15} color={Theme.textRouteCard} strokeWidth={2.1} />}
+                />
+                <NestedActionRow
+                  label="Bank proof"
+                  hint="Cancelled cheque / passbook"
+                  required
+                  actionLabel="Upload"
+                  onPress={openDocuments}
+                  colors={colors}
+                  softSurface={softSurface}
+                  cardBorder={cardBorder}
+                  icon={<Landmark size={15} color={Theme.textRouteCard} strokeWidth={2.1} />}
+                />
+              </ChecklistStep>
+
+              <ChecklistStep
+                index={4}
+                state={vehicleState}
+                title={vehicleTitle}
+                body={vehicleSub}
+                colors={colors}
+                isDark={isDark}
+                softSurface={softSurface}
+                cardBorder={cardBorder}
+                icon={<Truck size={15} color={colors.emerald} strokeWidth={2.2} />}
+              >
+                <NestedActionRow
+                  label={useOwnVehiclePath ? 'My Fleet' : 'Fleet assigned'}
+                  hint={
+                    useOwnVehiclePath
+                      ? hasOwnVehicle
+                        ? 'Manage your vehicles'
+                        : 'Add your first vehicle'
+                      : hasAssignment
+                        ? 'View linked assignment'
+                        : 'Open vehicle details'
+                  }
+                  actionLabel={
+                    useOwnVehiclePath
+                      ? hasOwnVehicle
+                        ? 'Open'
+                        : 'Add'
+                      : hasAssignment
+                        ? 'View'
+                        : 'Open'
+                  }
+                  onPress={openVehicleStep}
+                  colors={colors}
+                  softSurface={softSurface}
+                  cardBorder={cardBorder}
+                  icon={<Truck size={15} color={Theme.textRouteCard} strokeWidth={2.1} />}
+                />
+              </ChecklistStep>
+
+              <ChecklistStep
+                index={5}
+                state={submitState}
+                title="Submit for approval"
+                body={
+                  status === 'PENDING'
+                    ? 'Submitted — waiting for Pulse admin approval.'
+                    : status === 'APPROVED'
+                      ? 'Approved — you can operate as an independent owner-operator.'
+                      : status === 'REJECTED'
+                        ? 'Rejected — request again after fixing issues.'
+                        : status === 'SUSPENDED'
+                          ? 'Suspended — contact Pulse support.'
+                          : 'Request DCO status when fleet leave and documents are ready.'
+                }
+                colors={colors}
+                isDark={isDark}
+                softSurface={softSurface}
+                cardBorder={cardBorder}
+                icon={<BadgeCheck size={15} color={colors.emerald} strokeWidth={2.2} />}
+                isLast
+              />
+            </View>
           </View>
         ) : null}
 
@@ -398,16 +457,19 @@ export default function DcoStatusScreen() {
             {busy ? (
               <ActivityIndicator color={Theme.textOnPrimary} />
             ) : (
-              <Text style={styles.ctaText}>
-                {status === 'REJECTED' ? 'Request again' : 'Request DCO status'}
-              </Text>
+              <>
+                <Text style={styles.ctaText}>
+                  {status === 'REJECTED' ? 'Request again' : 'Request DCO status'}
+                </Text>
+                <ChevronRight size={18} color={Theme.textOnPrimary} strokeWidth={2.4} />
+              </>
             )}
           </Pressable>
         ) : null}
 
         <Text style={[styles.footnote, { color: colors.textMuted }]}>
-          DCO trips settle to you directly, at your agreed bid amount — never as employee
-          commission and never through a Business's supplier ledger.
+          DCO trips settle to you directly at your agreed bid — never as employee
+          commission, never through a Business supplier ledger.
         </Text>
       </ScrollView>
     </View>
@@ -420,7 +482,9 @@ function ChecklistStep({
   title,
   body,
   colors,
-  isDark,
+  softSurface,
+  cardBorder,
+  icon,
   actionLabel,
   onAction,
   children,
@@ -432,52 +496,55 @@ function ChecklistStep({
   body: string;
   colors: ReturnType<typeof useDriverThemeColors>;
   isDark: boolean;
+  softSurface: string;
+  cardBorder: string;
+  icon: ReactNode;
   actionLabel?: string;
   onAction?: () => void;
   children?: ReactNode;
   isLast?: boolean;
 }) {
-  const tint =
-    state === 'done'
-      ? colors.emerald
-      : state === 'waiting'
-        ? '#B45309'
-        : colors.textMuted;
+  const isDone = state === 'done';
+  const isWaiting = state === 'waiting';
+  const isActive = state === 'active';
 
   return (
-    <View style={[styles.stepRow, !isLast && styles.stepRowBorder]}>
+    <View style={[styles.stepRow, !isLast && styles.stepRowGap]}>
       <View style={styles.stepRail}>
         <View
           style={[
             styles.stepBadge,
             {
-              backgroundColor:
-                state === 'done'
-                  ? isDark
-                    ? colors.emeraldMuted
-                    : 'rgba(220,252,231,0.95)'
-                  : state === 'waiting'
-                    ? isDark
-                      ? 'rgba(180,83,9,0.22)'
-                      : 'rgba(254,243,199,0.95)'
-                    : isDark
-                      ? colors.surfaceElevated
-                      : Theme.surfaceGray,
-              borderColor:
-                state === 'done'
-                  ? Theme.driverEmeraldBorderSoft
-                  : state === 'waiting'
-                    ? 'rgba(245,158,11,0.35)'
-                    : colors.borderSubtle,
+              backgroundColor: isDone
+                ? colors.emerald
+                : isWaiting
+                  ? 'rgba(245,158,11,0.16)'
+                  : isActive
+                    ? softSurface
+                    : softSurface,
+              borderColor: isDone
+                ? colors.emerald
+                : isWaiting
+                  ? 'rgba(245,158,11,0.45)'
+                  : isActive
+                    ? Theme.driverEmeraldBorderSoft
+                    : cardBorder,
             },
           ]}
         >
-          {state === 'done' ? (
-            <CheckCircle2 size={16} color={colors.emerald} strokeWidth={2.4} />
-          ) : state === 'waiting' ? (
-            <Clock size={14} color={tint} strokeWidth={2.4} />
+          {isDone ? (
+            <Check size={14} color={Theme.textOnPrimary} strokeWidth={2.8} />
+          ) : isWaiting ? (
+            <Clock3 size={14} color={Theme.warning} strokeWidth={2.4} />
           ) : (
-            <Text style={[styles.stepNum, { color: tint }]}>{index}</Text>
+            <Text
+              style={[
+                styles.stepNum,
+                { color: isActive ? colors.emerald : colors.textMuted },
+              ]}
+            >
+              {index}
+            </Text>
           )}
         </View>
         {!isLast ? (
@@ -485,31 +552,64 @@ function ChecklistStep({
             style={[
               styles.stepLine,
               {
-                backgroundColor: isDark
-                  ? 'rgba(4,120,87,0.28)'
-                  : 'rgba(4,120,87,0.14)',
+                backgroundColor: isDone
+                  ? 'rgba(4,120,87,0.35)'
+                  : 'rgba(148,163,184,0.35)',
               },
             ]}
           />
         ) : null}
       </View>
 
-      <View style={styles.stepBody}>
-        <Text style={[styles.stepTitle, { color: colors.text }]}>{title}</Text>
-        <Text style={[styles.stepBodyText, { color: colors.textMuted }]}>{body}</Text>
+      <View
+        style={[
+          styles.stepCard,
+          {
+            backgroundColor: isActive ? softSurface : 'transparent',
+            borderColor: isActive ? Theme.driverEmeraldBorderSoft : 'transparent',
+          },
+        ]}
+      >
+        <View style={styles.stepCardHead}>
+          <View
+            style={[
+              styles.stepIconWrap,
+              {
+                backgroundColor: isDone
+                  ? 'rgba(4,120,87,0.12)'
+                  : softSurface,
+              },
+            ]}
+          >
+            {icon}
+          </View>
+          <View style={styles.stepCopy}>
+            <Text style={[styles.stepTitle, { color: colors.text }]}>{title}</Text>
+            <Text style={[styles.stepBodyText, { color: colors.textMuted }]}>{body}</Text>
+          </View>
+        </View>
+
         {actionLabel && onAction ? (
           <Pressable
             onPress={onAction}
-            hitSlop={8}
-            style={styles.inlineLink}
+            style={({ pressed }) => [
+              styles.stepActionBtn,
+              {
+                backgroundColor: colors.surface,
+                borderColor: cardBorder,
+                opacity: pressed ? 0.9 : 1,
+              },
+            ]}
             accessibilityRole="button"
             accessibilityLabel={actionLabel}
           >
-            <Text style={[styles.inlineLinkText, { color: colors.emerald }]}>
-              {actionLabel} {'>'}
+            <Text style={[styles.stepActionText, { color: colors.emerald }]}>
+              {actionLabel}
             </Text>
+            <ChevronRight size={15} color={colors.emerald} strokeWidth={2.4} />
           </Pressable>
         ) : null}
+
         {children ? <View style={styles.nestedStack}>{children}</View> : null}
       </View>
     </View>
@@ -518,20 +618,22 @@ function ChecklistStep({
 
 function NestedActionRow({
   label,
+  hint,
   required,
   actionLabel,
   onPress,
   colors,
-  isDark,
+  softSurface,
   cardBorder,
   icon,
 }: {
   label: string;
+  hint?: string;
   required?: boolean;
   actionLabel: string;
   onPress: () => void;
   colors: ReturnType<typeof useDriverThemeColors>;
-  isDark: boolean;
+  softSurface: string;
   cardBorder: string;
   icon?: ReactNode;
 }) {
@@ -541,7 +643,7 @@ function NestedActionRow({
       style={({ pressed }) => [
         styles.nestedRow,
         {
-          backgroundColor: isDark ? colors.surfaceElevated : '#ffffff',
+          backgroundColor: colors.surface,
           borderColor: cardBorder,
           opacity: pressed ? 0.9 : 1,
         },
@@ -549,16 +651,21 @@ function NestedActionRow({
       accessibilityRole="button"
       accessibilityLabel={`${label}, ${actionLabel}`}
     >
-      <View style={styles.nestedLeft}>
-        {icon}
-        <Text style={[styles.nestedLabel, { color: colors.text }]} numberOfLines={2}>
+      <View style={[styles.nestedIcon, { backgroundColor: softSurface }]}>{icon}</View>
+      <View style={styles.nestedCopy}>
+        <Text style={[styles.nestedLabel, { color: colors.text }]} numberOfLines={1}>
           {label}
           {required ? <Text style={{ color: Theme.negative }}> *</Text> : null}
         </Text>
+        {hint ? (
+          <Text style={[styles.nestedHint, { color: colors.textMuted }]} numberOfLines={1}>
+            {hint}
+          </Text>
+        ) : null}
       </View>
       <View style={styles.nestedRight}>
+        <Upload size={13} color={colors.textMuted} strokeWidth={2.2} />
         <Text style={[styles.nestedAction, { color: colors.textMuted }]}>{actionLabel}</Text>
-        <ChevronRight size={16} color={colors.textMuted} strokeWidth={2.2} />
       </View>
     </Pressable>
   );
@@ -585,18 +692,18 @@ function StatusBlock({
 
   const cfg = {
     PENDING: {
-      icon: Clock,
-      tint: '#B45309',
-      bg: isDark ? 'rgba(180,83,9,0.18)' : 'rgba(253,230,138,0.55)',
+      icon: Clock3,
+      tint: Theme.warning,
+      bg: isDark ? 'rgba(180,83,9,0.18)' : 'rgba(255,247,237,0.98)',
       title: 'Under review',
       body: leftFleet
         ? 'Pulse admin is reviewing your DCO request. Fleet disconnect is already done.'
         : 'Pulse admin is reviewing your DCO request.',
     },
     APPROVED: {
-      icon: CheckCircle2,
+      icon: Check,
       tint: colors.emerald,
-      bg: isDark ? colors.emeraldMuted : 'rgba(220,252,231,0.9)',
+      bg: isDark ? colors.emeraldMuted : 'rgba(236,253,245,0.98)',
       title: 'DCO approved',
       body:
         operatingMode === 'DCO'
@@ -608,14 +715,14 @@ function StatusBlock({
     REJECTED: {
       icon: XCircle,
       tint: Theme.negative,
-      bg: isDark ? 'rgba(153,27,27,0.18)' : 'rgba(254,226,226,0.9)',
+      bg: isDark ? 'rgba(153,27,27,0.18)' : 'rgba(254,242,242,0.98)',
       title: 'Request rejected',
       body: reason || 'Your DCO request was not approved.',
     },
     SUSPENDED: {
       icon: ShieldAlert,
       tint: Theme.negative,
-      bg: isDark ? 'rgba(153,27,27,0.18)' : 'rgba(254,226,226,0.9)',
+      bg: isDark ? 'rgba(153,27,27,0.18)' : 'rgba(254,242,242,0.98)',
       title: 'DCO suspended',
       body: reason || 'Your DCO status is currently suspended by Pulse admin.',
     },
@@ -625,7 +732,9 @@ function StatusBlock({
 
   return (
     <View style={[styles.statusCard, { backgroundColor: cfg.bg, borderColor: cardBorder }]}>
-      <Icon size={22} color={cfg.tint} strokeWidth={2.4} />
+      <View style={[styles.statusIconWrap, { backgroundColor: colors.surface }]}>
+        <Icon size={18} color={cfg.tint} strokeWidth={2.4} />
+      </View>
       <View style={styles.statusTextWrap}>
         <Text style={[styles.statusTitle, { color: colors.text }]}>{cfg.title}</Text>
         <Text style={[styles.statusBody, { color: colors.textMuted }]}>{cfg.body}</Text>
@@ -641,77 +750,270 @@ function StatusBlock({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  heroCard: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 8 },
-  heroEyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 0.9 },
-  heroTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3, lineHeight: 26 },
-  heroBody: { fontSize: 13, lineHeight: 19 },
+  heroCard: {
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 16,
+    gap: 10,
+  },
+  heroBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  heroEyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+    color: '#ecfdf5',
+  },
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    lineHeight: 28,
+    color: Theme.textOnDark,
+  },
+  heroBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: 'rgba(236,253,245,0.82)',
+  },
+  progressBlock: {
+    marginTop: 4,
+    gap: 8,
+  },
+  progressMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  progressLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    color: 'rgba(236,253,245,0.75)',
+    textTransform: 'uppercase',
+  },
+  progressValue: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#ecfdf5',
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#a7f3d0',
+  },
   checklistCard: {
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 6,
+    paddingTop: 16,
+    paddingBottom: 12,
+    gap: 6,
   },
-  stepRow: { flexDirection: 'row', gap: 12, paddingBottom: 14 },
-  stepRowBorder: {},
-  stepRail: { width: 28, alignItems: 'center' },
+  checklistTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  checklistSub: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 8,
+  },
+  stepList: {
+    gap: 0,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  stepRowGap: {
+    marginBottom: 4,
+  },
+  stepRail: {
+    width: 30,
+    alignItems: 'center',
+  },
   stepBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepNum: { fontSize: 12, fontWeight: '800' },
-  stepLine: { width: 2, flex: 1, marginTop: 4, minHeight: 12, borderRadius: 1 },
-  stepBody: { flex: 1, minWidth: 0, gap: 4, paddingBottom: 4 },
-  stepTitle: { fontSize: 15, fontWeight: '700' },
-  stepBodyText: { fontSize: 12, lineHeight: 17 },
-  inlineLink: { alignSelf: 'flex-start', minHeight: 32, justifyContent: 'center', paddingVertical: 4 },
-  inlineLinkText: { fontSize: 13, fontWeight: '700' },
-  nestedStack: { gap: 8, marginTop: 8 },
-  nestedRow: {
+  stepNum: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  stepLine: {
+    width: 2,
+    flex: 1,
+    marginTop: 4,
+    minHeight: 18,
+    borderRadius: 1,
+  },
+  stepCard: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 12,
+    gap: 10,
+    marginBottom: 10,
+  },
+  stepCardHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  stepIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  stepCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  stepTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.15,
+  },
+  stepBodyText: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  stepActionBtn: {
+    alignSelf: 'stretch',
+    minHeight: 42,
+    borderRadius: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  stepActionText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  nestedStack: {
+    gap: 8,
+  },
+  nestedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
-    minHeight: 48,
+    minHeight: 52,
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
+    paddingHorizontal: 11,
     paddingVertical: 10,
   },
-  nestedLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
   nestedIcon: {
     width: 32,
     height: 32,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  nestedLabel: { flex: 1, fontSize: 13, fontWeight: '600' },
-  nestedRight: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  nestedAction: { fontSize: 12, fontWeight: '700' },
+  nestedCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  nestedLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  nestedHint: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  nestedRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flexShrink: 0,
+  },
+  nestedAction: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
   statusCard: {
     flexDirection: 'row',
     gap: 12,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 14,
     alignItems: 'flex-start',
   },
-  statusTextWrap: { flex: 1, gap: 4, minWidth: 0 },
-  statusTitle: { fontSize: 15, fontWeight: '700' },
-  statusBody: { fontSize: 12, lineHeight: 17 },
-  errorText: { fontSize: 13, fontWeight: '600', color: Theme.negative },
+  statusIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  statusTextWrap: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  statusTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  statusBody: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  errorText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Theme.negative,
+  },
   cta: {
-    minHeight: 52,
-    borderRadius: 14,
+    minHeight: 54,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
+    flexDirection: 'row',
+    gap: 6,
   },
-  ctaText: { fontSize: 15, fontWeight: '700', color: Theme.textOnPrimary },
-  footnote: { fontSize: 11, lineHeight: 16, textAlign: 'center', paddingHorizontal: 8 },
+  ctaText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: Theme.textOnPrimary,
+  },
+  footnote: {
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
+    paddingHorizontal: 10,
+  },
 });

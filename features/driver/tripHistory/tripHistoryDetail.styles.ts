@@ -486,8 +486,9 @@ export const tripHistoryDetailStyles = withWebSafeShadows(
   },
   tdLogLoc: {
     fontSize: 12,
-    fontWeight: "400",
-    lineHeight: 16,
+    fontWeight: "600",
+    lineHeight: 17,
+    letterSpacing: 0.1,
   },
   tdLogExpanded: {
     marginTop: 8,

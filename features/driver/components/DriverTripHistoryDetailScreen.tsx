@@ -1153,7 +1153,14 @@ export function DriverTripHistoryDetailScreen({
                                   </View>
                                 </View>
                                 <Text
-                                  style={[styles.tdLogLoc, { color: colors.textMuted }]}
+                                  style={[
+                                    styles.tdLogLoc,
+                                    {
+                                      color: isDark
+                                        ? "rgba(248,250,252,0.78)"
+                                        : Theme.textPrimaryDark,
+                                    },
+                                  ]}
                                   numberOfLines={expanded ? undefined : 2}
                                 >
                                   {log.driverLoc ?? log.loc}

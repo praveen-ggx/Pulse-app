@@ -1,12 +1,18 @@
 /**
- * Brand payment marks — logo artwork only, no tile background fills.
+ * Payment mode marks — clean slate line icons (no brand fills).
  */
 import { memo, type ReactNode } from "react";
-import Svg, { Circle, G, Path, Rect, Text as SvgText, TSpan } from "react-native-svg";
+import Svg, { Circle, G, Path, Rect } from "react-native-svg";
+
+import Theme from "@/constants/Theme";
 
 export interface PaymentModeLogoProps {
   size?: number;
+  /** Override stroke/ink. Defaults to slate line color. */
+  color?: string;
 }
+
+const LINE = Theme.textRouteCard; // #64748b — professional slate
 
 function LogoSvg({
   size,
@@ -24,163 +30,232 @@ function LogoSvg({
   );
 }
 
-/** NPCI UPI — tricolor arrows + wordmark (transparent). */
-export const UpiLogo = memo(function UpiLogo({ size = 48 }: PaymentModeLogoProps) {
-  return (
-    <LogoSvg size={size} viewBox="0 0 72 28">
-      <Path
-        d="M2 3.5 C8 3.5 11 6 14.5 8.5 L14.5 10.5 C11 8 8 5.5 2 5.5 Z"
-        fill="#008C44"
-      />
-      <Path
-        d="M2 12.5 C8 12.5 11 15 14.5 17.5 L14.5 19.5 C11 17 8 14.5 2 14.5 Z"
-        fill="#F47920"
-      />
-      <Path
-        d="M2 21.5 C8 21.5 11 24 14.5 26.5 L14.5 28.5 C11 26 8 23.5 2 23.5 Z"
-        fill="#006838"
-      />
-      <SvgText
-        x={22}
-        y={19}
-        fill="#231F20"
-        fontSize={18}
-        fontWeight="800"
-        fontFamily="System"
-      >
-        UPI
-      </SvgText>
-    </LogoSvg>
-  );
-});
-
-/** NHAI FASTag — wordmark + tricolor stripe (no outer tile). */
-export const FastagLogo = memo(function FastagLogo({ size = 48 }: PaymentModeLogoProps) {
-  return (
-    <LogoSvg size={size} viewBox="0 0 72 32">
-      <SvgText
-        x={36}
-        y={16}
-        fontSize={15}
-        fontWeight="900"
-        fontFamily="System"
-        textAnchor="middle"
-      >
-        <TSpan fill="#0B3D91">FAST</TSpan>
-        <TSpan fill="#E8A317">ag</TSpan>
-      </SvgText>
-      <Path d="M8 24 H64" stroke="#FF9933" strokeWidth={2.4} strokeLinecap="round" />
-      <Path d="M8 27 H64" stroke="#231F20" strokeWidth={2.4} strokeLinecap="round" opacity={0.85} />
-      <Path d="M8 30 H64" stroke="#138808" strokeWidth={2.4} strokeLinecap="round" />
-    </LogoSvg>
-  );
-});
-
-/** Cash — rupee note mark. */
-export const CashLogo = memo(function CashLogo({ size = 48 }: PaymentModeLogoProps) {
+/** Cash — banknote with centered rupee. */
+export const CashLogo = memo(function CashLogo({
+  size = 48,
+  color = LINE,
+}: PaymentModeLogoProps) {
   return (
     <LogoSvg size={size} viewBox="0 0 48 48">
-      <Rect x={8} y={10} width={32} height={28} rx={4} fill="#10b981" stroke="#059669" strokeWidth={1.5} />
-      <Circle cx={24} cy={24} r={8.5} fill="none" stroke="#ecfdf5" strokeWidth={1.5} />
-      <SvgText
-        x={24}
-        y={28}
-        fill="#ffffff"
-        fontSize={15}
-        fontWeight="700"
-        fontFamily="System"
-        textAnchor="middle"
-      >
-        ₹
-      </SvgText>
-    </LogoSvg>
-  );
-});
-
-/** Bank transfer — building + rupee badge. */
-export const BankLogo = memo(function BankLogo({ size = 48 }: PaymentModeLogoProps) {
-  return (
-    <LogoSvg size={size} viewBox="0 0 48 48">
-      <G fill="#1d4ed8">
-        <Path d="M24 8 L40 17 L40 19 L8 19 L8 17 Z" />
-        <Rect x={12} y={19} width={4} height={16} />
-        <Rect x={22} y={19} width={4} height={16} />
-        <Rect x={32} y={19} width={4} height={16} />
-        <Rect x={8} y={35} width={32} height={3} rx={1} />
-      </G>
-      <Circle cx={38} cy={12} r={6} fill="#fbbf24" />
-      <SvgText
-        x={38}
-        y={15}
-        fill="#1d4ed8"
-        fontSize={9}
-        fontWeight="900"
-        fontFamily="System"
-        textAnchor="middle"
-      >
-        ₹
-      </SvgText>
-    </LogoSvg>
-  );
-});
-
-/** Cheque leaf. */
-export const ChequeLogo = memo(function ChequeLogo({ size = 48 }: PaymentModeLogoProps) {
-  return (
-    <LogoSvg size={size} viewBox="0 0 48 48">
-      <Rect x={6} y={10} width={36} height={28} rx={3} fill="#ffffff" stroke="#db2777" strokeWidth={2} />
-      <Rect x={11} y={15} width={16} height={3.5} rx={1.5} fill="#fbcfe8" />
-      <Rect x={11} y={22} width={26} height={2} rx={1} fill="#f9a8d4" />
-      <Rect x={11} y={27} width={22} height={2} rx={1} fill="#f9a8d4" />
-      <Rect x={11} y={32} width={18} height={2} rx={1} fill="#f9a8d4" />
-      <Path
-        d="M32 31 C34 29 36 29 38 31"
-        stroke="#db2777"
-        strokeWidth={1.8}
+      <Rect
+        x={7}
+        y={12}
+        width={34}
+        height={24}
+        rx={3.5}
         fill="none"
+        stroke={color}
+        strokeWidth={1.9}
+      />
+      <Path
+        d="M11 16.5 H15 M33 16.5 H37 M11 31.5 H15 M33 31.5 H37"
+        stroke={color}
+        strokeWidth={1.6}
         strokeLinecap="round"
       />
-    </LogoSvg>
-  );
-});
-
-/** Indian Oil–style fuel mark. */
-export const FuelCardLogo = memo(function FuelCardLogo({ size = 48 }: PaymentModeLogoProps) {
-  return (
-    <LogoSvg size={size} viewBox="0 0 48 48">
-      <Circle cx={24} cy={22} r={16} fill="#00429A" />
-      <Circle cx={24} cy={22} r={12} fill="none" stroke="#F37021" strokeWidth={3.2} />
-      <Path d="M24 10 C19 17 19 22 24 30 C29 22 29 17 24 10 Z" fill="#F37021" />
-      <Rect x={13} y={34} width={22} height={4} rx={2} fill="#00429A" />
-    </LogoSvg>
-  );
-});
-
-/** On-account credit mark. */
-export const CreditLogo = memo(function CreditLogo({ size = 48 }: PaymentModeLogoProps) {
-  return (
-    <LogoSvg size={size} viewBox="0 0 48 48">
-      <Circle cx={24} cy={22} r={13} fill="none" stroke="#475569" strokeWidth={2.2} />
+      <Circle cx={24} cy={24} r={7.2} fill="none" stroke={color} strokeWidth={1.7} />
       <Path
-        d="M24 13 L24 22 L31 26"
-        stroke="#475569"
-        strokeWidth={2.5}
+        d="M21.2 21.2 H26.2 C27.5 21.2 28.4 22.1 28.4 23.2 C28.4 24.3 27.5 25.2 26.2 25.2 H21.2
+           M21.2 25.2 H26.6 C27.9 25.2 28.8 26.1 28.8 27.2 C28.8 28.3 27.9 29.2 26.6 29.2 H21.2
+           M24 19.4 V30.6"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.65}
         strokeLinecap="round"
         strokeLinejoin="round"
-        fill="none"
       />
-      <SvgText
-        x={24}
-        y={42}
-        fill="#475569"
-        fontSize={7.5}
-        fontWeight="800"
-        fontFamily="System"
-        textAnchor="middle"
-        letterSpacing={0.8}
+    </LogoSvg>
+  );
+});
+
+/** UPI — stacked transfer chevrons (NPCI-inspired, monoline). */
+export const UpiLogo = memo(function UpiLogo({
+  size = 48,
+  color = LINE,
+}: PaymentModeLogoProps) {
+  return (
+    <LogoSvg size={size} viewBox="0 0 48 48">
+      <G
+        fill="none"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
       >
-        CREDIT
-      </SvgText>
+        <Path d="M12 14 C18.5 14 23 17.5 28.5 22 L34 22" />
+        <Path d="M28.5 18.5 L34 22 L28.5 25.5" />
+        <Path d="M12 24 C18.5 24 23 27.5 28.5 32 L34 32" />
+        <Path d="M28.5 28.5 L34 32 L28.5 35.5" />
+        <Path d="M12 34 C17 34 21 36.5 25.5 39.5" />
+      </G>
+    </LogoSvg>
+  );
+});
+
+/** Bank transfer — classical façade. */
+export const BankLogo = memo(function BankLogo({
+  size = 48,
+  color = LINE,
+}: PaymentModeLogoProps) {
+  return (
+    <LogoSvg size={size} viewBox="0 0 48 48">
+      <G
+        fill="none"
+        stroke={color}
+        strokeWidth={1.85}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <Path d="M8 18 L24 9 L40 18" />
+        <Path d="M10 18 H38" />
+        <Path d="M13 18 V33" />
+        <Path d="M20.5 18 V33" />
+        <Path d="M27.5 18 V33" />
+        <Path d="M35 18 V33" />
+        <Path d="M9 33 H39" />
+        <Path d="M7 36.5 H41" />
+        <Path d="M24 9 V12.5" />
+      </G>
+    </LogoSvg>
+  );
+});
+
+/** Cheque leaf — form lines + signature. */
+export const ChequeLogo = memo(function ChequeLogo({
+  size = 48,
+  color = LINE,
+}: PaymentModeLogoProps) {
+  return (
+    <LogoSvg size={size} viewBox="0 0 48 48">
+      <Rect
+        x={6.5}
+        y={11}
+        width={35}
+        height={26}
+        rx={3}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.9}
+      />
+      <Path
+        d="M11 17.5 H22 M11 22.5 H37 M11 27 H33"
+        stroke={color}
+        strokeWidth={1.55}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M11 33.5 H19"
+        stroke={color}
+        strokeWidth={1.55}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M28.5 31.2 C30.2 28.8 32.4 28.6 34.2 30.4 C35.2 31.4 36.6 33.2 37.5 34.2"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.65}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Circle cx={36.2} cy={16.8} r={2.2} fill="none" stroke={color} strokeWidth={1.4} />
+    </LogoSvg>
+  );
+});
+
+/** FASTag — toll tag with signal arc. */
+export const FastagLogo = memo(function FastagLogo({
+  size = 48,
+  color = LINE,
+}: PaymentModeLogoProps) {
+  return (
+    <LogoSvg size={size} viewBox="0 0 48 48">
+      <Path
+        d="M14 14 H30 C33.5 14 36 16.5 36 20 V28 C36 31.5 33.5 34 30 34 H18 L12 39 V14 Z"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.85}
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M20 20.5 H30 M20 25 H27"
+        stroke={color}
+        strokeWidth={1.55}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M38.5 17.5 C41 20 41 28 38.5 30.5"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M41.5 14.5 C45.5 18.5 45.5 29.5 41.5 33.5"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+      />
+    </LogoSvg>
+  );
+});
+
+/** Fuel card — card + pump nozzle. */
+export const FuelCardLogo = memo(function FuelCardLogo({
+  size = 48,
+  color = LINE,
+}: PaymentModeLogoProps) {
+  return (
+    <LogoSvg size={size} viewBox="0 0 48 48">
+      <Rect
+        x={7}
+        y={12}
+        width={26}
+        height={24}
+        rx={3}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.85}
+      />
+      <Path d="M7 19.5 H33" stroke={color} strokeWidth={1.7} />
+      <Path
+        d="M12 27 H22"
+        stroke={color}
+        strokeWidth={1.55}
+        strokeLinecap="round"
+      />
+      <G
+        fill="none"
+        stroke={color}
+        strokeWidth={1.7}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <Path d="M36 14 V30 C36 32.2 37.8 34 40 34" />
+        <Path d="M36 14 H40 V18" />
+        <Path d="M40 18 C42.5 18 43.5 20 43.5 22.5 V26" />
+      </G>
+    </LogoSvg>
+  );
+});
+
+/** On-account credit — clock. */
+export const CreditLogo = memo(function CreditLogo({
+  size = 48,
+  color = LINE,
+}: PaymentModeLogoProps) {
+  return (
+    <LogoSvg size={size} viewBox="0 0 48 48">
+      <Circle cx={24} cy={24} r={14} fill="none" stroke={color} strokeWidth={1.9} />
+      <Path
+        d="M24 15.5 V24.5 L31 28"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.85}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Circle cx={24} cy={24} r={1.5} fill={color} />
     </LogoSvg>
   );
 });
@@ -188,23 +263,25 @@ export const CreditLogo = memo(function CreditLogo({ size = 48 }: PaymentModeLog
 export const PaymentModeLogo = memo(function PaymentModeLogo({
   modeId,
   size = 48,
+  color,
 }: PaymentModeLogoProps & { modeId: string }) {
+  const props = { size, color };
   switch (modeId.toUpperCase()) {
     case "UPI":
-      return <UpiLogo size={size} />;
+      return <UpiLogo {...props} />;
     case "FASTAG":
-      return <FastagLogo size={size} />;
+      return <FastagLogo {...props} />;
     case "CASH":
-      return <CashLogo size={size} />;
+      return <CashLogo {...props} />;
     case "BANK":
-      return <BankLogo size={size} />;
+      return <BankLogo {...props} />;
     case "CHEQUE":
-      return <ChequeLogo size={size} />;
+      return <ChequeLogo {...props} />;
     case "FUEL_CARD":
-      return <FuelCardLogo size={size} />;
+      return <FuelCardLogo {...props} />;
     case "CREDIT":
-      return <CreditLogo size={size} />;
+      return <CreditLogo {...props} />;
     default:
-      return <CashLogo size={size} />;
+      return <CashLogo {...props} />;
   }
 });

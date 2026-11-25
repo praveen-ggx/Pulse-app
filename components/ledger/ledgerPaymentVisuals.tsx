@@ -104,10 +104,9 @@ export function ledgerPaymentModeVisual(modeId: string): PaymentModeVisual {
 /** Core Collect Payment strip — always one equal row. */
 export const LEDGER_CORE_PAYMENT_MODE_IDS = ["CASH", "UPI", "BANK", "CHEQUE"] as const;
 
-/** Logos that already paint the mode name (hide under-label). */
-export function paymentModeHasWordmark(modeId: string): boolean {
-  const id = (modeId ?? "").trim().toUpperCase();
-  return id === "UPI" || id === "FASTAG";
+/** Logos that already paint the mode name (hide under-label). Line icons never do. */
+export function paymentModeHasWordmark(_modeId: string): boolean {
+  return false;
 }
 
 export function splitLedgerPaymentModes(modes: PaymentModeVisual[] = LEDGER_PAYMENT_MODES): {

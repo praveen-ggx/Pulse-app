@@ -7,3 +7,6 @@
 
 ## Trip workflow events: quiet idempotent insert
 - New RPC record_trip_workflow_event inserts with ON CONFLICT DO NOTHING, so repeat events no longer log duplicate-key errors on prod (the old check could not see other orgs rows). Client falls back to the old path until the migration is applied. Set: record-trip-workflow-event.
+
+## Prod error report script
+- scripts/prod-error-report.sh [hours] groups prod Postgres errors from the logs API into app vs manual (hand-run SQL), so a fix can be proven by the app count reaching zero. Read-only.

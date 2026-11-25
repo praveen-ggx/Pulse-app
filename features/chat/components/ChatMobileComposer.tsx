@@ -284,7 +284,8 @@ export function ChatMobileComposer({
               scrollEnabled
               blurOnSubmit={false}
               returnKeyType="default"
-              textAlignVertical="center"
+              textAlign="left"
+              textAlignVertical="top"
               autoCorrect
               autoCapitalize="sentences"
               maxLength={maxLength + 50}

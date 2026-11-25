@@ -24,6 +24,7 @@ import {
 import type { ResolvedPartyAvatarIdentity } from "@/lib/entityIdentity";
 import { chatFilterChromeStyles } from "@/constants/ChatFilterChrome";
 import Theme from "@/constants/Theme";
+import { formatPhoneForDisplay } from "@/lib/phoneLookup";
 import { ROUTES } from "@/lib/routes";
 import { WEB_APP_VIEWPORT_STYLE } from "@/lib/webViewportHeight";
 import { useAuth } from "@/contexts/AuthContext";
@@ -53,7 +54,15 @@ import {
 } from "@/lib/hooks/useKeyboardVisible";
 import { ChatMobileComposer } from "@/features/chat/components/ChatMobileComposer";
 import { ChatSlackMirrorToggle } from "@/features/chat/components/shared/ChatSlackMirrorToggle";
-import { SLACK_STREAM_TABS } from "@/features/chat/components/shared/chatSlackStreamTabs";
+import {
+  getVisibleSlackStreamTabs,
+  isTripStreamTab,
+  normalizeChatStreamTab,
+} from "@/features/chat/components/shared/chatSlackStreamTabs";
+import { ChatListSkeleton } from "@/features/chat/components/shared/ChatListSkeleton";
+import { TeamChatScope } from "@/features/chat/components/team/TeamChatScope";
+import { DispatcherUnreadAlertToast } from "@/features/chat/components/DispatcherUnreadAlertToast";
+import { useDispatcherIncomingUnreadAlert } from "@/features/chat/hooks/useDispatcherIncomingUnreadAlert";
 import {
   buildSlackMessageGroupMap,
   isSlackGroupableTripMessage,
@@ -70,6 +79,7 @@ import { ChatMediaBurstRow } from "@/features/chat/components/shared/ChatMediaBu
 import { CHAT_DESKTOP_COMPOSER_EMOJIS } from "@/features/chat/utils/chatEmojiAnim.util";
 import {
   collectTrailingImagePreviews,
+  imagePreviewFromTripMessage,
   type ConversationImagePreview,
 } from "@/features/chat/utils/conversationImagePreview.util";
 import { chatListThumbFetch } from "@/features/chat/utils/chatPreviewTransform.util";
@@ -114,7 +124,10 @@ import { useChatTypingPresence } from "@/features/chat/hooks/useChatTypingPresen
 import { toggleMessageReaction, updateChatMessageContent, deleteChatMessage } from "@/features/chat/services/chat.service";
 import { toggleReactionOptimistic } from "@/features/chat/utils/toggleReactionOptimistic.util";
 import { MessageTick } from "@/features/chat/components/MessageTick";
-import { CHAT_TEAM_ROOMS_SIDEBAR_ENABLED } from "@/features/chat/constants/chatPlatform.flags";
+import {
+  CHAT_TEAM_ROOMS_SIDEBAR_ENABLED,
+  PULSE_CHAT_TEAM_ENABLED,
+} from "@/features/chat/constants/chatPlatform.flags";
 import { ChatTripRoomInboxSection } from "@/features/chat/components/ChatTripRoomInboxSection";
 import { TripChatRoomSheet } from "@/features/chat/components/TripChatRoomSheet";
 import {
@@ -158,6 +171,7 @@ import { setActiveTripMessageConversationId } from "@/features/chat/realtime/act
 import { useAssignmentAuditNameMaps } from "@/features/chat/hooks/useAssignmentAuditNameMaps";
 import { mergeAssignmentAuditIntoTripMessages } from "@/features/chat/utils/assignmentAuditChatMessages.util";
 import { buildThreadListLayoutMeta } from "@/features/chat/utils/chatMessageListLayout";
+import { formatChatInboxTime } from "@/features/chat/utils/formatChatInboxTime.util";
 import { applyContractualHubPartyIsolation } from "@/features/chat/utils/contractHubPartyIsolation.util";
 import { dedupeTripStatusBroadcastsForLane } from "@/features/chat/utils/dedupeTripStatusBroadcastForLane.util";
 import {
@@ -167,6 +181,7 @@ import {
   formatChatPartyTypeLabel,
   resolveChatPartyDisplayName,
 } from "@/features/chat/utils/partyDisplay";
+import { resolveDriverChatTripKind } from "@/features/chat/utils/driverChatTripChrome.util";
 import {
   isHubActiveTripStatus,
   isOperationalTripChatStatus,
@@ -176,11 +191,19 @@ import {
 import {
   buildMobileTripInboxRows,
   conversationMatchesPartyPeopleKey,
-  partitionTripConversationsByPartyFocus,
-  pickRecommendedTripConversation,
+  conversationDriverId,
+  dedupeActiveConversationsByDriver,
+  filterConversationsToPartyFocus,
+  pickPreferredTripConversation,
   tripPartyPeopleKey,
   type MobileTripInboxRow,
 } from "@/features/chat/utils/tripPartyPeopleKey.util";
+import {
+  MOBILE_INBOX_INITIAL_VISIBLE,
+  MOBILE_INBOX_PAGE_STEP,
+  neighborConversationIds,
+  scheduleChatIdleWork,
+} from "@/features/chat/utils/whatsappStyleLoad.util";
 import {
   getTripDisplayNumber,
   type TripRow,
@@ -201,11 +224,11 @@ import LottieView from "lottie-react-native";
 import type { LottieSource } from "@/lib/lottieSource";
 import {
   ArrowLeft,
+  Bell,
   Briefcase,
   ChevronDown,
   ChevronRight,
   FileType,
-  Hash,
   MessageSquare,
   MoreVertical,
   Plus,
@@ -274,17 +297,13 @@ import { getTripAssetsForChatHub } from "../services/chatDocumentHub.service";
 import { isLongHaulLateChatMessage, LateAlertCard } from "./LateAlertCard";
 import { TripCard } from "./TripCard";
 
-type TabId = "trips" | "indent" | "network";
+type TabId = SlackStreamTabId;
 
 /** Hub/mission-bar party tab: rowType finds the conversation row; displayType drives icon + label. */
 type HubPartyTab = {
   rowType: ConversationPartyType;
   displayType: ConversationPartyType;
 };
-
-function isTripStreamTab(tab: TabId): boolean {
-  return tab === "trips" || tab === "indent";
-}
 
 const TRIP_PARTY_FILTERS: ConversationPartyType[] = ["client", "driver", "supplier"];
 
@@ -459,18 +478,23 @@ function previewFromTripMessage(
   }
   const fallback = normalizePreviewText(message.content);
   switch (message.message_type) {
-    case "image":
+    case "image": {
+      const imagePreview = imagePreviewFromTripMessage(message);
       return {
         text: fallback || "Photo preview",
         kind: "image",
-        imageUrl: resolveTripImagePreviewUrl(message),
+        imageUrl: resolveTripImagePreviewUrl(message) ?? imagePreview?.url ?? null,
+        imagePreviews: imagePreview ? [imagePreview] : undefined,
       };
+    }
     case "document_share":
     case "document_upload": {
       const doc = resolveDocumentShareDisplay(message);
       const name = doc?.documentName || fallback.replace(/^Shared document:\s*/i, "").trim();
+      const imagePreview = doc?.isImage ? imagePreviewFromTripMessage(message) : null;
       const imageUrl =
-        doc?.isImage && doc.storagePath
+        imagePreview?.url ||
+        (doc?.isImage && doc.storagePath
           ? (() => {
               const fetch = chatListThumbFetch(112);
               return peekChatImageThumbnailUrl(
@@ -481,11 +505,12 @@ function previewFromTripMessage(
                 "cover",
               );
             })()
-          : null;
+          : null);
       return {
         text: name || "Document",
         kind: doc?.isImage ? "image" : "document",
         imageUrl,
+        imagePreviews: imagePreview ? [imagePreview] : undefined,
         documentName: name || null,
         documentExtension: doc?.extension ?? null,
         documentIsImage: doc?.isImage ?? false,
@@ -1288,7 +1313,11 @@ export function ChatScreen() {
   /** Web desktop: bubble LATE_RISK / indent-linked trips in the hub list. */
   const [webCommandPriorityFilter, _setWebCommandPriorityFilter] = useState(false);
   const activeTripsForCommandPriority = useGlobalSyncStore((s) => s.activeTrips);
-  const [visibleTripCount, setVisibleTripCount] = useState(10);
+  const [visibleTripCount, setVisibleTripCount] = useState(
+    MOBILE_INBOX_INITIAL_VISIBLE,
+  );
+  const tripInboxOrderRef = useRef<Array<{ id: string }>>([]);
+  const idleBootstrapPrefetchDoneRef = useRef(false);
   const [tripSidebarSearch, setTripSidebarSearch] = useState("");
   const [netSidebarSearch, setNetSidebarSearch] = useState("");
   const [showStoriesSheet, setShowStoriesSheet] = useState(false);
@@ -1296,12 +1325,12 @@ export function ChatScreen() {
     "integrated" | "driver" | null
   >(null);
   const [hubSearchOpen, setHubSearchOpen] = useState(false);
-  const tripSearchInputRef = useRef<TextInput>(null);
   const netSearchInputRef = useRef<TextInput>(null);
   const desktopSidebarScrollRef = useRef<ScrollView>(null);
   const desktopActiveRowRef = useRef<View>(null);
   const [showTripFilterModal, setShowTripFilterModal] = useState(false);
   const [platformTripRoomId, setPlatformTripRoomId] = useState<string | null>(null);
+  const [selectedTeamConvId, setSelectedTeamConvId] = useState<string | null>(null);
   const detailEnterProgress = useRef(new Animated.Value(1)).current;
   const [tripPartyFilters, setTripPartyFilters] = useState<ConversationPartyType[]>([
     ...TRIP_PARTY_FILTERS,
@@ -1570,21 +1599,20 @@ export function ChatScreen() {
       });
   }, [conversations, tripPartyFilters, tripSidebarSearch, effectiveConversationTripStatus]);
 
+  /**
+   * Trips tab = assigned-driver communication only.
+   * Client/supplier lanes stay available via party tabs inside a trip thread,
+   * but the inbox / ON TRIP list must not open AERO (client) as the trip chat.
+   */
   const tripStreamConversations = useMemo(
     () =>
-      baseFilteredSortedTripConversations.filter(
-        (c) =>
-          !tripHubHasIntegratedPartition(c, chatTrips) &&
-          manualHubTripHasAssignedDriver(c, chatTrips),
-      ),
-    [baseFilteredSortedTripConversations, chatTrips],
-  );
-
-  const indentStreamConversations = useMemo(
-    () =>
-      baseFilteredSortedTripConversations.filter((c) =>
-        tripHubHasIntegratedPartition(c, chatTrips),
-      ),
+      baseFilteredSortedTripConversations.filter((c) => {
+        if (c.party_type !== "driver") return false;
+        return (
+          tripHubHasIntegratedPartition(c, chatTrips) ||
+          manualHubTripHasAssignedDriver(c, chatTrips)
+        );
+      }),
     [baseFilteredSortedTripConversations, chatTrips],
   );
 
@@ -1593,13 +1621,8 @@ export function ChatScreen() {
       tripStreamConversations.reduce((s, c) => s + (c.unread_dispatcher_count ?? 0), 0),
     [tripStreamConversations],
   );
-  const indentChatUnread = useMemo(
-    () =>
-      indentStreamConversations.reduce((s, c) => s + (c.unread_dispatcher_count ?? 0), 0),
-    [indentStreamConversations],
-  );
 
-  const manualRunningLateActiveCount = useMemo(() => {
+  const tripsRunningLateActiveCount = useMemo(() => {
     const seen = new Set<string>();
     let n = 0;
     for (const c of tripStreamConversations) {
@@ -1610,18 +1633,6 @@ export function ChatScreen() {
     }
     return n;
   }, [tripStreamConversations, chatTrips, effectiveConversationTripStatus]);
-
-  const integratedRunningLateActiveCount = useMemo(() => {
-    const seen = new Set<string>();
-    let n = 0;
-    for (const c of indentStreamConversations) {
-      if (isTerminalTripStatus(effectiveConversationTripStatus(c))) continue;
-      if (seen.has(c.trip_id)) continue;
-      seen.add(c.trip_id);
-      if (chatTrips[c.trip_id]?.trackingStatus === "RUNNING_LATE") n += 1;
-    }
-    return n;
-  }, [indentStreamConversations, chatTrips, effectiveConversationTripStatus]);
 
   const sortedNetChats = useMemo(() => {
     return [...netChats]
@@ -1635,7 +1646,8 @@ export function ChatScreen() {
       });
   }, [netChats]);
   const shouldLoadStoryFeed =
-    Boolean(currentOrgId) && (activeTab === "network" || showStoriesSheet);
+    Boolean(currentOrgId) &&
+    (isDesktop || activeTab === "network" || showStoriesSheet);
   const {
     posts: networkStoryPosts,
     indentCountByPostId: networkStoryIndentCounts,
@@ -1657,12 +1669,12 @@ export function ChatScreen() {
     return m;
   }, [chatTrips]);
 
-  const groupedManualTripHubRows = useMemo(
+  const groupedTripHubRows = useMemo(
     () =>
       buildGroupedTripHubRows({
         sourceConversations: tripStreamConversations,
         hubComposeTrips,
-        includeAggregateComposePlaceholders: false,
+        includeAggregateComposePlaceholders: true,
         tripSidebarSearch,
         tripChatScope,
         isDesktop,
@@ -1682,86 +1694,85 @@ export function ChatScreen() {
     ],
   );
 
-  const groupedIndentTripHubRows = useMemo(
-    () =>
-      buildGroupedTripHubRows({
-        sourceConversations: indentStreamConversations,
-        hubComposeTrips,
-        includeAggregateComposePlaceholders: true,
-        tripSidebarSearch,
-        tripChatScope,
-        isDesktop,
-        webCommandPriorityFilter,
-        activeTripsForCommandPriority,
-        tripTrackingByTripId: tripHubTrackingByTripId,
-      }),
-    [
-      indentStreamConversations,
-      hubComposeTrips,
-      tripSidebarSearch,
-      tripChatScope,
-      isDesktop,
-      webCommandPriorityFilter,
-      activeTripsForCommandPriority,
-      tripHubTrackingByTripId,
-    ],
-  );
+  const groupedTripRows = groupedTripHubRows;
 
-  const groupedTripRows =
-    activeTab === "indent" ? groupedIndentTripHubRows : groupedManualTripHubRows;
+  const tripStreamForActiveHubTab = tripStreamConversations;
 
-  const tripStreamForActiveHubTab = useMemo(
-    () => (activeTab === "indent" ? indentStreamConversations : tripStreamConversations),
-    [activeTab, indentStreamConversations, tripStreamConversations],
-  );
+  const composeDriverIdByTripId = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const [tripId, trip] of tripComposeById.entries()) {
+      m.set(tripId, trip?.driver_id ?? null);
+    }
+    return m;
+  }, [tripComposeById]);
 
   const tripChatFilteredConversations = useMemo(() => {
-    return tripStreamForActiveHubTab.filter((conv) => {
+    let rows = tripStreamForActiveHubTab.filter((conv) => {
       const status = effectiveConversationTripStatus(conv);
       const terminal = isTerminalTripStatus(status);
       return tripChatScope === "history"
         ? terminal
         : isTripCurrentlyActiveStatus(status);
     });
-  }, [tripStreamForActiveHubTab, tripChatScope, effectiveConversationTripStatus]);
+
+    // Selecting ON TRIP @vincent → only Vincent's trips (not every driver).
+    if (focusedTripPartyKey) {
+      rows = filterConversationsToPartyFocus(rows, focusedTripPartyKey, {
+        tripStatus: effectiveConversationTripStatus,
+        isTerminal: isTerminalTripStatus,
+        composeDriverIdByTripId,
+      });
+    }
+
+    // Active: one operating trip per driver. History keeps full past list.
+    if (tripChatScope === "active") {
+      rows = dedupeActiveConversationsByDriver(rows, composeDriverIdByTripId);
+    }
+
+    return rows;
+  }, [
+    tripStreamForActiveHubTab,
+    tripChatScope,
+    effectiveConversationTripStatus,
+    focusedTripPartyKey,
+    composeDriverIdByTripId,
+  ]);
 
   const desktopActiveTripConversations = useMemo(() => {
-    const rows = tripStreamForActiveHubTab.filter((conv) =>
+    let rows = tripStreamForActiveHubTab.filter((conv) =>
       isTripCurrentlyActiveStatus(effectiveConversationTripStatus(conv)),
     );
-    if (!focusedTripPartyKey) return rows;
-    const { recommended, rest } = partitionTripConversationsByPartyFocus(
-      rows,
-      focusedTripPartyKey,
-      {
+    if (focusedTripPartyKey) {
+      rows = filterConversationsToPartyFocus(rows, focusedTripPartyKey, {
         tripStatus: effectiveConversationTripStatus,
         isTerminal: isTerminalTripStatus,
-      },
-    );
-    return [...recommended, ...rest];
+        composeDriverIdByTripId,
+      });
+    }
+    return dedupeActiveConversationsByDriver(rows, composeDriverIdByTripId);
   }, [
     tripStreamForActiveHubTab,
     effectiveConversationTripStatus,
     focusedTripPartyKey,
+    composeDriverIdByTripId,
   ]);
   const desktopHistoryTripConversations = useMemo(() => {
-    const rows = tripStreamForActiveHubTab.filter((conv) =>
+    let rows = tripStreamForActiveHubTab.filter((conv) =>
       isTerminalTripStatus(effectiveConversationTripStatus(conv)),
     );
-    if (!focusedTripPartyKey) return rows;
-    const { recommended, rest } = partitionTripConversationsByPartyFocus(
-      rows,
-      focusedTripPartyKey,
-      {
+    if (focusedTripPartyKey) {
+      rows = filterConversationsToPartyFocus(rows, focusedTripPartyKey, {
         tripStatus: effectiveConversationTripStatus,
         isTerminal: isTerminalTripStatus,
-      },
-    );
-    return [...recommended, ...rest];
+        composeDriverIdByTripId,
+      });
+    }
+    return rows;
   }, [
     tripStreamForActiveHubTab,
     effectiveConversationTripStatus,
     focusedTripPartyKey,
+    composeDriverIdByTripId,
   ]);
 
   useEffect(() => {
@@ -1874,31 +1885,21 @@ export function ChatScreen() {
         },
       ];
     }
-    const tripMirrorId = slackUnreadOnly
-      ? "unreads"
-      : tripChatScope === "history"
-        ? "history"
-        : "active";
+    // Trips: driver-style Active | History only (full-width mirror toggle).
     return [
       {
         id: "active",
         label: "Active",
-        active: tripMirrorId === "active",
+        active: tripChatScope === "active",
         onPress: () => {
           setSlackUnreadOnly(false);
           setTripChatScope("active");
         },
       },
       {
-        id: "unreads",
-        label: "Unreads",
-        active: tripMirrorId === "unreads",
-        onPress: () => setSlackUnreadOnly(true),
-      },
-      {
         id: "history",
         label: "History",
-        active: tripMirrorId === "history",
+        active: tripChatScope === "history",
         onPress: () => {
           setSlackUnreadOnly(false);
           setTripChatScope("history");
@@ -1935,7 +1936,7 @@ export function ChatScreen() {
       if (useGroupedTripHub) {
         if (visibleTripCount < groupedTripRows.length) {
           tripHubMobileAutoPageGateRef.current = true;
-          setVisibleTripCount((c) => c + 20);
+          setVisibleTripCount((c) => c + MOBILE_INBOX_PAGE_STEP);
           setTimeout(() => {
             tripHubMobileAutoPageGateRef.current = false;
           }, 450);
@@ -1944,7 +1945,7 @@ export function ChatScreen() {
         if (!chatBootstrapHasMoreTrips || isAppendingBootstrap) return;
         tripHubMobileAutoPageGateRef.current = true;
         void appendBootstrapTripPage(organizationId).finally(() => {
-          setVisibleTripCount((c) => c + 20);
+          setVisibleTripCount((c) => c + MOBILE_INBOX_PAGE_STEP);
           setTimeout(() => {
             tripHubMobileAutoPageGateRef.current = false;
           }, 900);
@@ -1952,9 +1953,22 @@ export function ChatScreen() {
         return;
       }
 
+      // Mobile flat inbox: expand the render window first (WhatsApp-style),
+      // then keyset-fetch the next trip meta page when the window is exhausted.
+      const inboxLen = tripInboxOrderRef.current.length;
+      if (visibleTripCount < inboxLen) {
+        tripHubMobileAutoPageGateRef.current = true;
+        setVisibleTripCount((c) => c + MOBILE_INBOX_PAGE_STEP);
+        setTimeout(() => {
+          tripHubMobileAutoPageGateRef.current = false;
+        }, 450);
+        return;
+      }
+
       if (!chatBootstrapHasMoreTrips || isAppendingBootstrap) return;
       tripHubMobileAutoPageGateRef.current = true;
       void appendBootstrapTripPage(organizationId).finally(() => {
+        setVisibleTripCount((c) => c + MOBILE_INBOX_PAGE_STEP);
         setTimeout(() => {
           tripHubMobileAutoPageGateRef.current = false;
         }, 900);
@@ -1973,7 +1987,7 @@ export function ChatScreen() {
   );
 
   useEffect(() => {
-    setVisibleTripCount(10);
+    setVisibleTripCount(MOBILE_INBOX_INITIAL_VISIBLE);
   }, [tripChatScope, activeTab]);
 
   useEffect(() => {
@@ -1985,12 +1999,27 @@ export function ChatScreen() {
     () => ({
       tripStatus: effectiveConversationTripStatus,
       isTerminal: isTerminalTripStatus,
+      composeDriverIdByTripId,
     }),
-    [effectiveConversationTripStatus],
+    [effectiveConversationTripStatus, composeDriverIdByTripId],
   );
 
   const focusedPartyDisplayName = useMemo(() => {
     if (!focusedTripPartyKey) return null;
+    if (focusedTripPartyKey.startsWith("driver:")) {
+      const driverId = focusedTripPartyKey.slice("driver:".length).trim();
+      for (const conv of tripStreamForActiveHubTab) {
+        const composeTrip = tripComposeById.get(conv.trip_id) ?? null;
+        const id = String(composeTrip?.driver_id ?? conv.driver_id ?? "").trim();
+        if (id !== driverId) continue;
+        const name =
+          (composeTrip?.driver_display_name ?? "").trim() ||
+          (conv.party_type === "driver" ? (conv.party_name ?? "").trim() : "") ||
+          "Driver";
+        return formatChatPartyInboxLine("driver", name) ?? name;
+      }
+      return "Driver";
+    }
     const conv = tripStreamForActiveHubTab.find(
       (c) => tripPartyPeopleKey(c) === focusedTripPartyKey,
     );
@@ -2008,8 +2037,19 @@ export function ChatScreen() {
 
   const mobileTripInboxRows = useMemo((): MobileTripInboxRow[] => {
     if (!isMobileChatUi) return [];
+    // Stamp compose driver_id so ON TRIP focus matches the assigned operator.
+    const enriched = slackFilteredTripConversations.map((c) => {
+      const driverId = conversationDriverId(
+        c,
+        tripComposeById.get(c.trip_id)?.driver_id,
+      );
+      if (!driverId || driverId === String(c.driver_id ?? "").trim()) return c;
+      return { ...c, driver_id: driverId };
+    });
+    // Active list is already focus-filtered + one-trip-per-driver above.
+    // When focused, still build rows only for that driver (no other drivers).
     return buildMobileTripInboxRows(
-      slackFilteredTripConversations,
+      enriched,
       focusedTripPartyKey,
       focusedPartyDisplayName,
       partyFocusSortOptions,
@@ -2020,7 +2060,21 @@ export function ChatScreen() {
     focusedTripPartyKey,
     focusedPartyDisplayName,
     partyFocusSortOptions,
+    tripComposeById,
   ]);
+
+  // Keep a stable inbox order for neighbor prefetch + scroll windowing.
+  useEffect(() => {
+    tripInboxOrderRef.current = isMobileChatUi
+      ? mobileTripInboxRows.map((r) => ({ id: r.id }))
+      : slackFilteredTripConversations.map((c) => ({ id: c.id }));
+  }, [isMobileChatUi, mobileTripInboxRows, slackFilteredTripConversations]);
+
+  const visibleMobileTripInboxRows = useMemo((): MobileTripInboxRow[] => {
+    if (!isMobileChatUi) return mobileTripInboxRows;
+    if (mobileTripInboxRows.length <= visibleTripCount) return mobileTripInboxRows;
+    return mobileTripInboxRows.slice(0, visibleTripCount);
+  }, [isMobileChatUi, mobileTripInboxRows, visibleTripCount]);
 
   const netChatsForInbox = useMemo(() => {
     const partnerId = (focusedNetPartnerId ?? "").trim();
@@ -2051,19 +2105,60 @@ export function ChatScreen() {
     activeTab,
   ]);
 
+  // WhatsApp: after first active inbox paint, quietly warm the next trip meta
+  // page while the user is idle — keeps scroll smooth without a DB burst on open.
+  useEffect(() => {
+    idleBootstrapPrefetchDoneRef.current = false;
+  }, [organizationId, tripChatScope, activeTab]);
+
+  useEffect(() => {
+    if (!organizationId || !bootstrapDone) return;
+    if (!isTripStreamTab(activeTab) || tripChatScope !== "active") return;
+    if (!chatBootstrapHasMoreTrips || isAppendingBootstrap) return;
+    if (idleBootstrapPrefetchDoneRef.current) return;
+    const handle = scheduleChatIdleWork(() => {
+      if (idleBootstrapPrefetchDoneRef.current) return;
+      if (!useChatStore.getState().chatBootstrapHasMoreTrips) return;
+      if (useChatStore.getState().isAppendingBootstrap) return;
+      idleBootstrapPrefetchDoneRef.current = true;
+      void appendBootstrapTripPage(organizationId);
+    }, 2_200);
+    return () => handle.cancel();
+  }, [
+    organizationId,
+    bootstrapDone,
+    activeTab,
+    tripChatScope,
+    chatBootstrapHasMoreTrips,
+    isAppendingBootstrap,
+    appendBootstrapTripPage,
+  ]);
+
   useEffect(() => {
     if (!isTripStreamTab(activeTab)) return;
     if (!selectedConvId) return;
-    const stream =
-      activeTab === "indent" ? indentStreamConversations : tripStreamConversations;
+    const stream = tripStreamConversations;
     if (stream.some((c) => c.id === selectedConvId)) return;
-    // Hub streams exclude rows (party filters, manual vs integrated split). Selection is still valid
-    // if the conversation exists in the org store — do not clear (fixes CLIENT tab snapping back to driver).
+
+    // Inbox is driver-only: if a client/supplier lane is selected, jump to the
+    // assigned driver lane for that trip (fixes AERO header on Vasanth trips).
+    const selected = conversations.find((c) => c.id === selectedConvId);
+    if (selected && selected.party_type !== "driver") {
+      const driverLane = stream.find(
+        (c) => c.trip_id === selected.trip_id && c.party_type === "driver",
+      );
+      if (driverLane) {
+        chatStore.switchParty(driverLane.trip_id, "driver");
+        setSelectedConvId(driverLane.id);
+        setFocusedTripPartyKey(tripPartyPeopleKey(driverLane));
+        return;
+      }
+    }
+
     if (conversations.some((c) => c.id === selectedConvId)) return;
     setSelectedConvId(null);
   }, [
     activeTab,
-    indentStreamConversations,
     tripStreamConversations,
     conversations,
     selectedConvId,
@@ -2082,7 +2177,10 @@ export function ChatScreen() {
     if (!convIdParam) return;
 
     const tabParamRawNorm = String(tabParamRaw ?? "").toLowerCase();
-    if (tabParamRawNorm === "network") {
+    const normalizedTab = normalizeChatStreamTab(tabParamRawNorm, {
+      teamEnabled: PULSE_CHAT_TEAM_ENABLED,
+    });
+    if (normalizedTab === "network" || tabParamRawNorm === "network" || tabParamRawNorm === "dm") {
       const netHit = netChats.find((c) => c.id === convIdParam);
       if (!netHit) return;
       const deepLinkKey = `network:${convIdParam}:${tsParam ?? "no-ts"}`;
@@ -2097,7 +2195,7 @@ export function ChatScreen() {
       return;
     }
 
-    const deepLinkKey = `${tabParamRawNorm || "trips"}:${convIdParam}:${tsParam ?? "no-ts"}`;
+    const deepLinkKey = `${normalizedTab}:${convIdParam}:${tsParam ?? "no-ts"}`;
     if (deepLinkAppliedRef.current === deepLinkKey) return;
 
     const shouldOpenDetail = openDetailParam === "1";
@@ -2106,13 +2204,7 @@ export function ChatScreen() {
     const hit = conversations.find((c) => c.id === convIdParam);
     if (hit) {
       deepLinkAppliedRef.current = deepLinkKey;
-      const tripsSnap = useChatStore.getState().trips;
-      const inferred = tripHubHasIntegratedPartition(hit, tripsSnap) ? "indent" : "trips";
-      const targetTab: TabId =
-        tabParamRawNorm === "indent" ? "indent" : tabParamRawNorm === "trips" ? "trips" : inferred;
-      const resolvedTab: TabId =
-        targetTab === "trips" && inferred === "indent" ? "indent" : targetTab;
-      setActiveTab(resolvedTab);
+      setActiveTab("trips");
       setSelectedConvId(convIdParam);
       setSelectedNetId(null);
       void markTripThreadsRead(hit.trip_id);
@@ -2228,6 +2320,7 @@ export function ChatScreen() {
     setIsMobileDetail(false);
     setSelectedConvId(null);
     setSelectedNetId(null);
+    setSelectedTeamConvId(null);
     setPlatformTripRoomId(null);
     setMessageInput("");
     setShowEmoji(false);
@@ -2237,8 +2330,18 @@ export function ChatScreen() {
 
   const handleSlackTabSelect = useCallback(
     (tab: SlackStreamTabId) => {
-      setActiveTab(tab);
+      const next =
+        tab === "team" && !PULSE_CHAT_TEAM_ENABLED
+          ? ("trips" as SlackStreamTabId)
+          : tab;
+      setActiveTab(next);
       setPlatformTripRoomId(null);
+      if (next === "team") {
+        setSelectedConvId(null);
+        setSelectedNetId(null);
+      } else {
+        setSelectedTeamConvId(null);
+      }
       if (isMobileDetail) closeDetail();
     },
     [isMobileDetail],
@@ -2260,8 +2363,51 @@ export function ChatScreen() {
       setFocusedTripPartyKey(tripPartyPeopleKey(conv));
       void markTripThreadsRead(conv.trip_id);
       openDetail();
+      // WhatsApp: warm this lane in the background (single-flight with DetailPanel).
+      void useChatStore
+        .getState()
+        .hydrateTripMessagesIfNeeded(conv.trip_id, {
+          conversationId: conv.id,
+        });
+      // Idle-prefetch nearest inbox neighbors so swipe/next open is cache-hit.
+      scheduleChatIdleWork(() => {
+        const neighbors = neighborConversationIds(
+          tripInboxOrderRef.current,
+          conv.id,
+        );
+        if (neighbors.length === 0) return;
+        useChatStore.getState().prefetchConversationWindows(neighbors);
+      }, 600);
     },
     [markTripThreadsRead],
+  );
+
+  const {
+    alert: dispatcherUnreadAlert,
+    clearAlert: clearDispatcherUnreadAlert,
+  } = useDispatcherIncomingUnreadAlert({
+    conversations: tripStreamConversations,
+    selectedConversationId: selectedConvId,
+    enabled: isTripStreamTab(activeTab),
+  });
+
+  const openDispatcherUnreadAlert = useCallback(
+    (alert: { conversationId: string }) => {
+      const conv = tripStreamConversations.find(
+        (c) => c.id === alert.conversationId,
+      );
+      clearDispatcherUnreadAlert();
+      if (conv) void openConversation(conv);
+    },
+    [tripStreamConversations, clearDispatcherUnreadAlert, openConversation],
+  );
+
+  const dispatcherUnreadToast = (
+    <DispatcherUnreadAlertToast
+      alert={dispatcherUnreadAlert}
+      onOpen={openDispatcherUnreadAlert}
+      onDismiss={clearDispatcherUnreadAlert}
+    />
   );
 
   const handleTripPartyPeoplePress = useCallback(
@@ -2273,8 +2419,18 @@ export function ChatScreen() {
 
       setFocusedTripPartyKey(partyKey);
 
-      if (partyConversations.length === 1) {
-        void openConversation(partyConversations[0]!);
+      // Prefer the single active operating trip; history is listed under History.
+      const activePool = partyConversations.filter((c) =>
+        isTripCurrentlyActiveStatus(effectiveConversationTripStatus(c)),
+      );
+      const pool = activePool.length > 0 ? activePool : partyConversations;
+      const operating =
+        activePool.length > 1
+          ? dedupeActiveConversationsByDriver(pool, composeDriverIdByTripId)
+          : pool;
+
+      if (operating.length === 1) {
+        void openConversation(operating[0]!);
         return;
       }
 
@@ -2287,14 +2443,24 @@ export function ChatScreen() {
         return;
       }
 
-      const best = pickRecommendedTripConversation(partyConversations);
+      const best = pickPreferredTripConversation(operating);
       if (best) void openConversation(best);
     },
-    [focusedTripPartyKey, openConversation, isMobileChatUi],
+    [
+      focusedTripPartyKey,
+      openConversation,
+      isMobileChatUi,
+      effectiveConversationTripStatus,
+      composeDriverIdByTripId,
+    ],
   );
 
   useEffect(() => {
-    const activeDetailId = isTripStreamTab(activeTab) ? selectedConvId : selectedNetId;
+    const activeDetailId = isTripStreamTab(activeTab)
+      ? selectedConvId
+      : activeTab === "team"
+        ? selectedTeamConvId
+        : selectedNetId;
     const detailVisible = isDesktop || isMobileDetail;
     if (!detailVisible || !activeDetailId) return;
 
@@ -2312,6 +2478,7 @@ export function ChatScreen() {
     isMobileDetail,
     selectedConvId,
     selectedNetId,
+    selectedTeamConvId,
   ]);
 
   const isSendingRef = useRef(false);
@@ -2372,28 +2539,43 @@ export function ChatScreen() {
   const docShareInFlightRef = useRef<string | null>(null);
 
   const handleDocShare = async (doc: DocumentSharePayload) => {
-    if (!selectedConv || !organizationId) return;
+    if (!selectedConv || !organizationId) {
+      throw new Error("Open a trip conversation before sharing a document.");
+    }
     const pathKey = normalizeTripDocumentsStoragePath(doc.storage_path);
-    if (!pathKey || docShareInFlightRef.current === pathKey) return;
+    if (!pathKey) {
+      throw new Error("This document has no storage path to share.");
+    }
+    if (docShareInFlightRef.current === pathKey) return;
     docShareInFlightRef.current = pathKey;
+
+    // Prefer the driver lane for the same trip so shared docs reach the driver.
+    const targetConv =
+      selectedConv.party_type === "driver"
+        ? selectedConv
+        : conversations.find(
+            (c) =>
+              c.trip_id === selectedConv.trip_id && c.party_type === "driver",
+          ) ?? selectedConv;
+
     const senderProfile = profile as {
       full_name?: string | null;
       displayName?: string | null;
       uid?: string | null;
     } | null;
     const senderRole =
-      selectedConv.organization_id &&
-      selectedConv.organization_id !== organizationId
+      targetConv.organization_id &&
+      targetConv.organization_id !== organizationId
         ? "supplier"
         : "dispatcher";
     const senderName =
       senderProfile?.full_name ||
       senderProfile?.displayName ||
       (senderRole === "supplier" ? "Supplier" : "Dispatcher");
-    const docMessageOrgId = selectedConv.organization_id ?? organizationId;
+    const docMessageOrgId = targetConv.organization_id ?? organizationId;
     try {
       await sendDocumentShareMessage({
-        conversationId: selectedConv.id,
+        conversationId: targetConv.id,
         organizationId: docMessageOrgId,
         senderRole,
         senderName,
@@ -2407,9 +2589,14 @@ export function ChatScreen() {
           entity_id: doc.entity_id,
         },
       });
+      if (targetConv.id !== selectedConv.id) {
+        setSelectedConvId(targetConv.id);
+      }
       setTimeout(() => messagesRef.current?.scrollToEnd({ animated: true }), 80);
-    } catch {
-      // fail silently
+    } catch (e) {
+      throw e instanceof Error
+        ? e
+        : new Error("Document was not shared in chat.");
     } finally {
       docShareInFlightRef.current = null;
     }
@@ -2511,7 +2698,7 @@ export function ChatScreen() {
   };
 
   const handleTripEmptyStartConversation = useCallback(() => {
-    setTripStartNoticeMode(activeTab === "indent" ? "integrated" : "driver");
+    setTripStartNoticeMode("driver");
   }, [activeTab]);
 
   const handleInitiate = async (
@@ -2545,7 +2732,7 @@ export function ChatScreen() {
     setInitiating(false);
     if (!convId) return;
     setShowCompose(false);
-    setActiveTab(isAggregateTrip(trip) && Boolean(String(trip.indent_id ?? "").trim()) ? "indent" : "trips");
+    setActiveTab("trips");
     setSelectedConvId(convId);
     if (!isDesktop) setIsMobileDetail(true);
   };
@@ -2571,19 +2758,15 @@ export function ChatScreen() {
   }, [composeSearch, composeTrips]);
 
   const composeTripsWithChatParties = useMemo(() => {
-    let list = filteredComposeTrips.filter((t) => tripHasSelectableComposeParty(t));
-    if (activeTab === "indent") {
-      list = list.filter((t) => isAggregateTrip(t) && Boolean(String(t.indent_id ?? "").trim()));
-    } else if (activeTab === "trips") {
-      list = list.filter(
-        (t) =>
-          (!isAggregateTrip(t) || !String(t.indent_id ?? "").trim()) &&
-          Boolean(String(t.driver_id ?? "").trim()) &&
-          manualTripDriverAccepted(t.status),
+    // Unified Trips compose: indent-backed trips + manual trips with an accepted driver.
+    return filteredComposeTrips.filter((t) => {
+      if (!tripHasSelectableComposeParty(t)) return false;
+      if (isAggregateTrip(t) && Boolean(String(t.indent_id ?? "").trim())) return true;
+      return (
+        Boolean(String(t.driver_id ?? "").trim()) && manualTripDriverAccepted(t.status)
       );
-    }
-    return list;
-  }, [filteredComposeTrips, activeTab]);
+    });
+  }, [filteredComposeTrips]);
 
   const filteredNetPartners = netComposeSearch.trim()
     ? netPartners.filter((p) =>
@@ -2678,33 +2861,58 @@ export function ChatScreen() {
       return items;
     }
 
-    type PartyBucket = {
+    // Trips "On trip" strip — drivers only (driver-app style presence row).
+    type DriverBucket = {
       key: string;
+      driverId: string;
       convs: TripConversation[];
       unread: number;
       latestAt: number;
       sample: TripConversation;
+      displayName: string;
     };
-    const buckets = new Map<string, PartyBucket>();
+    const buckets = new Map<string, DriverBucket>();
     for (const conv of tripStreamForActiveHubTab) {
-      const key = tripPartyPeopleKey(conv);
+      const composeTrip = tripComposeById.get(conv.trip_id) ?? null;
+      const driverId = String(
+        composeTrip?.driver_id ?? conv.driver_id ?? "",
+      ).trim();
+      if (!driverId) continue;
+      const key = `driver:${driverId}`;
       let bucket = buckets.get(key);
       if (!bucket) {
+        const displayName =
+          (composeTrip?.driver_display_name ?? "").trim() ||
+          (conv.party_type === "driver"
+            ? (conv.party_name ?? "").trim()
+            : "") ||
+          "Driver";
         bucket = {
           key,
+          driverId,
           convs: [],
           unread: 0,
           latestAt: 0,
           sample: conv,
+          displayName,
         };
         buckets.set(key, bucket);
       }
-      bucket.convs.push(conv);
+      // Prefer driver-lane rows for open / focus; still tally unread across lanes.
+      if (conv.party_type === "driver") {
+        bucket.convs.push(conv);
+      }
       bucket.unread += conv.unread_dispatcher_count ?? 0;
       const at = new Date(conv.last_message_at ?? 0).getTime();
       if (at >= bucket.latestAt) {
         bucket.latestAt = at;
-        bucket.sample = conv;
+        if (conv.party_type === "driver" || bucket.sample.party_type !== "driver") {
+          bucket.sample = conv;
+        }
+        const name =
+          (composeTrip?.driver_display_name ?? "").trim() ||
+          (conv.party_type === "driver" ? (conv.party_name ?? "").trim() : "");
+        if (name) bucket.displayName = name;
       }
     }
 
@@ -2714,29 +2922,29 @@ export function ChatScreen() {
       .map((bucket) => {
         const conv = bucket.sample;
         const composeTrip = tripComposeById.get(conv.trip_id) ?? null;
-        const identity = resolveTripConversationAvatar(
-          conv,
+        const identity = resolveTripRoomDriverAvatar({
+          driverId: bucket.driverId,
+          title: bucket.displayName,
           composeTrip,
-          tripLinkedOrgBranding as Record<string, ChatOrgBranding>,
-          {
-            ...tripAvatarViewerBase,
-            tripHostOrgId:
-              conv.trip_organization_id ?? conv.organization_id ?? null,
-          },
-        );
-        const resolvedName = resolveChatPartyDisplayName(
-          conv.party_type,
-          conv.party_name,
-          composeTrip,
-        );
-        const shortName = formatChatPartyStripLabel(conv.party_type, resolvedName);
+        });
+        const shortName = formatChatPartyStripLabel("driver", bucket.displayName);
+        const driverConvs =
+          bucket.convs.length > 0
+            ? bucket.convs
+            : tripStreamForActiveHubTab.filter((c) => {
+                const ct = tripComposeById.get(c.trip_id);
+                return (
+                  String(ct?.driver_id ?? c.driver_id ?? "").trim() ===
+                  bucket.driverId
+                );
+              });
         return {
           id: bucket.key,
           name: shortName,
           identity,
           unread: bucket.unread,
           onPress: () => {
-            handleTripPartyPeoplePress(bucket.key, bucket.convs);
+            handleTripPartyPeoplePress(bucket.key, driverConvs);
           },
         };
       });
@@ -2768,28 +2976,48 @@ export function ChatScreen() {
     const displayTripId =
       tripListDisambiguatedLabels.get(item.trip_id) ?? getConversationTripLabel(item);
     const isActiveTrip = !isTerminalTripStatus(item.trip_status);
-    const time = item.last_message_at
-      ? new Date(item.last_message_at).toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-        })
-      : "";
-
+    // Only stamp chats that have real activity — never preview empty/invalid dates.
+    const time = formatChatInboxTime(item.last_message_at) ?? "";
     const composeTrip = tripComposeById.get(item.trip_id) ?? null;
-    const laneAvatar = resolveTripConversationAvatar(
-      item,
-      composeTrip,
-      tripLinkedOrgBranding as Record<string, ChatOrgBranding>,
-      {
-        ...tripAvatarViewerBase,
-        tripHostOrgId: item.trip_organization_id ?? item.organization_id ?? null,
-      },
+    const tripKind = resolveDriverChatTripKind(
+      item.trip_status ?? composeTrip?.status ?? null,
     );
-    const partyLine = formatChatPartyInboxLine(
-      item.party_type,
-      resolveChatPartyDisplayName(item.party_type, item.party_name, composeTrip),
-    );
+    const routeLine = [
+      composeTrip?.pickup_area ?? item.pickup_area,
+      composeTrip?.drop_location ?? item.drop_location,
+    ]
+      .map((s) => String(s ?? "").trim())
+      .filter(Boolean)
+      .join(" → ");
+    const driverId = String(composeTrip?.driver_id ?? item.driver_id ?? "").trim();
+    const driverName =
+      (composeTrip?.driver_display_name ?? "").trim() ||
+      (item.party_type === "driver" ? (item.party_name ?? "").trim() : "") ||
+      null;
+    // Trips inbox is driver communication: show assigned driver name + avatar.
+    const rowIdentity =
+      item.party_type === "driver" && driverId
+        ? resolveTripRoomDriverAvatar({
+            driverId,
+            title: driverName,
+            composeTrip,
+          })
+        : resolveTripConversationAvatar(
+            item,
+            composeTrip,
+            tripLinkedOrgBranding as Record<string, ChatOrgBranding>,
+            {
+              ...tripAvatarViewerBase,
+              tripHostOrgId: item.trip_organization_id ?? item.organization_id ?? null,
+            },
+          );
+    const partyLine =
+      item.party_type === "driver" && driverName
+        ? formatChatPartyInboxLine("driver", driverName)
+        : formatChatPartyInboxLine(
+            item.party_type,
+            resolveChatPartyDisplayName(item.party_type, item.party_name, composeTrip),
+          );
     const latestPreview = latestTripConversationPreview(item, {
         manualDriverOnly: activeTab === "trips" && item.party_type === "driver",
         composeTrip,
@@ -2808,15 +3036,25 @@ export function ChatScreen() {
     const latestPreviewText = latestPreview.text || null;
     const mobilePreviewKind =
       latestPreview.kind === "data" || latestPreview.kind === "html" ? "system" : latestPreview.kind;
+    const focusedDriverId = focusedTripPartyKey?.startsWith("driver:")
+      ? focusedTripPartyKey.slice("driver:".length).trim()
+      : null;
     const partyRecommended =
       Boolean(focusedTripPartyKey) &&
-      conversationMatchesPartyPeopleKey(item, focusedTripPartyKey);
+      (focusedDriverId
+        ? conversationDriverId(item, composeTrip?.driver_id) === focusedDriverId
+        : conversationMatchesPartyPeopleKey(item, focusedTripPartyKey, {
+            composeDriverId: composeTrip?.driver_id,
+          }));
+    const rowTitle = routeLine || displayTripId;
+    const rowTitleMeta = routeLine ? displayTripId : null;
 
     if (isMobileChatUi) {
       return (
         <ChatSlackListRow
-          identity={laneAvatar}
-          title={displayTripId}
+          identity={rowIdentity}
+          title={rowTitle}
+          titleMeta={rowTitleMeta}
           time={time}
           partyLine={partyLine}
           preview={latestPreviewText}
@@ -2828,6 +3066,7 @@ export function ChatScreen() {
           active={active}
           recommended={partyRecommended}
           unread={item.unread_dispatcher_count}
+          tripKind={tripKind}
           onPress={() => void openConversation(item)}
         />
       );
@@ -2836,8 +3075,8 @@ export function ChatScreen() {
     if (isDesktop) {
       return (
         <ChatSlackDesktopSidebarRow
-          identity={laneAvatar}
-          title={displayTripId}
+          identity={rowIdentity}
+          title={rowTitle}
           time={time}
           partyLine={partyLine}
           preview={latestPreviewText}
@@ -2848,6 +3087,7 @@ export function ChatScreen() {
           documentExtension={latestPreview.documentExtension}
           documentIsImage={latestPreview.documentIsImage}
           active={active}
+          unread={item.unread_dispatcher_count}
           anchorRef={active ? desktopActiveRowRef : undefined}
           onPress={() => void openConversation(item)}
         />
@@ -2861,7 +3101,7 @@ export function ChatScreen() {
         activeOpacity={0.8}
       >
         <View style={s.chatAvatarWrap}>
-          <ChatPartyAvatar identity={laneAvatar} size={56} />
+          <ChatPartyAvatar identity={rowIdentity} size={56} />
           {item.unread_dispatcher_count > 0 && !active && (
             <View style={s.chatAvatarUnreadDot} />
           )}
@@ -2929,6 +3169,11 @@ export function ChatScreen() {
     const networkPreview = previewFromNetworkContent(last?.content);
     const netPartyLine = formatChatPartyTypeLabel(resolveNetChatPartyType(item));
     const active = selectedNetId === item.id;
+    const hasNetChat =
+      item.messages.length > 0 ||
+      (item.unreadCount ?? 0) > 0 ||
+      (Boolean(item.lastActivity) && item.lastActivity !== "No messages");
+    const netTime = hasNetChat ? item.lastActivity : "";
     const openNet = () => {
       setSelectedNetId(item.id);
       markNetRead(item.id);
@@ -2940,7 +3185,7 @@ export function ChatScreen() {
         <ChatSlackListRow
           identity={partnerAvatar}
           title={item.partnerName}
-          time={item.lastActivity}
+          time={netTime}
           partyLine={netPartyLine}
           preview={networkPreview.text}
           previewKind={networkPreview.kind === "data" || networkPreview.kind === "html" ? "system" : networkPreview.kind}
@@ -2956,12 +3201,13 @@ export function ChatScreen() {
         <ChatSlackDesktopSidebarRow
           identity={partnerAvatar}
           title={item.partnerName}
-          time={item.lastActivity}
+          time={netTime}
           partyLine={netPartyLine}
           preview={networkPreview.text}
           previewKind={networkPreview.kind}
           previewImageUrl={networkPreview.imageUrl}
           active={active}
+          unread={item.unreadCount}
           anchorRef={active ? desktopActiveRowRef : undefined}
           onPress={openNet}
         />
@@ -2980,7 +3226,9 @@ export function ChatScreen() {
             <Text style={[s.chatTitle, active && s.chatTitleActive]} numberOfLines={1}>
               {item.partnerName}
             </Text>
-            <Text style={[s.chatTime, active && s.chatTimeActive]}>{item.lastActivity}</Text>
+            {netTime ? (
+              <Text style={[s.chatTime, active && s.chatTimeActive]}>{netTime}</Text>
+            ) : null}
           </View>
           {netPartyLine ? (
             <Text style={[s.chatPartyLabel, active && s.chatPartyLabelActive]} numberOfLines={1}>
@@ -3014,20 +3262,17 @@ export function ChatScreen() {
       lateCount: number;
       unread: number;
       Icon: React.ComponentType<{ size: number; color: string; strokeWidth?: number }>;
-    }[] = [
-      { id: "trips", label: "MANUAL", lateCount: manualRunningLateActiveCount, unread: tripsChatUnread, Icon: Hash },
-      {
-        id: "indent",
-        label: "INTEGRATED",
-        lateCount: integratedRunningLateActiveCount,
-        unread: indentChatUnread,
-        Icon: Briefcase,
-      },
-      { id: "network", label: "NETWORK DM", lateCount: 0, unread: netUnread, Icon: Users },
-    ];
+    }[] = getVisibleSlackStreamTabs().map((tab) => ({
+      id: tab.id,
+      label: tab.shortLabel.toUpperCase(),
+      lateCount: tab.id === "trips" ? tripsRunningLateActiveCount : 0,
+      unread:
+        tab.id === "network" ? netUnread : tab.id === "trips" ? tripsChatUnread : 0,
+      Icon: tab.Icon,
+    }));
 
     const slackListTitle =
-      activeTab === "network" ? "DMs" : activeTab === "indent" ? "Integrated" : "Trips";
+      activeTab === "network" ? "DM" : activeTab === "team" ? "Team" : "Trips";
     const slackListBottomPad = mobileKeyboardOpen
       ? Math.max(insets.bottom, 12)
       : CHAT_SLACK_BOTTOM_NAV_BAR + Math.max(insets.bottom, 6) + 16;
@@ -3039,6 +3284,7 @@ export function ChatScreen() {
       void openCompose();
     };
 
+    const tripStreamMobile = isTripStreamTab(activeTab);
     const slackInboxToolbar = isMobileChatUi ? (
       <ChatSlackInboxToolbar
         peopleItems={slackPeopleItems}
@@ -3050,8 +3296,8 @@ export function ChatScreen() {
         peopleSectionLabel={
           activeTab === "network"
             ? "Partners"
-            : activeTab === "indent"
-              ? "Integrated"
+            : activeTab === "team"
+              ? "Team"
               : "On trip"
         }
         networkStoryStrip={
@@ -3071,23 +3317,15 @@ export function ChatScreen() {
         }
         onCompose={slackFabOnPress}
         filterChips={slackFilterChips}
-        showSearch={isTripStreamTab(activeTab) || activeTab === "network"}
-        searchValue={isTripStreamTab(activeTab) ? tripSidebarSearch : netSidebarSearch}
-        onSearchChange={
-          isTripStreamTab(activeTab) ? setTripSidebarSearch : setNetSidebarSearch
-        }
-        onSearchClear={() => {
-          if (isTripStreamTab(activeTab)) setTripSidebarSearch("");
-          else setNetSidebarSearch("");
-        }}
-        searchPlaceholder={
-          isTripStreamTab(activeTab)
-            ? "Search trips, routes…"
-            : "Search direct messages…"
-        }
-        searchInputRef={
-          isTripStreamTab(activeTab) ? tripSearchInputRef : netSearchInputRef
-        }
+        showPeopleStrip
+        // Trips: Active|History full-width under the drivers strip.
+        filterSearchLayout={tripStreamMobile ? "stacked" : "inline"}
+        showSearch={!tripStreamMobile && activeTab === "network"}
+        searchValue={netSidebarSearch}
+        onSearchChange={setNetSidebarSearch}
+        onSearchClear={() => setNetSidebarSearch("")}
+        searchPlaceholder="Search direct messages…"
+        searchInputRef={netSearchInputRef}
       />
     ) : null;
 
@@ -3101,10 +3339,36 @@ export function ChatScreen() {
         />
       ) : null;
 
+    const tripsUnreadBanner =
+      isTripStreamTab(activeTab) &&
+      tripChatScope === "active" &&
+      tripsChatUnread > 0 ? (
+        <Pressable
+          style={s.tripsUnreadBanner}
+          onPress={() => {
+            setSlackUnreadOnly(true);
+            const first = tripStreamConversations.find(
+              (c) => (c.unread_dispatcher_count ?? 0) > 0,
+            );
+            if (first) void openConversation(first);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`${tripsChatUnread} unread trip messages`}
+        >
+          <Bell size={14} color={Theme.destructive} strokeWidth={2.4} />
+          <Text style={s.tripsUnreadBannerText}>
+            {tripsChatUnread > 9 ? "9+" : tripsChatUnread} unread
+            {tripsChatUnread === 1 ? " message" : " messages"}
+          </Text>
+          <Text style={s.tripsUnreadBannerAction}>Jump</Text>
+        </Pressable>
+      ) : null;
+
     const tripStreamMobileHeader =
       isTripStreamTab(activeTab) && isMobileChatUi ? (
         <>
           {slackInboxToolbar}
+          {tripsUnreadBanner}
           {tripRoomInboxSection}
         </>
       ) : (
@@ -3124,8 +3388,8 @@ export function ChatScreen() {
             sectionLabel={
               activeTab === "network"
                 ? "Partners"
-                : activeTab === "indent"
-                  ? "Integrated"
+                : activeTab === "team"
+                  ? "Team"
                   : "On trip"
             }
             onCompose={() => {
@@ -3175,6 +3439,20 @@ export function ChatScreen() {
               router.canGoBack() ? router.back() : router.replace(ROUTES.TABS.TRIPS)
             }
           />
+          {currentOrgId ? (
+            <View style={deskSt.sidebarStoryRail}>
+              <StoryReel
+                posts={networkStoryPosts}
+                orgId={currentOrgId}
+                orgName={currentOrganization?.name ?? undefined}
+                onCreatePost={() => router.push("/(modals)/create-post")}
+                networkPartnerOrgIds={chatNetworkPartnerOrgIds}
+                indentCountByPostId={networkStoryIndentCounts}
+                embedded
+                desktopRail
+              />
+            </View>
+          ) : null}
           </>
         ) : (
           <>
@@ -3378,41 +3656,50 @@ export function ChatScreen() {
           </View>
         )}
 
+        {activeTab === "team" ? (
+          <TeamChatScope
+            variant="inbox"
+            selectedId={selectedTeamConvId}
+            onSelectConversation={(id) => {
+              setSelectedTeamConvId(id);
+              setSelectedConvId(null);
+              setSelectedNetId(null);
+              setPlatformTripRoomId(null);
+              if (id) openDetail();
+            }}
+            bottomPad={isMobileChatUi ? slackListBottomPad : 24}
+          />
+        ) : null}
+
         {isTripStreamTab(activeTab) &&
           (isLoading && !bootstrapDone && tripStreamConversations.length === 0 ? (
-            // First-ever bootstrap in progress: keep the people strip visible
-            // and only spin the conversation list.
+            // First-ever bootstrap: shell stays up; skeleton rows instead of a blank spinner.
             <View>
               {isMobileChatUi ? tripStreamMobileHeader : null}
-              <View style={{ paddingTop: 40, alignItems: "center" }}>
-                <LoadingIndicator color={CHAT_ACCENT} />
-              </View>
+              <ChatListSkeleton count={8} />
             </View>
           ) : isMobileChatUi ? (
             <FlatList
               ref={tripInboxListRef}
               style={slackSt.listScroll}
-              data={mobileTripInboxRows}
+              data={visibleMobileTripInboxRows}
               keyExtractor={(i) => i.id}
               renderItem={renderTripInboxRow}
               {...SLACK_CHAT_LIST_PROPS}
+              initialNumToRender={MOBILE_INBOX_INITIAL_VISIBLE}
+              maxToRenderPerBatch={MOBILE_INBOX_PAGE_STEP}
+              windowSize={7}
               ListHeaderComponent={tripStreamMobileHeader}
               ListEmptyComponent={
                 <EmptyList
                   label={
                     tripChatScope === "history"
-                      ? activeTab === "indent"
-                        ? "No integrated trips in history"
-                        : "No manual trips in history"
-                      : activeTab === "indent"
-                        ? "No active integrated trip conversations"
-                        : "No active manual trip conversations"
+                      ? "No trips in history"
+                      : "No active trip conversations"
                   }
-                  variant={activeTab === "indent" ? "trip_integrated" : "trip_driver"}
+                  variant="trip_driver"
                   subtitle={
-                    activeTab === "indent"
-                      ? CHAT_EMPTY_COPY.tripIntegratedSubtitle
-                      : CHAT_EMPTY_COPY.tripDriverSubtitle
+                    CHAT_EMPTY_COPY.tripDriverSubtitle
                   }
                   actionLabel={tripChatScope === "active" ? "Start a conversation" : undefined}
                   onAction={
@@ -3440,6 +3727,7 @@ export function ChatScreen() {
               onScroll={onTripStreamListScroll}
             >
               {desktopPeopleStrip}
+              {tripsUnreadBanner}
               {tripRoomInboxSection}
               <View style={deskSt.sidebarScopeToggleWrap}>
                 <View style={deskSt.sidebarScopeToggleRow}>
@@ -3461,6 +3749,9 @@ export function ChatScreen() {
                       numberOfLines={1}
                     >
                       Active
+                      {tripChatScope === "active" && tripsChatUnread > 0
+                        ? ` · ${tripsChatUnread > 9 ? "9+" : tripsChatUnread}`
+                        : ""}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -3534,12 +3825,8 @@ export function ChatScreen() {
                     }}
                   >
                     <CompactChatAnimation
-                      size={activeTab === "indent" ? 84 : 112}
-                      source={
-                        activeTab === "indent"
-                          ? NEW_TRIP_INTEGRATED_EMPTY_ANIMATION
-                          : NEW_TRIP_DRIVER_EMPTY_ANIMATION
-                      }
+                      size={112}
+                      source={NEW_TRIP_DRIVER_EMPTY_ANIMATION}
                     />
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                       <View
@@ -3584,36 +3871,17 @@ export function ChatScreen() {
                         ? "No active conversations"
                         : "No conversations in history"}
                     </Text>
-                    {activeTab === "indent" ? (
-                      <View style={{ width: "100%", gap: 4 }}>
-                        {CHAT_EMPTY_COPY.tripIntegratedFeatures.map((feature) => (
-                          <Text
-                            key={feature}
-                            style={{
-                              fontSize: 11,
-                              color: SLACK_DESKTOP.textTertiary,
-                              textAlign: "center",
-                              lineHeight: 16,
-                              paddingHorizontal: 16,
-                            }}
-                          >
-                            • {feature}
-                          </Text>
-                        ))}
-                      </View>
-                    ) : (
-                      <Text
-                        style={{
-                          fontSize: 11,
-                          color: SLACK_DESKTOP.textTertiary,
-                          textAlign: "center",
-                          lineHeight: 16,
-                          paddingHorizontal: 16,
-                        }}
-                      >
-                        {CHAT_EMPTY_COPY.tripDriverSubtitle}
-                      </Text>
-                    )}
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        color: SLACK_DESKTOP.textTertiary,
+                        textAlign: "center",
+                        lineHeight: 16,
+                        paddingHorizontal: 16,
+                      }}
+                    >
+                      {CHAT_EMPTY_COPY.tripDriverSubtitle}
+                    </Text>
                     {tripChatScope === "active" ? (
                       <TouchableOpacity
                         style={{
@@ -3667,18 +3935,12 @@ export function ChatScreen() {
                 <EmptyList
                   label={
                     tripChatScope === "history"
-                      ? activeTab === "indent"
-                        ? "No integrated trips in history"
-                        : "No manual trips in history"
-                      : activeTab === "indent"
-                        ? "No active integrated trip conversations"
-                        : "No active manual trip conversations"
+                      ? "No trips in history"
+                      : "No active trip conversations"
                   }
-                  variant={activeTab === "indent" ? "trip_integrated" : "trip_driver"}
+                  variant="trip_driver"
                   subtitle={
-                    activeTab === "indent"
-                      ? CHAT_EMPTY_COPY.tripIntegratedSubtitle
-                      : CHAT_EMPTY_COPY.tripDriverSubtitle
+                    CHAT_EMPTY_COPY.tripDriverSubtitle
                   }
                   actionLabel={tripChatScope === "active" ? "Start a conversation" : undefined}
                   onAction={
@@ -3771,12 +4033,14 @@ export function ChatScreen() {
                       void openCompose(trip.tripId);
                       return;
                     }
-                    const storedParty = chatStore.getActivePartyType(trip.tripId);
-                    const preferred = storedParty
-                      ? (trip.rows.find((r) => r.party_type === storedParty) ??
-                        trip.rows[0])
-                      : trip.rows[0];
-                    await openConversation(preferred!);
+                    const preferred = pickPreferredTripConversation(trip.rows, {
+                      storedParty: chatStore.getActivePartyType(trip.tripId),
+                    });
+                    if (!preferred) {
+                      void openCompose(trip.tripId);
+                      return;
+                    }
+                    await openConversation(preferred);
                   };
                   const chatEntry = chatTrips[trip.tripId];
                   const partyIconRow = (
@@ -3927,18 +4191,12 @@ export function ChatScreen() {
                 <EmptyList
                   label={
                     tripChatScope === "history"
-                      ? activeTab === "indent"
-                        ? "No integrated trips in history"
-                        : "No manual trips in history"
-                      : activeTab === "indent"
-                        ? "No active integrated trip conversations"
-                        : "No active manual trip conversations"
+                      ? "No trips in history"
+                      : "No active trip conversations"
                   }
-                  variant={activeTab === "indent" ? "trip_integrated" : "trip_driver"}
+                  variant="trip_driver"
                   subtitle={
-                    activeTab === "indent"
-                      ? CHAT_EMPTY_COPY.tripIntegratedSubtitle
-                      : CHAT_EMPTY_COPY.tripDriverSubtitle
+                    CHAT_EMPTY_COPY.tripDriverSubtitle
                   }
                   actionLabel={tripChatScope === "active" ? "Start a conversation" : undefined}
                   onAction={
@@ -3958,9 +4216,7 @@ export function ChatScreen() {
           (netLoading && netChats.length === 0 && netPartners.length === 0 ? (
             <View>
               {isMobileChatUi ? slackInboxToolbar : desktopPeopleStrip}
-              <View style={{ paddingTop: 40, alignItems: "center" }}>
-                <LoadingIndicator color={CHAT_ACCENT} />
-              </View>
+              <ChatListSkeleton count={8} />
             </View>
           ) : isDesktop ? (
             <ScrollView
@@ -3971,19 +4227,6 @@ export function ChatScreen() {
               showsVerticalScrollIndicator={false}
             >
               {desktopPeopleStrip}
-              {activeTab === "network" ? (
-                <View style={s.chatStoryInlineWrap}>
-                  <StoryReel
-                    posts={networkStoryPosts}
-                    orgId={currentOrgId || undefined}
-                    orgName={currentOrganization?.name ?? undefined}
-                    onCreatePost={() => router.push("/(modals)/create-post")}
-                    networkPartnerOrgIds={chatNetworkPartnerOrgIds}
-                    indentCountByPostId={networkStoryIndentCounts}
-                    embedded
-                  />
-                </View>
-              ) : null}
               <View style={deskSt.sidebarCategoryWrap}>
                 <TouchableOpacity
                   style={deskSt.sidebarCategoryHeader}
@@ -4084,7 +4327,7 @@ export function ChatScreen() {
               style={deskSt.sidebarBottomMirrorToggle}
               activeId={activeTab as SlackStreamTabId}
               onSelect={(id) => setActiveTab(id as TabId)}
-              items={SLACK_STREAM_TABS.map((tab) => ({
+              items={getVisibleSlackStreamTabs().map((tab) => ({
                 id: tab.id,
                 label: tab.shortLabel,
                 Icon: tab.Icon,
@@ -4093,7 +4336,7 @@ export function ChatScreen() {
                     ? netUnread
                     : tab.id === "trips"
                       ? tripsChatUnread
-                      : indentChatUnread,
+                      : 0,
               }))}
             />
           </View>
@@ -4608,7 +4851,18 @@ export function ChatScreen() {
   }
 
   const detailPanel =
-    isTripStreamTab(activeTab) ? (
+    activeTab === "team" ? (
+      <TeamChatScope
+        variant="thread"
+        selectedId={selectedTeamConvId}
+        onSelectConversation={(id) => {
+          setSelectedTeamConvId(id);
+          if (!id && !isDesktop) closeDetail();
+        }}
+        onBack={isDesktop ? undefined : closeDetail}
+        bottomPad={isMobileChatUi ? Math.max(insets.bottom, 12) : 24}
+      />
+    ) : isTripStreamTab(activeTab) ? (
       <TripConversationDetailPanel
         selectedConv={selectedConv}
         conversations={conversations}
@@ -4701,8 +4955,11 @@ export function ChatScreen() {
         <View style={deskSt.shell}>
           <View style={deskSt.sidebar}>
             {ChatList()}
+            {dispatcherUnreadToast}
           </View>
-          <View style={deskSt.main}>{detailPanel}</View>
+          <View style={deskSt.main}>
+            <View style={deskSt.mainBody}>{detailPanel}</View>
+          </View>
         </View>
         <ComposeModal />
         <NetworkComposeModal />
@@ -4750,13 +5007,14 @@ export function ChatScreen() {
           unreadByTab={{
             network: netUnread,
             trips: tripsChatUnread,
-            indent: indentChatUnread,
+            team: 0,
           }}
           onSelect={handleSlackTabSelect}
           bottomInset={insets.bottom}
           onOpenStories={handleSlackBottomStories}
         />
       ) : null}
+      {!isMobileDetail ? dispatcherUnreadToast : null}
       <ComposeModal />
       <NetworkComposeModal />
       <TripFilterModal />
@@ -5006,7 +5264,33 @@ function EmptyDetail({ isDesktop = false }: { isDesktop?: boolean }) {
 
 const s = StyleSheet.create({
   root: { flex: 1 },
+  tripsUnreadBanner: {
+    marginHorizontal: 14,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: Theme.destructiveWash,
+    borderWidth: 1,
+    borderColor: "rgba(232, 33, 39, 0.22)",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  tripsUnreadBannerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.destructive,
+  },
+  tripsUnreadBannerAction: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: Theme.brandBlueInk,
+  },
   mobileSlackRoot: {
+    position: "relative",
     backgroundColor: "#FFFFFF",
     flexDirection: "column",
   },
@@ -7144,6 +7428,7 @@ function ChatBubble({
   senderName,
   peerAvatar,
   deliveryStatus,
+  onRetryFailed,
   isNew,
   isMobile,
   slackLayout = false,
@@ -7166,6 +7451,8 @@ function ChatBubble({
   peerAvatar?: ResolvedPartyAvatarIdentity | null;
   /** WhatsApp-style ticks for outgoing rows (from `resolveOutgoingDeliveryStatus`). */
   deliveryStatus?: MessageDeliveryStatus;
+  /** Shown when deliveryStatus === "failed" — keeps the bubble and retries the same send. */
+  onRetryFailed?: () => void;
   /** True only for messages that arrived via Realtime after this screen mounted.
    *  Bootstrap messages start fully visible to avoid the "flash of invisible" blink. */
   isNew?: boolean;
@@ -7230,29 +7517,48 @@ function ChatBubble({
       ? ownAvatar
       : peerAvatar ?? { displayName: senderName ?? "User", entityType: "client" };
     return (
-      <ChatSlackMessageRow
-        senderName={isOwn ? (profile?.full_name || profile?.displayName || "You") : senderName ?? "User"}
-        content={content}
-        timestamp={timestamp}
-        avatar={rowAvatar}
-        isOwn={isOwn}
-        userName={profile?.full_name || profile?.displayName || "You"}
-        userAvatarUrl={profile?.avatar_url ?? null}
-        userAvatarSeed={profile?.avatar_seed ?? null}
-        userOrgLogoUrl={currentOrganization?.logo_url ?? null}
-        onAvatarPress={onAvatarPress}
-        variant={slackVariant}
-        group={slackGroup}
-        isNew={isNew}
-        reactions={reactions}
-        selfUserId={selfUserId}
-        onReact={onReact}
-        replyPreview={replyPreview}
-        onReply={onReply}
-        isEdited={isEdited}
-        onEdit={isOwn ? onEdit : undefined}
-        onDelete={isOwn ? onDelete : undefined}
-      />
+      <View>
+        <ChatSlackMessageRow
+          senderName={isOwn ? (profile?.full_name || profile?.displayName || "You") : senderName ?? "User"}
+          content={content}
+          timestamp={timestamp}
+          avatar={rowAvatar}
+          isOwn={isOwn}
+          userName={profile?.full_name || profile?.displayName || "You"}
+          userAvatarUrl={profile?.avatar_url ?? null}
+          userAvatarSeed={profile?.avatar_seed ?? null}
+          userOrgLogoUrl={currentOrganization?.logo_url ?? null}
+          onAvatarPress={onAvatarPress}
+          variant={slackVariant}
+          group={slackGroup}
+          isNew={isNew}
+          reactions={reactions}
+          selfUserId={selfUserId}
+          onReact={onReact}
+          replyPreview={replyPreview}
+          onReply={onReply}
+          isEdited={isEdited}
+          onEdit={isOwn ? onEdit : undefined}
+          onDelete={isOwn ? onDelete : undefined}
+        />
+        {isOwn && deliveryStatus === "failed" && onRetryFailed ? (
+          <Pressable
+            onPress={onRetryFailed}
+            hitSlop={8}
+            style={{ alignSelf: "flex-end", paddingHorizontal: 16, paddingBottom: 4 }}
+            accessibilityRole="button"
+            accessibilityLabel="Retry sending message"
+          >
+            <Text style={{ fontSize: 12, fontWeight: "700", color: "#DC2626" }}>
+              Failed · Tap to retry
+            </Text>
+          </Pressable>
+        ) : isOwn ? (
+          <View style={{ alignSelf: "flex-end", paddingHorizontal: 16, marginTop: -4 }}>
+            <MessageTick status={deliveryStatus} compact />
+          </View>
+        ) : null}
+      </View>
     );
   }
 
@@ -7317,6 +7623,18 @@ function ChatBubble({
           </Text>
           {isOwn ? <MessageTick status={deliveryStatus} compact /> : null}
         </View>
+        {isOwn && deliveryStatus === "failed" && onRetryFailed ? (
+          <Pressable
+            onPress={onRetryFailed}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Retry sending message"
+          >
+            <Text style={{ fontSize: 12, fontWeight: "700", color: "#DC2626", marginTop: 2 }}>
+              Failed · Tap to retry
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
       {isOwn ? (
         <ChatPartyAvatar
@@ -7772,7 +8090,7 @@ function TripConversationDetailLoaded({
       Boolean(selfUid && m.sender_user_id && m.sender_user_id === selfUid),
     [selfUid],
   );
-  const { markTripThreadsRead, initiateConversation } = useTripChat();
+  const { markTripThreadsRead, initiateConversation, retryFailedMessage } = useTripChat();
 
   // Subscribe directly to this conversation for live message updates.
   // Re-renders only when THIS conversation changes, not the full list.
@@ -7814,15 +8132,16 @@ function TripConversationDetailLoaded({
     latestHistoryInFlightRef.current = true;
     const generation = historyFetchGenerationRef.current;
     const convId = liveConvRef.current.id;
-    const partyType = liveConvRef.current.party_type ?? null;
     const alreadyHasMessages = (liveConvRef.current.messages?.length ?? 0) > 0;
     setHistoryError(null);
     // Don't flash the empty-state spinner when the lane already has bubbles.
     if (!alreadyHasMessages) setHistoryLoading(true);
     try {
+      // Auth already scopes by conversation id — omit partyType so a skewed
+      // lane label cannot empty the windowed history RPC.
       const rows = await getMessagesByConversation(convId, {
         limit: TRIP_CHAT_HISTORY_PAGE,
-        partyType,
+        partyType: null,
       });
       if (generation !== historyFetchGenerationRef.current) return;
 
@@ -7872,7 +8191,7 @@ function TripConversationDetailLoaded({
       const rows = await getMessagesByConversation(liveConvRef.current.id, {
         before: oldest,
         limit: TRIP_CHAT_HISTORY_PAGE,
-        partyType: liveConvRef.current.party_type ?? null,
+        partyType: null,
       });
       if (rows.length === 0) {
         setHasMoreOlder(false);
@@ -7987,14 +8306,31 @@ function TripConversationDetailLoaded({
   }, []);
   pinThreadToEndRef.current = pinThreadToEnd;
 
-  // Always pull the newest page once per open conversation id.
-  // Deps: only liveConv.id — do NOT re-run when send updates messages.
+  // WhatsApp open: paint cache first; hit DB only when the newest window is
+  // cold or denorm is ahead of the stream. Deps: only liveConv.id.
   useEffect(() => {
     if (latestHistoryFetchedForRef.current === liveConv.id) return;
     latestHistoryFetchedForRef.current = liveConv.id;
     const openedId = liveConv.id;
+    const openedTripId = liveConv.trip_id;
     void (async () => {
-      await runLatestHistoryPageRef.current();
+      // Align with openConversation hydrate (single-flight per trip).
+      await useChatStore
+        .getState()
+        .hydrateTripMessagesIfNeeded(openedTripId, {
+          conversationId: openedId,
+        });
+      if (liveConvRef.current.id !== openedId) return;
+
+      const needsNetwork =
+        useChatStore.getState().shouldFetchOpenThreadHistory(openedId);
+      if (needsNetwork) {
+        await runLatestHistoryPageRef.current();
+      } else {
+        setHasMoreOlder(
+          (liveConvRef.current.messages?.length ?? 0) >= TRIP_CHAT_HISTORY_PAGE,
+        );
+      }
       if (liveConvRef.current.id !== openedId) return;
       const conv = chatStore.getConversation(openedId);
       if (!conv) {
@@ -8023,7 +8359,7 @@ function TripConversationDetailLoaded({
         }, 180);
       });
     })();
-  }, [liveConv.id]);
+  }, [liveConv.id, liveConv.trip_id]);
 
   // ── useMarkSeen: viewport-based per-message seen tracking ─────────────────
   const { onViewableItemsChanged, viewabilityConfig } = useMarkSeen({
@@ -8275,11 +8611,14 @@ function TripConversationDetailLoaded({
     const mountMs = Date.now() - 5_000; // treat messages < 5s old as "new"
     let unreadInserted = false;
 
+    // Date dividers only for messages that actually render in this party chat.
     for (const m of displayMessages) {
+      if (!isMessageVisibleInTab(m.message_type, liveConv.party_type)) continue;
+
       const msgDate = m.created_at ? m.created_at.slice(0, 10) : "";
 
-      // Date divider
-      if (msgDate && msgDate !== lastDateStr) {
+      // Date divider — skip empty/invalid stamps
+      if (msgDate && msgDate !== lastDateStr && !Number.isNaN(Date.parse(m.created_at))) {
         items.push({
           __dateDivider: true,
           dateStr: m.created_at,
@@ -8304,7 +8643,12 @@ function TripConversationDetailLoaded({
       items.push(m);
     }
     return items;
-  }, [displayMessages, isMessageFromSelf, mediaBurstIndex.skipIds]);
+  }, [
+    displayMessages,
+    isMessageFromSelf,
+    liveConv.party_type,
+    mediaBurstIndex.skipIds,
+  ]);
 
   // During open pin, follow content-size growth so newest rows aren't left below the fold.
   const onMessagesContentSizeChange = useCallback(() => {
@@ -8980,6 +9324,13 @@ function TripConversationDetailLoaded({
         senderName={own ? undefined : peerLabel}
         peerAvatar={peerAvatar}
         deliveryStatus={own ? resolveOutgoingDeliveryStatus(m) : undefined}
+        onRetryFailed={
+          own && resolveOutgoingDeliveryStatus(m) === "failed"
+            ? () => {
+                void retryFailedMessage(liveConv.id, m.id);
+              }
+            : undefined
+        }
         isNew={!own && Date.parse(m.created_at) > mountedAtMs}
         isMobile={!isDesktop}
         slackLayout={isDesktop || isChatMobileLayout(isDesktop)}
@@ -9007,6 +9358,8 @@ function TripConversationDetailLoaded({
     router,
     selfUid,
     selfName,
+    retryFailedMessage,
+    liveConv.id,
     handleToggleReaction,
     handleEditMessage,
     handleDeleteMessage,
@@ -9149,7 +9502,7 @@ function TripConversationDetailLoaded({
       ...partyItems,
       {
         id: TRIP_DETAIL_TEAM_TAB_ID,
-        label: "Team",
+        label: "Trip room",
         subLabel: "All parties",
         Icon: Users,
         disabled: false,
@@ -9312,34 +9665,58 @@ function TripConversationDetailLoaded({
 
   const slackThreadTitle = isTeamDetailTab
     ? getConversationTripLabel(liveConv)
-    : formatChatPartyName(liveConv.party_name) ||
+    : formatChatPartyName(
+        liveConv.party_type === "driver"
+          ? (tripCompose?.driver_display_name ?? "").trim() ||
+              liveConv.party_name
+          : liveConv.party_name,
+      ) ||
       formatChatPartyName(displayPartyName(liveConv.party_type)) ||
       viewerRelativeConvPartyLabel;
   const activeLaneDisplayType =
     missionBarPartyTypes.find((tab) => tab.rowType === liveConv.party_type)?.displayType ??
     liveConv.party_type;
-  const chatDetailPartyTypeLabel = isTeamDetailTab
-    ? "Team room · all parties"
+  const driverHeaderPhone = formatPhoneForDisplay(
+    liveConv.party_type === "driver" ? tripCompose?.driver_phone : null,
+  );
+  const chatDetailPartyTypeLabelBase = isTeamDetailTab
+    ? "Trip room · all parties"
     : formatChatPartyInboxLine(
         activeLaneDisplayType,
-        resolveChatPartyDisplayName(
-          liveConv.party_type,
-          liveConv.party_name,
-          tripCompose,
-        ),
+        liveConv.party_type === "driver"
+          ? (tripCompose?.driver_display_name ?? "").trim() ||
+              liveConv.party_name
+          : resolveChatPartyDisplayName(
+              liveConv.party_type,
+              liveConv.party_name,
+              tripCompose,
+            ),
       ) ?? chatDetailSubtitle;
-  const slackThreadAvatarResolved = isTeamDetailTab
-    ? resolveTripRoomDriverAvatar({
-        driverId,
-        title: getConversationTripLabel(liveConv),
-        composeTrip: tripCompose,
-      })
-    : resolveTripConversationAvatar(liveConv, tripCompose, linkedOrgBranding, {
-        viewerOrgId: currentOrgId,
-        viewerOrgName: currentOrganization?.name ?? null,
-        tripHostOrgId:
-          liveConv.trip_organization_id ?? liveConv.organization_id ?? null,
-      });
+  const chatDetailPartyTypeLabel =
+    driverHeaderPhone && chatDetailPartyTypeLabelBase
+      ? `${chatDetailPartyTypeLabelBase} · ${driverHeaderPhone}`
+      : driverHeaderPhone && !chatDetailPartyTypeLabelBase
+        ? driverHeaderPhone
+        : chatDetailPartyTypeLabelBase;
+  // Driver lanes + team rooms: same identity as ON TRIP / list (profile photo when linked).
+  const slackThreadAvatarResolved =
+    isTeamDetailTab || liveConv.party_type === "driver"
+      ? resolveTripRoomDriverAvatar({
+          driverId: driverId || liveConv.driver_id,
+          title:
+            (tripCompose?.driver_display_name ?? "").trim() ||
+            (liveConv.party_type === "driver"
+              ? (liveConv.party_name ?? "").trim()
+              : "") ||
+            getConversationTripLabel(liveConv),
+          composeTrip: tripCompose,
+        })
+      : resolveTripConversationAvatar(liveConv, tripCompose, linkedOrgBranding, {
+          viewerOrgId: currentOrgId,
+          viewerOrgName: currentOrganization?.name ?? null,
+          tripHostOrgId:
+            liveConv.trip_organization_id ?? liveConv.organization_id ?? null,
+        });
   const slackThreadAvatar = slackThreadAvatarResolved;
 
   return (
@@ -9520,7 +9897,11 @@ function TripConversationDetailLoaded({
             compact={keyboardOpen}
             minimalChrome={!isDesktop}
             isDesktop={isDesktop}
-            composerPlaceholder={`Message ${slackThreadTitle}`}
+            composerPlaceholder={`Message ${
+              String(slackThreadTitle ?? "")
+                .trim()
+                .split(/\s+/)[0] || "…"
+            }`}
             replyContext={replyContext}
             onCancelReply={onCancelReply}
             onUserTyping={onUserTyping}
@@ -9832,6 +10213,14 @@ function NetworkDetailPanel({
                     ? resolveNetworkPartnerAvatar(selectedNet)
                     : null
                 }
+                deliveryStatus={
+                  m.senderId === "dispatcher-1" ? m.deliveryStatus : undefined
+                }
+                onRetryFailed={
+                  m.senderId === "dispatcher-1" && m.deliveryStatus === "failed"
+                    ? () => integratedChat?.retryFailedMessage?.(selectedNet.id, m.id)
+                    : undefined
+                }
                 isMobile={!isDesktop}
                 slackLayout={slackThreadUi}
                 slackVariant={isDesktop ? "desktop" : "mobile"}
@@ -9897,7 +10286,11 @@ function NetworkDetailPanel({
             compact={keyboardOpen}
             minimalChrome={!isDesktop}
             isDesktop={isDesktop}
-            composerPlaceholder={`Message ${selectedNet.partnerName}`}
+            composerPlaceholder={`Message ${
+              String(selectedNet.partnerName ?? "")
+                .trim()
+                .split(/\s+/)[0] || "…"
+            }`}
             replyContext={netReplyContext}
             onCancelReply={clearNetReply}
             onUserTyping={netOnUserTyping}

@@ -424,9 +424,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#F4F4F4",
     borderWidth: 1,
     borderColor: "#ECECEC",
+    // Stretch within parent; avoid width:100% + horizontal margin overflow.
     alignSelf: "stretch",
-    width: "100%",
-    maxWidth: "100%",
   },
   filterIndicator: {
     backgroundColor: PULSE_CHAT.matteBlack,

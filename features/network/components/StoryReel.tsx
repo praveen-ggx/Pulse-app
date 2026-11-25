@@ -44,6 +44,8 @@ interface StoryReelProps {
   headerActions?: React.ReactNode;
   /** Inside desktop 80% story column — trim outer horizontal padding. */
   embedded?: boolean;
+  /** Desktop chat main pane — right-align the reel in the top rail. */
+  desktopRail?: boolean;
   /**
    * Whether this org may post/broadcast load stories. Asset-only orgs can
    * view stories but never create them (they cannot give load). Default true.
@@ -97,7 +99,19 @@ const STORY_METRICS_EMBEDDED: StoryMetrics = {
   plusSize: 13,
 };
 
-function storyMetricsFor(embedded: boolean): StoryMetrics {
+/** Desktop left-rail — tighter so height sits with sidebar search chrome. */
+const STORY_METRICS_DESKTOP_RAIL: StoryMetrics = {
+  avatar: 44,
+  ring: 50,
+  itemWidth: 58,
+  labelSize: 9,
+  labelLineHeight: 11,
+  addBadge: 18,
+  plusSize: 11,
+};
+
+function storyMetricsFor(embedded: boolean, desktopRail = false): StoryMetrics {
+  if (desktopRail) return STORY_METRICS_DESKTOP_RAIL;
   return embedded ? STORY_METRICS_EMBEDDED : STORY_METRICS_DEFAULT;
 }
 
@@ -382,6 +396,7 @@ export function StoryReel({
   orgName,
   onCreatePost,
   embedded = false,
+  desktopRail = false,
   canCreatePost = true,
   fetchLiveOwnLoads = true,
 }: StoryReelProps) {
@@ -538,10 +553,16 @@ export function StoryReel({
   useRecordSponsoredImpressions(stories, orgId);
 
   const mineRing = hasOwnStories ? RING_MINE_ACTIVE : RING_MINE_IDLE;
-  const metrics = storyMetricsFor(embedded);
+  const metrics = storyMetricsFor(embedded, desktopRail);
 
   return (
-    <View style={[styles.wrap, embedded && styles.wrapEmbedded]}>
+    <View
+      style={[
+        styles.wrap,
+        embedded && styles.wrapEmbedded,
+        desktopRail && styles.wrapDesktopRail,
+      ]}
+    >
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -549,9 +570,16 @@ export function StoryReel({
           styles.scroll,
           embedded && styles.scrollEmbedded,
           embedded && styles.scrollEmbeddedDesktop,
+          desktopRail && styles.scrollDesktopRail,
         ]}
       >
-        <View style={[styles.mineCluster, embedded && styles.mineClusterEmbedded]}>
+        <View
+          style={[
+            styles.mineCluster,
+            embedded && styles.mineClusterEmbedded,
+            desktopRail && styles.mineClusterDesktopRail,
+          ]}
+        >
           <StoryBubble
             label="Mine"
             ringColors={mineRing}
@@ -639,15 +667,31 @@ export function StoryReel({
             style={[
               styles.pulseStoryWatermark,
               embedded && styles.pulseStoryWatermarkEmbedded,
-              { marginTop: Math.max(0, (metrics.ring - (embedded ? 48 : 38)) / 2) },
+              desktopRail && styles.pulseStoryWatermarkDesktopRail,
+              {
+                marginTop: Math.max(
+                  0,
+                  (metrics.ring - (desktopRail ? 28 : embedded ? 48 : 38)) / 2,
+                ),
+              },
             ]}
             pointerEvents="none"
           >
             <PulseBrandMark
               size="lg"
-              textStyle={[styles.watermarkPulse, embedded && styles.watermarkPulseEmbedded]}
+              textStyle={[
+                styles.watermarkPulse,
+                embedded && styles.watermarkPulseEmbedded,
+                desktopRail && styles.watermarkPulseDesktopRail,
+              ]}
             />
-            <Text style={[styles.watermarkStory, embedded && styles.watermarkStoryEmbedded]}>
+            <Text
+              style={[
+                styles.watermarkStory,
+                embedded && styles.watermarkStoryEmbedded,
+                desktopRail && styles.watermarkStoryDesktopRail,
+              ]}
+            >
               story
             </Text>
           </View>
@@ -691,6 +735,13 @@ const styles = StyleSheet.create({
     minWidth: 0,
     overflow: "visible",
   },
+  wrapDesktopRail: {
+    width: "100%",
+    paddingTop: 0,
+    paddingBottom: 0,
+    alignItems: "flex-start",
+    justifyContent: "center",
+  },
   scroll: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
     gap: 10,
@@ -711,6 +762,16 @@ const styles = StyleSheet.create({
     paddingTop: 2,
     paddingBottom: 8,
   },
+  scrollDesktopRail: {
+    flexGrow: 0,
+    justifyContent: "flex-start",
+    alignItems: "center",
+    paddingHorizontal: 0,
+    paddingRight: 8,
+    paddingTop: 2,
+    paddingBottom: 2,
+    gap: 12,
+  },
   mineCluster: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -723,6 +784,12 @@ const styles = StyleSheet.create({
     gap: 20,
     marginRight: 10,
     paddingVertical: 4,
+  },
+  mineClusterDesktopRail: {
+    gap: 14,
+    marginRight: 2,
+    paddingVertical: 0,
+    alignItems: "center",
   },
   pulseStoryWatermark: {
     justifyContent: "center",
@@ -741,6 +808,11 @@ const styles = StyleSheet.create({
     minWidth: 64,
     marginRight: 10,
   },
+  pulseStoryWatermarkDesktopRail: {
+    opacity: 0.14,
+    minWidth: 52,
+    marginRight: 6,
+  },
   watermarkPulse: {
     fontWeight: "700",
   },
@@ -748,6 +820,11 @@ const styles = StyleSheet.create({
     fontSize: 28,
     lineHeight: 30,
     letterSpacing: -1,
+  },
+  watermarkPulseDesktopRail: {
+    fontSize: 22,
+    lineHeight: 24,
+    letterSpacing: -0.8,
   },
   watermarkStory: {
     fontSize: 16,
@@ -762,6 +839,10 @@ const styles = StyleSheet.create({
   watermarkStoryEmbedded: {
     fontSize: 20,
     lineHeight: 23,
+  },
+  watermarkStoryDesktopRail: {
+    fontSize: 15,
+    lineHeight: 17,
   },
   storyItem: {
     alignItems: "center",

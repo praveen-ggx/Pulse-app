@@ -2,6 +2,7 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   type ReactNode,
@@ -17,7 +18,12 @@ import type {
   TripConversationRow,
   TripMessageRow,
 } from '@/features/chat/types/chat.types';
-import { notifyTripChatMessagesChanged } from '@/lib/tripChatInvalidate';
+import {
+  notifyTripChatMessagesChanged,
+  subscribeTripChatMessagesChanged,
+} from '@/lib/tripChatInvalidate';
+import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
+import { queryKeys } from '@/lib/queryKeys';
 import {
   appendDriverChatMessageToCache,
   driverChatMessagesQueryKey,
@@ -141,6 +147,71 @@ export function DriverChatProvider({
     isLoading,
     refreshConversations: refetchConversations,
   } = useDriverChatConversationsQuery(isActive ? driverIds : []);
+
+  // Assignment / ledger writes call notifyTripChatMessagesChanged — refresh inbox.
+  useEffect(() => {
+    if (!isActive || !driverIdsKey) return;
+    return subscribeTripChatMessagesChanged(() => {
+      void queryClient.invalidateQueries({
+        queryKey: driverChatConversationsQueryKey(driverIdsKey),
+      });
+      if (uid) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.driverApp.root(uid),
+        });
+      }
+    });
+  }, [isActive, driverIdsKey, queryClient, uid]);
+
+  // Live inbox + Active trips when this driver is assigned / lane denorm moves.
+  useEffect(() => {
+    if (!isActive || driverIds.length === 0) return;
+    const filter = `driver_id=in.(${driverIds.join(",")})`;
+    const bust = () => {
+      void queryClient.invalidateQueries({
+        queryKey: driverChatConversationsQueryKey(driverIdsKey),
+      });
+      if (uid) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.driverApp.uiTrips(uid, driverIdsKey),
+        });
+      }
+    };
+    const unsubLane = subscribeSharedPostgresChanges(
+      `trip_conversations:driver-inbox:${driverIdsKey}`,
+      [
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "trip_conversations",
+          filter,
+        },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "trip_conversations",
+          filter,
+        },
+      ],
+      bust,
+    );
+    const unsubTrip = subscribeSharedPostgresChanges(
+      `trips:driver-assign:${driverIdsKey}`,
+      [
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "trips",
+          filter,
+        },
+      ],
+      bust,
+    );
+    return () => {
+      unsubLane();
+      unsubTrip();
+    };
+  }, [isActive, driverIds, driverIdsKey, queryClient, uid]);
 
   const patchConversationListPreview = useCallback(
     (

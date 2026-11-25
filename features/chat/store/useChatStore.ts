@@ -477,6 +477,9 @@ export interface PartyConv {
   feedbackStatus?: TripFeedbackLaneStatus;
   /** Newest-page history merged for this lane (bootstrap embed or open-thread hydrate). */
   historyWindowLoaded?: boolean;
+  /** Lane denorm from `trip_conversations` — used to heal when stream lags Realtime. */
+  lastMessageAt?: string | null;
+  lastMessagePreview?: string | null;
 }
 
 // ── Single trip entry — the core data unit in the store ──────────────────────
@@ -565,6 +568,16 @@ interface ChatState {
     tripId: string,
     opts?: { conversationId?: string },
   ) => Promise<void>;
+  /**
+   * Open-thread gate: false when the newest window is already warm and denorm
+   * is not ahead of the stream (WhatsApp: paint cache, skip DB).
+   */
+  shouldFetchOpenThreadHistory: (conversationId: string) => boolean;
+  /**
+   * Idle prefetch of neighbor thread windows. Caps concurrency via the same
+   * global history-pull budget as heal refetches. Skips the open conversation.
+   */
+  prefetchConversationWindows: (conversationIds: readonly string[]) => void;
   /** Idempotent: INSERT / echo rows merge into `event_stream` by `id` (unless `hubListOnly`). */
   processIncomingEvent: (
     row: Partial<TripMessageRow>,
@@ -587,6 +600,8 @@ interface ChatState {
   optimisticInsert:   (convId: string, msg: TripMessageRow) => void;
   replaceOptimistic:  (convId: string, tempId: string, persisted: TripMessageRow) => void;
   removeMessage:      (convId: string, msgId: string) => void;
+  /** Keep a failed optimistic bubble visible for retry (do not delete). */
+  markMessageFailed:  (convId: string, msgId: string) => void;
   upsertConversation: (conv: TripConversation) => void;
   /** Realtime `trip_conversations` row — sync sidebar unread + preview from DB denorm. */
   patchTripConversationFromRealtime: (row: Record<string, unknown>) => void;
@@ -781,6 +796,7 @@ function mergeEvents(local: TripEvent[], server: TripEvent[]): TripEvent[] {
 export function resolveOutgoingDeliveryStatus(
   m: Partial<TripMessageRow>,
 ): MessageDeliveryStatus {
+  if (m.delivery_status === "failed") return "failed";
   if (m.delivery_status === "sending") return "sending";
   const id = m.id != null ? String(m.id) : "";
   if (id.startsWith("optimistic-")) return "sending";
@@ -901,7 +917,82 @@ function partyFromConv(conv: TripConversation): PartyConv {
     driverId:       conv.driver_id,
     unreadCount:    conv.unread_dispatcher_count ?? 0,
     feedbackStatus: conv.trip_feedback_status ?? "none",
+    lastMessageAt: conv.last_message_at ?? null,
+    lastMessagePreview: conv.last_message_preview ?? null,
   };
+}
+
+/** Never move trip preview backwards — older history merges must not hide newer denorm. */
+function advanceTripPreview(
+  entry: Pick<TripEntry, "lastEventAt" | "lastEventPreview">,
+  at: string | null | undefined,
+  preview: string | null | undefined,
+): Pick<TripEntry, "lastEventAt" | "lastEventPreview"> {
+  const nextAt = String(at ?? "").trim();
+  if (!nextAt) {
+    return {
+      lastEventAt: entry.lastEventAt,
+      lastEventPreview: entry.lastEventPreview,
+    };
+  }
+  const nextMs = Date.parse(nextAt);
+  const prevMs = Date.parse(String(entry.lastEventAt ?? ""));
+  if (Number.isFinite(prevMs) && Number.isFinite(nextMs) && nextMs < prevMs) {
+    return {
+      lastEventAt: entry.lastEventAt,
+      lastEventPreview: entry.lastEventPreview,
+    };
+  }
+  return {
+    lastEventAt: nextAt,
+    lastEventPreview:
+      preview != null && String(preview).trim() !== ""
+        ? String(preview)
+        : entry.lastEventPreview,
+  };
+}
+
+const HUMAN_CHAT_MESSAGE_TYPES = new Set([
+  "text",
+  "image",
+  "document_share",
+  "audio",
+  "file",
+]);
+
+function streamHasHumanChatMessage(entry: TripEntry, convId: string): boolean {
+  for (const e of entry.event_stream) {
+    if (String(e.conversation_id ?? "") !== convId) continue;
+    if (HUMAN_CHAT_MESSAGE_TYPES.has(String(e.message_type ?? ""))) return true;
+  }
+  return false;
+}
+
+function denormLooksLikeHumanPreview(preview: string | null | undefined): boolean {
+  const text = String(preview ?? "").trim();
+  if (!text) return false;
+  // System / assignment cards usually end with period and named templates.
+  if (/assigned as driver\.?$/i.test(text)) return false;
+  if (/will report shortly\.?$/i.test(text)) return false;
+  if (/has accepted the trip/i.test(text)) return false;
+  if (/heading to pickup/i.test(text)) return false;
+  if (/^vehicle\s+\S+\s+assigned/i.test(text)) return false;
+  // Location spam must not count as "human chat already present" — that skips
+  // heal and hides Bhujesh ↔ driver texts behind "Driver location update — …".
+  if (/^driver location update/i.test(text)) return false;
+  if (/^location ping/i.test(text)) return false;
+  if (/^live location/i.test(text)) return false;
+  return true;
+}
+
+function denormLooksLikeLocationSpam(preview: string | null | undefined): boolean {
+  const text = String(preview ?? "").trim();
+  if (!text) return false;
+  return (
+    /^driver location update/i.test(text) ||
+    /^location ping/i.test(text) ||
+    /^live location/i.test(text)
+  );
 }
 
 /** Reconstruct a TripConversation from a TripEntry + one party lane. */
@@ -1215,9 +1306,31 @@ function mergeHistoryRowsIntoTripEntry(
   );
   const newEvts: TripEvent[] = financeSafe.map((m) => ({ ...m, partyType }));
   const event_stream = mergeEvents(entry.event_stream, newEvts);
+  let laneAt: string | null = null;
+  let lanePreview: string | null = null;
+  for (let i = event_stream.length - 1; i >= 0; i -= 1) {
+    const e = event_stream[i];
+    if (String(e.conversation_id ?? "") !== partyBefore.conversationId) continue;
+    laneAt = e.created_at ?? null;
+    lanePreview = previewText(e);
+    break;
+  }
+  const partyAdvanced = advanceTripPreview(
+    {
+      lastEventAt: partyBefore.lastMessageAt ?? null,
+      lastEventPreview: partyBefore.lastMessagePreview ?? null,
+    },
+    laneAt,
+    lanePreview ?? partyBefore.lastMessagePreview,
+  );
   const parties: TripEntry["parties"] = {
     ...entry.parties,
-    [partyType]: { ...partyBefore, historyWindowLoaded: true },
+    [partyType]: {
+      ...partyBefore,
+      historyWindowLoaded: true,
+      lastMessageAt: partyAdvanced.lastEventAt,
+      lastMessagePreview: partyAdvanced.lastEventPreview,
+    },
   };
   let next: TripEntry = {
     ...entry,
@@ -1228,10 +1341,14 @@ function mergeHistoryRowsIntoTripEntry(
       : (entry.skipEventStreamHydration ?? true),
   };
   next.totalUnread = sumHubVisibleUnread(next);
-  if (event_stream.length > 0) {
-    const last = event_stream[event_stream.length - 1];
-    next.lastEventAt = last.created_at;
-    next.lastEventPreview = previewText(last) ?? next.lastEventPreview;
+  if (laneAt) {
+    const advanced = advanceTripPreview(
+      next,
+      laneAt,
+      lanePreview ?? next.lastEventPreview,
+    );
+    next.lastEventAt = advanced.lastEventAt;
+    next.lastEventPreview = advanced.lastEventPreview;
   }
   next = withLongHaulFieldsFromStream(next);
   return withPartnerOrganizationStamp(next, orgId);
@@ -1348,9 +1465,14 @@ function ingestBootstrapConversations(
     entry.totalUnread = sumHubVisibleUnread(entry);
 
     if (entry.event_stream.length > 0) {
-      const last             = entry.event_stream[entry.event_stream.length - 1];
-      entry.lastEventAt      = last.created_at;
-      entry.lastEventPreview = previewText(last) ?? entry.lastEventPreview;
+      const last = entry.event_stream[entry.event_stream.length - 1];
+      const advanced = advanceTripPreview(
+        entry,
+        last.created_at,
+        previewText(last) ?? entry.lastEventPreview,
+      );
+      entry.lastEventAt = advanced.lastEventAt;
+      entry.lastEventPreview = advanced.lastEventPreview;
     }
     const lh = recomputeLongHaulTripFieldsFromStream(entry.event_stream);
     entry.trackingStatus = lh.trackingStatus;
@@ -1680,9 +1802,26 @@ export const useChatStore = create<ChatState>()(
             const p = next.parties[pt];
             if (!p?.conversationId) continue;
             if (p.historyWindowLoaded) continue;
-            const rows = await fetchConversationHistory(p.conversationId, {
-              partyType: pt,
-            });
+            // Share the global history-pull budget with heal/prefetch so open
+            // + idle warm never stampede PostgREST.
+            while (tripThreadPullGlobalInFlight >= TRIP_THREAD_PULL_GLOBAL_MAX) {
+              await new Promise((r) => setTimeout(r, 60));
+              if (!get().trips[tripId]) return;
+            }
+            tripThreadPullGlobalInFlight += 1;
+            let rows: TripMessageRow[] = [];
+            try {
+              rows = await fetchConversationHistory(p.conversationId, {
+                // Conversation id already scopes the lane; avoid empty RPC on
+                // party_type skew from bootstrap summaries.
+                partyType: null,
+              });
+            } finally {
+              tripThreadPullGlobalInFlight = Math.max(
+                0,
+                tripThreadPullGlobalInFlight - 1,
+              );
+            }
             next = mergeHistoryRowsIntoTripEntry(orgId, next, pt, rows);
           }
           set((s) => ({
@@ -1696,6 +1835,59 @@ export const useChatStore = create<ChatState>()(
       })();
       tripHydrationInFlight.set(tripId, work);
       await work;
+    },
+
+    shouldFetchOpenThreadHistory: (conversationId) => {
+      const id = (conversationId ?? "").trim();
+      if (!id) return false;
+      const { trips, convToTrip, convToParty } = get();
+      const tripId = convToTrip[id];
+      const partyType = convToParty[id];
+      const entry = tripId ? trips[tripId] : null;
+      if (!entry || !partyType) return true;
+      const party = entry.parties[partyType];
+      if (!party?.historyWindowLoaded) return true;
+      const laneAt = party.lastMessageAt ?? entry.lastEventAt;
+      const lanePreview = party.lastMessagePreview ?? entry.lastEventPreview;
+      if (tripThreadLooksStale(entry, id, laneAt, lanePreview)) return true;
+      // Denorm says there is a human chat bubble, but the in-memory stream only
+      // has system/assignment cards — force a newest-page pull.
+      if (
+        denormLooksLikeHumanPreview(lanePreview) &&
+        !streamHasHumanChatMessage(entry, id)
+      ) {
+        return true;
+      }
+      return false;
+    },
+
+    prefetchConversationWindows: (conversationIds) => {
+      const activeCid = getActiveTripMessageConversationId();
+      const seen = new Set<string>();
+      const queue: string[] = [];
+      for (const raw of conversationIds) {
+        const id = (raw ?? "").trim();
+        if (!id || id === activeCid || seen.has(id)) continue;
+        seen.add(id);
+        queue.push(id);
+        if (queue.length >= 2) break;
+      }
+      if (queue.length === 0) return;
+
+      void (async () => {
+        for (const id of queue) {
+          if (getActiveTripMessageConversationId() === id) continue;
+          const { trips, convToTrip, convToParty } = get();
+          const tripId = convToTrip[id];
+          const partyType = convToParty[id];
+          const entry = tripId ? trips[tripId] : null;
+          if (!tripId || !entry || !partyType) continue;
+          if (entry.parties[partyType]?.historyWindowLoaded) continue;
+          await get().hydrateTripMessagesIfNeeded(tripId, {
+            conversationId: id,
+          });
+        }
+      })();
     },
 
     // ── processIncomingEvent (idempotent Realtime / bootstrap overlap) ───────
@@ -2271,10 +2463,6 @@ export const useChatStore = create<ChatState>()(
         )
         .map((m) => ({ ...m, partyType }));
       const party = entry.parties[partyType];
-      const parties =
-        party && messages.length > 0
-          ? { ...entry.parties, [partyType]: { ...party, historyWindowLoaded: true } }
-          : entry.parties;
       const MAX_EVENT_STREAM_SIZE = 500;
       const rawStream = mergeEvents(entry.event_stream, newEvts);
       const cappedStream =
@@ -2282,23 +2470,51 @@ export const useChatStore = create<ChatState>()(
           ? rawStream.slice(-MAX_EVENT_STREAM_SIZE)
           : rawStream;
 
-      let lastEventAt = entry.lastEventAt;
-      let lastEventPreview = entry.lastEventPreview;
+      let laneAt: string | null = null;
+      let lanePreview: string | null = null;
       for (let i = cappedStream.length - 1; i >= 0; i -= 1) {
         const e = cappedStream[i];
         if (String(e.conversation_id ?? "") !== convId) continue;
-        lastEventAt = e.created_at ?? lastEventAt;
-        lastEventPreview = previewText(e) ?? lastEventPreview;
+        laneAt = e.created_at ?? null;
+        lanePreview = previewText(e);
         break;
       }
+      const tripAdvanced = advanceTripPreview(
+        entry,
+        laneAt,
+        lanePreview ?? entry.lastEventPreview,
+      );
+      const partyAdvanced = party
+        ? advanceTripPreview(
+            {
+              lastEventAt: party.lastMessageAt ?? null,
+              lastEventPreview: party.lastMessagePreview ?? null,
+            },
+            laneAt,
+            lanePreview ?? party.lastMessagePreview,
+          )
+        : null;
+      const nextParties =
+        party && messages.length > 0
+          ? {
+              ...entry.parties,
+              [partyType]: {
+                ...party,
+                historyWindowLoaded: true,
+                lastMessageAt: partyAdvanced?.lastEventAt ?? party.lastMessageAt,
+                lastMessagePreview:
+                  partyAdvanced?.lastEventPreview ?? party.lastMessagePreview,
+              },
+            }
+          : entry.parties;
 
       const merged = clearEventStreamLazySkipIfFilled(
         withLongHaulFieldsFromStream({
           ...entry,
-          parties,
+          parties: nextParties,
           event_stream: cappedStream,
-          lastEventAt,
-          lastEventPreview,
+          lastEventAt: tripAdvanced.lastEventAt,
+          lastEventPreview: tripAdvanced.lastEventPreview,
         }),
       );
       set({
@@ -2449,6 +2665,28 @@ export const useChatStore = create<ChatState>()(
       });
     },
 
+    markMessageFailed: (convId, msgId) => {
+      if (__DEV__) console.warn(`[CHAT:SEND] markMessageFailed conv=${convId} id=${msgId}`);
+      const { trips, convToTrip } = get();
+      const tripId = convToTrip[convId];
+      if (!tripId) return;
+      const entry = trips[tripId];
+      if (!entry) return;
+      const idx = entry.event_stream.findIndex((e) => e.id === msgId);
+      if (idx < 0) return;
+      const next = entry.event_stream.slice();
+      next[idx] = { ...next[idx]!, delivery_status: "failed" };
+      set({
+        trips: {
+          ...trips,
+          [tripId]: withLongHaulFieldsFromStream({
+            ...entry,
+            event_stream: next,
+          }),
+        },
+      });
+    },
+
     patchTripConversationFromRealtime: (raw) => {
       const convId = typeof raw.id === "string" ? raw.id : null;
       const tripId = typeof raw.trip_id === "string" ? raw.trip_id : null;
@@ -2474,7 +2712,40 @@ export const useChatStore = create<ChatState>()(
           ? raw.unread_dispatcher_count
           : party.unreadCount;
 
-      const nextParty: PartyConv = { ...party, unreadCount };
+      const lmAt =
+        raw.last_message_at != null && String(raw.last_message_at).trim() !== ""
+          ? String(raw.last_message_at)
+          : null;
+      const lmPrev =
+        raw.last_message_preview != null && String(raw.last_message_preview).trim() !== ""
+          ? String(raw.last_message_preview)
+          : null;
+
+      // Always keep party-lane denorm in sync (inbox preview + open-thread heal).
+      const partyAdvanced = advanceTripPreview(
+        {
+          lastEventAt: party.lastMessageAt ?? null,
+          lastEventPreview: party.lastMessagePreview ?? null,
+        },
+        lmAt,
+        // Never let location spam overwrite a human party preview in memory.
+        denormLooksLikeLocationSpam(lmPrev) &&
+          denormLooksLikeHumanPreview(party.lastMessagePreview)
+          ? (party.lastMessagePreview ?? null)
+          : lmPrev,
+      );
+      const nextParty: PartyConv = {
+        ...party,
+        unreadCount,
+        lastMessageAt: partyAdvanced.lastEventAt,
+        lastMessagePreview: partyAdvanced.lastEventPreview,
+        ...(typeof raw.driver_id === "string" || raw.driver_id === null
+          ? { driverId: (raw.driver_id as string | null) ?? party.driverId }
+          : {}),
+        ...(typeof raw.party_name === "string" && raw.party_name.trim()
+          ? { partyName: raw.party_name.trim() }
+          : {}),
+      };
       const parties: TripEntry["parties"] = {
         ...entry.parties,
         [partyType]: nextParty,
@@ -2486,24 +2757,19 @@ export const useChatStore = create<ChatState>()(
         totalUnread: sumHubVisibleUnread({ ...entry, parties }),
       };
 
-      const lmAt =
-        raw.last_message_at != null && String(raw.last_message_at).trim() !== ""
-          ? String(raw.last_message_at)
-          : null;
-      const lmPrev =
-        raw.last_message_preview != null && String(raw.last_message_preview).trim() !== ""
-          ? String(raw.last_message_preview)
-          : null;
-
-      if (
-        lmAt &&
-        (!next.lastEventAt || new Date(lmAt).getTime() > new Date(String(next.lastEventAt)).getTime())
-      ) {
-        next.lastEventAt = lmAt;
-      }
-      if (lmPrev) {
-        next.lastEventPreview = lmPrev;
-      }
+      const tripAdvanced = advanceTripPreview(
+        next,
+        lmAt,
+        denormLooksLikeLocationSpam(lmPrev) &&
+          denormLooksLikeHumanPreview(next.lastEventPreview)
+          ? next.lastEventPreview
+          : lmPrev,
+      );
+      next = {
+        ...next,
+        lastEventAt: tripAdvanced.lastEventAt,
+        lastEventPreview: tripAdvanced.lastEventPreview,
+      };
 
       const viewerOrg = get().bootstrappedOrg ?? entry.tripOrganizationId ?? null;
       next = withPartnerOrganizationStamp(next, viewerOrg);
@@ -2514,20 +2780,24 @@ export const useChatStore = create<ChatState>()(
         convToParty: { ...convToParty, [convId]: partyType },
       });
 
-      // Sidebar denorm can land without a trip_messages INSERT. Heal only
-      // non-open threads — the open lane gets INSERT realtime (no history RPC).
-      const activeCid = getActiveTripMessageConversationId();
-      if (activeCid && activeCid === convId) return;
+      // Sidebar denorm can land without a trip_messages INSERT. Heal when the
+      // stream is missing human bubbles even if this lane is currently open
+      // (location UPDATEs alone must not suppress Bhujesh ↔ driver chat).
       if (isTripLocalSendHealSuppressed(convId)) return;
-      if (
-        tripThreadLooksStale(
-          next,
-          convId,
-          lmAt ?? next.lastEventAt,
-          lmPrev ?? next.lastEventPreview,
-        )
-      ) {
-        get().syncTripThreadIfStale(convId);
+      const healPreview = nextParty.lastMessagePreview ?? next.lastEventPreview;
+      const needsHumanHeal =
+        denormLooksLikeHumanPreview(healPreview) &&
+        !streamHasHumanChatMessage(next, convId);
+      const needsStaleHeal = tripThreadLooksStale(
+        next,
+        convId,
+        nextParty.lastMessageAt ?? next.lastEventAt,
+        healPreview,
+      );
+      if (needsHumanHeal || needsStaleHeal) {
+        get().syncTripThreadIfStale(convId, {
+          force: needsHumanHeal,
+        });
       }
     },
 
@@ -2543,7 +2813,18 @@ export const useChatStore = create<ChatState>()(
       const tripId = convToTrip[id];
       const entry = tripId ? trips[tripId] : null;
       if (!entry) return;
-      if (!force && !tripThreadLooksStale(entry, id, entry.lastEventAt, entry.lastEventPreview)) {
+      const healPartyType = get().convToParty[id];
+      const healParty = healPartyType ? entry.parties[healPartyType] : null;
+      const healAt = healParty?.lastMessageAt ?? entry.lastEventAt;
+      const healPreview = healParty?.lastMessagePreview ?? entry.lastEventPreview;
+      if (
+        !force &&
+        !tripThreadLooksStale(entry, id, healAt, healPreview) &&
+        !(
+          denormLooksLikeHumanPreview(healPreview) &&
+          !streamHasHumanChatMessage(entry, id)
+        )
+      ) {
         return;
       }
 
@@ -2554,8 +2835,9 @@ export const useChatStore = create<ChatState>()(
         setTimeout(() => {
           tripThreadPullDebounce.delete(id);
           if (isTripLocalSendHealSuppressed(id)) return;
+          // force=true: pull even while the lane is open (missing human bubbles).
           const liveActive = getActiveTripMessageConversationId();
-          if (liveActive && liveActive === id) return;
+          if (!force && liveActive && liveActive === id) return;
           if (tripThreadPullInFlight.has(id)) {
             tripThreadPullNeedsRerun.add(id);
             return;
@@ -2585,9 +2867,9 @@ export const useChatStore = create<ChatState>()(
                 tripThreadPullNeedsRerun.delete(id);
                 if (
                   !isTripLocalSendHealSuppressed(id) &&
-                  getActiveTripMessageConversationId() !== id
+                  (force || getActiveTripMessageConversationId() !== id)
                 ) {
-                  get().syncTripThreadIfStale(id);
+                  get().syncTripThreadIfStale(id, force ? { force: true } : undefined);
                 }
               }
             });

@@ -13,6 +13,49 @@ import {
   type AssignmentNameMaps,
 } from "../utils/assignmentAuditChatMessages.util";
 
+/**
+ * Reassign must move the driver party lane to the new assignee.
+ * Without this, driver inbox/RLS still key off the previous driver_id.
+ */
+async function syncDriverPartyLaneAfterAssignment(trip: TripRow): Promise<void> {
+  const tripId = String(trip.id ?? "").trim();
+  if (!tripId) return;
+
+  const driverId = trip.driver_id ?? null;
+  const driverName = (trip.driver_display_name ?? "").trim() || null;
+
+  const patch: Record<string, unknown> = {
+    driver_id: driverId,
+  };
+  if (driverName) patch.party_name = driverName;
+
+  const { error: updateErr } = await supabase()
+    .from("trip_conversations")
+    .update(patch)
+    .eq("trip_id", tripId)
+    .eq("party_type", "driver");
+
+  if (updateErr && __DEV__) {
+    console.warn("[chatAssignmentBridge] sync driver lane failed", {
+      tripId,
+      message: updateErr.message,
+    });
+  }
+
+  try {
+    await supabase().rpc("fn_ensure_trip_party_conversations", {
+      p_trip_id: tripId,
+    });
+  } catch (err) {
+    if (__DEV__) {
+      console.warn("[chatAssignmentBridge] ensure party conversations failed", {
+        tripId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
 async function resolveAssignmentNameMaps(
   orgId: string,
   row: Pick<
@@ -198,6 +241,7 @@ export async function postAssignmentUpdateToTripChats(params: {
     }
   }
 
+  await syncDriverPartyLaneAfterAssignment(trip);
   notifyTripChatMessagesChanged();
 }
 
@@ -308,6 +352,7 @@ export async function postAggregateAssignmentMessage(
     }
   }
 
+  await syncDriverPartyLaneAfterAssignment(trip);
   notifyTripChatMessagesChanged();
 }
 

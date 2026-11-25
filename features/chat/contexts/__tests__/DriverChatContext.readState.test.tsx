@@ -33,14 +33,24 @@ jest.mock("@/features/chat/hooks/useDriverChatConversationsQuery", () => ({
   }),
 }));
 jest.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ setQueryData: jest.fn(), getQueryData: jest.fn() }),
+  useQueryClient: () => ({
+    setQueryData: jest.fn(),
+    getQueryData: jest.fn(),
+    invalidateQueries: jest.fn(),
+  }),
 }));
 jest.mock("@/features/trips/services/trips.service", () => ({}));
 jest.mock("@/features/drivers/services/drivers.service", () => ({
   getLinkedDriversForCurrentUser: jest.fn(),
 }));
 jest.mock("@/features/operations/display", () => ({ getTripOperationalDisplay: jest.fn() }));
-jest.mock("@/lib/tripChatInvalidate", () => ({ notifyTripChatMessagesChanged: jest.fn() }));
+jest.mock("@/lib/tripChatInvalidate", () => ({
+  notifyTripChatMessagesChanged: jest.fn(),
+  subscribeTripChatMessagesChanged: jest.fn(() => () => {}),
+}));
+jest.mock("@/lib/realtimeRegistry", () => ({
+  subscribeSharedPostgresChanges: jest.fn(() => () => {}),
+}));
 jest.mock("@/features/chat/services/chat.service", () => ({
   markConversationRead: jest.fn(() => Promise.resolve()),
   sendDriverChatMessage: jest.fn(),

@@ -33,8 +33,6 @@ import {
   normalizeServerLanes,
 } from "../utils/laneMultiplexer.util";
 import { getTripOperationalDisplay } from "@/features/operations/display";
-import { resolveAvatarPublicUrl } from "@/lib/avatarUpload";
-
 export interface TripForCompose {
   id: string;
   trip_number: string;
@@ -52,6 +50,8 @@ export interface TripForCompose {
   supplier_name: string | null;
   driver_id: string | null;
   driver_display_name: string | null;
+  /** Roster / linked-profile phone for trip chat header. */
+  driver_phone?: string | null;
   driver_avatar_url?: string | null;
   driver_avatar_seed?: string | null;
   client_avatar_url?: string | null;
@@ -99,6 +99,20 @@ function mapTripRowForCompose(row: Record<string, unknown>) {
     started_at: (row.started_at as string | null | undefined) ?? null,
     pickup_date: (row.pickup_date as string | null | undefined) ?? null,
   };
+}
+
+/**
+ * Keep http(s) and private storage paths. Chat Avatar signs private paths;
+ * `resolveAvatarPublicUrl` would null them and force cartoon seeds.
+ */
+function composePartyAvatarUrl(raw: string | null | undefined): string | null {
+  const p = String(raw ?? "").trim();
+  return p || null;
+}
+
+function composePartyAvatarSeed(raw: string | null | undefined): string | null {
+  const p = String(raw ?? "").trim();
+  return p || null;
 }
 
 async function enrichTripsForCompose(
@@ -155,16 +169,57 @@ async function enrichTripsForCompose(
     driverIds.length
       ? supabase()
           .from("drivers")
-          .select("id, avatar_url, avatar_seed")
+          .select("id, user_id, phone, avatar_url, avatar_seed")
           .in("id", driverIds)
       : Promise.resolve({
           data: [] as {
             id: string;
+            user_id: string | null;
+            phone: string | null;
             avatar_url: string | null;
             avatar_seed: string | null;
           }[],
         }),
   ]);
+
+  const profileIds = Array.from(
+    new Set(
+      (driversResp.data ?? [])
+        .map((d) => String(d.user_id ?? "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const profilesResp =
+    profileIds.length > 0
+      ? await supabase()
+          .from("profiles")
+          .select("id, avatar_url, avatar_seed, full_name, phone")
+          .in("id", profileIds)
+      : { data: [] as {
+          id: string;
+          avatar_url: string | null;
+          avatar_seed: string | null;
+          full_name: string | null;
+          phone: string | null;
+        }[] };
+
+  const profileById = new Map<
+    string,
+    {
+      avatar_url: string | null;
+      avatar_seed: string | null;
+      full_name: string | null;
+      phone: string | null;
+    }
+  >();
+  for (const p of profilesResp.data ?? []) {
+    profileById.set(String(p.id), {
+      avatar_url: p.avatar_url ?? null,
+      avatar_seed: p.avatar_seed ?? null,
+      full_name: p.full_name ?? null,
+      phone: p.phone ?? null,
+    });
+  }
 
   const clientMetaById = new Map<
     string,
@@ -203,12 +258,30 @@ async function enrichTripsForCompose(
 
   const driverMetaById = new Map<
     string,
-    { avatar_url: string | null; avatar_seed: string | null }
+    {
+      avatar_url: string | null;
+      avatar_seed: string | null;
+      display_name: string | null;
+      phone: string | null;
+    }
   >();
   for (const d of driversResp.data ?? []) {
+    const profile = d.user_id ? profileById.get(String(d.user_id)) : undefined;
+    // Prefer roster photo, then linked user profile (same as fleet registry).
     driverMetaById.set(d.id, {
-      avatar_url: d.avatar_url ?? null,
-      avatar_seed: d.avatar_seed ?? null,
+      avatar_url:
+        composePartyAvatarUrl(d.avatar_url) ??
+        composePartyAvatarUrl(profile?.avatar_url) ??
+        null,
+      avatar_seed:
+        composePartyAvatarSeed(d.avatar_seed) ??
+        composePartyAvatarSeed(profile?.avatar_seed) ??
+        null,
+      display_name: (profile?.full_name ?? "").trim() || null,
+      phone:
+        String(d.phone ?? "").trim() ||
+        String(profile?.phone ?? "").trim() ||
+        null,
     });
   }
 
@@ -223,20 +296,23 @@ async function enrichTripsForCompose(
       supplier_name:
         t.supplier_name?.trim() ||
         (supplierMeta?.name ?? null),
+      driver_display_name:
+        t.driver_display_name?.trim() ||
+        driverMeta?.display_name ||
+        null,
+      driver_phone: driverMeta?.phone ?? null,
       client_linked_organization_id: clientMeta?.linked_organization_id ?? null,
       supplier_linked_organization_id: supplierMeta?.linked_organization_id ?? null,
       client_avatar_url: clientMeta
-        ? resolveAvatarPublicUrl(clientMeta.avatar_url)
+        ? composePartyAvatarUrl(clientMeta.avatar_url)
         : null,
-      client_avatar_seed: (clientMeta?.avatar_seed ?? "").trim() || null,
+      client_avatar_seed: composePartyAvatarSeed(clientMeta?.avatar_seed),
       supplier_avatar_url: supplierMeta
-        ? resolveAvatarPublicUrl(supplierMeta.avatar_url)
+        ? composePartyAvatarUrl(supplierMeta.avatar_url)
         : null,
-      supplier_avatar_seed: (supplierMeta?.avatar_seed ?? "").trim() || null,
-      driver_avatar_url: driverMeta
-        ? resolveAvatarPublicUrl(driverMeta.avatar_url)
-        : null,
-      driver_avatar_seed: (driverMeta?.avatar_seed ?? "").trim() || null,
+      supplier_avatar_seed: composePartyAvatarSeed(supplierMeta?.avatar_seed),
+      driver_avatar_url: driverMeta?.avatar_url ?? null,
+      driver_avatar_seed: driverMeta?.avatar_seed ?? null,
     };
   });
 }
@@ -1450,6 +1526,7 @@ export async function getConversationsByDriverIds(
   type DriverChatConversationRow = TripConversationRow & {
     id: string;
     trip_id: string;
+    trip_status?: string | null;
     trips?: DriverChatTripMini | null;
     trip_messages?: TripMessageRow[];
   };

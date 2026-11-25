@@ -207,7 +207,18 @@ export async function ensureDirectChat(
     p_organization_id: organizationId,
     p_peer_user_id: peerUserId,
   });
-  if (error) throw new Error(`Failed to open direct chat: ${error.message}`);
+  if (error) {
+    const msg = String(error.message || "");
+    if (
+      /chat_participants_user_id_fkey/i.test(msg) ||
+      /not an eligible active workspace member/i.test(msg)
+    ) {
+      throw new Error(
+        "This teammate can’t receive chat yet (account is missing a login). Try someone else.",
+      );
+    }
+    throw new Error(`Failed to open direct chat: ${msg}`);
+  }
   return data as ChatConversationRow;
 }
 

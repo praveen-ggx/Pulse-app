@@ -35,6 +35,8 @@ export interface DirectMessage {
   content: string;
   timestamp: string;
   isRead: boolean;
+  /** Client-only optimistic send lane (sending / failed). */
+  deliveryStatus?: "sending" | "sent" | "failed";
   /** WhatsApp-style quoted preview (e.g. replied-to story). */
   replyPreview?: {
     messageId: string;
@@ -75,6 +77,8 @@ interface IntegratedChatContextType {
   partners: NetworkPartner[];
   isLoading: boolean;
   sendMessage: (chatId: string, content: string, viewerRole: "dispatcher" | "owner") => void;
+  /** Re-attempt a failed optimistic DM without inserting a duplicate bubble. */
+  retryFailedMessage: (chatId: string, messageId: string) => void;
   markAsRead: (chatId: string) => void;
   getUnreadCount: (chatId: string) => number;
   getTotalUnreadCount: () => number;
@@ -104,7 +108,9 @@ export function useIntegratedChat() {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatRelativeTime(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
+  const ms = Date.parse(isoString);
+  if (!Number.isFinite(ms) || ms < 86_400_000) return "";
+  const diff = Date.now() - ms;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "Just now";
   if (mins < 60) return `${mins} min ago`;
@@ -166,9 +172,19 @@ function toIntegratedChat(
       content: m.content,
       timestamp: m.created_at,
       isRead: m.is_read_by_other,
+      deliveryStatus:
+        m.delivery_status === "failed"
+          ? "failed"
+          : m.delivery_status === "sending" || String(m.id).startsWith("optimistic-")
+            ? "sending"
+            : m.sender_org_id === currentOrgId
+              ? "sent"
+              : undefined,
       replyPreview: networkMetadataToReplyPreview(m.metadata),
     })),
-    lastActivity: conv.last_message_at ? formatRelativeTime(conv.last_message_at) : "No messages",
+    lastActivity: conv.last_message_at
+      ? formatRelativeTime(conv.last_message_at)
+      : "",
     unreadCount: conv.unread_count,
   };
 }
@@ -178,7 +194,10 @@ function mergeNetworkMessagesPreservingOptimistic(
   local: NetworkMessageRow[],
   incoming: NetworkMessageRow[],
 ): NetworkMessageRow[] {
-  const optimistic = local.filter((m) => String(m.id).startsWith("optimistic-"));
+  const optimistic = local.filter(
+    (m) =>
+      String(m.id).startsWith("optimistic-") || m.delivery_status === "failed",
+  );
   if (optimistic.length === 0) {
     return [...incoming].sort(
       (a, b) =>
@@ -611,6 +630,7 @@ export function IntegratedChatProvider({
         is_read_by_other: false,
         read_at: null,
         created_at: new Date().toISOString(),
+        delivery_status: "sending",
       };
 
       setConversations((prev) =>
@@ -641,7 +661,9 @@ export function IntegratedChatProvider({
                 ? {
                     ...conv,
                     messages: conv.messages.map((m) =>
-                      m.id === optimisticMsg.id ? persisted : m
+                      m.id === optimisticMsg.id
+                        ? { ...persisted, delivery_status: "sent" as const }
+                        : m
                     ),
                   }
                 : conv
@@ -649,16 +671,93 @@ export function IntegratedChatProvider({
           );
         })
         .catch(() => {
+          // Keep the bubble for retry — never silently discard.
           setConversations((prev) =>
             prev.map((conv) =>
               conv.id === chatId
-                ? { ...conv, messages: conv.messages.filter((m) => m.id !== optimisticMsg.id) }
+                ? {
+                    ...conv,
+                    messages: conv.messages.map((m) =>
+                      m.id === optimisticMsg.id
+                        ? { ...m, delivery_status: "failed" as const }
+                        : m
+                    ),
+                  }
                 : conv
             )
           );
         });
     },
     [orgId, orgName, profile]
+  );
+
+  const retryFailedMessage = useCallback(
+    (chatId: string, messageId: string) => {
+      if (!orgId || !profile) return;
+      const conv = conversations.find((c) => c.id === chatId);
+      const msg = conv?.messages.find((m) => m.id === messageId);
+      if (!msg || msg.delivery_status !== "failed") return;
+
+      const senderName =
+        profile.full_name || profile.displayName || orgName;
+
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === chatId
+            ? {
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === messageId
+                    ? { ...m, delivery_status: "sending" as const }
+                    : m
+                ),
+              }
+            : c
+        )
+      );
+
+      chatService
+        .sendNetworkMessage({
+          conversationId: chatId,
+          senderOrgId: orgId,
+          senderUserId: profile.uid ?? null,
+          senderName,
+          content: msg.content,
+        })
+        .then((persisted) => {
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === chatId
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === messageId
+                        ? { ...persisted, delivery_status: "sent" as const }
+                        : m
+                    ),
+                  }
+                : c
+            )
+          );
+        })
+        .catch(() => {
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === chatId
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === messageId
+                        ? { ...m, delivery_status: "failed" as const }
+                        : m
+                    ),
+                  }
+                : c
+            )
+          );
+        });
+    },
+    [orgId, orgName, profile, conversations],
   );
 
   const markAsRead = useCallback(
@@ -822,6 +921,7 @@ export function IntegratedChatProvider({
       partners,
       isLoading,
       sendMessage,
+      retryFailedMessage,
       markAsRead,
       getUnreadCount,
       getTotalUnreadCount,
@@ -836,6 +936,7 @@ export function IntegratedChatProvider({
       partners,
       isLoading,
       sendMessage,
+      retryFailedMessage,
       markAsRead,
       getUnreadCount,
       getTotalUnreadCount,
@@ -843,6 +944,7 @@ export function IntegratedChatProvider({
       hydrateNetworkThread,
       loadOlderNetworkMessages,
       networkThreadHasMore,
+      setActiveNetworkConversationId,
     ],
   );
 

@@ -313,6 +313,18 @@ export const chatStore = {
   mergeConversationHistory: (convId: string, messages: TripMessageRow[]): boolean =>
     useChatStore.getState().mergeConversationHistory(convId, messages),
 
+  hydrateTripMessagesIfNeeded: (
+    tripId: string,
+    opts?: { conversationId?: string },
+  ): Promise<void> =>
+    useChatStore.getState().hydrateTripMessagesIfNeeded(tripId, opts),
+
+  shouldFetchOpenThreadHistory: (conversationId: string): boolean =>
+    useChatStore.getState().shouldFetchOpenThreadHistory(conversationId),
+
+  prefetchConversationWindows: (conversationIds: readonly string[]): void =>
+    useChatStore.getState().prefetchConversationWindows(conversationIds),
+
   clear: (): void => useChatStore.getState().clear(),
 } as const;
 

@@ -14,6 +14,7 @@ import {
   documentExtensionAccent,
   isHubDocumentImage,
 } from "@/features/chat/utils/documentShareDisplay.util";
+import { formatChatDocumentUploadedAt } from "@/features/chat/utils/formatChatInboxTime.util";
 import { normalizeTripDocumentsStoragePath } from "@/features/chat/utils/resolveChatDocumentUrl.util";
 import {
   CheckCircle,
@@ -27,6 +28,7 @@ import {
 } from "lucide-react-native";
 import {
   Alert,
+  Platform,
   Pressable,
   SectionList,
   StyleSheet,
@@ -85,22 +87,6 @@ const SECTION_META: Record<
 
 const THUMB_SIZE = 40;
 
-function formatUploadedAt(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  try {
-    return new Date(iso).toLocaleString("en-IN", {
-      timeZone: "Asia/Kolkata",
-      day: "numeric",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-  } catch {
-    return null;
-  }
-}
-
 function pathAlreadySent(storagePath: string, alreadySentPaths: string[]): boolean {
   const normalized = normalizeTripDocumentsStoragePath(storagePath);
   if (!normalized) return false;
@@ -140,61 +126,58 @@ function DocHubThumb({ item }: { item: ChatHubDocument }) {
   );
 }
 
-function confirmDocumentShare(
-  payload: DocumentSharePayload,
-  resend: boolean,
-  onConfirm: () => void,
-  onCancel?: () => void,
-) {
-  let consumed = false;
-  const once = (fn: () => void) => () => {
-    if (consumed) return;
-    consumed = true;
-    fn();
-  };
-
-  if (resend) {
-    Alert.alert(
-      "Send again?",
-      `Share "${payload.label}" in this chat again?`,
-      [
-        { text: "Cancel", style: "cancel", onPress: once(() => onCancel?.()) },
-        { text: "Send again", onPress: once(onConfirm) },
-      ],
-      { cancelable: true, onDismiss: once(() => onCancel?.()) },
-    );
-    return;
-  }
-  Alert.alert(
-    "Send document?",
-    `Share "${payload.label}" in this chat?`,
-    [
-      { text: "Cancel", style: "cancel", onPress: once(() => onCancel?.()) },
-      { text: "Send", onPress: once(onConfirm) },
-    ],
-    { cancelable: true, onDismiss: once(() => onCancel?.()) },
-  );
-}
-
 function DocRowActions({
   alreadySent,
   isSharing,
   isConfirming,
+  isResendConfirm,
   disabled,
   onSend,
   onSendAgain,
+  onConfirmSend,
+  onCancelConfirm,
 }: {
   alreadySent: boolean;
   isSharing: boolean;
   isConfirming: boolean;
+  isResendConfirm: boolean;
   disabled: boolean;
   onSend: () => void;
   onSendAgain: () => void;
+  onConfirmSend: () => void;
+  onCancelConfirm: () => void;
 }) {
+  // Inline confirm — Alert.alert multi-button is unreliable on web and left
+  // rows stuck on "Confirm…" with Send permanently disabled.
   if (isConfirming && !isSharing) {
     return (
       <View style={s.actionsCol}>
-        <Text style={s.actionMeta}>Confirm…</Text>
+        <Text style={s.actionMeta} numberOfLines={1}>
+          {isResendConfirm ? "Send again?" : "Send now?"}
+        </Text>
+        <View style={s.confirmRow}>
+          <Pressable
+            style={({ pressed }) => [s.cancelConfirmBtn, pressed && s.actionPressed]}
+            onPress={onCancelConfirm}
+            hitSlop={4}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel send"
+          >
+            <Text style={s.cancelConfirmText}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [s.confirmSendBtn, pressed && s.actionPressed]}
+            onPress={onConfirmSend}
+            hitSlop={4}
+            accessibilityRole="button"
+            accessibilityLabel={isResendConfirm ? "Confirm send again" : "Confirm send"}
+          >
+            <Send size={11} color="#fff" strokeWidth={2.3} />
+            <Text style={s.confirmSendText}>
+              {isResendConfirm ? "Send again" : "Send"}
+            </Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -255,17 +238,23 @@ function DocRowActions({
 function DocRow({
   item,
   onRequestShare,
+  onConfirmShare,
+  onCancelConfirm,
   alreadySentPaths = [],
   sharingPath,
   confirmingPath,
+  confirmingResend,
 }: {
   item: ChatHubDocument;
   onRequestShare: (doc: DocumentSharePayload, resend: boolean) => void;
+  onConfirmShare: () => void;
+  onCancelConfirm: () => void;
   alreadySentPaths?: string[];
   sharingPath: string | null;
   confirmingPath: string | null;
+  confirmingResend: boolean;
 }) {
-  const uploaded = formatUploadedAt(item.uploaded_at);
+  const uploaded = formatChatDocumentUploadedAt(item.uploaded_at);
   const normalizedPath = normalizeTripDocumentsStoragePath(item.storage_path);
   const alreadySent = pathAlreadySent(item.storage_path, alreadySentPaths);
   const isSharing =
@@ -302,25 +291,33 @@ function DocRow({
     <View style={s.docRow}>
       <DocHubThumb item={item} />
       <View style={s.docTextCol}>
-        <View style={s.docTitleRow}>
-          <Text style={s.docEntity}>{item.entity_type}</Text>
-          {uploaded ? (
-            <Text style={s.docMeta} numberOfLines={1}>
-              {uploaded}
-            </Text>
-          ) : null}
-        </View>
-        <Text style={s.docLabel} numberOfLines={2}>
+        <Text style={s.docLabel} numberOfLines={1}>
           {item.label}
         </Text>
+        <View style={s.docMetaRow}>
+          <View style={s.docEntityPill}>
+            <Text style={s.docEntity}>{item.entity_type}</Text>
+          </View>
+          {uploaded ? (
+            <>
+              <Text style={s.docMetaDot}>·</Text>
+              <Text style={s.docMeta} numberOfLines={1}>
+                {uploaded}
+              </Text>
+            </>
+          ) : null}
+        </View>
       </View>
       <DocRowActions
         alreadySent={alreadySent}
         isSharing={isSharing}
         isConfirming={isConfirming}
+        isResendConfirm={isConfirming && confirmingResend}
         disabled={actionsDisabled}
         onSend={handleSend}
         onSendAgain={handleSendAgain}
+        onConfirmSend={onConfirmShare}
+        onCancelConfirm={onCancelConfirm}
       />
     </View>
   );
@@ -342,6 +339,10 @@ export function DocumentShareSheet({
   const [uploading, setUploading] = useState(false);
   const [sharingPath, setSharingPath] = useState<string | null>(null);
   const [confirmingPath, setConfirmingPath] = useState<string | null>(null);
+  const [confirmingResend, setConfirmingResend] = useState(false);
+  const [pendingShare, setPendingShare] = useState<DocumentSharePayload | null>(
+    null,
+  );
   const [sessionSentPaths, setSessionSentPaths] = useState<string[]>([]);
   const shareInFlightRef = useRef<string | null>(null);
 
@@ -371,6 +372,8 @@ export function DocumentShareSheet({
     if (!visible) {
       setSharingPath(null);
       setConfirmingPath(null);
+      setConfirmingResend(false);
+      setPendingShare(null);
       shareInFlightRef.current = null;
     }
   }, [visible]);
@@ -380,6 +383,12 @@ export function DocumentShareSheet({
     [alreadySentPaths, sessionSentPaths],
   );
 
+  const clearConfirm = useCallback(() => {
+    setConfirmingPath(null);
+    setConfirmingResend(false);
+    setPendingShare(null);
+  }, []);
+
   const handleShare = useCallback(
     async (doc: DocumentSharePayload) => {
       const pathKey = normalizeTripDocumentsStoragePath(doc.storage_path);
@@ -387,6 +396,7 @@ export function DocumentShareSheet({
 
       shareInFlightRef.current = pathKey;
       setSharingPath(doc.storage_path);
+      clearConfirm();
       try {
         await Promise.resolve(onShare(doc));
         setSessionSentPaths((prev) =>
@@ -394,12 +404,17 @@ export function DocumentShareSheet({
             ? prev
             : [...prev, doc.storage_path],
         );
+      } catch (e) {
+        Alert.alert(
+          "Could not send",
+          e instanceof Error ? e.message : "Document was not shared in chat.",
+        );
       } finally {
         shareInFlightRef.current = null;
         setSharingPath(null);
       }
     },
-    [onShare],
+    [onShare, clearConfirm],
   );
 
   const requestShare = useCallback(
@@ -414,21 +429,20 @@ export function DocumentShareSheet({
         return;
       }
 
-      const clearConfirm = () => setConfirmingPath(null);
-
+      setPendingShare(doc);
+      setConfirmingResend(resend);
       setConfirmingPath(doc.storage_path);
-      confirmDocumentShare(
-        doc,
-        resend,
-        () => {
-          clearConfirm();
-          void handleShare(doc);
-        },
-        clearConfirm,
-      );
     },
-    [confirmingPath, sharingPath, handleShare],
+    [confirmingPath, sharingPath],
   );
+
+  const confirmPendingShare = useCallback(() => {
+    if (!pendingShare) {
+      clearConfirm();
+      return;
+    }
+    void handleShare(pendingShare);
+  }, [pendingShare, handleShare, clearConfirm]);
 
   const sections = useMemo((): HubSection[] => {
     const grouped: Record<ChatHubEntityType, ChatHubDocument[]> = {
@@ -505,23 +519,25 @@ export function DocumentShareSheet({
         </View>
 
         {tripId ? (
-          <Pressable
-            style={({ pressed }) => [s.addRow, pressed && s.addRowPressed]}
-            onPress={() => void handleUploadTripDoc()}
-            disabled={uploading || sharingPath != null || confirmingPath != null}
-          >
-            <View style={s.addIcon}>
-              {uploading ? (
-                <LoadingIndicator size="small" color={CHAT_ACCENT} />
-              ) : (
-                <Plus size={15} color={CHAT_ACCENT} strokeWidth={2.3} />
-              )}
-            </View>
-            <View style={s.addTextCol}>
-              <Text style={s.addTitle}>Add trip document</Text>
-              <Text style={s.addHint}>PDF or image</Text>
-            </View>
-          </Pressable>
+          <View style={s.addWrap}>
+            <Pressable
+              style={({ pressed }) => [s.addRow, pressed && s.addRowPressed]}
+              onPress={() => void handleUploadTripDoc()}
+              disabled={uploading || sharingPath != null || confirmingPath != null}
+            >
+              <View style={s.addIcon}>
+                {uploading ? (
+                  <LoadingIndicator size="small" color={CHAT_ACCENT} />
+                ) : (
+                  <Plus size={16} color={CHAT_ACCENT} strokeWidth={2.4} />
+                )}
+              </View>
+              <View style={s.addTextCol}>
+                <Text style={s.addTitle}>Add trip document</Text>
+                <Text style={s.addHint}>PDF or image · shared in this chat</Text>
+              </View>
+            </Pressable>
+          </View>
         ) : null}
 
         {loading ? (
@@ -548,9 +564,13 @@ export function DocumentShareSheet({
               const Icon = meta.Icon;
               return (
                 <View style={s.sectionHeader}>
-                  <Icon size={11} color={CHAT_TEXT_MUTED} strokeWidth={2} />
-                  <Text style={s.sectionTitle}>{section.title}</Text>
-                  <Text style={s.sectionCount}>{section.data.length}</Text>
+                  <View style={s.sectionTitleRow}>
+                    <Icon size={12} color={CHAT_TEXT_MUTED} strokeWidth={2.2} />
+                    <Text style={s.sectionTitle}>{section.title}</Text>
+                  </View>
+                  <View style={s.sectionCountPill}>
+                    <Text style={s.sectionCount}>{section.data.length}</Text>
+                  </View>
                 </View>
               );
             }}
@@ -569,12 +589,15 @@ export function DocumentShareSheet({
               <DocRow
                 item={item}
                 onRequestShare={requestShare}
+                onConfirmShare={confirmPendingShare}
+                onCancelConfirm={clearConfirm}
                 alreadySentPaths={mergedSentPaths}
                 sharingPath={sharingPath}
                 confirmingPath={confirmingPath}
+                confirmingResend={confirmingResend}
               />
             )}
-            ListFooterComponent={<View style={{ height: 8 }} />}
+            ListFooterComponent={<View style={{ height: 12 }} />}
           />
         )}
       </View>
@@ -587,96 +610,121 @@ const s = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 40,
     justifyContent: "flex-end",
+    ...(Platform.OS === "web"
+      ? ({ alignItems: "center" } as object)
+      : null),
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(15, 23, 42, 0.35)",
+    backgroundColor: "rgba(15, 23, 42, 0.38)",
   },
   sheet: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
     paddingTop: 8,
     paddingHorizontal: 0,
-    paddingBottom: 24,
-    maxHeight: "72%",
+    paddingBottom: 28,
+    maxHeight: "78%",
+    width: "100%",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#ebebeb",
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: -6 },
-    elevation: 12,
+    borderColor: "rgba(148, 163, 184, 0.28)",
+    ...(Platform.OS === "web"
+      ? ({
+          maxWidth: 440,
+          boxShadow: "0 -12px 40px rgba(15, 23, 42, 0.14)",
+        } as object)
+      : {
+          shadowColor: "#0f172a",
+          shadowOpacity: 0.12,
+          shadowRadius: 22,
+          shadowOffset: { width: 0, height: -8 },
+          elevation: 14,
+        }),
   },
   handle: {
-    width: 32,
-    height: 3,
+    width: 36,
+    height: 4,
     borderRadius: 2,
-    backgroundColor: "#e5e7eb",
+    backgroundColor: "#e2e8f0",
     alignSelf: "center",
-    marginBottom: 10,
+    marginBottom: 12,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 8,
-    gap: 8,
-    paddingHorizontal: 14,
+    marginBottom: 10,
+    gap: 10,
+    paddingHorizontal: 16,
   },
   headerTextCol: { flex: 1, minWidth: 0 },
   title: {
-    fontSize: SLACK_TYPE.threadTitle,
-    fontWeight: "700",
-    color: "#1d1c1d",
-    letterSpacing: -0.2,
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0f172a",
+    letterSpacing: -0.35,
   },
   subtitle: {
-    fontSize: SLACK_TYPE.threadSubtitle,
+    fontSize: 12,
     color: CHAT_TEXT_SECONDARY,
-    marginTop: 2,
-    lineHeight: 14,
+    marginTop: 3,
+    lineHeight: 16,
   },
-  closeBtn: { padding: 2 },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f8fafc",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#e2e8f0",
+  },
+  addWrap: {
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
   addRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: "#ebebeb",
-    backgroundColor: "#fafafa",
-    marginBottom: 4,
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: "rgba(91, 94, 244, 0.35)",
+    backgroundColor: "rgba(91, 94, 244, 0.04)",
   },
-  addRowPressed: { backgroundColor: "#f4f4f4" },
+  addRowPressed: { backgroundColor: "rgba(91, 94, 244, 0.08)" },
   addIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: "#fff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#e5e7eb",
+    borderColor: "rgba(91, 94, 244, 0.22)",
     alignItems: "center",
     justifyContent: "center",
   },
   addTextCol: { flex: 1, minWidth: 0 },
   addTitle: {
-    fontSize: SLACK_TYPE.listTitle,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "700",
     color: "#1d1c1d",
+    letterSpacing: -0.1,
   },
   addHint: {
-    fontSize: SLACK_TYPE.listTime,
+    fontSize: 11,
     color: CHAT_TEXT_MUTED,
-    marginTop: 1,
+    marginTop: 2,
   },
   center: {
     alignItems: "center",
-    paddingVertical: 24,
+    paddingVertical: 28,
     gap: 8,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
   },
   emptyText: {
     fontSize: SLACK_TYPE.listTitle,
@@ -690,64 +738,86 @@ const s = StyleSheet.create({
     lineHeight: 16,
   },
   list: { flexGrow: 0 },
-  listContent: { paddingBottom: 4 },
+  listContent: { paddingBottom: 4, paddingHorizontal: 8 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingTop: 10,
-    paddingBottom: 5,
-    paddingHorizontal: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#ebebeb",
-    backgroundColor: "#fafafa",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 6,
+    marginHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 6,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: "#f8fafc",
+  },
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+    minWidth: 0,
   },
   sectionTitle: {
-    flex: 1,
-    fontSize: SLACK_TYPE.peopleSection,
-    fontWeight: "700",
-    color: "#616061",
-    letterSpacing: 0.5,
+    flexShrink: 1,
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#64748b",
+    letterSpacing: 0.55,
     textTransform: "uppercase",
   },
+  sectionCountPill: {
+    minWidth: 22,
+    height: 20,
+    paddingHorizontal: 7,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#e2e8f0",
+  },
   sectionCount: {
-    fontSize: SLACK_TYPE.listTime,
-    fontWeight: "700",
-    color: CHAT_TEXT_MUTED,
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#475569",
   },
   sectionEmpty: {
-    fontSize: SLACK_TYPE.listPreview,
+    fontSize: 12,
     color: CHAT_TEXT_MUTED,
-    lineHeight: 15,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f1f5f9",
+    lineHeight: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
   docRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#f1f5f9",
-    minHeight: 56,
+    gap: 10,
+    marginHorizontal: 8,
+    marginTop: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#eef2f7",
+    minHeight: 58,
   },
   docThumb: {
     width: THUMB_SIZE,
     height: THUMB_SIZE,
-    borderRadius: 8,
+    borderRadius: 10,
     overflow: "hidden",
     flexShrink: 0,
-    backgroundColor: "#f4f4f4",
+    backgroundColor: "#f1f5f9",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#e5e7eb",
+    borderColor: "#e2e8f0",
   },
   docThumbImage: {
     width: THUMB_SIZE,
     height: THUMB_SIZE,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   docThumbIcon: {
     alignItems: "center",
@@ -760,88 +830,132 @@ const s = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.2,
   },
-  docTextCol: { flex: 1, minWidth: 0, gap: 2 },
-  docTitleRow: {
+  docTextCol: { flex: 1, minWidth: 0, gap: 4, justifyContent: "center" },
+  docMetaRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: 6,
+    flexWrap: "nowrap",
+  },
+  docEntityPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+    backgroundColor: "rgba(91, 94, 244, 0.08)",
   },
   docEntity: {
-    fontSize: SLACK_TYPE.listTime,
-    fontWeight: "700",
+    fontSize: 9,
+    fontWeight: "800",
     color: CHAT_ACCENT,
-    letterSpacing: 0.4,
+    letterSpacing: 0.45,
     textTransform: "uppercase",
   },
   docLabel: {
-    fontSize: SLACK_TYPE.listTitle,
-    fontWeight: "500",
-    color: "#1d1c1d",
-    lineHeight: 15,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0f172a",
+    lineHeight: 16,
+    letterSpacing: -0.1,
+  },
+  docMetaDot: {
+    fontSize: 11,
+    color: "#cbd5e1",
+    fontWeight: "700",
   },
   docMeta: {
-    fontSize: SLACK_TYPE.listTime,
+    fontSize: 11,
     color: CHAT_TEXT_MUTED,
-    flexShrink: 0,
+    flexShrink: 1,
+    minWidth: 0,
   },
   actionsCol: {
     alignItems: "flex-end",
     justifyContent: "center",
-    gap: 4,
+    gap: 5,
     flexShrink: 0,
-    minWidth: 68,
+  },
+  confirmRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  cancelConfirmBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#e2e8f0",
+  },
+  cancelConfirmText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: CHAT_TEXT_MUTED,
+  },
+  confirmSendBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: CHAT_ACCENT,
+  },
+  confirmSendText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#fff",
   },
   sentPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: "rgba(22, 163, 74, 0.08)",
+    backgroundColor: "rgba(22, 163, 74, 0.1)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(22, 163, 74, 0.2)",
+    borderColor: "rgba(22, 163, 74, 0.22)",
   },
   sentPillText: {
-    fontSize: SLACK_TYPE.listTime,
-    fontWeight: "700",
+    fontSize: 10,
+    fontWeight: "800",
     color: "#16a34a",
   },
   sendPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 8,
-    backgroundColor: "rgba(91, 94, 244, 0.08)",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 9,
+    backgroundColor: "rgba(91, 94, 244, 0.1)",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(91, 94, 244, 0.18)",
+    borderColor: "rgba(91, 94, 244, 0.22)",
   },
   sendPillText: {
-    fontSize: SLACK_TYPE.listTime,
-    fontWeight: "700",
+    fontSize: 11,
+    fontWeight: "800",
     color: CHAT_ACCENT,
   },
   sendAgainBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
     paddingVertical: 4,
     borderRadius: 8,
     backgroundColor: "#fff",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(91, 94, 244, 0.22)",
+    borderColor: "rgba(91, 94, 244, 0.24)",
   },
   sendAgainText: {
-    fontSize: SLACK_TYPE.listTime,
+    fontSize: 10,
     fontWeight: "700",
     color: CHAT_ACCENT,
   },
   actionMeta: {
-    fontSize: SLACK_TYPE.listTime,
+    fontSize: 10,
     fontWeight: "600",
     color: CHAT_TEXT_MUTED,
   },

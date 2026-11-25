@@ -161,11 +161,17 @@ function GallerySlidePage({
   }, [uri, loading, error]);
 
   const imageLayout = naturalSize
-    ? resolveFitImageLayout(naturalSize, width, viewportHeight, {
-        horizontal: H_PAD,
-        top: CHROME_TOP,
-        bottom: CHROME_BOTTOM,
-      })
+    ? resolveFitImageLayout(
+        naturalSize,
+        width,
+        viewportHeight,
+        {
+          horizontal: H_PAD,
+          top: CHROME_TOP,
+          bottom: CHROME_BOTTOM,
+        },
+        { allowUpscale: true },
+      )
     : null;
 
   return (
@@ -207,7 +213,13 @@ function GallerySlidePage({
                       width: imageLayout.width,
                       height: imageLayout.height,
                       maxWidth: width - H_PAD * 2,
-                      maxHeight: viewportHeight - CHROME_TOP - CHROME_BOTTOM,
+                      // Tall docs scroll — do not clamp height to the viewport.
+                      ...(imageLayout.scrollable
+                        ? null
+                        : {
+                            maxHeight:
+                              viewportHeight - CHROME_TOP - CHROME_BOTTOM,
+                          }),
                     }
                   : undefined
               }

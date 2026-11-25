@@ -186,7 +186,7 @@ export function TripChatRoomSheet({
             <Text style={styles.headerTitle} numberOfLines={1}>
               {title}
             </Text>
-            <Text style={styles.headerSub}>Team room · all parties</Text>
+            <Text style={styles.headerSub}>Trip room · all parties</Text>
           </View>
           <View style={styles.headerBtn} />
         </View>

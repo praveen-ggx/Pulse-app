@@ -53,6 +53,7 @@ export const slackDesktopStyles = StyleSheet.create({
     minHeight: 0,
   },
   sidebar: {
+    position: "relative",
     width: SLACK_DESKTOP.sidebarWidth,
     borderRightWidth: StyleSheet.hairlineWidth,
     borderRightColor: SLACK_DESKTOP.border,
@@ -62,7 +63,25 @@ export const slackDesktopStyles = StyleSheet.create({
   main: {
     flex: 1,
     minWidth: 0,
+    minHeight: 0,
     backgroundColor: SLACK_DESKTOP.mainBg,
+  },
+  mainBody: {
+    flex: 1,
+    minHeight: 0,
+    minWidth: 0,
+  },
+  /** Pulse story reel — left sidebar, under search chrome. */
+  sidebarStoryRail: {
+    width: "100%",
+    paddingTop: 6,
+    paddingBottom: 8,
+    paddingHorizontal: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(100, 116, 139, 0.18)",
+    backgroundColor: SLACK_DESKTOP.sidebarBg,
+    alignItems: "flex-start",
+    justifyContent: "center",
   },
   sidebarHeader: {
     flexDirection: "row",
@@ -439,6 +458,50 @@ export const slackDesktopStyles = StyleSheet.create({
     color: "#4D3636",
     fontWeight: "500",
   },
+  sidebarRowTimeUnread: {
+    color: Theme.brandBlueInk,
+    fontWeight: "700",
+  },
+  sidebarRowNameUnread: {
+    fontWeight: "700",
+  },
+  sidebarRowPreviewUnread: {
+    fontWeight: "600",
+    color: "#1E293B",
+  },
+  sidebarRowMetaCol: {
+    flexShrink: 0,
+    alignItems: "flex-end",
+    gap: 4,
+  },
+  sidebarRowUnreadCount: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    backgroundColor: Theme.brandBlueInk,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sidebarRowUnreadCountText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  sidebarRowAvatarWrapUnread: {
+    position: "relative" as const,
+  },
+  sidebarRowUnreadDot: {
+    position: "absolute" as const,
+    right: -1,
+    top: -1,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Theme.brandBlueInk,
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+  },
   sidebarRowPartyLine: {
     fontSize: 9,
     fontWeight: "600",
@@ -640,26 +703,50 @@ export const slackDesktopStyles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: SLACK_DESKTOP.border,
     paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 12,
+    paddingTop: 12,
+    paddingBottom: 14,
     backgroundColor: SLACK_DESKTOP.mainBg,
   },
   composerBox: {
     borderWidth: 1,
     borderColor: SLACK_DESKTOP.border,
-    borderRadius: 10,
+    borderRadius: 12,
     minHeight: 88,
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+    alignItems: "stretch",
+    ...(Platform.OS === "web"
+      ? ({
+          boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.04)",
+        } as object)
+      : {
+          shadowColor: "#0F172A",
+          shadowOpacity: 0.06,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 2 },
+          elevation: 1,
+        }),
+  },
+  composerBoxActive: {
+    borderColor: Theme.brandBlueRing,
   },
   composerInput: {
-    flex: 1,
+    width: "100%",
     fontSize: SLACK_DESKTOP_TYPE.composer,
     lineHeight: 21,
     color: SLACK_DESKTOP.textPrimary,
     minHeight: 44,
+    maxHeight: 140,
+    textAlign: "left",
     textAlignVertical: "top",
+    paddingTop: 0,
+    paddingBottom: 6,
+    paddingHorizontal: 0,
+    ...(Platform.OS === "web"
+      ? ({ outlineStyle: "none", resize: "none" } as object)
+      : {}),
   },
   composerToolbar: {
     flexDirection: "row",

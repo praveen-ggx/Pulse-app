@@ -55,11 +55,12 @@ import {
 import { selectCompliancePipelineTrips } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
 import { loadComplianceTripCatalog } from "@/features/tripCompliance/services/complianceTripCatalog.service";
-import { resolveTripContractTruckType } from "@/features/tripCompliance/services/complianceContractTruckType.service";
+import { getVehicleById, getVehicleForTripViewer } from "@/features/vehicles/services/vehicles.service";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as XLSX from "xlsx";
 import { Platform, Share } from "react-native";
+import { formatTruckTypeWithSize } from "@/features/tripCompliance/utils/complianceTruckType.util";
 import { mapWithConcurrency } from "@/features/tripCompliance/utils/mapWithConcurrency.util";
 import { isSupabaseQueueRejectedError } from "@/lib/supabaseHttp.util";
 
@@ -171,20 +172,16 @@ async function resolveSupplierName(
   return label || (fallback ?? "").trim();
 }
 
-async function resolveTruckType(summaryTrip: {
-  id: string;
-  organization_id: string;
-  indent_id?: string | null;
-  source_indent_id?: string | null;
-  vehicle_id?: string | null;
-}): Promise<string> {
-  return resolveTripContractTruckType({
-    orgId: summaryTrip.organization_id,
-    tripId: summaryTrip.id,
-    indentId: summaryTrip.indent_id,
-    sourceIndentId: summaryTrip.source_indent_id,
-    vehicleId: summaryTrip.vehicle_id,
-  });
+async function resolveTruckType(
+  orgId: string,
+  vehicleId: string,
+  tripId: string,
+): Promise<string> {
+  const owned = await getVehicleById(orgId, vehicleId);
+  const ownedType = formatTruckTypeWithSize(owned.vehicle?.vehicle_type, owned.vehicle?.vehicle_size);
+  if (ownedType) return ownedType;
+  const shared = await getVehicleForTripViewer(vehicleId, tripId, orgId);
+  return formatTruckTypeWithSize(shared.vehicle?.vehicle_type, shared.vehicle?.vehicle_size);
 }
 
 type SupplierVaultBundle = {
@@ -305,11 +302,11 @@ export async function buildVerifiedExportEnrichment(
       enrichment.supplierName = (trip.supplier_name ?? "").trim();
     }
 
-    {
-      const cacheKey = `${tripOrgId}:${trip.indent_id ?? ""}:${trip.source_indent_id ?? ""}:${vehicleId ?? ""}:${trip.id}`;
+    if (vehicleId) {
+      const cacheKey = `${tripOrgId}:${vehicleId}:${trip.id}`;
       let pending = truckCache.get(cacheKey);
       if (!pending) {
-        pending = resolveTruckType(trip);
+        pending = resolveTruckType(tripOrgId, vehicleId, trip.id);
         truckCache.set(cacheKey, pending);
       }
       enrichment.truckType = await pending;

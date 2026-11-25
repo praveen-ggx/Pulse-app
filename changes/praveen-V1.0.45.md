@@ -1,39 +1,21 @@
 # praveen/V1.0.45
 
 ## What
-- Compliance list, Advance Payment panel, hard-copy POD sheet, debit-control table, and verified export show **contract/indent truck type** (then lane, then assigned vehicle `type · size` as fallback).
-- Migration updates `get_compliance_list_trip_facts` to the same precedence so list cards and Advance stay aligned.
-- Truck type is keyed **per trip** so one vehicle on two different indents can show two contract types.
-- Ops SQL script to identify Apollo trips on TN13Y7553 / TN18AH7051 and (commented) correct TN13Y7553 size to 20 FT after Daisy/owner approval. No UPDATE for TN18AH7051 (trip 002650) — Daisy must confirm whether Open Body Truck / Half Body should be Closed Container; capacity/size already read 20 FT.
+- Ops SQL only: identify Apollo truck-type mismatch trips on TN13Y7553 / TN18AH7051 (incl. trip **002650**), and a **commented** `UPDATE` to set TN13Y7553 `vehicle_size` → `20 FT` after Daisy + SIVAN E owner approve. Capacity left untouched until Daisy confirms.
+- **Display / indent-preference change is parked** (reverted from this branch). It reversed Dhira’s 11 Oct rule (`20271008118000_finance_reject_truck_size.sql`: Finance sees assigned vehicle `type · size` because size drives pricing). Needs explicit Dhira + Vasanth approval before any re-land, plus release set, pinning Jest test, `supabase migration new` timestamp, RLS-aligned single source for list/modal/export, and tests for RPC precedence / other-org viewers.
 
 ## Why
-- Apollo / Luminous advances were rejected for "truck type mismatch" when Finance saw the assigned vehicle master (e.g. Closed Container · 24 MT) instead of the indent/lane type (20 FT) that matched client/vendor rates.
-- Fixing display to the booked contract type stops false rejects; vehicle master cleanup remains a separate owner-side data fix.
+- 7 of 8 Apollo trips use TN13Y7553 registered as Closed Container · **24 MT** (wrong); Daisy confirmed real size is **20 FT**. Fixing the vehicle master alone clears those advances’ false “truck type mismatch” labels without changing Finance’s vehicle display rule.
+- Trip **002650** uses TN18AH7051 (Open Body Truck · 20 FT, Half Body). Size already matches indent `20 FT`; open question is body type (Open/Half vs Closed Container) — Daisy must confirm; no UPDATE in this PR.
 
 ## Areas
-- `supabase/migrations/20271125110000_compliance_truck_type_prefers_indent.sql`
-- `features/tripCompliance/utils/complianceTruckType.util.ts`
-- `features/tripCompliance/utils/__tests__/complianceTruckType.util.test.ts`
-- `features/tripCompliance/services/complianceListFacts.service.ts`
-- `features/tripCompliance/services/complianceContractTruckType.service.ts`
-- `features/tripCompliance/services/complianceExportReport.service.ts`
-- `features/tripCompliance/hooks/useComplianceListTripFacts.ts`
-- `features/tripCompliance/components/ComplianceDocumentWorkspace.tsx`
-- `features/tripCompliance/components/CompliancePaymentConfirmModal.tsx`
-- `features/tripCompliance/components/ComplianceHardCopyPodSheet.tsx`
-- `features/tripCompliance/components/DebitControlTripsTable.tsx`
-- `features/tripCompliance/components/PodVerificationPane.tsx`
-- `features/tripCompliance/__tests__/complianceListFacts.service.test.ts`
-- `features/tripCompliance/__tests__/useComplianceListTripFacts.test.tsx`
 - `scripts/sql/fix_tn13y7553_vehicle_size_apollo_truck_type.sql`
+- `changes/praveen-V1.0.45.md`
 
 ## Migrations
-- `20271125110000_compliance_truck_type_prefers_indent.sql` — `get_compliance_list_trip_facts` prefers indent → lane → vehicle type·size. Additive function replace; grants unchanged.
+- None in this PR (indent-preference migration removed pending product approval).
 
 ## Tested
-- Unit (15 passing): `complianceTruckType.util.test.ts`, `complianceListFacts.service.test.ts` (incl. `complianceTruckTypeForTrip`), `useComplianceListTripFacts.test.tsx`.
-- Preprod read-only (earlier session): Apollo indent `20 FT` + vehicle TN13Y7553 `Closed Container · 24 MT` confirmed as the mismatch pattern; after this change Advance/Compliance show `20 FT` for those trips without editing trip rows. (CLI token expired this session — re-probe after `supabase login` / migration apply.)
-- Trip **002650** (TN18AH7051): indent `20 FT`; vehicle master already `Open Body Truck · 20 FT`. After this change Advance/Compliance show indent **`20 FT`** (not the vehicle body label). No vehicle UPDATE in this PR — Daisy still needs to confirm whether body type should be Closed Container.
-- Vehicle master UPDATE for TN13Y7553 not applied from this PR (owner org SIVAN E; Daisy capacity confirmation still open). Use the ops SQL after approval.
-- Manual UI click-through on gx-pulse: not done until migration is on preprod.
-- Existing workflows preserved: asset/non-indent trips still fall back to vehicle `type · size`; list batch RPC signature/grants unchanged; payment confirm / export / debit table only change the truck-type label source.
+- Read-only preprod earlier: TN13Y7553 = Closed Container · 24 MT · capacity 12; peers Closed Container · 20 FT are capacity 6–7. TN18AH7051 = Open Body Truck · 20 FT · Half Body.
+- Vehicle UPDATE not applied (owner org SIVAN E). Script for Daisy/owner/Nihas only.
+- No UI/code path change in the settled branch tip — Finance still shows vehicle `type · size` per Dhira’s rule.

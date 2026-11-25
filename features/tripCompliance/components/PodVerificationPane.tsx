@@ -189,10 +189,7 @@ export function PodVerificationPane({
   organizationId: string;
   actorId: string | null;
   canManage: boolean;
-  tripFacts: Pick<
-    ComplianceListTripFacts,
-    "truckTypeByTripId" | "truckTypeByVehicleId" | "supplierNameByTripId"
-  >;
+  tripFacts: Pick<ComplianceListTripFacts, "truckTypeByVehicleId" | "supplierNameByTripId">;
   courierLrOptions: HardCopyPodLrOption[];
   stacked?: boolean;
   /** Phone: work first, then a full-page document preview — same as document upload. */

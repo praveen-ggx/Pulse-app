@@ -17,7 +17,6 @@ jest.mock("@/lib/supabase", () => ({
 
 import {
   buildComplianceListTripFacts,
-  complianceTruckTypeForTrip,
   COMPLIANCE_BATCH_MAX_TRIP_IDS,
   fetchComplianceListTripFacts,
   type ComplianceListTripFactRow,
@@ -72,7 +71,7 @@ describe("fetchComplianceListTripFacts", () => {
 });
 
 describe("buildComplianceListTripFacts", () => {
-  it("maps truck type by trip (and vehicle) and supplier label by trip", () => {
+  it("maps truck type by vehicle and supplier label by trip", () => {
     const summaries = [
       summary({ id: "t1", vehicle_id: "v1", supplier_id: "s1" }),
       summary({ id: "t2", vehicle_id: "v1", supplier_id: "s2" }),
@@ -80,14 +79,12 @@ describe("buildComplianceListTripFacts", () => {
       summary({ id: "t4", vehicle_id: null, supplier_id: "s4" }),
     ];
     const facts = buildComplianceListTripFacts(summaries, [
-      fact({ trip_id: "t1", vehicle_id: "v1", truck_type: "20 FT", supplier_name: "Acme" }),
-      fact({ trip_id: "t2", vehicle_id: "v1", truck_type: "Closed Container", supplier_name: "" }),
+      fact({ trip_id: "t1", vehicle_id: "v1", truck_type: "32 ft", supplier_name: "Acme" }),
+      fact({ trip_id: "t2", vehicle_id: "v1", truck_type: "32 ft", supplier_name: "" }),
       fact({ trip_id: "t3", vehicle_id: "v2", truck_type: null, supplier_name: null }),
       // t4: no row (not visible to the viewer)
     ]);
-    // Same vehicle can sit on different contract types — trip map keeps both.
-    expect(facts.truckTypeByTripId).toEqual({ t1: "20 FT", t2: "Closed Container" });
-    expect(facts.truckTypeByVehicleId).toEqual({ v1: "20 FT" });
+    expect(facts.truckTypeByVehicleId).toEqual({ v1: "32 ft" });
     expect(facts.supplierNameByTripId).toEqual({ t1: "Acme", t2: "—", t3: "—", t4: "—" });
   });
 
@@ -100,19 +97,5 @@ describe("buildComplianceListTripFacts", () => {
       [fact({ trip_id: "a1" }), fact({ trip_id: "g1" })],
     );
     expect(facts.supplierNameByTripId).toEqual({ a1: "Own fleet", g1: "—" });
-  });
-});
-
-describe("complianceTruckTypeForTrip", () => {
-  it("prefers trip map over vehicle map so one plate can show two contract types", () => {
-    const facts = {
-      truckTypeByTripId: { t1: "20 FT", t2: "Closed Container" },
-      truckTypeByVehicleId: { v1: "20 FT" },
-      supplierNameByTripId: {},
-    };
-    expect(complianceTruckTypeForTrip(facts, "t1", "v1")).toBe("20 FT");
-    expect(complianceTruckTypeForTrip(facts, "t2", "v1")).toBe("Closed Container");
-    expect(complianceTruckTypeForTrip(facts, "t3", "v1")).toBe("20 FT");
-    expect(complianceTruckTypeForTrip(facts, "t4", null)).toBeNull();
   });
 });

@@ -11,10 +11,7 @@ import {
   tripToLocation,
   truckNumber,
 } from "@/features/tripCompliance/components/ComplianceTripsTable";
-import {
-  complianceTruckTypeForTrip,
-  type ComplianceListTripFacts,
-} from "@/features/tripCompliance/services/complianceListFacts.service";
+import type { ComplianceListTripFacts } from "@/features/tripCompliance/services/complianceListFacts.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import { compareComplianceSummariesByEvent } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import { complianceVaultDocNumber } from "@/features/tripCompliance/utils/complianceTableStatus.util";
@@ -36,10 +33,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 type Props = {
   summaries: ComplianceTripSummary[];
-  tripFacts: Pick<
-    ComplianceListTripFacts,
-    "truckTypeByTripId" | "truckTypeByVehicleId" | "supplierNameByTripId"
-  >;
+  tripFacts: Pick<ComplianceListTripFacts, "truckTypeByVehicleId" | "supplierNameByTripId">;
   onOpenTrip: (tripId: string) => void;
   /** Awaiting POD: tapping a row opens Log hard copy POD. */
   onRowPress?: (summary: ComplianceTripSummary) => void;
@@ -198,7 +192,7 @@ export function DebitControlTripsTable({
               {dash(phoneByTripId?.get(trip.id))}
             </Text>
             <Text style={[styles.cell, styles.colType]} numberOfLines={2}>
-              {dash(complianceTruckTypeForTrip(tripFacts, trip.id, trip.vehicle_id))}
+              {dash(trip.vehicle_id ? tripFacts.truckTypeByVehicleId[trip.vehicle_id] : null)}
             </Text>
             <Text style={[styles.cell, styles.colTruck]} numberOfLines={1}>
               {truckNumber(summary)}

@@ -52,13 +52,10 @@ export function useComplianceListTripFacts(
   });
 
   return useMemo(() => {
-    const empty: ComplianceListTripFacts = {
-      truckTypeByTripId: {},
-      truckTypeByVehicleId: {},
-      supplierNameByTripId: {},
-    };
-    if (!sessionAttached || !viewerOrgId || summaries.length === 0) return empty;
-    if (!factsQuery.data) return empty;
+    if (!sessionAttached || !viewerOrgId || summaries.length === 0) {
+      return { truckTypeByVehicleId: {}, supplierNameByTripId: {} };
+    }
+    if (!factsQuery.data) return { truckTypeByVehicleId: {}, supplierNameByTripId: {} };
     return buildComplianceListTripFacts(summaries, factsQuery.data);
   }, [factsQuery.data, sessionAttached, summaries, viewerOrgId]);
 }

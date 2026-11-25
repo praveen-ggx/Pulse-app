@@ -46,12 +46,6 @@ export type ComplianceDriverDocRow = {
 };
 
 export type ComplianceListTripFacts = {
-  /** Per-trip truck type (indent/lane preferred — see get_compliance_list_trip_facts). */
-  truckTypeByTripId: Record<string, string>;
-  /**
-   * First truck type seen per vehicle id. Prefer `truckTypeByTripId` for display —
-   * the same vehicle can sit on indents with different contract types.
-   */
   truckTypeByVehicleId: Record<string, string>;
   supplierNameByTripId: Record<string, string>;
 };
@@ -128,15 +122,12 @@ export function buildComplianceListTripFacts(
   summaries: readonly ComplianceTripSummary[],
   rows: readonly ComplianceListTripFactRow[],
 ): ComplianceListTripFacts {
-  const truckTypeByTripId: Record<string, string> = {};
   const truckTypeByVehicleId: Record<string, string> = {};
   const factsByTripId = new Map<string, ComplianceListTripFactRow>();
   for (const row of rows) {
     factsByTripId.set(row.trip_id, row);
     const type = row.truck_type?.trim();
-    if (!type) continue;
-    truckTypeByTripId[row.trip_id] = type;
-    if (row.vehicle_id && !truckTypeByVehicleId[row.vehicle_id]) {
+    if (row.vehicle_id && type && !truckTypeByVehicleId[row.vehicle_id]) {
       truckTypeByVehicleId[row.vehicle_id] = type;
     }
   }
@@ -150,21 +141,5 @@ export function buildComplianceListTripFacts(
     }
     supplierNameByTripId[trip.id] = factsByTripId.get(trip.id)?.supplier_name?.trim() || "—";
   }
-  return { truckTypeByTripId, truckTypeByVehicleId, supplierNameByTripId };
-}
-
-/** Display label for one trip: trip map first, then legacy vehicle map. */
-export function complianceTruckTypeForTrip(
-  facts: ComplianceListTripFacts,
-  tripId: string,
-  vehicleId?: string | null,
-): string | null {
-  const byTrip = facts.truckTypeByTripId[tripId]?.trim();
-  if (byTrip) return byTrip;
-  const vid = vehicleId?.trim();
-  if (vid) {
-    const byVehicle = facts.truckTypeByVehicleId[vid]?.trim();
-    if (byVehicle) return byVehicle;
-  }
-  return null;
+  return { truckTypeByVehicleId, supplierNameByTripId };
 }

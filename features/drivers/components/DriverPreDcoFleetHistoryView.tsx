@@ -128,7 +128,7 @@ export function DriverPreDcoFleetHistoryView({
         }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.heroTitle, { color: colors.emerald }]}>SALARY.</Text>
+        <Text style={[styles.heroTitle, { color: colors.emerald }]}>EARNINGS.</Text>
         <Text style={[styles.heroSub, { color: Theme.textSecondary }]}>
           Financial audit & settlements · former employer
         </Text>

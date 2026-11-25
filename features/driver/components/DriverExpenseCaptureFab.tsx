@@ -1,6 +1,6 @@
-import { Receipt } from "lucide-react-native";
+import { Banknote } from "lucide-react-native";
 import { useEffect } from "react";
-import { Platform, Pressable, StyleSheet } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
   type SharedValue,
@@ -15,12 +15,11 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import Theme from "@/constants/Theme";
-import { useDriverThemeColors } from "@/contexts/DriverThemeContext";
 
-export const DRIVER_EXPENSE_FLOAT_SIZE = 48;
+export const DRIVER_EXPENSE_FLOAT_SIZE = 52;
 const GAP_ABOVE_SHEET = 12;
 
-const BREATHE_UP = 1.035;
+const BREATHE_UP = 1.03;
 const BREATHE_MS = 2200;
 
 type Props = {
@@ -31,18 +30,18 @@ type Props = {
    */
   animatedSheetTop: SharedValue<number>;
   accessibilityHint?: string;
+  accessibilityLabel?: string;
 };
 
 /**
- * Floating expense control that tracks the top edge of the job-card bottom sheet.
- * Mild entrance + subtle breathe — professional, not playful.
+ * Floating capture-payment control that tracks the top edge of the job-card sheet.
  */
 export function DriverExpenseCaptureFab({
   onPress,
   animatedSheetTop,
   accessibilityHint,
+  accessibilityLabel = "Capture payment",
 }: Props) {
-  const colors = useDriverThemeColors();
   const insets = useSafeAreaInsets();
   const right = Math.max(insets.right, 16);
 
@@ -106,13 +105,25 @@ export function DriverExpenseCaptureFab({
             press.value = withSpring(1, { damping: 16, stiffness: 280 });
           }}
           accessibilityRole="button"
-          accessibilityLabel="Add trip expense"
+          accessibilityLabel={accessibilityLabel}
           accessibilityHint={
-            accessibilityHint ?? "Opens expense entry for your active trip"
+            accessibilityHint ?? "Opens payment capture for your active trip"
           }
-          style={[styles.fab, { backgroundColor: colors.emerald }]}
+          style={[
+            styles.fab,
+            {
+              backgroundColor: Theme.driverPrimary,
+              borderColor: "rgba(255,255,255,0.22)",
+            },
+          ]}
         >
-          <Receipt size={20} color={Theme.textOnPrimary} strokeWidth={2.3} />
+          <View style={styles.iconFrame}>
+            <Banknote
+              size={22}
+              color={Theme.textOnPrimary}
+              strokeWidth={2.4}
+            />
+          </View>
         </Pressable>
       </Animated.View>
     </Animated.View>
@@ -131,15 +142,23 @@ const styles = StyleSheet.create({
     borderRadius: DRIVER_EXPENSE_FLOAT_SIZE / 2,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "visible",
     ...Platform.select({
       ios: {
         shadowColor: Theme.driverEmeraldDark,
         shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.28,
+        shadowOpacity: 0.32,
         shadowRadius: 12,
       },
       android: { elevation: 8 },
       default: {},
     }),
+  },
+  iconFrame: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

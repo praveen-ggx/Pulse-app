@@ -56,7 +56,9 @@ export function DriverLedgerReceiptPreviewModal({
             amount={receipt.amount}
             isIn={receipt.isIn}
             partyAvatar={receipt.partyAvatar}
+            financeSnapshot={receipt.financeSnapshot}
             details={receipt.details}
+            heroAnimation={receipt.heroAnimation}
             compactActions
             dismissAction={{ label: "Close", onPress: onClose }}
             tripAction={receipt.tripAction}

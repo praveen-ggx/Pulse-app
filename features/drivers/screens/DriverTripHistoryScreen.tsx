@@ -1,6 +1,5 @@
-import { DriverBrandMark } from "@/components/driver/DriverBrandMark";
+import { DriverHeader } from "@/components/driver/DriverHeader";
 import { showAppAlert } from "@/lib/appAlert";
-import { DriverSelfAvatar } from "@/components/driver/DriverSelfAvatar";
 import { TripListAssignerRow } from "@/components/driver/TripListAssignerRow";
 import {
     driverBodyPrimary,
@@ -28,16 +27,20 @@ import {
 } from "@/features/drivers/domain/driverOperatingMode";
 import * as driversService from "@/features/drivers/services/drivers.service";
 import {
+    canTagPartyOnTrip,
     isTripTaggedToParty,
     tripNeedsPartyTag,
+    tripReceivableBilled,
     tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
+import { resolveDriverDisplayDistanceKm } from "@/features/drivers/utils/driverDisplayDistance.util";
 import {
     DRIVER_PAY_NA_AMOUNT,
     isAggregateTrip,
     isRosterTrip,
     resolveDriverTripPayoutTerms,
 } from "@/features/drivers/utils/driverUtils.util";
+import { formatINR } from "@/lib/format";
 import { getLatestAssignmentAuditByTripIds } from "@/features/trips/services/trip-assignment-audit.service";
 import * as tripsService from "@/features/trips/services/trips.service";
 import {
@@ -58,12 +61,14 @@ import { FlashList } from "@shopify/flash-list";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import {
     MapPinned,
+    Pencil,
     Search as SearchIcon,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     AppState,
     Platform,
+    Pressable,
     StyleSheet,
     Text,
     TextInput,
@@ -294,6 +299,10 @@ export default function DriverTripsScreen() {
   const { isDco } = useDriverOperatingModeQuery(profile?.uid ?? null);
   const historyTabs = driverHistoryTabsForMode(isDco);
   const { avatarUri } = useDriverAvatarUri();
+  const driverName =
+    profile?.full_name?.trim() ||
+    profile?.displayName?.trim() ||
+    "Pilot";
   const [driver, setDriver] = useState<driversService.DriverRow | null>(null);
   const [linkedDriverRows, setLinkedDriverRows] = useState<driversService.DriverRow[]>([]);
   const [invites, setInvites] = useState<
@@ -301,6 +310,9 @@ export default function DriverTripsScreen() {
   >([]);
   const [trips, setTrips] = useState<tripsService.TripRow[]>([]);
   const [tagTrip, setTagTrip] = useState<tripsService.TripRow | null>(null);
+  const [tagSheetStartAt, setTagSheetStartAt] = useState<"pick" | "editBilled">(
+    "pick",
+  );
   const suppressCardPress = useRef(false);
   const [assignmentActorByTripId, setAssignmentActorByTripId] = useState<
     Record<string, string>
@@ -757,6 +769,11 @@ export default function DriverTripsScreen() {
     [linkedDriverRows],
   );
 
+  /** Hoisted so Fast Refresh / later hooks never hit TDZ on this name. */
+  function tripHistoryLane(trip: tripsService.TripRow) {
+    return driverHistoryLane(trip, isFleetDispatchedTrip(trip));
+  }
+
   const assignerPayloadByTripId = useMemo(() => {
     const byTrip: Record<string, JobCardAssignerPayload> = {};
     for (const trip of trips) {
@@ -836,9 +853,47 @@ export default function DriverTripsScreen() {
     () => buildDriverTripNumberMap(trips),
     [trips],
   );
-  const tripHistoryLane = useCallback(
-    (trip: tripsService.TripRow) =>
-      driverHistoryLane(trip, isFleetDispatchedTrip(trip)),
+
+  /**
+   * Offline Yield = bill-to receivable. Always tappable on offline trips:
+   * untagged → open tag + amount; tagged → edit Yield.
+   */
+  const getYieldCell = useCallback(
+    (trip: tripsService.TripRow) => {
+      const offline = tripHistoryLane(trip) === "offline";
+      if (offline) {
+        const tagged = isTripTaggedToParty(trip);
+        const billed = tripReceivableBilled(trip);
+        if (tagged && billed > 0) {
+          return {
+            text: formatINR(billed),
+            editable: true,
+            empty: false,
+            startAt: "editBilled" as const,
+          };
+        }
+        if (tagged) {
+          return {
+            text: "Set amount",
+            editable: true,
+            empty: true,
+            startAt: "editBilled" as const,
+          };
+        }
+        return {
+          text: "Tag & set",
+          editable: true,
+          empty: true,
+          startAt: "pick" as const,
+        };
+      }
+      return {
+        text: getEarning(trip),
+        editable: false,
+        empty: false,
+        startAt: "pick" as const,
+      };
+    },
     [isFleetDispatchedTrip],
   );
 
@@ -885,7 +940,7 @@ export default function DriverTripsScreen() {
     tripsSubTab,
     searchQuery,
     driverTripNumberById,
-    tripHistoryLane,
+    isFleetDispatchedTrip,
   ]);
   const historyTripsCount = useMemo(
     () => trips.filter((trip) => isCompleted(trip.status)).length,
@@ -901,16 +956,16 @@ export default function DriverTripsScreen() {
   );
   const fleetTripsCount = useMemo(
     () => tripsInHistoryView.filter((trip) => tripHistoryLane(trip) === "fleet").length,
-    [tripsInHistoryView, tripHistoryLane],
+    [tripsInHistoryView, isFleetDispatchedTrip],
   );
   const offlineTripsCount = useMemo(
     () => tripsInHistoryView.filter((trip) => tripHistoryLane(trip) === "offline").length,
-    [tripsInHistoryView, tripHistoryLane],
+    [tripsInHistoryView, isFleetDispatchedTrip],
   );
   const marketplaceTripsCount = useMemo(
     () =>
       tripsInHistoryView.filter((trip) => tripHistoryLane(trip) === "marketplace").length,
-    [tripsInHistoryView, tripHistoryLane],
+    [tripsInHistoryView, isFleetDispatchedTrip],
   );
   const poolCountForTab =
     tripView === "active"
@@ -927,7 +982,7 @@ export default function DriverTripsScreen() {
     const isFleetTrip = isFleetDispatchedTrip(item);
     const historyLane = driverHistoryLane(item, isFleetTrip);
     const laneLabel = driverHistoryLaneLabel(historyLane);
-    const distanceLabel = formatDistance(item.distance);
+    const distanceLabel = formatDistance(resolveDriverDisplayDistanceKm(item));
     const pickupParts = splitLocationPrimarySecondary(item.pickup_area);
     const dropParts = splitLocationPrimarySecondary(item.drop_location);
     const corridorHint = [pickupParts.secondary, dropParts.secondary].filter(Boolean).join(" · ");
@@ -1047,9 +1102,11 @@ export default function DriverTripsScreen() {
               textColor={colors.text}
               needsTag={tripNeedsPartyTag(item, isFleetTrip)}
               onTagPress={
-                tripNeedsPartyTag(item, isFleetTrip)
+                canTagPartyOnTrip(item, isFleetTrip)
                   ? () => {
                       suppressCardPress.current = true;
+                      // Bill to always opens the party picker (never Yield edit).
+                      setTagSheetStartAt("pick");
                       setTagTrip(item);
                     }
                   : undefined
@@ -1060,29 +1117,73 @@ export default function DriverTripsScreen() {
                   : null
               }
               style={styles.cardRefAssignerFooter}
-              endSlot={
-                <View style={styles.yieldWrapRef}>
-                  <Text
-                    style={[
-                      styles.yieldLabelRef,
-                      isDark
-                        ? { color: colors.text, opacity: 0.85 }
-                        : { color: colors.textMuted },
+              endSlot={(() => {
+                const yieldCell = getYieldCell(item);
+                const yieldColor = yieldCell.empty
+                  ? Theme.warning
+                  : yieldCell.editable || completed
+                    ? colors.emerald
+                    : colors.textMuted;
+                return (
+                  <Pressable
+                    onPress={
+                      yieldCell.editable
+                        ? () => {
+                            suppressCardPress.current = true;
+                            setTagSheetStartAt(yieldCell.startAt);
+                            setTagTrip(item);
+                          }
+                        : undefined
+                    }
+                    disabled={!yieldCell.editable}
+                    accessibilityRole={
+                      yieldCell.editable ? "button" : undefined
+                    }
+                    accessibilityLabel={
+                      yieldCell.editable
+                        ? yieldCell.startAt === "pick"
+                          ? `Yield ${yieldCell.text}. Tap to tag party and set yield`
+                          : `Yield ${yieldCell.text}. Tap to edit`
+                        : `Yield ${yieldCell.text}`
+                    }
+                    style={({ pressed }) => [
+                      styles.yieldWrapRef,
+                      yieldCell.editable && styles.yieldWrapEditable,
+                      pressed && yieldCell.editable && styles.yieldWrapPressed,
                     ]}
                   >
-                    Yield
-                  </Text>
-                  <Text
-                    style={[
-                      styles.yieldValueRef,
-                      { color: completed ? colors.emerald : colors.textMuted },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {getEarning(item)}
-                  </Text>
-                </View>
-              }
+                    <View style={styles.yieldLabelRow}>
+                      <Text
+                        style={[
+                          styles.yieldLabelRef,
+                          isDark
+                            ? { color: colors.text, opacity: 0.85 }
+                            : { color: colors.textMuted },
+                        ]}
+                      >
+                        Yield
+                      </Text>
+                      {yieldCell.editable ? (
+                        <Pencil
+                          size={9}
+                          color={colors.emerald}
+                          strokeWidth={2.6}
+                        />
+                      ) : null}
+                    </View>
+                    <Text
+                      style={[
+                        styles.yieldValueRef,
+                        yieldCell.empty && styles.yieldValueEmpty,
+                        { color: yieldColor },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {yieldCell.text}
+                    </Text>
+                  </Pressable>
+                );
+              })()}
             />
           </View>
         </AnimatedCardScale>
@@ -1118,37 +1219,13 @@ export default function DriverTripsScreen() {
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <>
-            <View
-              style={[
-                styles.header,
-                {
-                  paddingTop: insets.top + Layout.driverHeaderTopOffset,
-                  paddingHorizontal: Layout.driverHeaderHorizontalPadding,
-                  paddingBottom: Layout.driverHeaderBottomPadding,
-                  backgroundColor: colors.surface,
-                  borderBottomColor: colors.border,
-                },
-              ]}
-            >
-              <View style={styles.headerLeft}>
-                <TouchableOpacity
-                  onPress={() => router.push("/(driver)/profile")}
-                  style={styles.avatarBtn}
-                  activeOpacity={0.8}
-                >
-                  <DriverSelfAvatar size={36} uri={avatarUri} borderColor={colors.emerald} />
-                </TouchableOpacity>
-                <View style={styles.headerTextWrap}>
-                  <DriverBrandMark color={colors.textMuted} />
-                  <Text
-                    style={[styles.welcomeTitle, { color: colors.text }]}
-                    numberOfLines={1}
-                  >
-                    Trips
-                  </Text>
-                </View>
-              </View>
-            </View>
+            <DriverHeader
+              colors={colors}
+              avatarUri={avatarUri}
+              driverName={driverName}
+              isOnline={false}
+              variant="assigned"
+            />
             <View
               style={[styles.creditsSection, { backgroundColor: colors.background }]}
             >
@@ -1461,14 +1538,19 @@ export default function DriverTripsScreen() {
           visible
           trip={tagTrip}
           due={0}
+          startAt={tagSheetStartAt}
           assignerName={
             assignerPayloadByTripId[String(tagTrip.id)]?.orgName ||
             assignerPayloadByTripId[String(tagTrip.id)]?.linePrimary ||
             null
           }
-          onClose={() => setTagTrip(null)}
+          onClose={() => {
+            setTagTrip(null);
+            setTagSheetStartAt("pick");
+          }}
           onTagged={() => {
             setTagTrip(null);
+            setTagSheetStartAt("pick");
             void fetch();
           }}
         />
@@ -1880,6 +1962,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minWidth: 0,
     gap: 2,
+    paddingVertical: 2,
+    paddingHorizontal: 2,
+    borderRadius: 10,
+  },
+  yieldWrapEditable: {
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    backgroundColor: "rgba(4, 120, 87, 0.08)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(4, 120, 87, 0.22)",
+  },
+  yieldWrapPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.98 }],
+  },
+  yieldLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   yieldLabelRef: {
     fontSize: 8,
@@ -1895,6 +1996,10 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
     lineHeight: 16,
     textAlign: "right",
+  },
+  yieldValueEmpty: {
+    fontWeight: "700",
+    fontStyle: "italic",
   },
   yieldValueCompleted: { color: TRIP_CARD_REF.emeraldYield },
   yieldValueMuted: { color: TRIP_CARD_REF.muted },

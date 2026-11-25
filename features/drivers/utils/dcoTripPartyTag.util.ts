@@ -38,8 +38,10 @@ export function applyDcoPartyTagToNotes(
   notes: string | null | undefined,
   party: DcoPartyTag,
 ): string {
+  const prior = parseDcoPartyTagFromNotes(notes);
   const stripped = stripDcoPartyTagFromNotes(notes);
-  const billed = money(party.billed);
+  // Keep an existing Yield when retagging without a new billed amount.
+  const billed = money(party.billed) ?? money(prior?.billed);
   const marker = `${DCO_PARTY_NOTE_PREFIX}${JSON.stringify({
     id: party.id,
     name: party.name,

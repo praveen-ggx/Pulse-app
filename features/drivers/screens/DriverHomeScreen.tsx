@@ -24,6 +24,8 @@ import { useOptionalDriverAvatar } from "@/contexts/DriverAvatarContext";
 import { DriverDailySummaryCard } from "@/features/driver/components/DriverDailySummaryCard";
 import { DriverDashboardMapPreview } from "@/features/driver/components/DriverDashboardMapPreview";
 import { DriverExpenseCaptureFab } from "@/features/driver/components/DriverExpenseCaptureFab";
+import { driverCaptureLaneForTrip } from "@/features/drivers/utils/driverCapturePayment.util";
+import { tripReceivableBilled } from "@/features/drivers/utils/driverPartyReceivables.util";
 import { DriverJobCard } from "@/features/driver/job-card/DriverJobCard";
 import { isCommerceDriverTrip } from "@/features/trips/domain/driverTripExperience";
 import type { DriverRoutePlanMap } from "@/features/driver/job-card/driverRoutePlanMap";
@@ -120,10 +122,18 @@ import {
 import {
     fetchUsableMultiStopRoute,
     fetchUsableRouteForKey,
+    resolveDriverGuidanceMetrics as resolveDriverGuidanceMetricsFromUtil,
     routeMidpoint,
     shouldShowDriverApproachRoute,
     shouldShowDriverToDropRoute,
 } from "@/lib/driverMapRoute.util";
+
+/** Hoisted local — Fast Refresh can drop named import bindings mid-render (TDZ). */
+function resolveDriverGuidanceMetrics(
+  input: Parameters<typeof resolveDriverGuidanceMetricsFromUtil>[0],
+) {
+  return resolveDriverGuidanceMetricsFromUtil(input);
+}
 import * as tripsService from "@/features/trips/services/trips.service";
 import { executeDriverCommand } from "@/features/driver/services/driverExecution.service";
 import {
@@ -140,6 +150,11 @@ import {
   type TripStage,
 } from "@/features/trips/domain";
 import {
+  formatDriverOfferDistanceKm,
+  resolveDriverDisplayDistanceKm,
+  resolveDriverOfferDistanceKm,
+} from "@/features/drivers/utils/driverDisplayDistance.util";
+import {
   reverseGeocodeCityStateLabel,
 } from "@/lib/reverseGeocodePlace.util";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
@@ -155,6 +170,7 @@ import * as ExpoLocation from "expo-location";
 import { startForegroundPositionWatch } from "@/lib/safeForegroundPositionWatch";
 import { useRouter, type Href } from "expo-router";
 import { ROUTES } from "@/lib/routes";
+import { openExternalNavigation } from "@/lib/mapsNavigation.util";
 import {
   Fragment,
   useCallback,
@@ -2426,6 +2442,20 @@ export default function DriverRadarScreen() {
     return Math.min(raw, Math.round(screenHeight * 0.62));
   })();
   const sheetSnapPoints = useMemo(() => {
+    // New trip offer: sheet sits under the floating DriverHeader so the route
+    // hero is fully visible (not clipped by avatar / pulsepilot / actions).
+    if (canPeekAssignmentSheet) {
+      const mapHeaderRow = Math.max(
+        Layout.driverHeaderAvatarSize + 6,
+        Layout.driverHeaderActionSize,
+      );
+      const mapHeaderClearance = insets.top + 20 + mapHeaderRow + 12 + 10;
+      const full = Math.max(
+        MISSION_SHEET_PEEK_HEIGHT + 220,
+        screenHeight - mapHeaderClearance - driverSheetBottomInset,
+      );
+      return [MISSION_SHEET_PEEK_HEIGHT, full];
+    }
     if (canPeekSheetForMap && commerceOnMap) {
       const peek = 96;
       const dashboard = Math.max(
@@ -2475,6 +2505,7 @@ export default function DriverRadarScreen() {
     insets.top,
     shouldUseStaticMapSheetCard,
     canPeekSheetForMap,
+    canPeekAssignmentSheet,
     measuredSheetHeight,
     driverSheetBottomInset,
     commerceOnMap,
@@ -2489,10 +2520,17 @@ export default function DriverRadarScreen() {
    * never receive taps. Capping to the space the sheet actually owns keeps
    * every row inside the hit-test rect; the content scrolls instead.
    */
-  const sheetMaxDynamicContentSize = useMemo(
-    () => Math.max(240, screenHeight - insets.top - driverTabBarClearance),
-    [screenHeight, insets.top, driverTabBarClearance],
-  );
+  const sheetMaxDynamicContentSize = useMemo(() => {
+    const mapHeaderRow = Math.max(
+      Layout.driverHeaderAvatarSize + 6,
+      Layout.driverHeaderActionSize,
+    );
+    const mapHeaderClearance = insets.top + 20 + mapHeaderRow + 12 + 10;
+    return Math.max(
+      240,
+      screenHeight - mapHeaderClearance - driverTabBarClearance,
+    );
+  }, [screenHeight, insets.top, driverTabBarClearance]);
 
   const snapSheetToIndex = useCallback(
     (idx: number) => {
@@ -3177,13 +3215,30 @@ export default function DriverRadarScreen() {
     return optimalRoute ?? tripLegRoute;
   }, [activeGuidanceStep, approachRoute, optimalRoute, tripLegRoute]);
 
-  const distanceToTargetKmGlobal = useMemo(
-    () =>
-      activeGuidanceTrip && driverMapPosition && activeNavigationRoute
-        ? activeNavigationRoute.distance / 1000
-        : null,
-    [activeGuidanceTrip, driverMapPosition, activeNavigationRoute],
-  );
+  const guidanceMetrics = useMemo(() => {
+    const planned = routeContextTrip
+      ? Number(routeContextTrip.distance)
+      : NaN;
+    return resolveDriverGuidanceMetrics({
+      activeNavigationRoute,
+      tripLegRoute,
+      hasLiveGps: Boolean(driverMapPosition ?? truckPosition),
+      storedPlannedKm:
+        Number.isFinite(planned) && planned > 0 ? planned : null,
+    });
+  }, [
+    activeNavigationRoute,
+    tripLegRoute,
+    driverMapPosition,
+    truckPosition,
+    routeContextTrip,
+  ]);
+
+  /** Live remaining (or from→to corridor when GPS not ready) — always API-first. */
+  const distanceToTargetKmGlobal = useMemo(() => {
+    if (!activeGuidanceTrip) return null;
+    return guidanceMetrics.remainingKm;
+  }, [activeGuidanceTrip, guidanceMetrics.remainingKm]);
 
   // Stop any in-flight animation when the map closes.
   useEffect(() => {
@@ -3483,7 +3538,12 @@ export default function DriverRadarScreen() {
     },
     [],
   );
-  const handleViewTripPlan = useCallback(() => {
+  /**
+   * Commercial plan preview: peek the sheet so the map fills the stage, then
+   * fit the camera to the full trip corridor (pins + polyline).
+   * Used by both Map and Route — Navigate stays the external turn-by-turn exit.
+   */
+  const previewTripPlanOnMap = useCallback(() => {
     setMissionSheetIndex(0);
     try {
       bottomSheetRef.current?.snapToIndex(0);
@@ -3493,8 +3553,39 @@ export default function DriverRadarScreen() {
     inlineMapUserInteractedRef.current = false;
     fullMapUserInteractedRef.current = false;
     setIsFollowingLocation(false);
-    scheduleFit(mapRef, { force: true }, 220);
+    setMapLocateCloseUp(false);
+    // Early fit as the sheet peeks; settled fit after snap animation.
+    // (scheduleFit coalesces — use a one-shot for the early pass.)
+    try {
+      fitMapToActiveContextRef.current(mapRef, { force: true });
+    } catch {
+      /* ignore */
+    }
+    scheduleFit(mapRef, { force: true }, 480);
   }, [scheduleFit]);
+
+  const handleViewTripPlan = useCallback(() => {
+    previewTripPlanOnMap();
+  }, [previewTripPlanOnMap]);
+
+  const handleNavigateToPickup = useCallback(() => {
+    const trip = effectiveFirstIncoming;
+    if (!trip) return;
+    const pickup = getTripStopCoordinate(trip, "pickup");
+    if (!pickup) {
+      Alert.alert(
+        "Pickup unavailable",
+        "This trip does not have a map pin for pickup yet.",
+      );
+      return;
+    }
+    void openExternalNavigation(pickup.latitude, pickup.longitude);
+  }, [effectiveFirstIncoming]);
+
+  const handleSeeRoute = useCallback(() => {
+    // Same in-app corridor preview as Map (polyline + stops), not Google Maps.
+    previewTripPlanOnMap();
+  }, [previewTripPlanOnMap]);
   useEffect(
     () => () => {
       if (pendingFitTimerRef.current) clearTimeout(pendingFitTimerRef.current);
@@ -4171,13 +4262,21 @@ export default function DriverRadarScreen() {
       }
     }
 
-    // Road distance from driver to current guidance target (pickup or drop)
+    // Road distance from driver to current guidance target (pickup or drop).
+    // Prefer live API route; fall back to from→to corridor — do not wait on GPS.
+    const distanceToTargetKm = activeGuidanceTrip
+      ? guidanceMetrics.remainingKm
+      : null;
+    const guidanceEtaSeconds = activeGuidanceTrip
+      ? guidanceMetrics.etaSeconds
+      : null;
+
+    // Stable map "you" pin for locate / zoom controls (never null — defaults to region).
     const pinnedPosition =
-      driverMapPosition ?? truckPosition ?? navStartCoordinate ?? DEFAULT_MAP_REGION;
-    const distanceToTargetKm =
-      activeGuidanceTrip && pinnedPosition && activeNavigationRoute
-        ? activeNavigationRoute.distance / 1000
-        : null;
+      driverMapPosition ??
+      truckPosition ??
+      navStartCoordinate ??
+      DEFAULT_MAP_REGION;
 
     // Locate: 1st tap = close-up on driver; 2nd tap = full route overview.
     const handleZoomToDriver = () => {
@@ -4655,17 +4754,25 @@ export default function DriverRadarScreen() {
                       ? formatRoadDistanceM(distanceToTargetKm * 1000)
                       : null;
                   const etaText = formatEtaFromRouteSeconds(
-                    activeNavigationRoute?.duration,
+                    guidanceEtaSeconds ?? activeNavigationRoute?.duration,
                   );
                   const arrivalClock = formatEtaArrivalClock(
-                    activeNavigationRoute?.duration,
+                    guidanceEtaSeconds ?? activeNavigationRoute?.duration,
                   );
                   const bottomHint =
                     !arrivalClock && !activeMission
                       ? "Start trip for live ETA"
-                      : !arrivalClock && activeMission && distM == null
-                        ? "Getting GPS…"
-                        : undefined;
+                      : !arrivalClock &&
+                          activeMission &&
+                          distM == null &&
+                          tripLegRouteLoading
+                        ? "Calculating route…"
+                        : !arrivalClock &&
+                            activeMission &&
+                            distM == null &&
+                            !(driverMapPosition ?? truckPosition)
+                          ? "Getting GPS…"
+                          : undefined;
                   return (
                     <View style={styles.mapTopLiveRouteWrap} pointerEvents="box-none">
                       <LiveRouteInfoCard
@@ -4758,41 +4865,106 @@ export default function DriverRadarScreen() {
                         ? insets.top + 168
                         : insets.top + 88,
                     left: 16,
-                    right: 88,
+                    maxWidth: "72%",
                     backgroundColor: colors.surface,
                     borderColor: colors.border,
                   },
                 ]}
               >
-                <Text style={[styles.mapGuidanceTitle, { color: colors.text }]} numberOfLines={1}>
-                  Trip plan · {routePlanMap.stops.length}{" "}
-                  {routePlanMap.stops.length === 1 ? "stop" : "stops"}
-                </Text>
+                <View style={styles.mapGuidanceHeaderRow}>
+                  <View
+                    style={[
+                      styles.mapGuidanceIconWrap,
+                      { backgroundColor: Theme.driverEmeraldMuted },
+                    ]}
+                  >
+                    <FontAwesome
+                      name="map-o"
+                      size={12}
+                      color={Theme.driverEmerald}
+                    />
+                  </View>
+                  <View style={styles.mapGuidanceHeaderCopy}>
+                    <Text
+                      style={[styles.mapGuidanceTitle, { color: colors.text }]}
+                      numberOfLines={1}
+                    >
+                      Route preview
+                    </Text>
+                    <Text
+                      style={[
+                        styles.mapGuidanceMeta,
+                        { color: colors.textMuted },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      Corridor on map
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.mapGuidanceCountPill,
+                      {
+                        backgroundColor: Theme.driverPrimary,
+                        borderColor: Theme.driverEmerald,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.mapGuidanceCountText}>
+                      {routePlanMap.stops.length}{" "}
+                      {routePlanMap.stops.length === 1 ? "stop" : "stops"}
+                    </Text>
+                  </View>
+                </View>
                 <View style={styles.mapPlanList}>
-                  {routePlanMap.stops.slice(0, 6).map((stop) => {
+                  {routePlanMap.stops.slice(0, 6).map((stop, index, arr) => {
                     const drop = stop.kind === "drop";
                     const place = stop.label.trim();
                     const caption = routePlanStopCaption(stop);
+                    const accent = drop
+                      ? Theme.driverGold
+                      : Theme.driverEmerald;
+                    const isLast = index === arr.length - 1;
                     return (
                       <View key={stop.stopId} style={styles.mapPlanRow}>
-                        <View
-                          style={[
-                            styles.mapPlanDot,
-                            { backgroundColor: drop ? Theme.driverGold : Theme.driverEmerald },
-                          ]}
-                        />
-                        <Text
-                          style={[styles.mapPlanCaption, { color: drop ? Theme.driverGold : Theme.driverEmerald }]}
-                          numberOfLines={1}
-                        >
-                          {caption}
-                        </Text>
-                        <Text
-                          style={[styles.mapPlanPlace, { color: colors.text }]}
-                          numberOfLines={1}
-                        >
-                          {place && place !== caption ? place : ""}
-                        </Text>
+                        <View style={styles.mapPlanRail}>
+                          <View
+                            style={[
+                              styles.mapPlanDot,
+                              {
+                                backgroundColor: accent,
+                                borderColor: colors.surface,
+                              },
+                            ]}
+                          />
+                          {!isLast ? (
+                            <View
+                              style={[
+                                styles.mapPlanConnector,
+                                { backgroundColor: `${accent}55` },
+                              ]}
+                            />
+                          ) : null}
+                        </View>
+                        <View style={styles.mapPlanCopy}>
+                          <Text
+                            style={[styles.mapPlanCaption, { color: accent }]}
+                            numberOfLines={1}
+                          >
+                            {caption}
+                          </Text>
+                          {place && place !== caption ? (
+                            <Text
+                              style={[
+                                styles.mapPlanPlace,
+                                { color: colors.text },
+                              ]}
+                              numberOfLines={2}
+                            >
+                              {place}
+                            </Text>
+                          ) : null}
+                        </View>
                       </View>
                     );
                   })}
@@ -4800,7 +4972,9 @@ export default function DriverRadarScreen() {
               </View>
             ) : null}
 
-            {activeMission || isAcceptedIncomingFlow ? (
+            {/* Sit above floating dock + collapsed peek; hide when sheet is open. */}
+            {(activeMission || isAcceptedIncomingFlow) &&
+            (!canPeekSheetForMap || missionSheetCollapsed) ? (
               <TouchableOpacity
                 onPress={openDeliveryDetails}
                 accessibilityRole="button"
@@ -4808,7 +4982,13 @@ export default function DriverRadarScreen() {
                 activeOpacity={0.88}
                 style={[
                   styles.mapDetailsBtn,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    bottom:
+                      driverTabBarClearance +
+                      (canPeekSheetForMap ? MISSION_SHEET_PEEK_HEIGHT + 12 : 16),
+                  },
                 ]}
               >
                 <FontAwesome name="cube" size={14} color={colors.emerald} />
@@ -4821,12 +5001,15 @@ export default function DriverRadarScreen() {
             {/* Route summary panel — readable pickup/drop addresses */}
             {showRouteSummary && (activeMission || effectiveFirstIncoming) ? (() => {
               const trip = (activeMission || effectiveFirstIncoming) as tripsService.TripRow;
+              const resolvedKm = resolveDriverDisplayDistanceKm(trip);
               const routeDist =
                 tripLegRoute?.distance != null
                   ? formatRoadDistanceM(tripLegRoute.distance)
-                  : trip.distance != null && Number(trip.distance) > 0
-                    ? `${Number(trip.distance)} km`
-                    : "—";
+                  : resolvedKm != null
+                    ? `${Math.round(resolvedKm).toLocaleString("en-IN")} km`
+                    : trip.distance != null && Number(trip.distance) > 0
+                      ? `${Number(trip.distance)} km`
+                      : "—";
               const routeEta =
                 formatEtaFromRouteSeconds(tripLegRoute?.duration) ??
                 (trip.estimated_duration
@@ -5092,6 +5275,8 @@ export default function DriverRadarScreen() {
               commissionAmount={activeMissionCommission}
               assignedBy={activeFlowAssigner}
               distanceToTargetKm={distanceToTargetKmGlobal}
+              corridorKm={guidanceMetrics.corridorKm}
+              liveEtaSeconds={guidanceMetrics.etaSeconds}
               driverLatitude={(driverMapPosition ?? truckPosition)?.latitude ?? null}
               driverLongitude={(driverMapPosition ?? truckPosition)?.longitude ?? null}
               driverLocationLabel={locationLabel}
@@ -5144,6 +5329,8 @@ export default function DriverRadarScreen() {
               commissionAmount={newAssignmentCommission}
               assignedBy={jobCardAssigner}
               distanceToTargetKm={distanceToTargetKmGlobal}
+              corridorKm={guidanceMetrics.corridorKm}
+              liveEtaSeconds={guidanceMetrics.etaSeconds}
               driverLatitude={(driverMapPosition ?? truckPosition)?.latitude ?? null}
               driverLongitude={(driverMapPosition ?? truckPosition)?.longitude ?? null}
               driverLocationLabel={locationLabel}
@@ -5377,14 +5564,17 @@ export default function DriverRadarScreen() {
             pickup={effectiveFirstIncoming.pickup_area?.trim() || "—"}
             dropoff={effectiveFirstIncoming.drop_location?.trim() || "—"}
             distance={(() => {
-              const d = effectiveFirstIncoming.distance;
-              const dNum =
-                d != null ? parseFloat(String(d).replace(/[^0-9.]/g, "")) : NaN;
-              if (!Number.isNaN(dNum) && dNum > 0) return formatTripDistance(d);
+              const routeFallbackKm =
+                tripLegRoute && "distance" in tripLegRoute
+                  ? tripLegRoute.distance / 1000
+                  : null;
+              const resolved = resolveDriverOfferDistanceKm(
+                effectiveFirstIncoming,
+                { fallbackKm: routeFallbackKm },
+              );
+              if (resolved != null) return formatTripDistance(resolved);
               if (tripLegRouteLoading) return "...";
-              if (tripLegRoute && "distance" in tripLegRoute)
-                return formatTripDistance(tripLegRoute.distance / 1000);
-              return "—";
+              return formatDriverOfferDistanceKm(effectiveFirstIncoming);
             })()}
             eta={(() => {
               const e = effectiveFirstIncoming.estimated_duration;
@@ -5424,6 +5614,8 @@ export default function DriverRadarScreen() {
             onAccept={() => handleAcceptMission(effectiveFirstIncoming)}
             onDecline={() => handleDeclineAssignment(effectiveFirstIncoming.id)}
             onViewTripPlan={handleViewTripPlan}
+            onSeeRoute={handleSeeRoute}
+            onNavigateToPickup={handleNavigateToPickup}
             tripPlanAvailable={Boolean(routePlanMap && routePlanMap.stops.length > 0)}
             requireOtp={firstIncomingRequiresOtp}
             disabled={acceptLoading || declineLoading}
@@ -5747,22 +5939,6 @@ export default function DriverRadarScreen() {
         </View>
       ) : null}
 
-      {/* When the map is visible, the footer dock is semi-transparent.
-          Add a solid backdrop behind the footer so the map doesn't show through. */}
-      {shouldShowMap ? (
-        <View
-          pointerEvents="none"
-          style={[
-            styles.tabBarBackdrop,
-            {
-              height: driverTabBarClearance,
-              backgroundColor: colors.background,
-              zIndex: 999,
-            },
-          ]}
-        />
-      ) : null}
-
       {/* Ola-style persistent Operations Panel (bottom sheet) */}
       {shouldShowMap ? (
         <GestureHandlerRootView style={styles.olaDriverRoot}>
@@ -6057,11 +6233,59 @@ export default function DriverRadarScreen() {
                   String(acceptedTripId).toLowerCase())) ? (
               <DriverExpenseCaptureFab
                 animatedSheetTop={missionSheetAnimatedPosition}
+                accessibilityLabel="Capture payment"
+                accessibilityHint="Opens payment capture for your active trip"
                 onPress={() => {
-                  const tripId =
-                    activeMission?.id ?? effectiveFirstIncoming?.id ?? null;
-                  if (!tripId) return;
-                  router.push(ROUTES.tripOtherExpenseEntry(tripId) as Href);
+                  const trip =
+                    activeMission ??
+                    (effectiveFirstIncoming &&
+                    acceptedTripId &&
+                    String(effectiveFirstIncoming.id).toLowerCase() ===
+                      String(acceptedTripId).toLowerCase()
+                      ? effectiveFirstIncoming
+                      : null);
+                  if (!trip?.id) return;
+                  const fleetLinked = activeMission
+                    ? linkedDriversQuery.activeLinkedDrivers.some((row) => {
+                        const tripOrgId = String(
+                          activeMission.organization_id ?? "",
+                        ).trim();
+                        if (
+                          !tripOrgId ||
+                          String(activeMission.source ?? "").trim() ===
+                            "market_bid"
+                        ) {
+                          return false;
+                        }
+                        if (
+                          String(row.organization_id ?? "").trim() !== tripOrgId
+                        ) {
+                          return false;
+                        }
+                        if (row.tracking_only === true) return false;
+                        return driversService.isActiveFleetRelationshipDriver(
+                          row,
+                        );
+                      })
+                    : incomingFleetLinked;
+                  const lane = driverCaptureLaneForTrip(trip, fleetLinked);
+                  const due = Math.max(
+                    0,
+                    Math.round(
+                      tripReceivableBilled(trip) ||
+                        (activeMission
+                          ? activeMissionCommission
+                          : newAssignmentCommission) ||
+                        0,
+                    ),
+                  );
+                  router.push(
+                    ROUTES.driverCapturePayment({
+                      tripId: trip.id,
+                      due: due > 0 ? due : undefined,
+                      lane: lane === "fleet" ? "shipper" : lane,
+                    }) as Href,
+                  );
                 }}
               />
             ) : null}
@@ -7791,15 +8015,17 @@ const styles = withWebSafeShadows(
     borderWidth: 1,
     borderRadius: 18,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
+    alignSelf: "flex-start",
+    minWidth: 210,
     ...(Platform.OS === "ios"
       ? {
           shadowColor: "#000",
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.12,
-          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.14,
+          shadowRadius: 14,
         }
-      : { elevation: 6 }),
+      : { elevation: 8 }),
   },
   mapGuidanceHeaderRow: {
     flexDirection: "row",
@@ -7809,16 +8035,38 @@ const styles = withWebSafeShadows(
   mapGuidanceIconWrap: {
     width: 28,
     height: 28,
-    borderRadius: 14,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
-  mapGuidanceTitle: {
+  mapGuidanceHeaderCopy: {
     flex: 1,
     minWidth: 0,
-    fontSize: 14,
+    gap: 1,
+  },
+  mapGuidanceTitle: {
+    fontSize: 13,
     fontWeight: "800",
     letterSpacing: -0.2,
+  },
+  mapGuidanceMeta: {
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: -0.05,
+  },
+  mapGuidanceCountPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexShrink: 0,
+  },
+  mapGuidanceCountText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: Theme.textOnPrimary,
+    letterSpacing: -0.1,
   },
   mapGuidanceSubtitle: {
     marginTop: 6,
@@ -7827,35 +8075,57 @@ const styles = withWebSafeShadows(
     lineHeight: 16,
   },
   mapPlanList: {
-    marginTop: 8,
-    gap: 6,
+    marginTop: 10,
+    gap: 0,
   },
   mapPlanRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+    alignItems: "stretch",
+    gap: 10,
     minWidth: 0,
   },
+  mapPlanRail: {
+    width: 14,
+    alignItems: "center",
+    paddingTop: 3,
+  },
   mapPlanDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
     flexShrink: 0,
+  },
+  mapPlanConnector: {
+    width: 2,
+    flex: 1,
+    minHeight: 12,
+    marginTop: 3,
+    marginBottom: 1,
+    borderRadius: 1,
+  },
+  mapPlanCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingBottom: 10,
+    gap: 2,
   },
   mapPlanCaption: {
     fontSize: 10,
-    fontWeight: "700",
-    flexShrink: 0,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+    textTransform: "uppercase",
   },
   mapPlanPlace: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: -0.15,
+    lineHeight: 17,
   },
   mapDetailsBtn: {
     position: "absolute",
     left: 16,
+    // `bottom` set inline from tab clearance + peek height.
     bottom: 16,
     zIndex: 46,
     minHeight: 44,
@@ -8805,12 +9075,6 @@ const styles = withWebSafeShadows(
     shadowOpacity: 0.22,
     shadowRadius: 3.5,
     elevation: 5,
-  },
-  tabBarBackdrop: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
   },
   customMapMarkerActive: {
     width: 34,

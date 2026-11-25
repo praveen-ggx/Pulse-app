@@ -5,7 +5,11 @@
  * Desktop/web: compact icon + plus until hover, then the label slides open.
  * Mobile: same compact icon + plus; press expands the label, release collapses.
  */
-import { PartyAddChip, type PartyAddChipIcon } from "@/components/PartyAddChip";
+import {
+  PartyAddChip,
+  type PartyAddChipIcon,
+  type PartyAddChipTone,
+} from "@/components/PartyAddChip";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useGlobalFabAnimation } from "@/lib/hooks/useGlobalFabAnimation";
@@ -53,6 +57,8 @@ export type PartySpeedDialFabProps = {
   bottom: number;
   addPartyLabel: string;
   closeLabel: string;
+  /** Match driver charcoal/lime dock on Earnings. Default brand (finance). */
+  tone?: PartyAddChipTone;
 };
 
 function triggerHapticMedium() {
@@ -66,11 +72,13 @@ function SpeedDialActionRow({
   indexFromFab,
   open,
   onPress,
+  tone,
 }: {
   action: PartySpeedDialAction;
   indexFromFab: number;
   open: boolean;
   onPress: () => void;
+  tone: PartyAddChipTone;
 }) {
   const progress = useSharedValue(0);
 
@@ -99,6 +107,7 @@ function SpeedDialActionRow({
         onPress={onPress}
         accessibilityLabel={action.accessibilityLabel ?? action.label}
         align="end"
+        tone={tone}
         testID={`party-speed-dial-action-${action.id}`}
       />
     </Animated.View>
@@ -110,11 +119,13 @@ export const PartySpeedDialFab = memo(function PartySpeedDialFab({
   bottom,
   addPartyLabel,
   closeLabel,
+  tone = "brand",
 }: PartySpeedDialFabProps) {
+  const isDriver = tone === "driver";
   const { width: windowWidth } = useWindowDimensions();
   const isDesktop = windowWidth >= DESKTOP_MIN_WIDTH;
   const canHoverExpand = isDesktop && Platform.OS === "web";
-  const { shellStyle } = useGlobalFabAnimation();
+  const { shellStyle, ringStyle } = useGlobalFabAnimation();
   const [open, setOpen] = useState(false);
   const plusProgress = useSharedValue(0);
 
@@ -173,7 +184,10 @@ export const PartySpeedDialFab = memo(function PartySpeedDialFab({
         style={[styles.desktopAnchor, { bottom, right: Layout.fabRightOffset }]}
         pointerEvents="box-none"
       >
-        <View style={styles.desktopStack} pointerEvents="box-none">
+        <Animated.View
+          style={[styles.desktopStack, shellStyle]}
+          pointerEvents="box-none"
+        >
           {[...actions].reverse().map((action) => (
             <PartyAddChip
               key={action.id}
@@ -183,16 +197,18 @@ export const PartySpeedDialFab = memo(function PartySpeedDialFab({
               accessibilityLabel={action.accessibilityLabel ?? action.label}
               expandOnHover
               collapsedGlyph="icon"
+              tone={tone}
               align="end"
               testID={`party-speed-dial-action-${action.id}`}
             />
           ))}
-        </View>
+        </Animated.View>
       </View>
     );
   }
 
-  const fabSize = Layout.minTouchTargetSize + 8;
+  const fabSize = isDriver ? 58 : Layout.minTouchTargetSize + 8;
+  const fabInk = isDriver ? Theme.driverPrimary : Theme.brandBlueInk;
 
   return (
     <View
@@ -231,11 +247,26 @@ export const PartySpeedDialFab = memo(function PartySpeedDialFab({
                 indexFromFab={indexFromFab}
                 open={open}
                 onPress={() => handleActionPress(action)}
+                tone={tone}
               />
             );
           })}
         </View>
         <Animated.View style={[styles.fabShell, shellStyle]}>
+          {isDriver ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.fabDriverHalo,
+                {
+                  width: fabSize + 16,
+                  height: fabSize + 16,
+                  borderRadius: (fabSize + 16) / 2,
+                },
+                ringStyle,
+              ]}
+            />
+          ) : null}
           <AnimatedPressable
             testID="party-speed-dial-toggle"
             onPress={toggleMobileMenu}
@@ -244,6 +275,7 @@ export const PartySpeedDialFab = memo(function PartySpeedDialFab({
             accessibilityState={{ expanded: open }}
             style={({ pressed }) => [
               styles.fabButton,
+              isDriver && styles.fabButtonDriver,
               {
                 width: fabSize,
                 height: fabSize,
@@ -253,10 +285,10 @@ export const PartySpeedDialFab = memo(function PartySpeedDialFab({
             ]}
           >
             <Animated.View style={[styles.fabGlyph, plusStyle]}>
-              <Plus size={22} color={Theme.brandBlueInk} strokeWidth={2.6} />
+              <Plus size={22} color={fabInk} strokeWidth={2.6} />
             </Animated.View>
             <Animated.View style={[styles.fabGlyph, closeStyle]}>
-              <X size={20} color={Theme.brandBlueInk} strokeWidth={2.6} />
+              <X size={20} color={fabInk} strokeWidth={2.6} />
             </Animated.View>
           </AnimatedPressable>
         </Animated.View>
@@ -301,7 +333,15 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   fabShell: {
-    alignItems: "flex-end",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+  },
+  fabDriverHalo: {
+    position: "absolute",
+    borderWidth: 1.5,
+    borderColor: "rgba(198,240,53,0.55)",
+    backgroundColor: "transparent",
   },
   fabButton: {
     backgroundColor: Theme.cardWhite,
@@ -321,6 +361,24 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.16,
         shadowRadius: 12,
         elevation: 8,
+      },
+    }),
+  },
+  fabButtonDriver: {
+    backgroundColor: Theme.driverDock,
+    borderColor: "rgba(255,255,255,0.12)",
+    ...Platform.select({
+      web: {
+        boxShadow:
+          "0 4px 14px rgba(0, 0, 0, 0.28), 0 10px 28px rgba(0, 0, 0, 0.18)",
+        cursor: "pointer",
+      } as object,
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.28,
+        shadowRadius: 16,
+        elevation: 10,
       },
     }),
   },

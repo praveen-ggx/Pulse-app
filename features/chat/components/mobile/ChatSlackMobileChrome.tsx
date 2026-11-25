@@ -15,6 +15,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import LottieView from "lottie-react-native";
 import {
   ArrowLeft,
+  Check,
   CircleDashed,
   PenLine,
   Plus,
@@ -23,6 +24,40 @@ import {
   Star,
   X,
 } from "lucide-react-native";
+import Theme from "@/constants/Theme";
+import type { DriverChatTripKind } from "@/features/chat/utils/driverChatTripChrome.util";
+
+/** Solid completed tick — fills the circle (outline CheckCircle2 looked hollow). */
+function CompletedSolidBadge({
+  size = 16,
+  accessibilityLabel = "Trip completed",
+}: {
+  size?: number;
+  accessibilityLabel?: string;
+}) {
+  const icon = Math.max(9, Math.round(size * 0.58));
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: Theme.success,
+        alignItems: "center",
+        justifyContent: "center",
+        shadowColor: Theme.success,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.35,
+        shadowRadius: 2,
+        elevation: 2,
+      }}
+      accessibilityRole="image"
+      accessibilityLabel={accessibilityLabel}
+    >
+      <Check size={icon} color="#FFFFFF" strokeWidth={3.4} />
+    </View>
+  );
+}
 import {
   Platform,
   Pressable,
@@ -570,12 +605,58 @@ export function ChatSlackInboxToolbar({
   );
 }
 
+function ChatFeedbackStarPlan({
+  filled,
+  score,
+  size = 12,
+}: {
+  filled: boolean;
+  score?: number | null;
+  size?: number;
+}) {
+  if (!filled) {
+    return (
+      <Star
+        size={size + 2}
+        color={CHAT_ACCENT}
+        fill="transparent"
+        strokeWidth={2}
+      />
+    );
+  }
+  const known = typeof score === "number" && score >= 1 && score <= 5 ? score : null;
+  if (known == null) {
+    return (
+      <Star
+        size={size + 2}
+        color={CHAT_ACCENT}
+        fill={CHAT_ACCENT}
+        strokeWidth={2}
+      />
+    );
+  }
+  return (
+    <View style={st.listRowStarPlan}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Star
+          key={n}
+          size={size}
+          color={n <= known ? CHAT_ACCENT : Theme.borderLight}
+          fill={n <= known ? CHAT_ACCENT : "transparent"}
+          strokeWidth={1.7}
+        />
+      ))}
+    </View>
+  );
+}
+
 function ChatListPreviewWithStar({
   text,
   style,
   numberOfLines,
   showStar,
   starFilled,
+  starScore,
   onPressStar,
 }: {
   text: string;
@@ -583,6 +664,7 @@ function ChatListPreviewWithStar({
   numberOfLines?: number;
   showStar?: boolean;
   starFilled?: boolean;
+  starScore?: number | null;
   onPressStar?: () => void;
 }) {
   if (!showStar) {
@@ -610,14 +692,15 @@ function ChatListPreviewWithStar({
           pressed && st.listRowPreviewStarBtnPressed,
         ]}
         accessibilityRole="button"
-        accessibilityLabel={starFilled ? "View partner rating" : "Rate this partner"}
+        accessibilityLabel={
+          starFilled
+            ? starScore
+              ? `Feedback on file, ${starScore} of 5`
+              : "View partner rating"
+            : "Rate this partner"
+        }
       >
-        <Star
-          size={16}
-          color={CHAT_ACCENT}
-          fill={starFilled ? CHAT_ACCENT : "transparent"}
-          strokeWidth={2}
-        />
+        <ChatFeedbackStarPlan filled={Boolean(starFilled)} score={starScore} />
       </Pressable>
     </View>
   );
@@ -641,6 +724,8 @@ function ChatSlackListRowInner({
   onPress,
   showPreviewStar,
   previewStarFilled,
+  previewStarScore,
+  tripKind,
   onPressPreviewStar,
 }: {
   identity: ResolvedPartyAvatarIdentity;
@@ -662,6 +747,9 @@ function ChatSlackListRowInner({
   onPress: () => void;
   showPreviewStar?: boolean;
   previewStarFilled?: boolean;
+  previewStarScore?: number | null;
+  /** Active trip pill / completed tick beside the route title. */
+  tripKind?: DriverChatTripKind;
   onPressPreviewStar?: () => void;
 }) {
   const badgeLabel =
@@ -688,16 +776,29 @@ function ChatSlackListRowInner({
       style={({ pressed }) => [
         st.listRow,
         (hasImageStrip || hasDriverSwapPreview) && st.listRowWithMedia,
+        tripKind === "completed" && st.listRowCompleted,
         recommended && st.listRowRecommended,
         active && st.listRowActive,
         pressed && st.listRowPressed,
       ]}
     >
       <View style={st.listRowAvatarWrap}>
-        <View style={st.listRowAvatarCircle}>
+        <View
+          style={[
+            st.listRowAvatarCircle,
+            tripKind === "completed" && st.listRowAvatarCompletedRing,
+          ]}
+        >
           <ChatPartyAvatar identity={identity} size={SLACK_AVATAR.list} />
         </View>
-        {unread && unread > 0 && !active ? <View style={st.listRowUnreadDot} /> : null}
+        {unread && unread > 0 && !active ? (
+          <View style={st.listRowUnreadDot} />
+        ) : null}
+        {tripKind === "completed" ? (
+          <View style={st.listRowAvatarCompletedBadge} pointerEvents="none">
+            <CompletedSolidBadge size={15} />
+          </View>
+        ) : null}
       </View>
       <View style={st.listRowBody}>
         <View style={st.listRowTop}>
@@ -705,16 +806,26 @@ function ChatSlackListRowInner({
             <Text style={st.listRowTitle} numberOfLines={1}>
               {title}
             </Text>
-            {titleMeta ? (
-              <Text style={st.listRowTitleMeta} numberOfLines={1}>
-                {titleMeta}
-              </Text>
+            {tripKind === "active" ? (
+              <View style={st.listRowTripActivePill}>
+                <View style={st.listRowTripActiveDot} />
+                <Text style={st.listRowTripActiveText}>Active</Text>
+              </View>
             ) : null}
           </View>
-          {time ? (
-            <Text style={st.listRowTime} numberOfLines={1}>
-              {time}
-            </Text>
+          {titleMeta || time ? (
+            <View style={st.listRowMetaCol}>
+              {titleMeta ? (
+                <Text style={st.listRowTitleMeta} numberOfLines={1}>
+                  {titleMeta}
+                </Text>
+              ) : null}
+              {time ? (
+                <Text style={st.listRowTime} numberOfLines={1}>
+                  {time}
+                </Text>
+              ) : null}
+            </View>
           ) : null}
         </View>
         {partyLine ? (
@@ -741,6 +852,7 @@ function ChatSlackListRowInner({
                 numberOfLines={3}
                 showStar={showPreviewStar}
                 starFilled={previewStarFilled}
+                starScore={previewStarScore}
                 onPressStar={onPressPreviewStar}
               />
             ) : null}
@@ -767,6 +879,7 @@ function ChatSlackListRowInner({
                 numberOfLines={2}
                 showStar={showPreviewStar}
                 starFilled={previewStarFilled}
+                starScore={previewStarScore}
                 onPressStar={onPressPreviewStar}
               />
             </View>
@@ -777,9 +890,24 @@ function ChatSlackListRowInner({
               numberOfLines={2}
               showStar={showPreviewStar}
               starFilled={previewStarFilled}
+              starScore={previewStarScore}
               onPressStar={onPressPreviewStar}
             />
           )
+        ) : showPreviewStar ? (
+          <ChatListPreviewWithStar
+            text={
+              previewStarFilled
+                ? "Feedback on file"
+                : "Trip completed — rate this partner"
+            }
+            style={st.listRowPreview}
+            numberOfLines={2}
+            showStar
+            starFilled={previewStarFilled}
+            starScore={previewStarScore}
+            onPressStar={onPressPreviewStar}
+          />
         ) : null}
       </View>
     </Pressable>
@@ -829,6 +957,11 @@ export function ChatSlackThreadHeader({
   onOpenFilters,
   topInset,
   contentPaddingHorizontal,
+  tripKind,
+  showFeedbackStar,
+  feedbackStarFilled,
+  feedbackStarScore,
+  onPressFeedbackStar,
 }: {
   title: string;
   subtitle?: string;
@@ -841,6 +974,11 @@ export function ChatSlackThreadHeader({
   topInset?: number;
   /** Align header content with message list horizontal padding. */
   contentPaddingHorizontal?: number;
+  tripKind?: DriverChatTripKind;
+  showFeedbackStar?: boolean;
+  feedbackStarFilled?: boolean;
+  feedbackStarScore?: number | null;
+  onPressFeedbackStar?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const [roleTagActive, setRoleTagActive] = useState(false);
@@ -880,9 +1018,20 @@ export function ChatSlackThreadHeader({
                   <ChatPartyAvatar identity={avatarIdentity} size={SLACK_AVATAR.header} />
                 </View>
                 <View style={st.threadCenterTextCol}>
-                  <Text style={st.threadTitle} numberOfLines={1}>
-                    {title}
-                  </Text>
+                  <View style={st.threadTitleRow}>
+                    <Text style={st.threadTitle} numberOfLines={1}>
+                      {title}
+                    </Text>
+                    {tripKind === "active" ? (
+                      <View style={st.listRowTripActivePill}>
+                        <View style={st.listRowTripActiveDot} />
+                        <Text style={st.listRowTripActiveText}>Active</Text>
+                      </View>
+                    ) : null}
+                    {tripKind === "completed" ? (
+                      <CompletedSolidBadge size={16} />
+                    ) : null}
+                  </View>
                   <View style={st.threadMetaRow}>
                     {safeSubtitle ? (
                       <Text style={st.threadSubtitle} numberOfLines={1}>
@@ -915,7 +1064,30 @@ export function ChatSlackThreadHeader({
             </>
           )}
         </View>
-        {onOpenFilters ? (
+        {showFeedbackStar ? (
+          <Pressable
+            onPress={onPressFeedbackStar}
+            hitSlop={8}
+            style={({ pressed }) => [
+              st.threadFeedbackStarBtn,
+              pressed && st.listRowPreviewStarBtnPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={
+              feedbackStarFilled
+                ? feedbackStarScore
+                  ? `Feedback on file, ${feedbackStarScore} of 5`
+                  : "View partner rating"
+                : "Rate this partner"
+            }
+          >
+            <ChatFeedbackStarPlan
+              filled={Boolean(feedbackStarFilled)}
+              score={feedbackStarScore}
+              size={11}
+            />
+          </Pressable>
+        ) : onOpenFilters ? (
           <View style={st.threadActions}>
             <TouchableOpacity
               onPress={onOpenFilters}

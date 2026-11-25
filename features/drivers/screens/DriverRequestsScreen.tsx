@@ -1,4 +1,3 @@
-import { DriverSelfAvatar } from '@/components/driver/DriverSelfAvatar';
 import { useDriverAvatarUri } from '@/lib/avatarUpload';
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { resolveDriverOrgAvatarUri } from '@/features/drivers/utils/resolveDriverOrgAvatar.util';
@@ -7,7 +6,7 @@ import {
   buildDriverTripNumberMap,
   getDriverTripDisplayNumber,
 } from '@/features/driver/utils/driverTripSequence.util';
-import { DriverBrandMark } from '@/components/driver/DriverBrandMark';
+import { DriverShellIdentityBlock } from '@/components/driver/DriverShellIdentityBlock';
 import { DriverInviteCard } from '@/components/driver/DriverInviteCard';
 import { DriverInviteChangeRequestModal } from '@/features/drivers/components/DriverInviteChangeRequestModal';
 import {
@@ -934,17 +933,13 @@ export default function DriverRequestsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + Layout.driverHeaderTopOffset, backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={() => router.push('/(driver)/profile')} style={styles.avatarBtn} activeOpacity={0.8}>
-            <DriverSelfAvatar size={36} uri={avatarUri} borderColor={colors.emerald} />
-          </TouchableOpacity>
-          <View style={styles.headerTextWrap}>
-            <DriverBrandMark color={colors.textMuted} />
-            <Text style={[styles.welcomeTitle, { color: colors.text }]} numberOfLines={1}>
-              {hasAccepted ? 'Passbook' : 'Requests'}
-            </Text>
-          </View>
-        </View>
+        <DriverShellIdentityBlock
+          avatarUri={avatarUri}
+          title={hasAccepted ? 'Passbook' : 'Requests'}
+          titleColor={colors.text}
+          brandColor={colors.textMuted}
+          avatarBorderColor={colors.emerald}
+        />
         <TouchableOpacity
           onPress={() => router.push('/(driver)/notifications')}
           style={[styles.notificationBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}

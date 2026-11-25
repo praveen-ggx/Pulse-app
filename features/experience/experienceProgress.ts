@@ -311,12 +311,10 @@ export function getMilestoneGuide(
         ? [
             "Open Find Work (or take an assigned job) and accept a load you can run.",
             "Finish pickup and delivery so the trip is marked completed.",
-            `This level needs ${count.target} completed trip${count.target === 1 ? "" : "s"} — currently ${count.done}/${count.target}.`,
           ]
         : [
             "Create or assign trips in your workspace and run them to delivery.",
             "Only completed / delivered trips count toward this level.",
-            `Need ${count.target} completed trips — currently ${count.done}/${count.target}.`,
           ];
       if (status !== "completed") {
         action = isDriver
@@ -361,12 +359,10 @@ export function getMilestoneGuide(
         ? [
             "Complete trips on time and keep the load in good condition.",
             "After delivery, the shipper can leave a 5★ rating.",
-            `This level needs ${count.target} five-star rating${count.target === 1 ? "" : "s"} — currently ${count.done}/${count.target}.`,
           ]
         : [
             "Deliver partner jobs well so customers leave five-star ratings.",
             "Ratings on your linked customer relationships count here.",
-            `Need ${count.target} five-star partner ratings — currently ${count.done}/${count.target}.`,
           ];
       if (status !== "completed") {
         action = isDriver

@@ -366,156 +366,310 @@ export function TripDetailSettlementPanel({
         </View>
       ) : null}
 
-      <View style={styles.tdEarningsHeader}>
-        <Text style={[styles.tdEarningsHeaderTitle, { color: colors.textMuted }]}>
-          Earnings detail
-        </Text>
-        <Info size={14} color={colors.textMuted} />
-      </View>
+      {(() => {
+        const hasExpense = !summaryQuery.isLoading && totalExpensesInr > 0;
+        const showFleetHint =
+          !settlementView.isFleetLinked && !isExchangeReceivable;
+        const showEarningRow =
+          !isExchangeReceivable && settlementView.showEstimatedEarning;
+        const showNoCommissionRow =
+          !isExchangeReceivable &&
+          !settlementView.showEstimatedEarning &&
+          settlementView.isFleetLinked;
+        const showOtherIncome = settlementView.otherIncomeAmount > 0;
+        const showDeductions = settlementView.deductionsAmount > 0;
+        const hasMoneyRows =
+          showEarningRow ||
+          showNoCommissionRow ||
+          showOtherIncome ||
+          showDeductions ||
+          hasExpense;
 
-      <View
-        style={[
-          styles.tdBreakdownCard,
-          { backgroundColor: colors.surface, borderColor: colors.border },
-        ]}
-      >
-        {!settlementView.isFleetLinked && !isExchangeReceivable ? (
-          <View style={styles.tdBreakRow}>
-            <View style={styles.tdBreakLeft}>
-              <View style={[styles.tdBreakIcon, { backgroundColor: colors.border }]}>
-                <Info size={15} color={colors.textMuted} />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.tdBreakTitle, { color: colors.text }]}>
-                  Not fleet-linked
-                </Text>
-                <Text style={[styles.tdBreakSub, { color: colors.textMuted }]}>
-                  Estimated earning and commission apply only on fleet trips
-                </Text>
-              </View>
-            </View>
-          </View>
-        ) : null}
-
-        {isExchangeReceivable ? null : settlementView.showEstimatedEarning ? (
-          <View style={styles.tdBreakRow}>
-            <View style={styles.tdBreakLeft}>
-              <View
-                style={[
-                  styles.tdBreakIcon,
-                  {
-                    backgroundColor: settlementView.commissionApplies
-                      ? `${colors.emerald}22`
-                      : colors.border,
-                  },
-                ]}
+        return (
+          <View style={panelStyles.detailBlock}>
+            <View style={panelStyles.detailHeader}>
+              <Text
+                style={[panelStyles.detailKicker, { color: colors.textMuted }]}
               >
-                {settlementView.commissionApplies ? (
-                  <Sparkles size={15} color={colors.emerald} />
-                ) : (
-                  <Banknote size={15} color={colors.textMuted} />
-                )}
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.tdBreakTitle, { color: colors.text }]}>
-                  {earningTitle}
-                </Text>
-                <Text style={[styles.tdBreakSub, { color: colors.textMuted }]}>
-                  {earningSub}
-                </Text>
-              </View>
+                Trip money
+              </Text>
+              {showFleetHint ? (
+                <View
+                  style={[
+                    panelStyles.contextChip,
+                    {
+                      backgroundColor: isDark
+                        ? "rgba(148,163,184,0.12)"
+                        : Theme.driverEmeraldWash,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Info size={11} color={colors.textMuted} strokeWidth={2.4} />
+                  <Text
+                    style={[panelStyles.contextChipText, { color: colors.textMuted }]}
+                    numberOfLines={1}
+                  >
+                    Not fleet-linked
+                  </Text>
+                </View>
+              ) : null}
             </View>
-            <Text
+
+            {showFleetHint ? (
+              <Text
+                style={[panelStyles.contextHint, { color: colors.textMuted }]}
+              >
+                Estimated earning and commission apply only on fleet trips.
+              </Text>
+            ) : null}
+
+            <View
               style={[
-                styles.tdBreakValue,
+                panelStyles.detailCard,
                 {
-                  color: settlementView.commissionApplies ? colors.emerald : colors.text,
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
                 },
               ]}
             >
-              {earningValue}
-            </Text>
-          </View>
-        ) : settlementView.isFleetLinked ? (
-          <View style={styles.tdBreakRow}>
-            <View style={styles.tdBreakLeft}>
-              <View style={[styles.tdBreakIcon, { backgroundColor: colors.border }]}>
-                <Banknote size={15} color={colors.textMuted} />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.tdBreakTitle, { color: colors.text }]}>
-                  Commission
-                </Text>
-                <Text style={[styles.tdBreakSub, { color: colors.textMuted }]}>
-                  No commission terms on this trip
-                </Text>
-              </View>
-            </View>
-            <Text style={[styles.tdBreakValue, { color: colors.textMuted }]}>—</Text>
-          </View>
-        ) : null}
+              {showEarningRow ? (
+                <View style={panelStyles.moneyRow}>
+                  <View
+                    style={[
+                      panelStyles.moneyIcon,
+                      {
+                        backgroundColor: settlementView.commissionApplies
+                          ? `${colors.emerald}22`
+                          : isDark
+                            ? "rgba(255,255,255,0.06)"
+                            : Theme.driverEmeraldWash,
+                      },
+                    ]}
+                  >
+                    {settlementView.commissionApplies ? (
+                      <Sparkles size={15} color={colors.emerald} strokeWidth={2.4} />
+                    ) : (
+                      <Banknote size={15} color={colors.emerald} strokeWidth={2.4} />
+                    )}
+                  </View>
+                  <View style={panelStyles.moneyCopy}>
+                    <Text style={[panelStyles.moneyTitle, { color: colors.text }]}>
+                      {earningTitle}
+                    </Text>
+                    <Text
+                      style={[panelStyles.moneySub, { color: colors.textMuted }]}
+                      numberOfLines={2}
+                    >
+                      {earningSub}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      panelStyles.moneyValue,
+                      {
+                        color: settlementView.commissionApplies
+                          ? colors.emerald
+                          : colors.text,
+                      },
+                    ]}
+                  >
+                    {earningValue}
+                  </Text>
+                </View>
+              ) : null}
 
-        {settlementView.otherIncomeAmount > 0 ? (
-          <View style={styles.tdBreakRow}>
-            <View style={styles.tdBreakLeft}>
-              <View style={[styles.tdBreakIcon, { backgroundColor: `${colors.emerald}18` }]}>
-                <Receipt size={15} color={colors.emerald} />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.tdBreakTitle, { color: colors.text }]}>
-                  Other income
-                </Text>
-                <Text style={[styles.tdBreakSub, { color: colors.textMuted }]}>
-                  Bonus / adjustments on this trip
-                </Text>
-              </View>
-            </View>
-            <Text style={[styles.tdBreakValue, { color: colors.text }]}>
-              {inr(settlementView.otherIncomeAmount)}
-            </Text>
-          </View>
-        ) : null}
+              {showNoCommissionRow ? (
+                <View style={panelStyles.moneyRow}>
+                  <View
+                    style={[
+                      panelStyles.moneyIcon,
+                      {
+                        backgroundColor: isDark
+                          ? "rgba(255,255,255,0.06)"
+                          : Theme.driverEmeraldWash,
+                      },
+                    ]}
+                  >
+                    <Banknote size={15} color={colors.textMuted} strokeWidth={2.4} />
+                  </View>
+                  <View style={panelStyles.moneyCopy}>
+                    <Text style={[panelStyles.moneyTitle, { color: colors.text }]}>
+                      Commission
+                    </Text>
+                    <Text
+                      style={[panelStyles.moneySub, { color: colors.textMuted }]}
+                    >
+                      No commission terms on this trip
+                    </Text>
+                  </View>
+                  <Text style={[panelStyles.moneyValueMuted, { color: colors.textMuted }]}>
+                    —
+                  </Text>
+                </View>
+              ) : null}
 
-        {settlementView.deductionsAmount > 0 ? (
-          <View style={styles.tdBreakRow}>
-            <View style={styles.tdBreakLeft}>
-              <View style={[styles.tdBreakIcon, { backgroundColor: `${Theme.negative}22` }]}>
-                <Banknote size={15} color={Theme.negative} />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.tdBreakTitle, { color: colors.text }]}>
-                  Deductions
-                </Text>
-                <Text style={[styles.tdBreakSub, { color: colors.textMuted }]}>
-                  Ledger deductions for this trip
-                </Text>
-              </View>
-            </View>
-            <Text style={[styles.tdBreakValue, { color: Theme.negative }]}>
-              -{inr(settlementView.deductionsAmount)}
-            </Text>
-          </View>
-        ) : null}
+              {showOtherIncome ? (
+                <View style={panelStyles.moneyRow}>
+                  <View
+                    style={[
+                      panelStyles.moneyIcon,
+                      { backgroundColor: `${colors.emerald}18` },
+                    ]}
+                  >
+                    <Receipt size={15} color={colors.emerald} strokeWidth={2.4} />
+                  </View>
+                  <View style={panelStyles.moneyCopy}>
+                    <Text style={[panelStyles.moneyTitle, { color: colors.text }]}>
+                      Other income
+                    </Text>
+                    <Text
+                      style={[panelStyles.moneySub, { color: colors.textMuted }]}
+                    >
+                      Bonus / adjustments
+                    </Text>
+                  </View>
+                  <Text style={[panelStyles.moneyValue, { color: colors.text }]}>
+                    {inr(settlementView.otherIncomeAmount)}
+                  </Text>
+                </View>
+              ) : null}
 
-        <View style={styles.tdBreakRow}>
-          <View style={styles.tdBreakLeft}>
-            <View style={[styles.tdBreakIcon, { backgroundColor: colors.border }]}>
-              <Wallet size={15} color={colors.textMuted} />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[styles.tdBreakTitle, { color: colors.text }]}>
-                Your expenses
-              </Text>
-              <Text style={[styles.tdBreakSub, { color: colors.textMuted }]}>
-                Logged from your side on this trip
-              </Text>
+              {showDeductions ? (
+                <View style={panelStyles.moneyRow}>
+                  <View
+                    style={[
+                      panelStyles.moneyIcon,
+                      { backgroundColor: `${Theme.negative}18` },
+                    ]}
+                  >
+                    <Banknote size={15} color={Theme.negative} strokeWidth={2.4} />
+                  </View>
+                  <View style={panelStyles.moneyCopy}>
+                    <Text style={[panelStyles.moneyTitle, { color: colors.text }]}>
+                      Deductions
+                    </Text>
+                    <Text
+                      style={[panelStyles.moneySub, { color: colors.textMuted }]}
+                    >
+                      Ledger deductions
+                    </Text>
+                  </View>
+                  <Text style={[panelStyles.moneyValue, { color: Theme.negative }]}>
+                    -{inr(settlementView.deductionsAmount)}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Expenses: real amount, or a clear empty state — never fake ₹0 */}
+              {summaryQuery.isLoading ? (
+                <View style={panelStyles.moneyRow}>
+                  <View
+                    style={[
+                      panelStyles.moneyIcon,
+                      {
+                        backgroundColor: isDark
+                          ? "rgba(255,255,255,0.06)"
+                          : Theme.driverEmeraldWash,
+                      },
+                    ]}
+                  >
+                    <Wallet size={15} color={colors.textMuted} strokeWidth={2.4} />
+                  </View>
+                  <View style={panelStyles.moneyCopy}>
+                    <Text style={[panelStyles.moneyTitle, { color: colors.text }]}>
+                      Your expenses
+                    </Text>
+                    <Text
+                      style={[panelStyles.moneySub, { color: colors.textMuted }]}
+                    >
+                      Loading…
+                    </Text>
+                  </View>
+                  <ActivityIndicator size="small" color={colors.emerald} />
+                </View>
+              ) : hasExpense ? (
+                <View style={panelStyles.moneyRow}>
+                  <View
+                    style={[
+                      panelStyles.moneyIcon,
+                      { backgroundColor: `${colors.emerald}18` },
+                    ]}
+                  >
+                    <Wallet size={15} color={colors.emerald} strokeWidth={2.4} />
+                  </View>
+                  <View style={panelStyles.moneyCopy}>
+                    <Text style={[panelStyles.moneyTitle, { color: colors.text }]}>
+                      Your expenses
+                    </Text>
+                    <Text
+                      style={[panelStyles.moneySub, { color: colors.textMuted }]}
+                    >
+                      Logged on this trip
+                    </Text>
+                  </View>
+                  <Text style={[panelStyles.moneyValue, { color: colors.text }]}>
+                    {inr(totalExpensesInr)}
+                  </Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    panelStyles.emptyExpense,
+                    {
+                      backgroundColor: isDark
+                        ? "rgba(255,255,255,0.04)"
+                        : Theme.driverEmeraldWash,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  onPress={openAddExpense}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add trip expense"
+                >
+                  <View
+                    style={[
+                      panelStyles.emptyExpenseIcon,
+                      { backgroundColor: colors.surface },
+                    ]}
+                  >
+                    <Receipt size={16} color={colors.emerald} strokeWidth={2.4} />
+                  </View>
+                  <View style={panelStyles.emptyExpenseCopy}>
+                    <Text
+                      style={[panelStyles.emptyExpenseTitle, { color: colors.text }]}
+                    >
+                      No expense
+                    </Text>
+                    <Text
+                      style={[
+                        panelStyles.emptyExpenseSub,
+                        { color: colors.textMuted },
+                      ]}
+                    >
+                      Fuel, toll, or out-of-pocket costs you paid
+                    </Text>
+                  </View>
+                  <Text
+                    style={[panelStyles.emptyExpenseCta, { color: colors.emerald }]}
+                  >
+                    Add
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {!hasMoneyRows && !showFleetHint ? (
+                <Text
+                  style={[panelStyles.detailIdle, { color: colors.textMuted }]}
+                >
+                  Nothing to settle on this trip yet.
+                </Text>
+              ) : null}
             </View>
           </View>
-          <Text style={[styles.tdBreakValue, { color: colors.text }]}>
-            {summaryQuery.isLoading ? "…" : inr(totalExpensesInr)}
-          </Text>
-        </View>
-      </View>
+        );
+      })()}
 
       {showRequestFromFleet ? (
         <>
@@ -552,26 +706,34 @@ export function TripDetailSettlementPanel({
         </>
       ) : null}
 
-      <View style={[styles.tdTimelineHeader, { marginTop: 14 }]}>
-        <View style={styles.tdTimelineHeaderIcon}>
-          <Activity size={13} color="#ffffff" strokeWidth={2.2} />
-        </View>
-        <Text style={[styles.tdTimelineHeaderTitle, { color: colors.text }]} numberOfLines={1}>
-          Expense log
-        </Text>
-      </View>
+      {/* Full expense list only when there is something to browse */}
+      {summaryQuery.isLoading || costEvents.length > 0 ? (
+        <>
+          <View style={[styles.tdTimelineHeader, { marginTop: 6 }]}>
+            <View style={styles.tdTimelineHeaderIcon}>
+              <Activity size={13} color="#ffffff" strokeWidth={2.2} />
+            </View>
+            <Text
+              style={[styles.tdTimelineHeaderTitle, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              Expense log
+            </Text>
+          </View>
 
-      <DriverTripExpenseLogSection
-        trip={trip}
-        events={costEvents}
-        loading={summaryQuery.isLoading}
-        initialSelectedEventId={initialSelectedExpenseId}
-        onAddExpense={openAddExpense}
-        onEditExpense={(event) => {
-          const href = tripExpenseEntryEditRoute(trip.id, event.id);
-          if (href) router.push(href as Href);
-        }}
-      />
+          <DriverTripExpenseLogSection
+            trip={trip}
+            events={costEvents}
+            loading={summaryQuery.isLoading}
+            initialSelectedEventId={initialSelectedExpenseId}
+            onAddExpense={openAddExpense}
+            onEditExpense={(event) => {
+              const href = tripExpenseEntryEditRoute(trip.id, event.id);
+              if (href) router.push(href as Href);
+            }}
+          />
+        </>
+      ) : null}
 
       {showDcoPartyActions && collectFromOpen ? (
         <DriverCollectFromSheet
@@ -592,6 +754,140 @@ const panelStyles = StyleSheet.create({
   loadingWrap: {
     paddingVertical: 24,
     alignItems: "center",
+  },
+  detailBlock: {
+    gap: 8,
+    marginBottom: 12,
+    marginTop: 2,
+  },
+  detailHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingHorizontal: 2,
+  },
+  detailKicker: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  contextChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    maxWidth: "58%",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  contextChipText: {
+    flexShrink: 1,
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  contextHint: {
+    paddingHorizontal: 2,
+    fontSize: 11,
+    fontWeight: "500",
+    lineHeight: 15,
+  },
+  detailCard: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 4,
+  },
+  moneyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 52,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  moneyIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  moneyCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  moneyTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: -0.15,
+  },
+  moneySub: {
+    fontSize: 11,
+    fontWeight: "500",
+    lineHeight: 14,
+  },
+  moneyValue: {
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+    flexShrink: 0,
+  },
+  moneyValueMuted: {
+    fontSize: 14,
+    fontWeight: "700",
+    flexShrink: 0,
+  },
+  emptyExpense: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 2,
+    marginBottom: 2,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderStyle: "dashed",
+  },
+  emptyExpenseIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  emptyExpenseCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  emptyExpenseTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: -0.15,
+  },
+  emptyExpenseSub: {
+    fontSize: 11,
+    fontWeight: "500",
+    lineHeight: 14,
+  },
+  emptyExpenseCta: {
+    fontSize: 12,
+    fontWeight: "800",
+    flexShrink: 0,
+  },
+  detailIdle: {
+    fontSize: 11,
+    fontWeight: "500",
+    textAlign: "center",
+    paddingVertical: 8,
   },
   incompleteBanner: {
     borderWidth: StyleSheet.hairlineWidth,

@@ -2,7 +2,10 @@ import type { DriverLedgerRow } from "@/features/drivers/services/drivers.servic
 import type { DriverBookCollection } from "@/features/drivers/services/driverCapturePayment.service";
 import type { DriverTripExpenseRow } from "@/features/drivers/services/driverTripExpenses.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import { tripReceivablePartyName } from "@/features/drivers/utils/driverPartyReceivables.util";
+import {
+  resolveTripPartyDisplayName,
+  tripReceivablePartyName,
+} from "@/features/drivers/utils/driverPartyReceivables.util";
 
 export type DriverWalletTxnKind = "in" | "out";
 
@@ -63,11 +66,15 @@ export function buildDriverWalletTransactions(input: {
   for (const collection of collections) {
     const trip = collection.tripId ? input.tripsById[collection.tripId] : undefined;
     const tripRef = input.tripDisplay(trip, collection.tripId);
-    const party = collection.partyName.trim();
+    // Tagged trip name wins so older captures (AMzg) show as ADANI GROUPS.
+    const party = resolveTripPartyDisplayName(trip, collection.partyName);
     rows.push({
       id: `in:${collection.id}`,
       kind: "in",
-      title: party && party !== "Party" ? party : input.partyNameForTrip(trip),
+      title:
+        party && party !== "Party" && party !== "Untagged"
+          ? party
+          : input.partyNameForTrip(trip),
       subtitle: tripRef,
       amount: collection.amount,
       at: collection.at,
@@ -138,7 +145,7 @@ export function groupDriverWalletTransactions<T extends { at: string }>(
 
 export function walletTxnPartyFallback(trip: TripRow | undefined, orgName: string): string {
   if (!trip) return orgName;
-  const tagged = tripReceivablePartyName(trip);
+  const tagged = resolveTripPartyDisplayName(trip) || tripReceivablePartyName(trip);
   if (tagged && tagged !== "Untagged" && tagged !== "Shipper") return tagged;
   return orgName || "Party";
 }

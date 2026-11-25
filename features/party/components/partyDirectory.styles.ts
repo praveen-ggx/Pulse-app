@@ -46,12 +46,20 @@ export const partyDirectoryStyles = StyleSheet.create({
     borderBottomColor: METRONIC.border,
     backgroundColor: METRONIC.heroBg,
   },
+  /** Slim chrome — Operations strip carries the main IA. */
+  pageChromeSlim: {
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 2,
+    backgroundColor: METRONIC.bodyBg,
+  },
   backBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     alignSelf: "flex-start",
-    marginBottom: 4,
+    marginBottom: 2,
     paddingVertical: 2,
   },
   backText: {
@@ -72,12 +80,66 @@ export const partyDirectoryStyles = StyleSheet.create({
     color: METRONIC.text,
     letterSpacing: -0.35,
   },
+  pageTitleSlim: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: METRONIC.text,
+    letterSpacing: -0.3,
+  },
   pageSub: {
     fontSize: 12,
     fontWeight: "500",
     color: METRONIC.muted,
     lineHeight: 17,
     maxWidth: 480,
+  },
+  pageMicro: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: METRONIC.muted,
+    lineHeight: 13,
+    letterSpacing: 0.05,
+  },
+  opsStripWrap: {
+    marginHorizontal: Layout.screenPaddingHorizontal,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  tinyToolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginHorizontal: Layout.screenPaddingHorizontal,
+    marginBottom: 8,
+  },
+  tinyToolbarLeft: { flex: 1, minWidth: 0, gap: 1 },
+  tinyToolbarTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: METRONIC.text,
+    letterSpacing: -0.1,
+  },
+  tinyToolbarSub: {
+    fontSize: 9,
+    fontWeight: "500",
+    color: METRONIC.muted,
+    letterSpacing: 0.1,
+  },
+  tinyCountPill: {
+    minWidth: 28,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 7,
+    backgroundColor: HUB_PURPLE_TINT,
+    borderWidth: 1,
+    borderColor: HUB_PURPLE_BORDER,
+    alignItems: "center",
+  },
+  tinyCountPillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: HUB_PURPLE_DEEP,
   },
 
   // Metronic underline tabs
@@ -129,7 +191,7 @@ export const partyDirectoryStyles = StyleSheet.create({
     backgroundColor: HUB_PURPLE_VIVID,
   },
 
-  // Card-style tab strip (Metronic segmented — mobile-friendly)
+  // Card-style tab strip (Metronic segmented)
   tabCardStrip: {
     marginHorizontal: Layout.screenPaddingHorizontal,
     marginTop: 12,
@@ -142,11 +204,19 @@ export const partyDirectoryStyles = StyleSheet.create({
     paddingHorizontal: 6,
     ...CARD_SHADOW,
   },
+  tabCardStripCompact: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
   tabCardRow: {
     flexDirection: "row",
     alignItems: "stretch",
     gap: 6,
     paddingHorizontal: 2,
+  },
+  tabCardRowCompact: {
+    gap: 4,
+    width: "100%",
   },
   tabCard: {
     flexDirection: "row",
@@ -161,6 +231,18 @@ export const partyDirectoryStyles = StyleSheet.create({
     minWidth: 120,
     position: "relative",
   },
+  /** Mobile: equal-width icon stack — no horizontal scroll. */
+  tabCardCompact: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 4,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
   tabCardActive: {
     borderColor: HUB_PURPLE_BORDER,
     backgroundColor: HUB_PURPLE_TINT,
@@ -173,14 +255,28 @@ export const partyDirectoryStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  tabCardIconWrapCompact: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+  },
   tabCardIconWrapActive: {
     backgroundColor: "rgba(124, 58, 237, 0.12)",
   },
   tabCardTextCol: { flex: 1, minWidth: 0, gap: 1 },
+  tabCardTextColCompact: {
+    flex: 0,
+    alignItems: "center",
+    gap: 1,
+  },
   tabCardLabel: {
     fontSize: 11,
     fontWeight: "600",
     color: METRONIC.text,
+  },
+  tabCardLabelCompact: {
+    fontSize: 10,
+    textAlign: "center",
   },
   tabCardLabelActive: {
     color: HUB_PURPLE_DEEP,
@@ -191,6 +287,12 @@ export const partyDirectoryStyles = StyleSheet.create({
     fontWeight: "600",
     color: METRONIC.muted,
   },
+  tabCardCountCompact: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: METRONIC.muted,
+    textAlign: "center",
+  },
   tabCardDot: {
     position: "absolute",
     bottom: 4,
@@ -199,6 +301,9 @@ export const partyDirectoryStyles = StyleSheet.create({
     height: 5,
     borderRadius: 3,
     backgroundColor: HUB_PURPLE_VIVID,
+  },
+  tabCardDotCompact: {
+    bottom: 5,
   },
 
   // Section toolbar (Teams “9 Teams” row)
@@ -300,7 +405,7 @@ export const partyDirectoryStyles = StyleSheet.create({
     maxWidth: 320,
   },
 
-  // Party card (Metronic Teams grid)
+  // Party card (Metronic Teams grid — desktop / tablet)
   partyCard: {
     position: "relative",
     borderRadius: 12,
@@ -323,16 +428,24 @@ export const partyDirectoryStyles = StyleSheet.create({
     position: "absolute",
     top: 10,
     right: 10,
-    fontSize: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: METRONIC.bodyBg,
+    borderWidth: 1,
+    borderColor: METRONIC.border,
+  },
+  partyEntityBadgeText: {
+    fontSize: 9,
     fontWeight: "700",
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
     color: METRONIC.muted,
     textTransform: "uppercase",
   },
   partyAvatarHalo: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: HUB_PURPLE_TINT,
     borderWidth: 1,
     borderColor: HUB_PURPLE_BORDER,
@@ -400,5 +513,95 @@ export const partyDirectoryStyles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     color: HUB_PURPLE_DEEP,
+  },
+
+  // Mobile list — avatar-first rows in one sheet
+  listSheet: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: METRONIC.border,
+    backgroundColor: METRONIC.heroBg,
+    overflow: "hidden",
+    ...CARD_SHADOW,
+  },
+  listRow: {
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 64,
+  },
+  listRowPressed: {
+    backgroundColor: HUB_PURPLE_TINT,
+  },
+  listAvatarWell: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: HUB_PURPLE_TINT,
+    borderWidth: 1,
+    borderColor: HUB_PURPLE_BORDER,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  listCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  listTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  listName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: "700",
+    color: METRONIC.text,
+    letterSpacing: -0.15,
+  },
+  listBadge: {
+    flexShrink: 0,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 5,
+    backgroundColor: METRONIC.bodyBg,
+    borderWidth: 1,
+    borderColor: METRONIC.border,
+  },
+  listBadgeText: {
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 0.45,
+    color: METRONIC.muted,
+    textTransform: "uppercase",
+  },
+  listMeta: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: METRONIC.subtle,
+    letterSpacing: 0.05,
+  },
+  listChevron: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: METRONIC.bodyBg,
+    flexShrink: 0,
+  },
+  listDivider: {
+    position: "absolute",
+    left: 68,
+    right: 12,
+    bottom: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: METRONIC.border,
   },
 });

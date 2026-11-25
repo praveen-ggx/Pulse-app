@@ -27,8 +27,8 @@ export const Layout = {
   fabBottomOffset: 24,
   /** FAB horizontal offset from screen right (all screen sizes) */
   fabRightOffset: 20,
-  /** Tab bar dock content height (DemoTabBar glassDock); total bar = this + padding from DemoTabBar */
-  tabBarDockHeight: 61,
+  /** Floating driver dock content height (DriverTabBar charcoal pill). */
+  tabBarDockHeight: 64,
   /** Header content padding below safe area */
   headerPaddingBelowInset: 16,
   /** Driver header compact horizontal padding (dashboard + driver pages) */

@@ -330,9 +330,6 @@ export default function DriverAddClientScreen() {
       successEntity="client"
       initialOrganizationName={matchingSavedParty ? "" : partyName}
       showSuccessOnComplete={!tripId}
-      existingParties={sortedExistingParties}
-      onSelectExistingParty={handlePickExisting}
-      existingPartyBusyId={pickingId}
     />
   );
 

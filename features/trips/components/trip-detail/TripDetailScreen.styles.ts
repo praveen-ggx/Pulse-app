@@ -5856,8 +5856,10 @@ export const styles = StyleSheet.create({
   navMobileRightActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    justifyContent: "flex-end",
+    gap: 6,
     flexShrink: 0,
+    minHeight: 40,
   },
   /** Mobile order-detail chrome — page title (Flipkart “Orders” weight). */
   navMobileTitle: {
@@ -5867,18 +5869,20 @@ export const styles = StyleSheet.create({
     color: "#212121",
     letterSpacing: -0.2,
     marginLeft: 2,
+    marginRight: 8,
   },
   navHelpBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 6,
-    height: 40,
+    paddingHorizontal: 8,
+    minHeight: 36,
+    borderRadius: 999,
     justifyContent: "center",
   },
   navHelpText: {
-    fontSize: 13,
-    fontWeight: "500",
+    fontSize: 12,
+    fontWeight: "600",
     color: "#2874F0",
   },
   /** Same underline tabs as the trips list. No card behind the labels. */

@@ -1,4 +1,5 @@
-import { DriverBrandMark } from '@/components/driver/DriverBrandMark';
+import { DriverHeader } from '@/components/driver/DriverHeader';
+import { driverTabBarBottomPad } from '@/components/driver/driverTabBarInsets';
 import { PartySpeedDialFab, type PartySpeedDialAction } from '@/components/PartySpeedDialFab';
 import { SearchBar } from '@/components/SearchBar';
 import { DriverWalletEarningsPanel } from '@/features/drivers/components/DriverWalletEarningsPanel';
@@ -7,6 +8,7 @@ import { DriverSelfReceivablesPanel } from '@/features/drivers/components/Driver
 import { DriverPreDcoFleetHistoryView } from '@/features/drivers/components/DriverPreDcoFleetHistoryView';
 import {
   buildDriverPartyReceivables,
+  preferPartyDisplayName,
   summarizeDriverPartyReceivables,
 } from '@/features/drivers/utils/driverPartyReceivables.util';
 import { driverWalletTripEarnings } from '@/features/drivers/utils/driverWalletEarnings.util';
@@ -43,7 +45,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useOptionalDriverInviteModal } from '@/contexts/DriverInviteModalContext';
 import { useDriverAvatar } from '@/contexts/DriverAvatarContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
-import { DriverSelfAvatar } from '@/components/driver/DriverSelfAvatar';
 import { useDriverAvatarUri } from '@/lib/avatarUpload';
 import { driverWalletBookTabLabel } from '@/features/drivers/domain/driverOperatingMode';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
@@ -213,6 +214,10 @@ export default function DriverWalletScreen() {
     useOptionalDriverInviteModal()?.fleetConnectionRevision ?? 0;
   useDriverAvatar();
   const { avatarUri } = useDriverAvatarUri();
+  const driverName =
+    profile?.full_name?.trim() ||
+    profile?.displayName?.trim() ||
+    'Pilot';
   const {
     isDco,
     canManageIndieBook,
@@ -476,9 +481,26 @@ export default function DriverWalletScreen() {
     [linkedDrivers],
   );
 
+  const partyNameByTripId = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const row of bookCollections) {
+      const tripId = String(row.tripId ?? "").trim();
+      const name = String(row.partyName ?? "").trim();
+      if (!tripId || !name || name === "Party") continue;
+      map[tripId] = preferPartyDisplayName(map[tripId], name);
+    }
+    return map;
+  }, [bookCollections]);
+
   const selfPartyReceivables = useMemo(
-    () => buildDriverPartyReceivables(trips, receivedByTripId, isFleetDispatchedTrip),
-    [trips, receivedByTripId, isFleetDispatchedTrip],
+    () =>
+      buildDriverPartyReceivables(
+        trips,
+        receivedByTripId,
+        isFleetDispatchedTrip,
+        partyNameByTripId,
+      ),
+    [trips, receivedByTripId, isFleetDispatchedTrip, partyNameByTripId],
   );
   const indieReceivableSummary = useMemo(
     () => summarizeDriverPartyReceivables(selfPartyReceivables),
@@ -2825,27 +2847,17 @@ export default function DriverWalletScreen() {
       }}
       showsVerticalScrollIndicator={false}
     >
-      <View style={[styles.header, { paddingTop: insets.top + Layout.driverHeaderTopOffset, backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity
-            onPress={() => router.push('/(driver)/profile')}
-            style={styles.avatarBtn}
-            activeOpacity={0.8}
-          >
-            <DriverSelfAvatar size={36} uri={avatarUri} borderColor={colors.emerald} />
-          </TouchableOpacity>
-          <View style={styles.headerTextWrap}>
-            <DriverBrandMark color={colors.textMuted} />
-            <Text style={[styles.welcomeTitle, { color: colors.text }]} numberOfLines={1}>
-              {mainTab === "earnings" ? "Earnings" : mainTab === "cash" ? "Transactions" : walletBookLabel}
-            </Text>
-          </View>
-        </View>
-      </View>
+      <DriverHeader
+        colors={colors}
+        avatarUri={avatarUri}
+        driverName={driverName}
+        isOnline={false}
+        variant="assigned"
+      />
 
       <View style={styles.creditsSection}>
         <View style={styles.creditsTitleRow}>
-          <Text style={[styles.creditsTitle, { color: EMERALD_500, flex: 1, minWidth: 0 }]}>SALARY.</Text>
+          <Text style={[styles.creditsTitle, { color: EMERALD_500, flex: 1, minWidth: 0 }]}>EARNINGS.</Text>
           {isDco ? (
             <TouchableOpacity
               style={[
@@ -3105,12 +3117,35 @@ export default function DriverWalletScreen() {
                       {Math.round(indieReceivableSummary.due).toLocaleString('en-IN')}
                     </Text>
                   </View>
-                  <Text style={[styles.walletCardPendingSubLabel, { color: 'rgba(167,243,208,0.85)' }]}>
-                    Collection {indieReceivableSummary.collectionPercent}%
-                  </Text>
-                  <Text style={[styles.walletCardPendingSubLabel, { color: 'rgba(167,243,208,0.7)' }]}>
-                    ₹{Math.round(indieReceivableSummary.received).toLocaleString('en-IN')} of ₹{Math.round(indieReceivableSummary.billed).toLocaleString('en-IN')}
-                  </Text>
+                  <View style={styles.walletCollectionBlock}>
+                    <View style={styles.walletCollectionMeta}>
+                      <Text style={styles.walletCollectionLabel}>Collection</Text>
+                      <Text style={styles.walletCollectionPct}>
+                        {indieReceivableSummary.collectionPercent}%
+                      </Text>
+                    </View>
+                    <View style={styles.walletCollectionTrack}>
+                      <View
+                        style={[
+                          styles.walletCollectionFill,
+                          {
+                            width: `${Math.max(
+                              0,
+                              Math.min(100, indieReceivableSummary.collectionPercent),
+                            )}%`,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <View style={styles.walletCollectionAmounts}>
+                      <Text style={styles.walletCollectionReceived}>
+                        ₹{Math.round(indieReceivableSummary.received).toLocaleString('en-IN')}
+                      </Text>
+                      <Text style={styles.walletCollectionOf}>
+                        of ₹{Math.round(indieReceivableSummary.billed).toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
               </LinearGradient>
             </View>
@@ -3182,12 +3217,35 @@ export default function DriverWalletScreen() {
                     {Math.round(indieReceivableSummary.due).toLocaleString('en-IN')}
                   </Text>
                 </View>
-                <Text style={[styles.walletCardPendingSubLabel, { color: 'rgba(167,243,208,0.85)' }]}>
-                  Collection {indieReceivableSummary.collectionPercent}%
-                </Text>
-                <Text style={[styles.walletCardPendingSubLabel, { color: 'rgba(167,243,208,0.7)' }]}>
-                  ₹{Math.round(indieReceivableSummary.received).toLocaleString('en-IN')} of ₹{Math.round(indieReceivableSummary.billed).toLocaleString('en-IN')}
-                </Text>
+                <View style={styles.walletCollectionBlock}>
+                  <View style={styles.walletCollectionMeta}>
+                    <Text style={styles.walletCollectionLabel}>Collection</Text>
+                    <Text style={styles.walletCollectionPct}>
+                      {indieReceivableSummary.collectionPercent}%
+                    </Text>
+                  </View>
+                  <View style={styles.walletCollectionTrack}>
+                    <View
+                      style={[
+                        styles.walletCollectionFill,
+                        {
+                          width: `${Math.max(
+                            0,
+                            Math.min(100, indieReceivableSummary.collectionPercent),
+                          )}%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <View style={styles.walletCollectionAmounts}>
+                    <Text style={styles.walletCollectionReceived}>
+                      ₹{Math.round(indieReceivableSummary.received).toLocaleString('en-IN')}
+                    </Text>
+                    <Text style={styles.walletCollectionOf}>
+                      of ₹{Math.round(indieReceivableSummary.billed).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
+                </View>
               </View>
             </LinearGradient>
           </View>
@@ -3909,7 +3967,13 @@ export default function DriverWalletScreen() {
     addClientPartyActions.length > 0 ? (
       <PartySpeedDialFab
         actions={addClientPartyActions}
-        bottom={layout.fabBottom()}
+        bottom={
+          Layout.tabBarDockHeight +
+          6 +
+          driverTabBarBottomPad(layout.bottom) +
+          12
+        }
+        tone="driver"
         addPartyLabel={canManageIndieBook && !canManageDcoSelfBook ? 'Add customer' : 'Add party'}
         closeLabel={canManageIndieBook && !canManageDcoSelfBook ? 'Close add customer' : 'Close add party'}
       />
@@ -4205,8 +4269,72 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'center',
     alignSelf: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
     paddingHorizontal: 18,
+  },
+  walletCollectionBlock: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 280,
+    marginTop: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(236,253,245,0.20)',
+    gap: 6,
+  },
+  walletCollectionMeta: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  walletCollectionLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+    color: 'rgba(167,243,208,0.88)',
+  },
+  walletCollectionPct: {
+    fontSize: 14,
+    fontWeight: '800',
+    fontStyle: 'italic',
+    letterSpacing: -0.2,
+    color: '#ecfdf5',
+    includeFontPadding: false,
+  },
+  walletCollectionTrack: {
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    overflow: 'hidden',
+  },
+  walletCollectionFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#a7f3d0',
+  },
+  walletCollectionAmounts: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  walletCollectionReceived: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: -0.15,
+    color: '#ffffff',
+    includeFontPadding: false,
+  },
+  walletCollectionOf: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(167,243,208,0.75)',
+    includeFontPadding: false,
   },
   walletCardBalanceRupee: {
     fontSize: 48,

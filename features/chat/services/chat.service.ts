@@ -12,9 +12,12 @@ import type {
   NetworkPartner,
   TripConversation,
   TripConversationRow,
+  TripFeedbackLaneStatus,
   TripMessageRow,
 } from "../types/chat.types";
+import { isFeedbackRatedFromMessage } from "../utils/driverChatTripChrome.util";
 import { parseFeedbackRequestMetadata } from "../utils/feedbackRequestMeta";
+import { isMissionDebriefPreviewText } from "../utils/missionDebrief.util";
 import {
   extractTagsFromRatingComment,
   findTripRatingMatchingFeedbackMeta,
@@ -1331,112 +1334,24 @@ export async function getIntegratedPartners(
 
 // ── Driver chat ───────────────────────────────────────────────────────────────
 
-/** Fetches all trip conversations where the party is the driver (by driver record IDs). */
-export async function getConversationsByDriverIds(
-  driverIds: string[],
-): Promise<TripConversation[]> {
-  if (!driverIds.length) return [];
+// Inbox helpers live above `getConversationsByDriverIds` — Metro/Hermes may rewrite
+// `async function` to const bindings, so definition-after-use throws at runtime.
 
-  type DriverChatTripMini = {
-    id: string;
-    trip_operational_code: string | null;
-    trip_code: string | null;
-    display_trip_id: string | null;
-    trip_number: string | null;
-    driver_display_trip_id: string | null;
-    pickup_area: string | null;
-    drop_location: string | null;
-    pickup_date: string | null;
-    created_at: string | null;
-  };
-  type DriverChatConversationRow = TripConversationRow & {
-    id: string;
-    trip_id: string;
-    trips?: DriverChatTripMini | null;
-    trip_messages?: TripMessageRow[];
-  };
-
-  const mapRows = (
-    convRows: DriverChatConversationRow[],
-    tripsById: Map<string, DriverChatTripMini>,
-    messagesByConversationId: Map<string, TripMessageRow[]>,
-  ): TripConversation[] =>
-    convRows.map((row) => {
-      const tr = row.trips ?? tripsById.get(String(row.trip_id ?? "")) ?? null;
-      const perDriver =
-        tr?.driver_display_trip_id != null && String(tr.driver_display_trip_id).trim() !== ""
-          ? String(tr.driver_display_trip_id).trim()
-          : "";
-      const operational = getTripOperationalDisplay({
-        trip_operational_code: tr?.trip_operational_code ?? null,
-        trip_code: tr?.trip_code ?? null,
-        display_trip_id: tr?.display_trip_id ?? null,
-        trip_number: tr?.trip_number ?? null,
-      });
-      return {
-        ...row,
-        trip_number: operational !== "—" ? operational : perDriver || tr?.trip_number || "",
-        pickup_area: tr?.pickup_area ?? "",
-        drop_location: tr?.drop_location ?? "",
-        pickup_date: tr?.pickup_date ?? null,
-        trip_created_at: tr?.created_at ?? null,
-        messages: (
-          row.trip_messages ??
-          messagesByConversationId.get(String(row.id ?? "")) ??
-          []
-        ) as TripMessageRow[],
-      };
-    });
-
-  markStart('inbox_load');
-
-  // Step 1: fetch conversations only — the minimal set needed to derive trip IDs and
-  // conversation IDs for the two parallel follow-up queries.
-  const { data: convRows, error: convErr } = await supabase()
-    .from("trip_conversations")
-    .select("id,organization_id,trip_id,party_type,party_name,client_id,supplier_id,driver_id,last_message_at,last_message_preview,unread_dispatcher_count,created_at,updated_at")
-    .in("driver_id", driverIds)
-    .order("last_message_at", { ascending: false, nullsFirst: false })
-    .limit(100);
-  if (convErr) throw convErr;
-
-  const normalizedConvRows = (convRows ?? []) as DriverChatConversationRow[];
-  if (normalizedConvRows.length === 0) return [];
-
-  const tripIds = Array.from(new Set(normalizedConvRows.map((r) => String(r.trip_id ?? "")).filter(Boolean)));
-  const convIds = normalizedConvRows.map((r) => String(r.id ?? "")).filter(Boolean);
-
-  // Step 2: trips metadata + inbox preview messages in parallel — eliminates the
-  // sequential 200 ms+ waterfall that was the primary driver of slow inbox open.
-  const emptyTripsRes: { data: DriverChatTripMini[]; error: null } = { data: [], error: null };
-  markStart('inbox_parallel_fetch');
-  const [tripRes, messagesByConversationId] = await Promise.all([
-    tripIds.length
-      ? supabase()
-          .from("trips")
-          .select(
-            "id, trip_operational_code, trip_code, display_trip_id, trip_number, driver_display_trip_id, pickup_area, drop_location, pickup_date, created_at",
-          )
-          .in("id", tripIds)
-      : Promise.resolve(emptyTripsRes),
-    fetchDriverInboxPreviewMessages(convIds),
-  ]);
-  markEnd('inbox_parallel_fetch', { tripCount: tripIds.length, convCount: convIds.length });
-
-  const tripsById = new Map<string, DriverChatTripMini>();
-  for (const tr of (tripRes.data ?? []) as DriverChatTripMini[]) {
-    tripsById.set(String(tr.id ?? ""), tr);
-  }
-
-  markEnd('inbox_load', { convCount: normalizedConvRows.length, driverCount: driverIds.length });
-  return mapRows(normalizedConvRows, tripsById, messagesByConversationId);
-}
-
-// 5 image/document rows per conversation is enough for the thumbnail strip
-// (ChatInboxImagePreviewStrip shows at most 4).  Filtering to media-only types
-// cuts the row count by ~80% vs fetching all message types.
 const DRIVER_INBOX_PREVIEW_MSGS_PER_CONV = 5;
 const DRIVER_INBOX_PREVIEW_MEDIA_TYPES = ["image", "document_share", "document_upload"];
+const DRIVER_INBOX_FEEDBACK_TYPES = ["feedback_request", "feedback"];
+
+function resolveDriverInboxFeedbackStatus(
+  lastMessagePreview: string | null | undefined,
+  feedbackMsg: TripMessageRow | null,
+): TripFeedbackLaneStatus {
+  if (feedbackMsg) {
+    if (isFeedbackRatedFromMessage(feedbackMsg)) return "rated";
+    return "pending";
+  }
+  if (isMissionDebriefPreviewText(lastMessagePreview)) return "pending";
+  return "none";
+}
 
 /** Recent media rows for driver inbox image-preview strips (batched, media-only). */
 async function fetchDriverInboxPreviewMessages(
@@ -1473,6 +1388,249 @@ async function fetchDriverInboxPreviewMessages(
   }
 
   return byConv;
+}
+
+/**
+ * Latest mission-debrief / feedback_request row per conversation (score + rated stamp).
+ * Kept separate from media preview so inbox can show filled star plans without
+ * loading full thread history.
+ */
+async function fetchDriverInboxFeedbackMessages(
+  conversationIds: string[],
+): Promise<Map<string, TripMessageRow>> {
+  const byConv = new Map<string, TripMessageRow>();
+  if (conversationIds.length === 0) return byConv;
+
+  const rowCap = Math.min(conversationIds.length * 2, 200);
+
+  const { data, error } = await supabase()
+    .from("trip_messages")
+    .select(
+      "id,conversation_id,organization_id,sender_user_id,sender_role,sender_name,content,message_type,metadata,is_read,read_at,created_at,is_deleted",
+    )
+    .in("conversation_id", conversationIds)
+    .in("message_type", DRIVER_INBOX_FEEDBACK_TYPES)
+    .eq("is_deleted", false)
+    .order("created_at", { ascending: false })
+    .limit(rowCap);
+
+  if (error) throw error;
+
+  for (const row of (data ?? []) as TripMessageRow[]) {
+    const cid = String(row.conversation_id ?? "");
+    if (!cid || byConv.has(cid)) continue;
+    byConv.set(cid, row);
+  }
+
+  return byConv;
+}
+
+/** Fetches all trip conversations where the party is the driver (by driver record IDs). */
+export async function getConversationsByDriverIds(
+  driverIds: string[],
+): Promise<TripConversation[]> {
+  if (!driverIds.length) return [];
+
+  type DriverChatTripMini = {
+    id: string;
+    status: string | null;
+    trip_operational_code: string | null;
+    trip_code: string | null;
+    display_trip_id: string | null;
+    trip_number: string | null;
+    driver_display_trip_id: string | null;
+    pickup_area: string | null;
+    drop_location: string | null;
+    pickup_date: string | null;
+    created_at: string | null;
+    organization_id?: string | null;
+    organization_name?: string | null;
+    client_name?: string | null;
+  };
+  type DriverChatConversationRow = TripConversationRow & {
+    id: string;
+    trip_id: string;
+    trips?: DriverChatTripMini | null;
+    trip_messages?: TripMessageRow[];
+  };
+
+  const mapRows = (
+    convRows: DriverChatConversationRow[],
+    tripsById: Map<string, DriverChatTripMini>,
+    messagesByConversationId: Map<string, TripMessageRow[]>,
+    feedbackByConversationId: Map<string, TripMessageRow>,
+    brandingByOrgId: Record<
+      string,
+      { logoUrl?: string | null; orgAvatarSeed?: string | null; avatarSeed?: string | null }
+    >,
+  ): TripConversation[] =>
+    convRows.map((row) => {
+      const tr = row.trips ?? tripsById.get(String(row.trip_id ?? "")) ?? null;
+      const perDriver =
+        tr?.driver_display_trip_id != null && String(tr.driver_display_trip_id).trim() !== ""
+          ? String(tr.driver_display_trip_id).trim()
+          : "";
+      const operational = getTripOperationalDisplay({
+        trip_operational_code: tr?.trip_operational_code ?? null,
+        trip_code: tr?.trip_code ?? null,
+        display_trip_id: tr?.display_trip_id ?? null,
+        trip_number: tr?.trip_number ?? null,
+      });
+      const convId = String(row.id ?? "");
+      const mediaMsgs = (
+        row.trip_messages ??
+        messagesByConversationId.get(convId) ??
+        []
+      ) as TripMessageRow[];
+      const feedbackMsg = feedbackByConversationId.get(convId) ?? null;
+      const messages =
+        feedbackMsg && !mediaMsgs.some((m) => m.id === feedbackMsg.id)
+          ? [...mediaMsgs, feedbackMsg]
+          : mediaMsgs;
+      const feedbackStatus = resolveDriverInboxFeedbackStatus(
+        row.last_message_preview,
+        feedbackMsg,
+      );
+      const shipperName =
+        (tr?.organization_name ?? "").trim() ||
+        (tr?.client_name ?? "").trim() ||
+        "";
+      const tripOrgId =
+        (tr?.organization_id ?? "").trim() ||
+        String(row.organization_id ?? "").trim();
+      const branding = tripOrgId ? brandingByOrgId[tripOrgId] : undefined;
+      // Driver-lane party_name is often the driver's own name — prefer shipper org.
+      const partyNameForDriver =
+        row.party_type === "driver" && shipperName
+          ? shipperName
+          : (row.party_name ?? "").trim() || shipperName;
+      return {
+        ...row,
+        party_name: partyNameForDriver || row.party_name,
+        trip_organization_id: tripOrgId || row.trip_organization_id || null,
+        trip_organization_name:
+          shipperName || row.trip_organization_name || null,
+        peer_logo_url: branding?.logoUrl ?? null,
+        peer_avatar_seed:
+          branding?.orgAvatarSeed ?? branding?.avatarSeed ?? null,
+        trip_number: operational !== "—" ? operational : perDriver || tr?.trip_number || "",
+        pickup_area: tr?.pickup_area ?? "",
+        drop_location: tr?.drop_location ?? "",
+        pickup_date: tr?.pickup_date ?? null,
+        trip_created_at: tr?.created_at ?? null,
+        trip_status: tr?.status ?? row.trip_status ?? null,
+        trip_feedback_status: feedbackStatus,
+        messages,
+      };
+    });
+
+  markStart('inbox_load');
+
+  // Step 1: fetch conversations only — the minimal set needed to derive trip IDs and
+  // conversation IDs for the two parallel follow-up queries.
+  const { data: convRows, error: convErr } = await supabase()
+    .from("trip_conversations")
+    .select("id,organization_id,trip_id,party_type,party_name,client_id,supplier_id,driver_id,last_message_at,last_message_preview,unread_dispatcher_count,created_at,updated_at")
+    .in("driver_id", driverIds)
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .limit(100);
+  if (convErr) throw convErr;
+
+  const normalizedConvRows = (convRows ?? []) as DriverChatConversationRow[];
+  if (normalizedConvRows.length === 0) return [];
+
+  const tripIds = Array.from(new Set(normalizedConvRows.map((r) => String(r.trip_id ?? "")).filter(Boolean)));
+  const convIds = normalizedConvRows.map((r) => String(r.id ?? "")).filter(Boolean);
+
+  // Step 2: trips route/codes + driver-view org labels (drivers can't read
+  // organizations RLS) + inbox preview + feedback debrief — in parallel.
+  const emptyTripsRes: { data: DriverChatTripMini[]; error: null } = { data: [], error: null };
+  const emptyOrgRes: {
+    data: Array<{
+      id: string;
+      organization_id: string | null;
+      organization_name: string | null;
+    }>;
+    error: null;
+  } = { data: [], error: null };
+  markStart('inbox_parallel_fetch');
+  const [tripRes, orgRes, messagesByConversationId, feedbackByConversationId] =
+    await Promise.all([
+      tripIds.length
+        ? supabase()
+            .from("trips")
+            .select(
+              "id, status, trip_operational_code, trip_code, display_trip_id, trip_number, driver_display_trip_id, pickup_area, drop_location, pickup_date, created_at",
+            )
+            .in("id", tripIds)
+        : Promise.resolve(emptyTripsRes),
+      tripIds.length
+        ? supabase()
+            .from("trips_driver_view")
+            .select("id, organization_id, organization_name")
+            .in("id", tripIds)
+        : Promise.resolve(emptyOrgRes),
+      fetchDriverInboxPreviewMessages(convIds),
+      fetchDriverInboxFeedbackMessages(convIds),
+    ]);
+  markEnd('inbox_parallel_fetch', { tripCount: tripIds.length, convCount: convIds.length });
+
+  const orgByTripId = new Map<
+    string,
+    { organization_id: string | null; organization_name: string | null }
+  >();
+  for (const row of orgRes.data ?? []) {
+    orgByTripId.set(String(row.id ?? ""), {
+      organization_id: row.organization_id ?? null,
+      organization_name: row.organization_name ?? null,
+    });
+  }
+
+  const tripsById = new Map<string, DriverChatTripMini>();
+  for (const tr of (tripRes.data ?? []) as DriverChatTripMini[]) {
+    const id = String(tr.id ?? "");
+    const org = orgByTripId.get(id);
+    tripsById.set(id, {
+      ...tr,
+      organization_id: org?.organization_id ?? tr.organization_id ?? null,
+      organization_name: org?.organization_name ?? tr.organization_name ?? null,
+    });
+  }
+
+  // Peer org logos — best-effort; initials still work if this returns empty.
+  const orgIds = Array.from(
+    new Set(
+      [
+        ...normalizedConvRows.map((r) => String(r.organization_id ?? "").trim()),
+        ...[...tripsById.values()].map((t) =>
+          String(t.organization_id ?? "").trim(),
+        ),
+      ].filter(Boolean),
+    ),
+  );
+  let brandingByOrgId: Record<
+    string,
+    { logoUrl?: string | null; orgAvatarSeed?: string | null; avatarSeed?: string | null }
+  > = {};
+  if (orgIds.length > 0) {
+    try {
+      const { getLinkedOrgProfilesBatch } = await import(
+        "@/features/clients/services/clients.service"
+      );
+      brandingByOrgId = await getLinkedOrgProfilesBatch(orgIds);
+    } catch {
+      brandingByOrgId = {};
+    }
+  }
+
+  markEnd('inbox_load', { convCount: normalizedConvRows.length, driverCount: driverIds.length });
+  return mapRows(
+    normalizedConvRows,
+    tripsById,
+    messagesByConversationId,
+    feedbackByConversationId,
+    brandingByOrgId,
+  );
 }
 
 /** Sends a message as the driver role. Thin wrapper for consistency. */

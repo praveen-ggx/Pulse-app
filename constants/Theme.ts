@@ -350,6 +350,22 @@ export const Theme = {
   /** Accents, amounts, dots — emerald-700/800 (modern / restrained) */
   driverEmerald: "#047857",
   driverEmeraldDark: "#065f46",
+  /**
+   * Fluorescent lime — reserved for **chat notifications** (incoming message
+   * toast + chat unread badge). App UI CTAs / tab chrome use `driverPrimary`.
+   */
+  driverLime: "#C6F035",
+  driverLimePressed: "#B4DE28",
+  driverLimeInk: "#14301A",
+  driverDock: "#171717",
+  driverDockIcon: "#C8C8CC",
+  driverDockIconMuted: "#8E8E93",
+  driverJobCardBorder: "rgba(22, 28, 36, 0.08)",
+  driverJobTagMuted: "#F1F3F5",
+  driverJobTagMutedText: "#4B5563",
+  driverJobTagWarn: "#FFF1E0",
+  driverJobTagWarnText: "#C2410C",
+  driverJobNoteBg: "#F6F7F9",
   /** Odometer capture viewfinder. */
   odometerViewfinder: "#101010",
   /** Muted sage fill for the odometer save action. */

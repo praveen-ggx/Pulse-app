@@ -1,4 +1,4 @@
-import { DriverBrandMark } from "@/components/driver/DriverBrandMark";
+import { DriverShellIdentityBlock } from "@/components/driver/DriverShellIdentityBlock";
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import Layout from "@/constants/Layout";
@@ -17,12 +17,12 @@ import {
     STEPS,
     useTripControl
 } from "@/features/drivers/hooks/useTripControl";
-import { DriverSelfAvatar } from "@/components/driver/DriverSelfAvatar";
 import { useDriverAvatarUri } from "@/lib/avatarUpload";
 import {
     buildDriverTripNumberMap,
     getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
+import { resolveDriverDisplayDistanceKm } from "@/features/drivers/utils/driverDisplayDistance.util";
 import {
   computeDriverTripPayInr,
   isAggregateTrip,
@@ -470,24 +470,13 @@ export default function DriverControlScreen() {
             },
           ]}
         >
-          <View style={styles.headerLeft}>
-            <TouchableOpacity
-              onPress={() => router.push("/(driver)/profile")}
-              style={styles.avatarBtn}
-              activeOpacity={0.8}
-            >
-              <DriverSelfAvatar size={36} uri={avatarUri} borderColor={colors.emerald} />
-            </TouchableOpacity>
-            <View style={styles.headerTextWrap}>
-              <DriverBrandMark color={colors.textMuted} />
-              <Text
-                style={[styles.welcomeTitle, { color: colors.text }]}
-                numberOfLines={1}
-              >
-                Trip
-              </Text>
-            </View>
-          </View>
+          <DriverShellIdentityBlock
+            avatarUri={avatarUri}
+            title="Trip"
+            titleColor={colors.text}
+            brandColor={colors.textMuted}
+            avatarBorderColor={colors.emerald}
+          />
         </View>
         <View style={[styles.emptyMissionWrap, { paddingHorizontal: 24 }]}>
           <FontAwesome name="power-off" size={80} color={colors.textMuted} />
@@ -555,7 +544,11 @@ export default function DriverControlScreen() {
       : computeDriverTripPayInr(trip, payoutOffer);
   const effectiveEta =
     trip.estimated_duration?.trim() || routeMetricsFallback?.estimated_duration || null;
-  const effectiveDistance = trip.distance ?? routeMetricsFallback?.distance ?? null;
+  const effectiveDistance =
+    resolveDriverDisplayDistanceKm(trip) ??
+    trip.distance ??
+    routeMetricsFallback?.distance ??
+    null;
 
   const progressPct =
     step === "completed"
@@ -601,24 +594,13 @@ export default function DriverControlScreen() {
           },
         ]}
       >
-        <View style={styles.headerLeft}>
-          <TouchableOpacity
-            onPress={() => router.push("/(driver)/profile")}
-            style={styles.avatarBtn}
-            activeOpacity={0.8}
-          >
-            <DriverSelfAvatar size={36} uri={avatarUri} borderColor={colors.emerald} />
-          </TouchableOpacity>
-          <View style={styles.headerTextWrap}>
-            <DriverBrandMark color={colors.textMuted} />
-            <Text
-              style={[styles.welcomeTitle, { color: colors.text }]}
-              numberOfLines={1}
-            >
-              {getDriverTripDisplayNumber(trip, driverTripNumberById)}
-            </Text>
-          </View>
-        </View>
+        <DriverShellIdentityBlock
+          avatarUri={avatarUri}
+          title={getDriverTripDisplayNumber(trip, driverTripNumberById)}
+          titleColor={colors.text}
+          brandColor={colors.textMuted}
+          avatarBorderColor={colors.emerald}
+        />
         <TouchableOpacity
           style={[
             styles.headerChatBtn,

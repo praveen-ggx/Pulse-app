@@ -31,6 +31,12 @@ function compactActionMeta(label: string): { icon: FeatherName; short: string } 
   if (key.includes("expense") || key.includes("log")) {
     return { icon: "plus", short: "Log" };
   }
+  if (key.includes("capture") || key.includes("collect")) {
+    return { icon: "credit-card", short: "Capture" };
+  }
+  if (key.includes("request") || key.includes("follow")) {
+    return { icon: "bell", short: key.includes("follow") ? "Follow" : "Request" };
+  }
   return { icon: "circle", short: label.trim().slice(0, 8) || "Go" };
 }
 
@@ -124,6 +130,13 @@ export interface LedgerEntryReceiptPartyAvatar {
   initialsColorSeed?: string | null;
 }
 
+export interface LedgerEntryReceiptFinanceSnapshot {
+  sales: number;
+  received: number;
+  expenses: number;
+  margin: number;
+}
+
 export interface LedgerEntryReceiptCardProps {
   statusLabel: string;
   title: string;
@@ -140,6 +153,8 @@ export interface LedgerEntryReceiptCardProps {
   compactActions?: boolean;
   /** Party avatar shown between the hero glyph and the status pill. */
   partyAvatar?: LedgerEntryReceiptPartyAvatar;
+  /** Sales / received / expenses / margin tiles (trip collection preview). */
+  financeSnapshot?: LedgerEntryReceiptFinanceSnapshot;
   style?: StyleProp<ViewStyle>;
   /** Wider max width on desktop web. */
   desktop?: boolean;
@@ -173,6 +188,39 @@ export const LedgerEntryReceiptDetailTable = memo(function LedgerEntryReceiptDet
     </View>
   );
 });
+
+function FinanceTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "neutral" | "positive" | "warn" | "negative";
+}) {
+  const valueColor =
+    tone === "positive"
+      ? LEDGER_RECEIPT.amountIn
+      : tone === "negative"
+        ? LEDGER_RECEIPT.amountOut
+        : tone === "warn"
+          ? "#B45309"
+          : LEDGER_RECEIPT.value;
+
+  return (
+    <View style={styles.financeTile}>
+      <Text style={styles.financeLabel}>{label}</Text>
+      <Text
+        style={[styles.financeValue, { color: valueColor }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+      >
+        {formatINR(value)}
+      </Text>
+    </View>
+  );
+}
 
 export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
   props: LedgerEntryReceiptCardProps,
@@ -252,6 +300,31 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
           </>
         )}
       </View>
+
+      {props.financeSnapshot ? (
+        <View style={styles.financeGrid}>
+          <FinanceTile
+            label="Sales"
+            value={props.financeSnapshot.sales}
+            tone="neutral"
+          />
+          <FinanceTile
+            label="Received"
+            value={props.financeSnapshot.received}
+            tone="positive"
+          />
+          <FinanceTile
+            label="Expenses"
+            value={props.financeSnapshot.expenses}
+            tone="warn"
+          />
+          <FinanceTile
+            label="Margin"
+            value={props.financeSnapshot.margin}
+            tone={props.financeSnapshot.margin >= 0 ? "positive" : "negative"}
+          />
+        </View>
+      ) : null}
 
       <LedgerEntryReceiptDetailTable rows={props.details} />
 
@@ -540,6 +613,39 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 30,
     marginTop: 2,
+  },
+  financeGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginHorizontal: 12,
+    marginBottom: 10,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: LEDGER_RECEIPT.border,
+    backgroundColor: LEDGER_RECEIPT.detailBg,
+    overflow: "hidden",
+  },
+  financeTile: {
+    width: "50%",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 3,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: LEDGER_RECEIPT.border,
+  },
+  financeLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.55,
+    textTransform: "uppercase",
+    color: LEDGER_RECEIPT.label,
+  },
+  financeValue: {
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.25,
+    fontVariant: ["tabular-nums"],
   },
   detailCard: {
     backgroundColor: LEDGER_RECEIPT.detailBg,

@@ -681,6 +681,7 @@ export default function AttributionTripCreateModal() {
 
   return (
     <FullPageWizardShell
+      keyboardAvoidOnAndroid
       title={stepTitle}
       subtitle={stepSubtitle}
       stepIndex={stepIndex}

@@ -49,6 +49,12 @@ export interface FullPageWizardShellProps {
   contextPanel?: ReactNode;
   /** When true, use stepped wizard chrome on wide desktop (not enterprise multi-card grid). */
   steppedLayout?: boolean;
+  /**
+   * Lift content above the keyboard on Android too. The APK draws edge-to-edge,
+   * so Android no longer resizes the window for the keyboard. Opt-in so other
+   * flows using this shell are unchanged.
+   */
+  keyboardAvoidOnAndroid?: boolean;
 }
 
 type WizardBodyMode = "keypad" | "scrollFill" | "scroll" | "plain";
@@ -108,6 +114,7 @@ export function FullPageWizardShell({
   insightPreset = "trip",
   contextPanel,
   steppedLayout = false,
+  keyboardAvoidOnAndroid = false,
 }: FullPageWizardShellProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -324,7 +331,11 @@ export function FullPageWizardShell({
     <View style={styles.root}>
       <KeyboardAvoidingView
         style={styles.shellKeyboard}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={
+          Platform.OS === "ios" || (keyboardAvoidOnAndroid && Platform.OS === "android")
+            ? "padding"
+            : undefined
+        }
         enabled={Platform.OS !== "web"}
         keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
       >

@@ -1,6 +1,7 @@
 /**
  * Create Trip — sectioned form (route, client, allocation); Theme tokens only.
  */
+import { KeyboardAwareLayout } from "@/components/KeyboardAwareLayout";
 import { resolveWizardClientPhone } from "@/features/clients/utils/clientContactDisplay.util";
 import { fullPageWizardStyles, WizardClientSummaryCard, WizardEntitySummaryCard, WizardFormBody, WizardPartyContextRow, WizardPriorSelections, type WizardPriorSelectionItem } from "@/components/full-page-wizard";
 import Layout from "@/constants/Layout";
@@ -3529,6 +3530,8 @@ export function AddTripFormFields({
         animationType="fade"
         onRequestClose={() => setNotesModalOpen(false)}
       >
+        {/* Lift the notes box above the keyboard (Android APK is edge-to-edge). */}
+        <KeyboardAwareLayout scroll={false}>
         <View style={styles.notesModalBackdrop}>
           <Pressable
             style={StyleSheet.absoluteFillObject}
@@ -3567,6 +3570,7 @@ export function AddTripFormFields({
             />
           </View>
         </View>
+        </KeyboardAwareLayout>
       </Modal>
 
       {!desktopWizardChrome ? (

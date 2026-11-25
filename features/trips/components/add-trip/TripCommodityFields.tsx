@@ -474,7 +474,12 @@ export const TripCommodityFields = memo(function TripCommodityFields({
       ) : null}
 
       {!useWebSelect ? (
-        <Modal visible={picker != null} transparent animationType="slide">
+        <Modal
+          visible={picker != null}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setPicker(null)}
+        >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalSheet}>
               <View style={styles.modalHeader}>

@@ -127,6 +127,7 @@ export function AddTripModalLayout({
       fillBody={fillBody}
       scrollBody={scrollBody}
       steppedLayout={steppedLayout}
+      keyboardAvoidOnAndroid
       insightPreset={insightPreset}
       contextPanel={contextPanel}
       footer={

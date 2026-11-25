@@ -2,6 +2,7 @@
  * Place search for pickup/drop: API-driven (India), returns display name + lat/lon on select.
  * Location modal matches Create Trip pickers (FleetEntityPickerModal — centered sheet, search, rich rows).
  */
+import { KeyboardAwareLayout } from "@/components/KeyboardAwareLayout";
 import { CreateTripSheetSearchInput } from "@/components/CreateTripSheetSearchInput";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
@@ -770,7 +771,8 @@ export function LocationSearchField({
             statusBarTranslucent
             onRequestClose={closeDropdown}
           >
-            {overlayBody}
+            {/* Lift the sheet above the keyboard (Android APK is edge-to-edge). */}
+            <KeyboardAwareLayout scroll={false}>{overlayBody}</KeyboardAwareLayout>
           </Modal>
         ))}
     </View>

@@ -12,7 +12,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
   type PressableStateCallbackType,
   type StyleProp,
@@ -22,6 +21,7 @@ import {
 
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import Theme from "@/constants/Theme";
+import { useWebLayoutWidth } from "@/lib/useWebLayoutWidth";
 import {
   getSupplierKycDocuments,
   removeSupplierKycDocument,
@@ -85,6 +85,19 @@ import {
 import { formatTripTableDate } from "@/lib/format";
 
 import { VendorDocFileRow } from "./VendorDocFileRow";
+
+/** Keep percentage draft typing usable: strip %, allow digits + one decimal. */
+function sanitizePercentageInput(raw: string): string {
+  const cleaned = raw.replace(/%/g, "").replace(/[^\d.]/g, "");
+  const dot = cleaned.indexOf(".");
+  if (dot < 0) return cleaned.slice(0, 3);
+  const whole = cleaned.slice(0, dot).slice(0, 3);
+  const frac = cleaned
+    .slice(dot + 1)
+    .replace(/\./g, "")
+    .slice(0, 2);
+  return `${whole}.${frac}`;
+}
 
 type Props = {
   organizationId: string;
@@ -212,7 +225,7 @@ function confirmAction(title: string, message: string): Promise<boolean> {
 }
 
 export function SupplierVendorOnboardingVault({ organizationId, supplierId, canEdit }: Props) {
-  const { width } = useWindowDimensions();
+  const width = useWebLayoutWidth();
   const wide = width >= 900;
   const [loading, setLoading] = useState(true);
   /** Edit vs read-only. Initialized from the stored record, then only changed by Edit / a confirmed save. */
@@ -588,6 +601,12 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
   }
 
   const inputsOpen = canEdit && editing;
+  const enterEdit = () => {
+    if (!canEdit) return;
+    editingRef.current = true;
+    setEditing(true);
+  };
+  const lockedPress = canEdit && !inputsOpen ? enterEdit : undefined;
   const rowProps = { canEdit: inputsOpen, onView, onVerify };
   const regDoc = latestDocOfType(docs, regKind);
   const bankDoc = latestDocOfTypes(docs, sectionOf("bank").docTypes);
@@ -622,19 +641,32 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
         </View>
       ) : null}
 
-      <View style={styles.summary}>
-        <SummaryCell label="Vendor status">
+      <View style={[styles.summary, !wide && styles.summaryMobile]}>
+        <SummaryCell label="Vendor status" compact={!wide}>
           <StatusPill status={currentStatus} />
         </SummaryCell>
-        <SummaryCell label="Key documents" value={`${verifiedCount} / ${keyDocuments.length} verified`} />
-        <SummaryCell label="Advance" value={savedAdvance == null ? "—" : `${savedAdvance}%`} />
-        <SummaryCell label={`TDS FY ${currentFy}`} value={currentTds ? `${currentTds.rate_percent}%` : "—"} />
+        <SummaryCell
+          label="Key documents"
+          value={`${verifiedCount} / ${keyDocuments.length} verified`}
+          compact={!wide}
+        />
+        <SummaryCell
+          label="Advance"
+          value={savedAdvance == null ? "—" : `${savedAdvance}%`}
+          compact={!wide}
+        />
+        <SummaryCell
+          label={`TDS FY ${currentFy}`}
+          value={currentTds ? `${currentTds.rate_percent}%` : "—"}
+          compact={!wide}
+        />
       </View>
 
       <View style={[styles.workspace, !wide && styles.workspaceStack]}>
-        <View style={[styles.sideNav, !wide && styles.sideNavStack]}>
+        {wide ? (
+        <View style={styles.sideNav}>
           <Text style={styles.sideLabel}>Documents & Data</Text>
-          <View style={[styles.navList, !wide && styles.navListRow]}>
+          <View style={styles.navList}>
             {VAULT_NAV.map((item) => {
               const on = activeSection === item.id;
               return (
@@ -647,7 +679,6 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
                     const hovered = Boolean((state as PressableStateCallbackType & { hovered?: boolean }).hovered);
                     return [
                       styles.navItem,
-                      !wide && styles.navItemRow,
                       on && styles.navItemOn,
                       !on && hovered && styles.navItemHover,
                       Platform.OS === "web" ? ({ cursor: "pointer" } as const) : null,
@@ -662,8 +693,41 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
             })}
           </View>
         </View>
+        ) : (
+        <View style={styles.sideNavMobile}>
+          <Text style={styles.sideLabel}>Documents & Data</Text>
+          <ScrollView
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator
+            style={styles.sideNavChipScroll}
+            contentContainerStyle={styles.sideNavChipRow}
+            keyboardShouldPersistTaps="handled"
+          >
+            {VAULT_NAV.map((item) => {
+              const on = activeSection === item.id;
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setActiveSection(item.id)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  style={[styles.navChip, on && styles.navChipOn]}
+                >
+                  <Text
+                    style={[styles.navChipText, on && styles.navChipTextOn]}
+                    numberOfLines={1}
+                  >
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+        )}
 
-        <View style={styles.panel}>
+        <View style={[styles.panel, !wide && styles.panelNarrow]}>
       {activeSection === "commercial" ? (
       <View style={styles.cardGrid}>
       <Text style={styles.panelHint}>Status, advance and TDS by financial year</Text>
@@ -709,10 +773,15 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
           <Field
             label="Advance % (of partner rate)"
             value={advanceInput}
-            onChangeText={(text) => setAdvanceInput(text.replace(/%/g, ""))}
+            onChangeText={(text) => {
+              // Typing must work without a prior Edit tap; open edit mode so Save persists.
+              if (canEdit && !editingRef.current) enterEdit();
+              setAdvanceInput(sanitizePercentageInput(text));
+            }}
             placeholder="e.g. 30"
             keyboardType="decimal-pad"
-            editable={inputsOpen}
+            editable={canEdit}
+            onLockedPress={lockedPress}
           />
         </FieldRow>
       </FormCard>
@@ -722,14 +791,25 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
         {inputsOpen ? (
           <>
             <Text style={styles.fieldLabel}>Financial year</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.fyScroll}>
-              <Choice items={fyOptions.map((fy) => ({ key: fy, label: `FY ${fy}` }))} value={tdsYear} onChange={setTdsYear} />
+            <ScrollView
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator
+              style={styles.fyScroll}
+              contentContainerStyle={styles.fyScrollContent}
+            >
+              <Choice
+                nowrap
+                items={fyOptions.map((fy) => ({ key: fy, label: `FY ${fy}` }))}
+                value={tdsYear}
+                onChange={setTdsYear}
+              />
             </ScrollView>
             <FieldRow>
               <Field
                 label="TDS rate %"
                 value={tdsInput}
-                onChangeText={(text) => setTdsInput(text.replace(/%/g, ""))}
+                onChangeText={(text) => setTdsInput(sanitizePercentageInput(text))}
                 placeholder="e.g. 1 or 2"
                 keyboardType="decimal-pad"
               />
@@ -832,7 +912,15 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
       <FormCard style={halfCard}>
         <CardTitle title="PAN" />
         <FieldRow>
-          <Field label="PAN number" value={panInput} onChangeText={setPanInput} placeholder="ABCDE1234F" autoCapitalize="characters" editable={inputsOpen} />
+          <Field
+            label="PAN number"
+            value={panInput}
+            onChangeText={setPanInput}
+            placeholder="ABCDE1234F"
+            autoCapitalize="characters"
+            editable={inputsOpen}
+            onLockedPress={lockedPress}
+          />
         </FieldRow>
         <VendorDocFileRow
           {...rowProps}
@@ -858,6 +946,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
             placeholder="XXXX XXXX XXXX"
             keyboardType="number-pad"
             editable={inputsOpen}
+            onLockedPress={lockedPress}
           />
         </FieldRow>
         {(["aadhaar_front", "aadhaar_back"] as const).map((t, i) => (
@@ -894,6 +983,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
             placeholder={REGISTRATION_PLACEHOLDERS[regKind]}
             autoCapitalize="characters"
             editable={inputsOpen}
+            onLockedPress={lockedPress}
           />
         </FieldRow>
         <VendorDocFileRow
@@ -993,6 +1083,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
                   placeholder="Account holder, as on cheque / passbook"
                   autoCapitalize="words"
                   editable={inputsOpen}
+                  onLockedPress={lockedPress}
                 />
                 <Field
                   label="Account number"
@@ -1001,6 +1092,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
                   placeholder="9–18 digits"
                   keyboardType="number-pad"
                   editable={inputsOpen}
+                  onLockedPress={lockedPress}
                 />
               </FieldRow>
               <FieldRow>
@@ -1011,6 +1103,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
                   placeholder="HDFC0001234"
                   autoCapitalize="characters"
                   editable={inputsOpen}
+                  onLockedPress={lockedPress}
                   hint={
                     inputsOpen && lookup === "looking"
                       ? "Looking up branch…"
@@ -1026,6 +1119,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
                   onChangeText={(v) => patchBankDraft(draft.key, { bank_name: v })}
                   placeholder="e.g. HDFC Bank"
                   editable={inputsOpen}
+                  onLockedPress={lockedPress}
                 />
                 <Field
                   label="Branch name"
@@ -1037,6 +1131,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
                   placeholder="Filled from IFSC"
                   autoCapitalize="words"
                   editable={inputsOpen}
+                  onLockedPress={lockedPress}
                   hint={
                     inputsOpen && branchAutoFilled.current[draft.key] && draft.form.branch_name
                       ? "Auto-filled from IFSC · editable"
@@ -1135,7 +1230,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
         </View>
       </View>
       {canEdit ? (
-        <View style={styles.formFooter}>
+        <View style={[styles.formFooter, !wide && styles.formFooterMobile]}>
           {activeSection === "banking" ? (
             <VaultAction
               label="Add bank account"
@@ -1152,10 +1247,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
             label="Edit"
             variant="outline"
             disabled={busyKey === "form-save"}
-            onPress={() => {
-              editingRef.current = true;
-              setEditing(true);
-            }}
+            onPress={enterEdit}
           />
           <VaultAction
             label="Save"
@@ -1255,16 +1347,30 @@ function SummaryCell({
   value,
   children,
   last,
+  compact,
 }: {
   label: string;
   value?: string;
   children?: ReactNode;
   last?: boolean;
+  compact?: boolean;
 }) {
   return (
-    <View style={[styles.summaryCell, last && styles.summaryCellLast]}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      {children ?? <Text style={styles.summaryValue}>{value}</Text>}
+    <View
+      style={[
+        styles.summaryCell,
+        compact && styles.summaryCellCompact,
+        last && styles.summaryCellLast,
+      ]}
+    >
+      <Text style={styles.summaryLabel} numberOfLines={compact ? 2 : 1}>
+        {label}
+      </Text>
+      {children ?? (
+        <Text style={styles.summaryValue} numberOfLines={1}>
+          {value}
+        </Text>
+      )}
     </View>
   );
 }
@@ -1288,14 +1394,17 @@ function Choice({
   value,
   onChange,
   disabled,
+  nowrap,
 }: {
   items: { key: string; label: string }[];
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  /** Keep chips on one row (for horizontal ScrollView parents). */
+  nowrap?: boolean;
 }) {
   return (
-    <View style={styles.chips}>
+    <View style={[styles.chips, nowrap && styles.chipsNowrap]}>
       {items.map((item) => {
         const on = item.key === value;
         return (
@@ -1311,6 +1420,7 @@ function Choice({
               const hovered = Boolean((state as PressableStateCallbackType & { hovered?: boolean }).hovered);
               return [
                 styles.chip,
+                nowrap && styles.chipNowrap,
                 on && styles.chipOn,
                 disabled && styles.actionDisabled,
                 !on && !disabled && hovered && styles.chipHover,
@@ -1318,7 +1428,9 @@ function Choice({
               ];
             }}
           >
-            <Text style={[styles.chipText, on && styles.chipTextOn]}>{item.label}</Text>
+            <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
+              {item.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -1335,6 +1447,7 @@ function Field({
   autoCapitalize,
   multiline,
   editable = true,
+  onLockedPress,
   hint,
   hintTone = "muted",
 }: {
@@ -1346,31 +1459,62 @@ function Field({
   autoCapitalize?: "none" | "characters" | "words";
   multiline?: boolean;
   editable?: boolean;
+  /** When the field is locked, tap opens edit mode instead of a dead caret. */
+  onLockedPress?: () => void;
   /** Small line under the input (auto-fill / lookup status). */
   hint?: string | null;
   hintTone?: "muted" | "warn";
 }) {
+  const display = value.trim() ? value : "—";
+  const webInputMode =
+    Platform.OS === "web"
+      ? keyboardType === "decimal-pad"
+        ? ("decimal" as const)
+        : keyboardType === "number-pad"
+          ? ("numeric" as const)
+          : undefined
+      : undefined;
+
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        style={[
-          styles.input,
-          multiline && styles.inputMultiline,
-          !editable && styles.inputReadOnly,
-          hint ? styles.inputWithHint : null,
-        ]}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={Theme.textSection}
-        keyboardType={keyboardType ?? "default"}
-        autoCapitalize={autoCapitalize ?? "none"}
-        autoCorrect={false}
-        multiline={multiline}
-        editable={editable}
-        accessibilityLabel={label}
-      />
+      {editable ? (
+        <TextInput
+          style={[styles.input, multiline && styles.inputMultiline, hint ? styles.inputWithHint : null]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={Theme.textSection}
+          keyboardType={keyboardType ?? "default"}
+          autoCapitalize={autoCapitalize ?? "none"}
+          autoCorrect={false}
+          multiline={multiline}
+          editable
+          accessibilityLabel={label}
+          {...(webInputMode ? ({ inputMode: webInputMode } as object) : null)}
+        />
+      ) : (
+        <Pressable
+          onPress={onLockedPress}
+          disabled={!onLockedPress}
+          accessibilityRole={onLockedPress ? "button" : "text"}
+          accessibilityLabel={onLockedPress ? `${label}, tap to edit` : label}
+          style={[
+            styles.input,
+            styles.inputReadOnly,
+            styles.inputLocked,
+            multiline && styles.inputMultiline,
+            hint ? styles.inputWithHint : null,
+          ]}
+        >
+          <Text
+            style={[styles.inputLockedText, !value.trim() && styles.inputLockedPlaceholder]}
+            numberOfLines={multiline ? undefined : 1}
+          >
+            {display}
+          </Text>
+        </Pressable>
+      )}
       {hint ? (
         <Text style={[styles.fieldHint, hintTone === "warn" && styles.fieldHintWarn]} numberOfLines={1}>
           {hint}
@@ -1388,6 +1532,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  formFooterMobile: {
+    width: "100%",
+    flexWrap: "wrap",
+    justifyContent: "stretch",
+    paddingTop: 4,
+  },
   loading: { paddingVertical: 24, alignItems: "flex-start" },
   errorBanner: {
     borderRadius: 8,
@@ -1403,6 +1553,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
+    width: "100%",
+  },
+  summaryMobile: {
+    gap: 8,
   },
   summaryCell: {
     flexGrow: 1,
@@ -1416,6 +1570,11 @@ const styles = StyleSheet.create({
     borderColor: Theme.borderInput,
     backgroundColor: Theme.cardWhite,
   },
+  summaryCellCompact: {
+    flexBasis: "47%",
+    minWidth: 0,
+    maxWidth: "48.5%",
+  },
   summaryCellLast: {},
   summaryLabel: {
     fontSize: 10,
@@ -1427,7 +1586,7 @@ const styles = StyleSheet.create({
   summaryValue: { fontSize: 13, fontWeight: "800", color: Theme.textPrimaryDark, fontVariant: ["tabular-nums"] },
 
   workspace: { flexDirection: "row", alignItems: "flex-start", gap: 12, width: "100%" },
-  workspaceStack: { flexDirection: "column" },
+  workspaceStack: { flexDirection: "column", flexWrap: "nowrap", width: "100%", minWidth: 0 },
   sideNav: {
     width: 220,
     flexShrink: 0,
@@ -1438,7 +1597,42 @@ const styles = StyleSheet.create({
     borderColor: Theme.borderInput,
     backgroundColor: Theme.cardWhite,
   },
-  sideNavStack: { width: "100%" },
+  sideNavMobile: {
+    width: "100%",
+    minWidth: 0,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    gap: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    backgroundColor: Theme.cardWhite,
+  },
+  sideNavChipScroll: { width: "100%", minWidth: 0, flexGrow: 0 },
+  sideNavChipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingRight: 8,
+    paddingVertical: 2,
+    flexGrow: 0,
+  },
+  navChip: {
+    flexShrink: 0,
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    backgroundColor: Theme.surface,
+    justifyContent: "center",
+  },
+  navChipOn: {
+    backgroundColor: Theme.analyticsHeroBg,
+    borderColor: Theme.analyticsHeroBg,
+  },
+  navChipText: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
+  navChipTextOn: { color: Theme.textOnPrimary },
   sideLabel: {
     fontSize: 10,
     fontWeight: "800",
@@ -1449,7 +1643,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   navList: { gap: 4 },
-  navListRow: { flexDirection: "row", flexWrap: "wrap" },
   navItem: {
     minHeight: 34,
     paddingHorizontal: 10,
@@ -1457,13 +1650,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     justifyContent: "center",
   },
-  navItemRow: { flexGrow: 0 },
   navItemOn: { backgroundColor: Theme.analyticsHeroBg },
   navItemHover: { backgroundColor: Theme.surface },
   navItemText: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
   navItemTextOn: { color: Theme.textOnPrimary },
 
   panel: { flex: 1, minWidth: 0, gap: 8 },
+  panelNarrow: { width: "100%", flexGrow: 0, flexShrink: 0 },
   panelHint: {
     width: "100%",
     flexBasis: "100%",
@@ -1541,7 +1734,7 @@ const styles = StyleSheet.create({
   primaryLabelOn: { color: Theme.textPrimaryDark, fontWeight: "700" },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: Theme.borderInput, marginVertical: 4 },
 
-  fieldRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  fieldRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, width: "100%" },
   field: { flexGrow: 1, flexBasis: 180, minWidth: 0, gap: 4 },
   fieldLabel: {
     fontSize: 10,
@@ -1566,7 +1759,15 @@ const styles = StyleSheet.create({
   inputWithHint: {},
   fieldHint: { fontSize: 11, fontWeight: "600", color: Theme.textMuted },
   fieldHintWarn: { color: Theme.negative },
-  inputReadOnly: { opacity: 0.6 },
+  inputReadOnly: { opacity: 0.85 },
+  inputLocked: { justifyContent: "center" },
+  inputLockedText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    fontVariant: ["tabular-nums"],
+  },
+  inputLockedPlaceholder: { color: Theme.textSection },
   note: { fontSize: 12, fontWeight: "500", color: Theme.textMuted },
   reason: { fontSize: 12, fontWeight: "600", color: Theme.negative },
   empty: { fontSize: 12, fontWeight: "500", color: Theme.textMuted },
@@ -1595,6 +1796,7 @@ const styles = StyleSheet.create({
   actionGhostText: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
 
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  chipsNowrap: { flexWrap: "nowrap", flexGrow: 0, alignItems: "center" },
   chip: {
     minHeight: 30,
     paddingHorizontal: 10,
@@ -1604,11 +1806,18 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surface,
     justifyContent: "center",
   },
+  chipNowrap: { flexShrink: 0 },
   chipOn: { backgroundColor: Theme.analyticsHeroBg, borderColor: Theme.analyticsHeroBg },
   chipHover: { borderColor: Theme.analyticsHeroBg },
   chipText: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
   chipTextOn: { color: Theme.textOnPrimary },
-  fyScroll: { flexGrow: 0 },
+  fyScroll: { flexGrow: 0, width: "100%", maxWidth: "100%" },
+  fyScrollContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 12,
+    flexGrow: 0,
+  },
 
   statusPill: { alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
   statusPillText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3 },

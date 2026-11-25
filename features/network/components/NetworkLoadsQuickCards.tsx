@@ -15,6 +15,7 @@ import {
     type NetworkLoadsQuickAction,
 } from "@/lib/networkLoadsQuickCardsAssets";
 import { ROUTES } from "@/lib/routes";
+import { useWebLayoutWidth } from "@/lib/useWebLayoutWidth";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { ArrowUpRight, Lock } from "lucide-react-native";
@@ -24,7 +25,6 @@ import {
     Pressable,
     StyleSheet,
     Text,
-    useWindowDimensions,
     View,
     type ViewStyle,
 } from "react-native";
@@ -97,7 +97,7 @@ function MarketplaceCard({
   isMobile,
   inline = false,
 }: MarketplaceCardProps) {
-  const { width } = useWindowDimensions();
+  const width = useWebLayoutWidth();
   const [cardWidth, setCardWidth] = useState(0);
   const sidebar = variant === "sidebar";
   const mobileTile = isMobile && variant === "tile";
@@ -290,7 +290,7 @@ export function NetworkLoadsQuickCards({
 }: NetworkLoadsQuickCardsProps) {
   const router = useRouter();
   const guardVerified = useVerifiedActionGuard();
-  const { width } = useWindowDimensions();
+  const width = useWebLayoutWidth();
   const inline = layout === "inline";
   const sidebar = layout === "sidebar";
   const isMobile = !sidebar && !inline && (NATIVE_APP || width < SPLIT_STACK_BREAKPOINT);

@@ -131,6 +131,45 @@ const AGING_LABELS: Record<AgingBucketKey, string> = {
   bucket90Plus: "90+ days",
 };
 
+/**
+ * Compact ledger: fixed column widths (no flex shrink) + horizontal scroll.
+ * Width must be ≥ sum of columns + gaps + padding or the last column clips
+ * under `overflow: hidden` even when scrolled to the end.
+ */
+const LEDGER_COL = {
+  date: 88,
+  desc: 176,
+  trip: 156,
+  amt: 112,
+  bal: 112,
+} as const;
+const LEDGER_TABLE_GAP = 8;
+const LEDGER_TABLE_PAD_X = 12;
+const LEDGER_TABLE_MIN_WIDTH =
+  LEDGER_COL.date +
+  LEDGER_COL.desc +
+  LEDGER_COL.trip +
+  LEDGER_COL.amt * 2 +
+  LEDGER_COL.bal +
+  LEDGER_TABLE_GAP * 5 +
+  LEDGER_TABLE_PAD_X * 2 +
+  8;
+
+const OPEN_AR_COL = {
+  trip: 200,
+  date: 88,
+  days: 52,
+  amt: 112,
+} as const;
+const OPEN_AR_TABLE_MIN_WIDTH =
+  OPEN_AR_COL.trip +
+  OPEN_AR_COL.date +
+  OPEN_AR_COL.days +
+  OPEN_AR_COL.amt +
+  LEDGER_TABLE_GAP * 3 +
+  LEDGER_TABLE_PAD_X * 2 +
+  8;
+
 export function ClientProfileFinanceStatementModal({
   visible,
   onClose,
@@ -389,7 +428,7 @@ export function ClientProfileFinanceStatementModal({
       onRequestClose={onClose}
     >
       <View style={[styles.root, { paddingTop: insets.top }]}>
-        <View style={styles.header}>
+        <View style={[styles.header, isCompact && styles.headerCompact]}>
           <Pressable
             onPress={onClose}
             style={styles.backBtn}
@@ -400,20 +439,26 @@ export function ClientProfileFinanceStatementModal({
             <FontAwesome name="chevron-left" size={16} color={Theme.textPrimaryDark} />
           </Pressable>
           <View style={styles.headerCopy}>
-            <Text style={styles.headerEyebrow}>Finance · Statement</Text>
-            <Text style={styles.headerTitle} numberOfLines={1}>
+            <Text style={styles.headerEyebrow} numberOfLines={1}>
+              Finance · Statement
+            </Text>
+            <Text style={styles.headerTitle} numberOfLines={isCompact ? 2 : 1}>
               {clientName.trim() || "Client"}
             </Text>
           </View>
           <Pressable
             onPress={() => void handleDownloadA4()}
-            style={[styles.downloadBtn, downloadInProgress && styles.downloadBtnDisabled]}
+            style={[
+              styles.downloadBtn,
+              isCompact && styles.downloadBtnCompact,
+              downloadInProgress && styles.downloadBtnDisabled,
+            ]}
             disabled={downloadInProgress}
             accessibilityRole="button"
             accessibilityLabel="Download statement PDF"
           >
             <FontAwesome name="download" size={11} color={Theme.textOnPrimary} />
-            <Text style={styles.downloadBtnText}>
+            <Text style={styles.downloadBtnText} numberOfLines={1}>
               {downloadInProgress ? "Generating…" : "Download"}
             </Text>
           </Pressable>
@@ -531,62 +576,136 @@ export function ClientProfileFinanceStatementModal({
               {openReceivables.length === 0 ? (
                 <Text style={styles.empty}>No open receivables in this bucket.</Text>
               ) : (
-                <View style={styles.table}>
-                  <View style={styles.tableHead}>
-                    <Text style={[styles.th, styles.colTrip]}>Trip / Route</Text>
-                    <Text style={[styles.th, styles.colDate]}>Date</Text>
-                    <Text style={[styles.th, styles.colDays]}>Days</Text>
-                    <Text style={[styles.th, styles.colAmt]}>Outstanding</Text>
-                  </View>
-                  {openReceivables.map((row) => {
-                    const trip = row.trip;
-                    const tripLabel = getTripOperationalDisplay({
-                      trip_operational_code: trip.trip_operational_code ?? null,
-                      trip_code: trip.trip_code ?? null,
-                      display_trip_id: trip.display_trip_id ?? null,
-                      trip_number: trip.trip_number ?? null,
-                    });
-                    const pickup = (trip.pickup_area ?? "").trim();
-                    const drop = (
-                      trip.drop_location ??
-                      trip.drop_area ??
-                      ""
-                    ).trim();
-                    const route =
-                      pickup && drop
-                        ? `${pickup} → ${drop}`
-                        : pickup || drop || "";
-                    const date =
-                      (trip.pickup_date || trip.created_at || "").slice(0, 10) ||
-                      "—";
-                    return (
-                      <View key={trip.id} style={styles.tr}>
-                        <View style={styles.colTrip}>
-                          <Text style={styles.tripId} numberOfLines={1}>
-                            {tripLabel}
-                          </Text>
-                          {route ? (
-                            <Text style={styles.tripRoute} numberOfLines={2}>
-                              {route}
-                            </Text>
-                          ) : null}
-                        </View>
-                        <Text style={[styles.td, styles.colDate]} numberOfLines={1}>
-                          {date}
-                        </Text>
-                        <Text style={[styles.td, styles.colDays]} numberOfLines={1}>
-                          {row.daysOld}d
-                        </Text>
+                (() => {
+                  const openArTable = (
+                    <View
+                      style={[
+                        styles.table,
+                        isCompact && styles.tableCompact,
+                        isCompact && { width: OPEN_AR_TABLE_MIN_WIDTH },
+                      ]}
+                    >
+                      <View style={styles.tableHead}>
                         <Text
-                          style={[styles.td, styles.colAmt, styles.tdBal]}
+                          style={[
+                            styles.th,
+                            isCompact ? styles.colOpenTripFixed : styles.colTrip,
+                          ]}
                           numberOfLines={1}
                         >
-                          {formatInr(row.outstanding)}
+                          Trip / Route
+                        </Text>
+                        <Text
+                          style={[
+                            styles.th,
+                            isCompact ? styles.colDateFixed : styles.colDate,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          Date
+                        </Text>
+                        <Text
+                          style={[
+                            styles.th,
+                            isCompact ? styles.colDaysFixed : styles.colDays,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          Days
+                        </Text>
+                        <Text
+                          style={[
+                            styles.th,
+                            isCompact ? styles.colAmtFixed : styles.colAmt,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          Outstanding
                         </Text>
                       </View>
-                    );
-                  })}
-                </View>
+                      {openReceivables.map((row) => {
+                        const trip = row.trip;
+                        const tripLabel = getTripOperationalDisplay({
+                          trip_operational_code: trip.trip_operational_code ?? null,
+                          trip_code: trip.trip_code ?? null,
+                          display_trip_id: trip.display_trip_id ?? null,
+                          trip_number: trip.trip_number ?? null,
+                        });
+                        const pickup = (trip.pickup_area ?? "").trim();
+                        const drop = (
+                          trip.drop_location ??
+                          trip.drop_area ??
+                          ""
+                        ).trim();
+                        const route =
+                          pickup && drop
+                            ? `${pickup} → ${drop}`
+                            : pickup || drop || "";
+                        const date =
+                          (trip.pickup_date || trip.created_at || "").slice(0, 10) ||
+                          "—";
+                        return (
+                          <View key={trip.id} style={styles.tr}>
+                            <View
+                              style={
+                                isCompact ? styles.colOpenTripFixed : styles.colTrip
+                              }
+                            >
+                              <Text style={styles.tripId} numberOfLines={1}>
+                                {tripLabel}
+                              </Text>
+                              {route ? (
+                                <Text style={styles.tripRoute} numberOfLines={2}>
+                                  {route}
+                                </Text>
+                              ) : null}
+                            </View>
+                            <Text
+                              style={[
+                                styles.td,
+                                isCompact ? styles.colDateFixed : styles.colDate,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {date}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.td,
+                                isCompact ? styles.colDaysFixed : styles.colDays,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {row.daysOld}d
+                            </Text>
+                            <Text
+                              style={[
+                                styles.td,
+                                isCompact ? styles.colAmtFixed : styles.colAmt,
+                                styles.tdBal,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {formatInr(row.outstanding)}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  );
+                  if (!isCompact) return openArTable;
+                  return (
+                    <ScrollView
+                      horizontal
+                      nestedScrollEnabled
+                      showsHorizontalScrollIndicator
+                      style={styles.tableScroll}
+                      contentContainerStyle={styles.tableScrollContent}
+                    >
+                      {openArTable}
+                    </ScrollView>
+                  );
+                })()
               )}
             </View>
           ) : null}
@@ -596,7 +715,9 @@ export function ClientProfileFinanceStatementModal({
           </Text>
           <ScrollView
             horizontal
+            nestedScrollEnabled
             showsHorizontalScrollIndicator={false}
+            style={styles.chipScroll}
             contentContainerStyle={styles.chipRow}
           >
             {chips.map((chip) => {
@@ -607,7 +728,10 @@ export function ClientProfileFinanceStatementModal({
                   onPress={() => setChipId(chip.id)}
                   style={[styles.chip, active && styles.chipActive]}
                 >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                  <Text
+                    style={[styles.chipText, active && styles.chipTextActive]}
+                    numberOfLines={1}
+                  >
                     {chip.label}
                   </Text>
                 </Pressable>
@@ -616,7 +740,7 @@ export function ClientProfileFinanceStatementModal({
           </ScrollView>
 
           {chipId === "CUSTOM" ? (
-            <View style={styles.rangeRow}>
+            <View style={[styles.rangeRow, isCompact && styles.rangeRowCompact]}>
               <View style={styles.rangeField}>
                 <Text style={styles.rangeLabel}>From</Text>
                 <TextInput
@@ -645,82 +769,184 @@ export function ClientProfileFinanceStatementModal({
           ) : null}
 
           <View style={styles.periodSummary}>
-            <Text style={styles.periodSummaryText}>
+            <Text
+              style={styles.periodSummaryText}
+              numberOfLines={isCompact ? 2 : 1}
+            >
               {rows.length} txn · In {formatInr(periodIn)} · Out {formatInr(periodOut)} · Net{" "}
               {formatInr(periodIn - periodOut)}
             </Text>
           </View>
 
-          <View style={styles.table}>
-            <View style={styles.tableHead}>
-              <Text style={[styles.th, styles.colDate]}>Date</Text>
-              <Text style={[styles.th, styles.colDesc]}>Description</Text>
-              <Text style={[styles.th, styles.colTrip]}>Trip / Route</Text>
-              <Text style={[styles.th, styles.colAmt]}>Amount paid</Text>
-              <Text style={[styles.th, styles.colAmt]}>Amount received</Text>
-              <Text style={[styles.th, styles.colBal]}>Balance</Text>
-            </View>
-            {rows.length === 0 ? (
-              <Text style={styles.empty}>
-                {agingBucket
-                  ? "No ledger entries linked to this aging bucket in range."
-                  : "No transactions in this range."}
-              </Text>
-            ) : (
-              rows.map((row) => {
-                const tripCell = ledgerTripRouteCell(row, tripById);
-                return (
-                <View key={row.id} style={styles.tr}>
-                  <Text style={[styles.td, styles.colDate]} numberOfLines={1}>
-                    {txDay(row) || "—"}
+          {(() => {
+            const ledgerTable = (
+              <View
+                style={[
+                  styles.table,
+                  isCompact && styles.tableCompact,
+                  isCompact && { width: LEDGER_TABLE_MIN_WIDTH },
+                ]}
+              >
+                <View style={styles.tableHead}>
+                  <Text
+                    style={[
+                      styles.th,
+                      isCompact ? styles.colDateFixed : styles.colDate,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Date
                   </Text>
-                  <View style={styles.colDesc}>
-                    <Text style={styles.td} numberOfLines={2}>
-                      {row.description?.trim() || "—"}
-                    </Text>
-                    {row.payment_mode ? (
-                      <Text style={styles.tdSub} numberOfLines={1}>
-                        Mode: {row.payment_mode}
-                        {row.payment_reference
-                          ? ` · UTR: ${row.payment_reference}`
-                          : ""}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <View style={styles.colTrip}>
-                    {tripCell ? (
-                      <>
-                        <Text style={styles.tripId} numberOfLines={1}>
-                          {tripCell.tripIdLabel}
-                        </Text>
-                        {tripCell.routeLabel ? (
-                          <Text style={styles.tripRoute} numberOfLines={2}>
-                            {tripCell.routeLabel}
-                          </Text>
-                        ) : null}
-                      </>
-                    ) : (
-                      <Text style={styles.tripEmpty}>—</Text>
-                    )}
-                  </View>
-                  <Text style={[styles.td, styles.colAmt]} numberOfLines={1}>
-                    {Number(row.amount_out) > 0
-                      ? formatInr(Number(row.amount_out))
-                      : "—"}
+                  <Text
+                    style={[
+                      styles.th,
+                      isCompact ? styles.colDescFixed : styles.colDesc,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Description
                   </Text>
-                  <Text style={[styles.td, styles.colAmt]} numberOfLines={1}>
-                    {Number(row.amount_in) > 0
-                      ? formatInr(Number(row.amount_in))
-                      : "—"}
+                  <Text
+                    style={[
+                      styles.th,
+                      isCompact ? styles.colTripFixed : styles.colTrip,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Trip / Route
                   </Text>
-                  <Text style={[styles.td, styles.colBal, styles.tdBal]} numberOfLines={1}>
-                    {formatInr(row.balance)}
+                  <Text
+                    style={[
+                      styles.th,
+                      isCompact ? styles.colAmtFixed : styles.colAmt,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Amount paid
+                  </Text>
+                  <Text
+                    style={[
+                      styles.th,
+                      isCompact ? styles.colAmtFixed : styles.colAmt,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Amount received
+                  </Text>
+                  <Text
+                    style={[
+                      styles.th,
+                      isCompact ? styles.colBalFixed : styles.colBal,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Balance
                   </Text>
                 </View>
-                );
-              })
-            )}
-          </View>
+                {rows.length === 0 ? (
+                  <Text style={styles.empty}>
+                    {agingBucket
+                      ? "No ledger entries linked to this aging bucket in range."
+                      : "No transactions in this range."}
+                  </Text>
+                ) : (
+                  rows.map((row) => {
+                    const tripCell = ledgerTripRouteCell(row, tripById);
+                    return (
+                      <View key={row.id} style={styles.tr}>
+                        <Text
+                          style={[
+                            styles.td,
+                            isCompact ? styles.colDateFixed : styles.colDate,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {txDay(row) || "—"}
+                        </Text>
+                        <View
+                          style={isCompact ? styles.colDescFixed : styles.colDesc}
+                        >
+                          <Text style={styles.td} numberOfLines={2}>
+                            {row.description?.trim() || "—"}
+                          </Text>
+                          {row.payment_mode ? (
+                            <Text style={styles.tdSub} numberOfLines={1}>
+                              Mode: {row.payment_mode}
+                              {row.payment_reference
+                                ? ` · UTR: ${row.payment_reference}`
+                                : ""}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <View
+                          style={isCompact ? styles.colTripFixed : styles.colTrip}
+                        >
+                          {tripCell ? (
+                            <>
+                              <Text style={styles.tripId} numberOfLines={1}>
+                                {tripCell.tripIdLabel}
+                              </Text>
+                              {tripCell.routeLabel ? (
+                                <Text style={styles.tripRoute} numberOfLines={2}>
+                                  {tripCell.routeLabel}
+                                </Text>
+                              ) : null}
+                            </>
+                          ) : (
+                            <Text style={styles.tripEmpty}>—</Text>
+                          )}
+                        </View>
+                        <Text
+                          style={[
+                            styles.td,
+                            isCompact ? styles.colAmtFixed : styles.colAmt,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {Number(row.amount_out) > 0
+                            ? formatInr(Number(row.amount_out))
+                            : "—"}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.td,
+                            isCompact ? styles.colAmtFixed : styles.colAmt,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {Number(row.amount_in) > 0
+                            ? formatInr(Number(row.amount_in))
+                            : "—"}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.td,
+                            isCompact ? styles.colBalFixed : styles.colBal,
+                            styles.tdBal,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {formatInr(row.balance)}
+                        </Text>
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+            );
+            if (!isCompact) return ledgerTable;
+            return (
+              <ScrollView
+                horizontal
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator
+                style={styles.tableScroll}
+                contentContainerStyle={styles.tableScrollContent}
+              >
+                {ledgerTable}
+              </ScrollView>
+            );
+          })()}
         </ScrollView>
       </View>
     </Modal>
@@ -739,12 +965,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Theme.borderInput,
   },
+  headerCompact: {
+    flexWrap: "nowrap",
+    alignItems: "flex-start",
+  },
   backBtn: {
     width: 32,
     height: 32,
     borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   headerCopy: { flex: 1, minWidth: 0 },
   headerEyebrow: {
@@ -769,6 +1000,11 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: Theme.textPrimaryDark,
     minHeight: 30,
+    flexShrink: 0,
+  },
+  downloadBtnCompact: {
+    paddingHorizontal: 8,
+    alignSelf: "center",
   },
   downloadBtnDisabled: {
     opacity: 0.65,
@@ -781,7 +1017,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 14, paddingTop: 12 },
+  scrollContent: { paddingHorizontal: 14, paddingTop: 12, maxWidth: "100%" },
   sectionTitle: {
     fontSize: 13,
     fontWeight: "700",
@@ -865,7 +1101,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
-  chipRow: { gap: 6, paddingBottom: 8 },
+  chipScroll: { flexGrow: 0, maxWidth: "100%", marginBottom: 2 },
+  chipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingBottom: 8,
+    paddingRight: 4,
+  },
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -875,6 +1118,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     minHeight: 30,
     justifyContent: "center",
+    flexShrink: 0,
   },
   chipActive: {
     backgroundColor: Theme.textPrimaryDark,
@@ -883,6 +1127,7 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 10, fontWeight: "700", color: Theme.textRouteCard },
   chipTextActive: { color: Theme.textOnPrimary },
   rangeRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  rangeRowCompact: { flexDirection: "column" },
   rangeField: { flex: 1, minWidth: 0, gap: 3 },
   rangeLabel: {
     fontSize: 8,
@@ -912,6 +1157,18 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Theme.textMuted,
   },
+  tableScroll: {
+    width: "100%",
+    maxWidth: "100%",
+    alignSelf: "stretch",
+  },
+  // Do NOT set flexGrow:1 here — on web it collapses scroll width to the
+  // viewport and the last column stays clipped at the right edge.
+  tableScrollContent: {
+    flexGrow: 0,
+    paddingRight: 16,
+    alignItems: "flex-start",
+  },
   table: {
     borderRadius: 8,
     borderWidth: 1,
@@ -921,12 +1178,17 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "stretch",
   },
+  tableCompact: {
+    alignSelf: "flex-start",
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   tableHead: {
     flexDirection: "row",
     alignItems: "center",
     width: "100%",
-    gap: 8,
-    paddingHorizontal: 12,
+    gap: LEDGER_TABLE_GAP,
+    paddingHorizontal: LEDGER_TABLE_PAD_X,
     paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.borderInput,
@@ -943,8 +1205,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     width: "100%",
-    gap: 8,
-    paddingHorizontal: 12,
+    gap: LEDGER_TABLE_GAP,
+    paddingHorizontal: LEDGER_TABLE_PAD_X,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.borderInput,
@@ -974,6 +1236,46 @@ const styles = StyleSheet.create({
   },
   colBal: {
     width: 104,
+    flexGrow: 0,
+    flexShrink: 0,
+    textAlign: "right",
+    fontVariant: ["tabular-nums"],
+  },
+  colDateFixed: {
+    width: LEDGER_COL.date,
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  colDescFixed: {
+    width: LEDGER_COL.desc,
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  colTripFixed: {
+    width: LEDGER_COL.trip,
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  colOpenTripFixed: {
+    width: OPEN_AR_COL.trip,
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  colDaysFixed: {
+    width: OPEN_AR_COL.days,
+    flexGrow: 0,
+    flexShrink: 0,
+    textAlign: "right",
+  },
+  colAmtFixed: {
+    width: LEDGER_COL.amt,
+    flexGrow: 0,
+    flexShrink: 0,
+    textAlign: "right",
+    fontVariant: ["tabular-nums"],
+  },
+  colBalFixed: {
+    width: LEDGER_COL.bal,
     flexGrow: 0,
     flexShrink: 0,
     textAlign: "right",

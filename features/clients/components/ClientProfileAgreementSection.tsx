@@ -15,6 +15,7 @@ import { VehicleTypeCatalogField } from "@/features/vehicles/components/VehicleT
 import {
   Linking,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -453,7 +454,8 @@ export function ClientProfileAgreementSection({ organizationId, clientId, onChan
 
   return (
     <View style={[styles.workspace, !wide && styles.workspaceStack]}>
-      <View style={[styles.sideNav, !wide && styles.sideNavStack]}>
+      {wide ? (
+      <View style={styles.sideNav}>
         <Text style={styles.sideLabel}>Agreement</Text>
         {NAV.map((item) => {
           const on = section === item.id;
@@ -472,8 +474,38 @@ export function ClientProfileAgreementSection({ organizationId, clientId, onChan
           );
         })}
       </View>
+      ) : (
+      <View style={styles.sideNavMobile}>
+        <Text style={styles.sideLabel}>Agreement</Text>
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          showsHorizontalScrollIndicator
+          style={styles.sideNavChipScroll}
+          contentContainerStyle={styles.sideNavChipRow}
+          keyboardShouldPersistTaps="handled"
+        >
+          {NAV.map((item) => {
+            const on = section === item.id;
+            return (
+              <TouchableOpacity
+                key={item.id}
+                style={[styles.navChip, on && styles.navChipOn]}
+                onPress={() => setSection(item.id)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+              >
+                <Text style={[styles.navChipText, on && styles.navChipTextOn]} numberOfLines={1}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+      )}
 
-      <View style={styles.panel}>
+      <View style={[styles.panel, !wide && styles.panelNarrow]}>
         {section === "document" ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Upload agreement</Text>
@@ -507,11 +539,12 @@ export function ClientProfileAgreementSection({ organizationId, clientId, onChan
 
         {section === "debit" ? (
           <View style={styles.debitWrap}>
-            <View style={[styles.dialogPair, !wide && styles.workspaceStack]}>
+            <View style={[styles.dialogPair, !wide && styles.dialogPairStack]}>
               {draft.debitItems.map((item) => (
                 <DebitFunctionCard
                   key={item.id}
                   item={item}
+                  compact={!wide}
                   onChange={(next) =>
                     setDraft((current) => ({
                       ...current,
@@ -530,7 +563,12 @@ export function ClientProfileAgreementSection({ organizationId, clientId, onChan
                 />
               ))}
               <TouchableOpacity
-                style={[styles.dialogCard, styles.debitCard, styles.addDebitCard]}
+                style={[
+                  styles.dialogCard,
+                  styles.debitCard,
+                  !wide && styles.debitCardNarrow,
+                  styles.addDebitCard,
+                ]}
                 onPress={() =>
                   setDraft((current) => ({ ...current, debitItems: [...current.debitItems, newCustomDebit()] }))
                 }
@@ -590,9 +628,10 @@ export function ClientProfileAgreementSection({ organizationId, clientId, onChan
         ) : null}
 
         {section === "detention" ? (
-          <View style={[styles.dialogPair, !wide && styles.workspaceStack]}>
+          <View style={[styles.dialogPair, !wide && styles.dialogPairStack]}>
             <HaltingBlock
               title="Loading halting"
+              compact={!wide}
               validHours={draft.loadingValidHours}
               onValidHours={(value) => setDraft((d) => ({ ...d, loadingValidHours: value }))}
               rates={draft.loadingRates}
@@ -600,6 +639,7 @@ export function ClientProfileAgreementSection({ organizationId, clientId, onChan
             />
             <HaltingBlock
               title="Unloading halting"
+              compact={!wide}
               validHours={draft.unloadingValidHours}
               onValidHours={(value) => setDraft((d) => ({ ...d, unloadingValidHours: value }))}
               rates={draft.unloadingRates}
@@ -609,8 +649,8 @@ export function ClientProfileAgreementSection({ organizationId, clientId, onChan
         ) : null}
 
         {section === "placement" ? (
-          <View style={[styles.dialogPair, !wide && styles.workspaceStack]}>
-            <View style={styles.dialogCard}>
+          <View style={[styles.dialogPair, !wide && styles.dialogPairStack]}>
+            <View style={[styles.dialogCard, !wide && styles.dialogCardNarrow]}>
               <Text style={styles.dialogTitle}>Placement failure class</Text>
               <View style={styles.chips}>
                 {PLACEMENT_CLASSES.map((item) => {
@@ -652,6 +692,7 @@ export function ClientProfileAgreementSection({ organizationId, clientId, onChan
             </View>
             <HaltingBlock
               title="Delay delivery"
+              compact={!wide}
               validHours={draft.delayValidHours}
               onValidHours={(value) => setDraft((d) => ({ ...d, delayValidHours: value }))}
               rates={draft.delayRates}
@@ -733,56 +774,115 @@ function HaltingBlock({
   onValidHours,
   rates,
   onChange,
+  compact = false,
 }: {
   title: string;
   validHours: string;
   onValidHours: (value: string) => void;
   rates: HaltingRate[];
   onChange: (rates: HaltingRate[]) => void;
+  compact?: boolean;
 }) {
   const update = (id: string, patch: Partial<HaltingRate>) => {
     onChange(rates.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   };
   return (
-    <View style={styles.dialogCard}>
-      <View style={styles.dialogHead}>
-        <Text style={styles.dialogTitle}>{title}</Text>
-        <View style={styles.headHours}>
-          <HourSelect compact label="Valid after" value={validHours} onChange={onValidHours} />
-        </View>
-        <TouchableOpacity
-          style={styles.addIcon}
-          onPress={() => onChange([...rates, newRate()])}
-          accessibilityLabel={`Add ${title} row`}
-        >
-          <FontAwesome name="plus" size={12} color={Theme.textOnPrimary} />
-        </TouchableOpacity>
-      </View>
-      <View style={styles.colHead}>
-        <Text style={[styles.colLabel, styles.colVehicle]}>Vehicle</Text>
-        <Text style={[styles.colLabel, styles.colHours]}>Hours</Text>
-        <Text style={[styles.colLabel, styles.colValue]}>Value (₹)</Text>
-      </View>
-      {rates.map((row) => (
-        <View key={row.id} style={styles.rateRow}>
-          <View style={styles.colVehicle}>
-            <VehicleSelect bare value={row.vehicle} onChange={(vehicle) => update(row.id, { vehicle })} />
-          </View>
-          <View style={styles.colHours}>
-            <MoneyField bare label="Hours" value={row.hours} onChangeText={(hours) => update(row.id, { hours })} />
-          </View>
-          <View style={styles.colValue}>
-            <MoneyField bare label="Value" value={row.value} onChangeText={(value) => update(row.id, { value })} />
+    <View style={[styles.dialogCard, compact && styles.dialogCardNarrow]}>
+      <View style={[styles.dialogHead, compact && styles.dialogHeadNarrow]}>
+        <Text style={[styles.dialogTitle, compact && styles.dialogTitleNarrow]} numberOfLines={compact ? 2 : 1}>
+          {title}
+        </Text>
+        <View style={[styles.dialogHeadActions, compact && styles.dialogHeadActionsNarrow]}>
+          <View style={[styles.headHours, compact && styles.headHoursNarrow]}>
+            <HourSelect compact label="Valid after" value={validHours} onChange={onValidHours} />
           </View>
           <TouchableOpacity
-            style={styles.removeBtn}
-            onPress={() => onChange(rates.length === 1 ? [newRate()] : rates.filter((item) => item.id !== row.id))}
-            accessibilityLabel="Remove row"
+            style={styles.addIcon}
+            onPress={() => onChange([...rates, newRate()])}
+            accessibilityLabel={`Add ${title} row`}
           >
-            <FontAwesome name="times" size={11} color={Theme.negative} />
+            <FontAwesome name="plus" size={12} color={Theme.textOnPrimary} />
           </TouchableOpacity>
         </View>
-      ))}
+      </View>
+      {compact ? (
+        rates.map((row) => (
+          <View key={row.id} style={styles.rateCardNarrow}>
+            <View style={styles.fieldStackItem}>
+              <Text style={styles.fieldLabel}>Vehicle</Text>
+              <VehicleTypeCatalogField
+                value={row.vehicle}
+                onChange={(vehicle) => update(row.id, { vehicle })}
+                placeholder="Select vehicle"
+                style={[styles.select, styles.selectNarrow]}
+                textStyle={styles.selectText}
+              />
+            </View>
+            <View style={styles.fieldStackItem}>
+              <Text style={styles.fieldLabel}>Hours</Text>
+              <TextInput
+                value={row.hours}
+                onChangeText={(hours) => update(row.id, { hours })}
+                keyboardType="decimal-pad"
+                placeholder="0"
+                placeholderTextColor={Theme.textSection}
+                style={styles.input}
+              />
+            </View>
+            <View style={styles.fieldStackItem}>
+              <Text style={styles.fieldLabel}>Value (₹)</Text>
+              <TextInput
+                value={row.value}
+                onChangeText={(value) => update(row.id, { value })}
+                keyboardType="decimal-pad"
+                placeholder="0"
+                placeholderTextColor={Theme.textSection}
+                style={styles.input}
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.removeBtn, styles.removeBtnNarrow]}
+              onPress={() =>
+                onChange(rates.length === 1 ? [newRate()] : rates.filter((item) => item.id !== row.id))
+              }
+              accessibilityLabel="Remove row"
+            >
+              <FontAwesome name="times" size={11} color={Theme.negative} />
+              <Text style={styles.removeBtnText}>Remove</Text>
+            </TouchableOpacity>
+          </View>
+        ))
+      ) : (
+        <>
+          <View style={styles.colHead}>
+            <Text style={[styles.colLabel, styles.colVehicle]}>Vehicle</Text>
+            <Text style={[styles.colLabel, styles.colHours]}>Hours</Text>
+            <Text style={[styles.colLabel, styles.colValue]}>Value (₹)</Text>
+          </View>
+          {rates.map((row) => (
+            <View key={row.id} style={styles.rateRow}>
+              <View style={styles.colVehicle}>
+                <VehicleSelect bare value={row.vehicle} onChange={(vehicle) => update(row.id, { vehicle })} />
+              </View>
+              <View style={styles.colHours}>
+                <MoneyField bare label="Hours" value={row.hours} onChangeText={(hours) => update(row.id, { hours })} />
+              </View>
+              <View style={styles.colValue}>
+                <MoneyField bare label="Value" value={row.value} onChangeText={(value) => update(row.id, { value })} />
+              </View>
+              <TouchableOpacity
+                style={styles.removeBtn}
+                onPress={() =>
+                  onChange(rates.length === 1 ? [newRate()] : rates.filter((item) => item.id !== row.id))
+                }
+                accessibilityLabel="Remove row"
+              >
+                <FontAwesome name="times" size={11} color={Theme.negative} />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </>
+      )}
     </View>
   );
 }
@@ -814,42 +914,48 @@ function DebitFunctionCard({
   item,
   onChange,
   onRemove,
+  compact = false,
 }: {
   item: DebitItem;
   onChange: (item: DebitItem) => void;
   onRemove?: () => void;
+  compact?: boolean;
 }) {
   return (
-    <View style={[styles.dialogCard, styles.debitCard]}>
-      <View style={styles.dialogHead}>
+    <View style={[styles.dialogCard, styles.debitCard, compact && styles.debitCardNarrow]}>
+      <View style={[styles.dialogHead, compact && styles.dialogHeadNarrow]}>
         {item.custom ? (
           <TextInput
             value={item.name}
             onChangeText={(name) => onChange({ ...item, name })}
             placeholder="Debit name"
             placeholderTextColor={Theme.textSection}
-            style={[styles.input, styles.debitName]}
+            style={[styles.input, styles.debitName, compact && styles.debitNameNarrow]}
           />
         ) : (
-          <Text style={styles.dialogTitle}>{item.name}</Text>
-        )}
-        <TouchableOpacity
-          style={[styles.eligible, item.insuranceEligible && styles.eligibleOn]}
-          onPress={() => onChange({ ...item, insuranceEligible: !item.insuranceEligible })}
-          accessibilityRole="switch"
-          accessibilityState={{ checked: item.insuranceEligible }}
-        >
-          <Text style={[styles.eligibleText, item.insuranceEligible && styles.eligibleTextOn]}>
-            {item.insuranceEligible ? "Insurance eligible" : "Not insured"}
+          <Text style={[styles.dialogTitle, compact && styles.dialogTitleNarrow]} numberOfLines={compact ? 2 : 1}>
+            {item.name}
           </Text>
+        )}
+        <View style={[styles.dialogHeadActions, compact && styles.dialogHeadActionsNarrow]}>
+          <TouchableOpacity
+            style={[styles.eligible, item.insuranceEligible && styles.eligibleOn]}
+            onPress={() => onChange({ ...item, insuranceEligible: !item.insuranceEligible })}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: item.insuranceEligible }}
+          >
+            <Text style={[styles.eligibleText, item.insuranceEligible && styles.eligibleTextOn]} numberOfLines={1}>
+              {item.insuranceEligible ? "Insurance eligible" : "Not insured"}
+            </Text>
           </TouchableOpacity>
-        {onRemove ? (
-          <TouchableOpacity style={styles.removeBtn} onPress={onRemove} accessibilityLabel="Remove debit card">
-            <FontAwesome name="times" size={11} color={Theme.negative} />
-          </TouchableOpacity>
-        ) : null}
+          {onRemove ? (
+            <TouchableOpacity style={styles.removeBtn} onPress={onRemove} accessibilityLabel="Remove debit card">
+              <FontAwesome name="times" size={11} color={Theme.negative} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
-      <View style={styles.pair}>
+      <View style={[styles.pair, compact && styles.pairStack]}>
         <MoneyField
           label="Min value (₹)"
           value={item.minValue}
@@ -906,7 +1012,14 @@ function MoneyField({
 const styles = StyleSheet.create({
   loading: { padding: 24, alignItems: "flex-start" },
   workspace: { flexDirection: "row", alignItems: "flex-start", gap: 12, width: "100%" },
-  workspaceStack: { flexDirection: "column" },
+  workspaceStack: {
+    flexDirection: "column",
+    flexWrap: "nowrap",
+    alignItems: "stretch",
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+  },
   sideNav: {
     width: 210,
     flexShrink: 0,
@@ -918,6 +1031,41 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
   },
   sideNavStack: { width: "100%" },
+  sideNavMobile: {
+    width: "100%",
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    gap: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    backgroundColor: Theme.cardWhite,
+    minWidth: 0,
+  },
+  sideNavChipScroll: { width: "100%", minWidth: 0 },
+  sideNavChipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingRight: 8,
+    paddingVertical: 2,
+  },
+  navChip: {
+    flexShrink: 0,
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    backgroundColor: Theme.surface,
+    justifyContent: "center",
+  },
+  navChipOn: {
+    backgroundColor: Theme.analyticsHeroBg,
+    borderColor: Theme.analyticsHeroBg,
+  },
+  navChipText: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
+  navChipTextOn: { color: Theme.textOnPrimary },
   sideLabel: {
     fontSize: 10,
     fontWeight: "800",
@@ -937,6 +1085,12 @@ const styles = StyleSheet.create({
   navItemText: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
   navItemTextOn: { color: Theme.textOnPrimary },
   panel: { flex: 1, minWidth: 0, gap: 8, overflow: "visible" },
+  panelNarrow: {
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+    alignSelf: "stretch",
+  },
   card: {
     padding: 12,
     gap: 8,
@@ -951,6 +1105,7 @@ const styles = StyleSheet.create({
   fileName: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
   actionRow: { flexDirection: "row", gap: 8 },
   pair: { flexDirection: "row", gap: 8 },
+  pairStack: { flexDirection: "column", gap: 8, width: "100%" },
   field: { flex: 1, minWidth: 0, gap: 4, position: "relative" },
   fieldLabel: {
     fontSize: 10,
@@ -1012,6 +1167,20 @@ const styles = StyleSheet.create({
     zIndex: 5,
     overflow: "visible",
   },
+  /**
+   * Mobile stack must disable wrap. Column + wrap creates a second horizontal
+   * column and clips cards off the left edge of the phone viewport.
+   */
+  dialogPairStack: {
+    flexDirection: "column",
+    flexWrap: "nowrap",
+    alignItems: "stretch",
+    alignSelf: "stretch",
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+    gap: 10,
+  },
   eligible: {
     minHeight: 26,
     paddingHorizontal: 8,
@@ -1020,12 +1189,22 @@ const styles = StyleSheet.create({
     borderColor: Theme.borderInput,
     backgroundColor: Theme.surface,
     justifyContent: "center",
+    flexShrink: 0,
   },
   eligibleOn: { backgroundColor: Theme.analyticsHeroBg, borderColor: Theme.analyticsHeroBg },
   eligibleText: { fontSize: 11, fontWeight: "700", color: Theme.textMuted },
   eligibleTextOn: { color: Theme.textOnPrimary },
   remarkInput: { minHeight: 32 },
   debitCard: { flexBasis: "48%", flexGrow: 1, minWidth: 260 },
+  debitCardNarrow: {
+    flexBasis: "auto",
+    flexGrow: 0,
+    flexShrink: 1,
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+    alignSelf: "stretch",
+  },
   dialogCard: {
     flex: 1,
     minWidth: 0,
@@ -1039,9 +1218,80 @@ const styles = StyleSheet.create({
     position: "relative",
     zIndex: 2,
   },
+  dialogCardNarrow: {
+    flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: "auto",
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+    alignSelf: "stretch",
+  },
   dialogHead: { flexDirection: "row", alignItems: "center", gap: 8, position: "relative", zIndex: 40 },
+  dialogHeadNarrow: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 8,
+  },
+  dialogHeadActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+  },
+  dialogHeadActionsNarrow: {
+    width: "100%",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+  },
   dialogTitle: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: "800", color: Theme.textPrimaryDark },
+  dialogTitleNarrow: { flex: 0, width: "100%" },
+  debitNameNarrow: { width: "100%", flexGrow: 1 },
   headHours: { width: 128, zIndex: 30 },
+  headHoursNarrow: { width: "auto", flex: 1, minWidth: 0 },
+  rateCardNarrow: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    alignSelf: "stretch",
+    gap: 10,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    backgroundColor: Theme.surface,
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
+    overflow: "hidden",
+  },
+  fieldStackItem: {
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
+    gap: 4,
+    flexGrow: 0,
+    flexShrink: 0,
+    alignSelf: "stretch",
+  },
+  selectNarrow: {
+    height: undefined,
+    minHeight: 40,
+    width: "100%",
+    maxWidth: "100%",
+  },
+  removeBtnNarrow: {
+    width: "auto",
+    minHeight: 34,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    gap: 6,
+    alignSelf: "flex-start",
+  },
+  removeBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Theme.negative,
+  },
   addIcon: {
     width: 28,
     height: 28,

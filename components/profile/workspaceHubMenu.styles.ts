@@ -188,6 +188,9 @@ export const hubStyles = StyleSheet.create({
     }),
   },
   closeBtnPressed: { backgroundColor: "rgba(255,255,255,0.26)" },
+  headerBandMobile: {
+    paddingBottom: 14,
+  },
 
   // ── Scroll body ────────────────────────────────────────────────────────
   scroll: { flex: 1 },
@@ -196,6 +199,12 @@ export const hubStyles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
     gap: 12,
+  },
+  scrollContentMobile: {
+    paddingTop: 12,
+    paddingBottom: 8,
+    gap: 10,
+    flexGrow: 0,
   },
 
   // Quick actions (Metronic symbol cards)
@@ -408,6 +417,13 @@ export const hubStyles = StyleSheet.create({
 
   // Footer
   footerWrap: { backgroundColor: METRONIC.heroBg },
+  /** Mobile: footer sits in the scroll stack directly under the last section. */
+  footerWrapInScroll: {
+    marginTop: 4,
+    marginHorizontal: -14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: METRONIC.border,
+  },
   footerDivider: {
     height: 1,
     backgroundColor: METRONIC.border,

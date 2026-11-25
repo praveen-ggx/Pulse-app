@@ -43,6 +43,9 @@ const RATE_TYPES: Array<{ value: LaneRateType; label: string }> = [
   { value: "fixed", label: "Fixed" },
 ];
 
+/** Mobile horizontal scroll floor so flex columns never collapse to 1-char width. */
+const ROUTE_CONTRACTS_TABLE_MIN_WIDTH = 760;
+
 type LaneDraft = {
   origin_warehouse_id: string | null;
   origin_label: string;
@@ -177,7 +180,7 @@ export function ClientProfileLanesEditSection({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   /** Sidebar hub. Null is the optional Custom pickup. */
   const [navHubId, setNavHubId] = useState<string | null>(warehouses[0]?.id ?? null);
-  const { width } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
   const sideBySide = width >= 900;
   const dialogWide = width >= 720;
 
@@ -502,86 +505,154 @@ export function ClientProfileLanesEditSection({
 
         <View style={styles.mainPane}>
         <View style={styles.tableWrap}>
-          <View style={styles.tableHead}>
-            <Text style={[styles.th, styles.colPickup]}>Hub (Pickup)</Text>
-            <Text style={[styles.th, styles.colDest]}>Destination</Text>
-            <Text style={[styles.th, styles.colVehicle]}>Vehicle</Text>
-            <Text style={[styles.th, styles.colTons]}>Tons</Text>
-            <Text style={[styles.th, styles.colPricing]}>Pricing</Text>
-            <Text style={[styles.th, styles.colRate]}>Lane Rate</Text>
-            <Text style={[styles.th, styles.colActions]} />
-          </View>
-          {hubLanes.length === 0 ? (
-            <Text style={styles.emptyMuted}>No lanes on this hub yet. Use + on the hub.</Text>
-          ) : (
-            hubLanes.map((lane) => {
-              const vehicleLabel = (lane.vehicle_type ?? "").trim();
-              const tons = lane.default_load_tons;
-              const tonsLabel =
-                tons != null && Number.isFinite(Number(tons))
-                  ? `${Number(tons)} t`
-                  : "—";
-              return (
-                <View key={lane.id} style={styles.tr}>
-                  <Text style={[styles.td, styles.tdPickup, styles.colPickup]} numberOfLines={2}>
-                    {formatCityStateLabel(lane.origin_label) || lane.origin_label}
+          {(() => {
+            const tableInner = (
+              <View
+                style={[
+                  styles.tableInner,
+                  !sideBySide && { minWidth: ROUTE_CONTRACTS_TABLE_MIN_WIDTH },
+                ]}
+              >
+                <View style={styles.tableHead}>
+                  <Text style={[styles.th, styles.colPickup]} numberOfLines={1}>
+                    Hub (Pickup)
                   </Text>
-                  <Text style={[styles.td, styles.tdDest, styles.colDest]} numberOfLines={2}>
-                    {formatCityStateLabel(lane.destination_label) || lane.destination_label}
+                  <Text style={[styles.th, styles.colDest]} numberOfLines={1}>
+                    Destination
                   </Text>
-                  <Text style={[styles.td, styles.tdVehicle, styles.colVehicle]} numberOfLines={1}>
-                    {vehicleLabel || "—"}
+                  <Text style={[styles.th, styles.colVehicle]} numberOfLines={1}>
+                    Vehicle
                   </Text>
-                  <Text style={[styles.td, styles.tdTons, styles.colTons]} numberOfLines={1}>
-                    {tonsLabel}
+                  <Text style={[styles.th, styles.colTons]} numberOfLines={1}>
+                    Tons
                   </Text>
-                  <View style={[styles.colPricing, styles.pricingCol]}>
-                    <View
-                      style={[
-                        styles.perPill,
-                        lanePricingType(lane) === "per_trip" ? styles.perPillTrip : styles.perPillTon,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.perPillText,
-                          lanePricingType(lane) === "per_trip"
-                            ? styles.perPillTextTrip
-                            : styles.perPillTextTon,
-                        ]}
-                      >
-                        {lanePricingType(lane) === "per_trip" ? "Per trip" : "Per ton"}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.td, styles.laneRate, styles.colRate]} numberOfLines={1}>
-                    ₹{Math.round(lanePrice(lane)).toLocaleString("en-IN")}
+                  <Text style={[styles.th, styles.colPricing]} numberOfLines={1}>
+                    Pricing
                   </Text>
-                  <View style={[styles.colActions, styles.rowActions]}>
-                    <TouchableOpacity
-                      onPress={() => startEdit(lane)}
-                      style={styles.rowIconBtn}
-                      accessibilityLabel="Edit lane"
-                    >
-                      <FontAwesome name="pencil" size={12} color={Theme.textMuted} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => void handleDelete(lane.id)}
-                      style={styles.rowIconBtn}
-                      disabled={deletingId === lane.id}
-                      accessibilityLabel="Delete lane"
-                    >
-                      {deletingId === lane.id ? (
-                        <LoadingIndicator size="small" color={Theme.negative} />
-                      ) : (
-                        <FontAwesome name="trash-o" size={12} color={Theme.negative} />
-                      )}
-                    </TouchableOpacity>
-                  </View>
+                  <Text style={[styles.th, styles.colRate]} numberOfLines={1}>
+                    Lane Rate
+                  </Text>
+                  <Text style={[styles.th, styles.colActions]} />
                 </View>
+                {hubLanes.length === 0 ? (
+                  <Text style={styles.emptyMuted}>
+                    No lanes on this hub yet. Use + on the hub.
+                  </Text>
+                ) : (
+                  hubLanes.map((lane) => {
+                    const vehicleLabel = (lane.vehicle_type ?? "").trim();
+                    const tons = lane.default_load_tons;
+                    const tonsLabel =
+                      tons != null && Number.isFinite(Number(tons))
+                        ? `${Number(tons)} t`
+                        : "—";
+                    return (
+                      <View key={lane.id} style={styles.tr}>
+                        <Text
+                          style={[styles.td, styles.tdPickup, styles.colPickup]}
+                          numberOfLines={2}
+                        >
+                          {formatCityStateLabel(lane.origin_label) || lane.origin_label}
+                        </Text>
+                        <Text
+                          style={[styles.td, styles.tdDest, styles.colDest]}
+                          numberOfLines={2}
+                        >
+                          {formatCityStateLabel(lane.destination_label) ||
+                            lane.destination_label}
+                        </Text>
+                        <Text
+                          style={[styles.td, styles.tdVehicle, styles.colVehicle]}
+                          numberOfLines={1}
+                        >
+                          {vehicleLabel || "—"}
+                        </Text>
+                        <Text
+                          style={[styles.td, styles.tdTons, styles.colTons]}
+                          numberOfLines={1}
+                        >
+                          {tonsLabel}
+                        </Text>
+                        <View style={[styles.colPricing, styles.pricingCol]}>
+                          <View
+                            style={[
+                              styles.perPill,
+                              lanePricingType(lane) === "per_trip"
+                                ? styles.perPillTrip
+                                : styles.perPillTon,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.perPillText,
+                                lanePricingType(lane) === "per_trip"
+                                  ? styles.perPillTextTrip
+                                  : styles.perPillTextTon,
+                              ]}
+                            >
+                              {lanePricingType(lane) === "per_trip"
+                                ? "Per trip"
+                                : "Per ton"}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text
+                          style={[styles.td, styles.laneRate, styles.colRate]}
+                          numberOfLines={1}
+                        >
+                          ₹{Math.round(lanePrice(lane)).toLocaleString("en-IN")}
+                        </Text>
+                        <View style={[styles.colActions, styles.rowActions]}>
+                          <TouchableOpacity
+                            onPress={() => startEdit(lane)}
+                            style={styles.rowIconBtn}
+                            accessibilityLabel="Edit lane"
+                          >
+                            <FontAwesome
+                              name="pencil"
+                              size={12}
+                              color={Theme.textMuted}
+                            />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => void handleDelete(lane.id)}
+                            style={styles.rowIconBtn}
+                            disabled={deletingId === lane.id}
+                            accessibilityLabel="Delete lane"
+                          >
+                            {deletingId === lane.id ? (
+                              <LoadingIndicator size="small" color={Theme.negative} />
+                            ) : (
+                              <FontAwesome
+                                name="trash-o"
+                                size={12}
+                                color={Theme.negative}
+                              />
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+            );
+            // Narrow / stacked layout: scroll horizontally so all columns stay usable.
+            if (!sideBySide) {
+              return (
+                <ScrollView
+                  horizontal
+                  nestedScrollEnabled
+                  showsHorizontalScrollIndicator
+                  style={styles.tableScroll}
+                  contentContainerStyle={styles.tableScrollContent}
+                >
+                  {tableInner}
+                </ScrollView>
               );
-            })
-          )}
+            }
+            return tableInner;
+          })()}
         </View>
         </View>
       </View>
@@ -601,7 +672,13 @@ export function ClientProfileLanesEditSection({
           <View
             style={[
               styles.dialogCard,
-              { width: Math.min(820, Math.max(320, width - 48)) },
+              {
+                width: Math.min(820, Math.max(320, width - 48)),
+                // Narrow screens: cap height so body can scroll — Distance must stay reachable.
+                ...(!dialogWide
+                  ? { maxHeight: Math.min(windowHeight - 48, windowHeight * 0.92) }
+                  : null),
+              },
             ]}
           >
           <View style={styles.formTitleRow}>
@@ -619,10 +696,17 @@ export function ClientProfileLanesEditSection({
               <FontAwesome name="times" size={14} color={Theme.textPrimaryDark} />
             </TouchableOpacity>
           </View>
-          <View style={styles.dialogBody}>
+          <ScrollView
+            style={styles.dialogScroll}
+            contentContainerStyle={styles.dialogBody}
+            showsVerticalScrollIndicator={!dialogWide}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+            bounces={false}
+          >
           <View style={styles.sectionCard}>
             <Text style={styles.sectionCardTitle}>Route</Text>
-          <View style={styles.formPair}>
+          <View style={[styles.formPair, !dialogWide && styles.formPairStack]}>
           <View style={styles.formPairCell}>
           {draft.origin_warehouse_id ? (
             <View style={styles.fieldGroup}>
@@ -693,7 +777,9 @@ export function ClientProfileLanesEditSection({
           </View>
 
           <View style={dialogWide ? styles.formPair : styles.formStack}>
-          <View style={[styles.sectionCard, styles.sectionCardSide]}>
+          {/* flex:1 only when Load ‖ Commercial sit side-by-side — stacked mobile
+              must size to content or Distance (km) is clipped. */}
+          <View style={[styles.sectionCard, dialogWide && styles.sectionCardSide]}>
             <Text style={styles.sectionCardTitle}>Load</Text>
           {/**
            * Vehicle type + product type + tons all come from the trip wizard's
@@ -734,7 +820,7 @@ export function ClientProfileLanesEditSection({
           ) : null}
 
           </View>
-          <View style={[styles.sectionCard, styles.sectionCardSide]}>
+          <View style={[styles.sectionCard, dialogWide && styles.sectionCardSide]}>
             <Text style={styles.sectionCardTitle}>Commercial</Text>
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>Rate Type</Text>
@@ -763,7 +849,7 @@ export function ClientProfileLanesEditSection({
             keyboardType="decimal-pad"
           />
           {/** Blank = open-ended; isLaneCurrentlyValid() hides expired lanes from pickers. */}
-          <View style={styles.dateFieldRow}>
+          <View style={[styles.dateFieldRow, !dialogWide && styles.dateFieldRowStack]}>
             <ClientProfileDateField
               label="Valid From"
               value={draft.valid_from}
@@ -810,7 +896,7 @@ export function ClientProfileLanesEditSection({
               )}
             </TouchableOpacity>
           </View>
-          </View>
+          </ScrollView>
           </View>
         </View>
       </Modal>
@@ -902,6 +988,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.borderInput,
   },
+  tableScroll: { width: "100%" },
+  tableScrollContent: { flexGrow: 1 },
+  tableInner: { width: "100%" },
   tableHead: {
     flexDirection: "row",
     alignItems: "center",
@@ -918,9 +1007,9 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.55,
   },
-  colPickup: { flex: 1.35, minWidth: 0 },
-  colDest: { flex: 1.2, minWidth: 0 },
-  colVehicle: { flex: 0.85, minWidth: 0 },
+  colPickup: { flex: 1.35, minWidth: 140 },
+  colDest: { flex: 1.2, minWidth: 120 },
+  colVehicle: { flex: 0.85, minWidth: 88 },
   colTons: { width: 64, flexGrow: 0, flexShrink: 0 },
   colPricing: { width: 92, flexGrow: 0, flexShrink: 0 },
   colRate: { width: 104, flexGrow: 0, flexShrink: 0, textAlign: "right" },
@@ -1006,7 +1095,14 @@ const styles = StyleSheet.create({
     width: "100%",
     marginTop: 4,
   },
-  workspaceStack: { flexDirection: "column" },
+  workspaceStack: {
+    flexDirection: "column",
+    flexWrap: "nowrap",
+    alignItems: "stretch",
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+  },
   sideNav: {
     width: 232,
     flexShrink: 0,
@@ -1133,8 +1229,16 @@ const styles = StyleSheet.create({
     borderColor: Theme.borderInput,
     padding: 12,
     gap: 8,
+    minHeight: 0,
+    overflow: "hidden",
   },
-  dialogBody: { width: "100%", gap: 8 },
+  dialogScroll: {
+    width: "100%",
+    flexGrow: 0,
+    flexShrink: 1,
+    minHeight: 0,
+  },
+  dialogBody: { width: "100%", gap: 8, paddingBottom: 4 },
   formSubtitle: {
     marginTop: 2,
     fontSize: 11,
@@ -1151,17 +1255,22 @@ const styles = StyleSheet.create({
   },
   formStack: { width: "100%", gap: 8 },
   formPair: { width: "100%", flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  formPairCell: { flex: 1, minWidth: 0 },
+  formPairStack: { flexDirection: "column" },
+  formPairCell: { flex: 1, minWidth: 0, width: "100%" },
   sectionCard: {
     minWidth: 0,
+    width: "100%",
     padding: 8,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.borderInput,
     backgroundColor: Theme.cardWhite,
     gap: 6,
+    overflow: "visible",
+    flexGrow: 0,
+    flexShrink: 0,
   },
-  sectionCardSide: { flex: 1 },
+  sectionCardSide: { flex: 1, flexGrow: 1, flexShrink: 1 },
   sectionCardTitle: {
     fontSize: 12,
     fontWeight: "700",
@@ -1245,6 +1354,9 @@ const styles = StyleSheet.create({
     gap: 10,
     width: "100%",
     marginBottom: 4,
+  },
+  dateFieldRowStack: {
+    flexDirection: "column",
   },
   inlineErrorText: {
     marginTop: 4,

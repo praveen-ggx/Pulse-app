@@ -1,0 +1,5 @@
+# Hardening of the two event functions after code review (driver actor/event-type limits, party-org rule,
+# generic errors, active-member rule, retry safety). Function replacements + one private helper; no table,
+# policy or data change. Requires 20261125124952 and 20261125132909 to be applied first.
+# sha256 06b695b3ac3b029d049fa057d264e56334505d0e58bfe9ea946dfe9df5fb3c60  20261125142041_harden_trip_event_functions.sql
+20261125142041

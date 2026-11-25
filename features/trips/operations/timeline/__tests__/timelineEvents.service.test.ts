@@ -15,7 +15,10 @@ jest.mock("@/lib/supabase", () => ({
   }),
 }));
 
-import { appendTripOperationalTimelineEvent } from "../timelineEvents.service";
+const mockWarn = jest.fn();
+jest.mock("@/lib/logger", () => ({ logger: { warn: (...a: unknown[]) => mockWarn(...a) } }));
+
+import { appendTripOperationalTimelineEvent, appendTripOperationalTimelineEventSafe } from "../timelineEvents.service";
 
 const base = { tripId: "t1", eventType: "odometer_added" as const };
 
@@ -69,6 +72,23 @@ describe("appendTripOperationalTimelineEvent", () => {
         "trip_operational_timeline_events",
         expect.objectContaining({ organization_id: "o9" }),
       );
+    });
+  });
+
+  describe("appendTripOperationalTimelineEventSafe", () => {
+    it("logs a refused write instead of swallowing it", async () => {
+      mockRpc.mockResolvedValue({ data: null, error: { code: "P0001", message: "unauthorized: nope" } });
+      await expect(appendTripOperationalTimelineEventSafe({ ...base, organizationId: "o1" })).resolves.toBeUndefined();
+      expect(mockWarn).toHaveBeenCalledWith(
+        "trip timeline event not written",
+        expect.objectContaining({ tripId: "t1", reason: "unauthorized: nope" }),
+      );
+    });
+
+    it("stays quiet on success", async () => {
+      mockRpc.mockResolvedValue({ data: "e1", error: null });
+      await appendTripOperationalTimelineEventSafe({ ...base, organizationId: "o1" });
+      expect(mockWarn).not.toHaveBeenCalled();
     });
   });
 });

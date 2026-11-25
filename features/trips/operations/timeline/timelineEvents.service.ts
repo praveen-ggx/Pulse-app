@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { supabase } from "@/lib/supabase";
 
 export type OperationalTimelineEventType =
@@ -90,7 +91,16 @@ export async function appendTripOperationalTimelineEventSafe(input: {
   payload?: Record<string, unknown>;
 }) {
   try {
-    await appendTripOperationalTimelineEvent(input);
+    const res = await appendTripOperationalTimelineEvent(input);
+    // A refused or failed write comes back as { error }, not a throw. Keep operations non-blocking,
+    // but do not lose the signal: it is the only trace that a timeline entry was not written.
+    if (res.error) {
+      logger.warn("trip timeline event not written", {
+        tripId: input.tripId,
+        eventType: input.eventType,
+        reason: res.error.message,
+      });
+    }
   } catch {
     // keep operations non-blocking; timeline failures should never block primary workflows
   }

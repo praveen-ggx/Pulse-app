@@ -74,8 +74,15 @@ export function DriverDocumentGalleryPreview({
   asOverlay = false,
 }: DriverDocumentGalleryPreviewProps) {
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const swipeHint = useSharedValue(0);
+  // Horizontal FlatList pages do not inherit flex height. A percentage-sized
+  // Image then collapses to 0 while fixed-size thumbnails still paint — the
+  // black empty frame with working thumb strip. Size the page from the window.
+  const galleryBodyHeight = Math.max(
+    240,
+    windowHeight - Math.max(insets.top, 8) - Math.max(insets.bottom, 10) - 200,
+  );
 
   const [previewIndex, setPreviewIndex] = useState(0);
   const [previewResolvingId, setPreviewResolvingId] = useState<string | null>(null);
@@ -246,7 +253,7 @@ export function DriverDocumentGalleryPreview({
       const asPdf = isDriverDocPdf(item);
       const asImage = isDriverDocImage(item) || (!asPdf && !!url);
       return (
-        <View style={[styles.galleryPage, { width: windowWidth }]}>
+        <View style={[styles.galleryPage, { width: windowWidth, height: galleryBodyHeight }]}>
           <View style={styles.galleryFrame}>
             {url && !failed && asPdf ? (
               <PdfViewer pdfUri={url} style={styles.previewImage} />
@@ -304,6 +311,7 @@ export function DriverDocumentGalleryPreview({
     },
     [
       ensurePreviewUrl,
+      galleryBodyHeight,
       previewFailedIds,
       previewResolvingId,
       retryPreview,
@@ -366,7 +374,7 @@ export function DriverDocumentGalleryPreview({
           {activeDoc?.file_name || fallbackLabel}
         </Text>
 
-        <View style={styles.galleryWrap}>
+        <View style={[styles.galleryWrap, { height: galleryBodyHeight }]}>
           <FlatList
             key={`gallery-${documents.map((d) => d.id).join('|')}`}
             ref={galleryRef}
@@ -379,6 +387,7 @@ export function DriverDocumentGalleryPreview({
             keyExtractor={(item) => item.id}
             renderItem={renderGalleryItem}
             getItemLayout={galleryGetItemLayout}
+            style={{ height: galleryBodyHeight }}
             initialScrollIndex={Math.min(
               previewIndex,
               Math.max(0, documents.length - 1),
@@ -575,23 +584,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   galleryWrap: {
-    flex: 1,
     marginTop: 10,
     justifyContent: 'center',
   },
   galleryPage: {
-    flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 18,
   },
   galleryFrame: {
     flex: 1,
-    maxHeight: '100%',
+    height: '100%',
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#0b1220',
     borderWidth: 1,
     borderColor: 'rgba(16,185,129,0.35)',
+    position: 'relative',
   },
   navChevron: {
     position: 'absolute',
@@ -703,8 +711,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.7)',
   },
   previewImage: {
-    width: '100%',
-    height: '100%',
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: '#0b1220',
   },
   previewFallbackText: {

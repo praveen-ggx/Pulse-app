@@ -47,7 +47,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { LinearGradient } from 'expo-linear-gradient';
-import { usePathname, useRouter, useSegments } from 'expo-router';
+import { useLocalSearchParams, usePathname, useRouter, useSegments } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -116,6 +116,11 @@ export default function SalaryRequestScreen() {
   const colors = useDriverThemeColors();
   const { isDark } = useDriverTheme();
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    orgId?: string;
+    orgName?: string;
+    driverId?: string;
+  }>();
   const { profile } = useAuth();
   const isOnline = useIsOnline();
   const { avatarUri, loading: avatarUriLoading } = useDriverAvatarUri();
@@ -286,12 +291,21 @@ export default function SalaryRequestScreen() {
 
   const salaryRequestOrgOptions = useMemo(() => {
     const accepted = invites.filter((i) => (i.status || '').toLowerCase() === 'accepted');
-    // An accepted invite is ONE way to earn a salary relationship, not the only
-    // one. Phone-assignment drivers never get an invite row yet run real trips,
-    // and the Wallet / trip-detail claim paths already let them request payment.
-    // Requiring an invite here blocked 17 of 25 active drivers.
+    const acceptedOrgIds = new Set(
+      accepted.map((i) => String(i.from_organization_id || '')).filter(Boolean),
+    );
+    // Employers only. Shipper / client tracking links are not salary targets —
+    // when any accepted fleet invite exists, only those orgs qualify.
     const options = linkedDrivers
-      .filter(driversService.isSalaryEligibleDriver)
+      .filter((d) => {
+        if (!driversService.isSalaryEligibleDriver(d)) return false;
+        if (d.tracking_only === true) return false;
+        if (d.left_at) return false;
+        const orgId = String(d.organization_id ?? '');
+        if (!orgId) return false;
+        if (acceptedOrgIds.size > 0) return acceptedOrgIds.has(orgId);
+        return true;
+      })
       .map((d) => {
         const inv = accepted.find(
           (i) => String(i.from_organization_id || '') === String(d.organization_id || '')
@@ -303,7 +317,8 @@ export default function SalaryRequestScreen() {
         const logoUrl = (inv && (inv as { from_org_logo_url?: string | null }).from_org_logo_url) || null;
         const ownerSeed = (inv && (inv as { from_org_avatar_seed?: string | null }).from_org_avatar_seed) || null;
         const ownerUrl = (inv && (inv as { from_org_avatar_url?: string | null }).from_org_avatar_url) || null;
-        const name = (rawName && String(rawName).trim()) ? String(rawName).trim() : null;
+        const dbOrgName = (d.organizations as { name?: string } | null | undefined)?.name?.trim() || null;
+        const name = (rawName && String(rawName).trim()) ? String(rawName).trim() : dbOrgName;
         return {
           driverId: d.id,
           orgId: String(d.organization_id ?? ''),
@@ -466,12 +481,20 @@ export default function SalaryRequestScreen() {
   const salaryCurrentYear = new Date().getFullYear();
 
   useEffect(() => {
+    const paramOrgId = String(params.orgId ?? '').trim();
+    if (paramOrgId) {
+      const match = salaryRequestOrgOptions.find((o) => String(o.orgId) === paramOrgId);
+      if (match) {
+        setSalaryRequestOrg(match);
+        return;
+      }
+    }
     if (salaryRequestOrgOptions.length === 1) {
       setSalaryRequestOrg(salaryRequestOrgOptions[0]);
     } else {
       setSalaryRequestOrg(null);
     }
-  }, [salaryRequestOrgOptions]);
+  }, [salaryRequestOrgOptions, params.orgId]);
 
   /** Sync amount field when user selects/deselects trips (trip commission only). */
   useEffect(() => {

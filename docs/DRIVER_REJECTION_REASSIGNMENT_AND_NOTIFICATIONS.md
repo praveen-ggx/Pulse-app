@@ -18,10 +18,13 @@ When a driver **rejects** (declines) an assigned trip, the trip becomes unassign
    When the trip row updates (e.g. after driver reject), the trip detail screen runs a full refresh: `load()`, `loadAssignmentAudit()`, and OTP/transactions as needed. So the Assignment block and Activity Log update without leaving the screen.
 
 3. **In-app alert when viewing the trip**  
-   If the user (dispatcher or supplier) has the trip detail open and the driver rejects, after the refetch we detect "had driver → now no driver" and show an alert: **"Driver rejected. Assign a new driver."** so they’re notified immediately.
+   If the user (dispatcher or supplier) has the trip detail open and the driver rejects, after the refetch we detect "had driver → now no driver" and show an alert: **"Driver declined"** with **"Update the driver details…"**, and (when `canAssign`) open the **Change driver** popup. Cold-open of an already-unassigned trip with a decline audit does the same.
 
-4. **Locales**  
-   New keys: `driverRejected`, `driverRejectedNotify` (and any variants) for Activity Log and alert text.
+4. **Notification plan (ops alerts)**  
+   Synthetic `unassigned_trip` alerts fire immediately for assigned-without-driver and for decline-shaped `assignment_update` recent events (no 30-minute wait). Copy: **"Driver declined · Update driver details"**; action opens Change driver.
+
+5. **Locales**  
+   Keys: `driverRejected`, `driverRejectedNotify`, `updateDriver`, `later` for Activity Log and alert text.
 
 ## Supplier view (reassignment)
 

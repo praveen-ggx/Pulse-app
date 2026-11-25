@@ -86,7 +86,7 @@ export function TripListAssignerRow({
 
       {tagged ? (
         <>
-          <View style={[styles.rule, { backgroundColor: Theme.driverEmeraldBorderSoft }]} />
+          <View style={styles.rule} />
           <View style={[styles.cellEnd, endSlot ? styles.cellMid : null]}>
             <View style={styles.tagGlyph}>
               <Tag size={11} color={Theme.driverEmerald} strokeWidth={2.4} />
@@ -117,7 +117,7 @@ export function TripListAssignerRow({
         </>
       ) : showUntagged ? (
         <>
-          <View style={[styles.rule, { backgroundColor: Theme.warning }]} />
+          <View style={[styles.rule, { backgroundColor: "rgba(245,158,11,0.35)" }]} />
           <Pressable
             onPress={onTagPress}
             disabled={!onTagPress}
@@ -148,7 +148,7 @@ export function TripListAssignerRow({
       ) : null}
       {endSlot ? (
         <>
-          <View style={[styles.rule, { backgroundColor: Theme.driverEmeraldBorderSoft }]} />
+          <View style={styles.rule} />
           <View style={styles.cellYield}>{endSlot}</View>
         </>
       ) : null}
@@ -161,35 +161,36 @@ const styles = StyleSheet.create({
     marginTop: 8,
     minWidth: 0,
     flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 12,
+    alignItems: "stretch",
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.driverEmeraldBorderSoft,
-    backgroundColor: Theme.driverEmeraldMuted,
-    paddingHorizontal: 8,
-    paddingVertical: 7,
+    borderColor: Theme.borderLight,
+    backgroundColor: "transparent",
+    paddingHorizontal: 10,
+    paddingVertical: 10,
     gap: 0,
   },
   groupCompact: {
     marginTop: 8,
   },
   groupSplit: {
-    paddingRight: 8,
+    paddingRight: 10,
   },
   groupFooter: {
     marginTop: 0,
     width: "100%",
   },
   groupUntagged: {
-    borderColor: Theme.warning,
-    backgroundColor: Theme.warningMuted,
+    borderColor: "rgba(245,158,11,0.35)",
+    backgroundColor: "transparent",
   },
   cell: {
-    flex: 1.15,
+    flex: 1.2,
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    paddingVertical: 1,
   },
   cellEnd: {
     flex: 1,
@@ -197,20 +198,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 6,
-    paddingLeft: 8,
+    gap: 7,
+    paddingLeft: 10,
+    paddingVertical: 1,
   },
   cellMid: {
     justifyContent: "flex-start",
   },
   cellYield: {
     flexShrink: 0,
-    minWidth: 72,
-    maxWidth: "28%",
-    paddingLeft: 8,
+    minWidth: 68,
+    maxWidth: "26%",
+    paddingLeft: 10,
     alignItems: "flex-end",
     justifyContent: "center",
-    gap: 1,
+    gap: 2,
   },
   avatarWrap: {
     flexShrink: 0,
@@ -218,13 +220,15 @@ const styles = StyleSheet.create({
   copy: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 2,
+    justifyContent: "center",
   },
   copyEnd: {
     flex: 1,
     minWidth: 0,
     alignItems: "flex-end",
-    gap: 1,
+    gap: 2,
+    justifyContent: "center",
   },
   copyMid: {
     alignItems: "flex-start",
@@ -240,18 +244,19 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
   },
   tagGlyph: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Theme.screenBackground,
+    backgroundColor: Theme.surface,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.driverEmeraldBorder,
+    borderColor: Theme.borderLight,
     flexShrink: 0,
   },
   tagGlyphWarn: {
-    borderColor: Theme.warning,
+    borderColor: "rgba(245,158,11,0.45)",
+    backgroundColor: "rgba(255,247,237,0.65)",
   },
   note: {
     fontSize: 10,
@@ -263,12 +268,13 @@ const styles = StyleSheet.create({
   rule: {
     width: StyleSheet.hairlineWidth,
     alignSelf: "stretch",
-    marginVertical: 2,
+    marginVertical: 4,
+    backgroundColor: Theme.borderLight,
   },
   kicker: {
     fontSize: 8,
     fontWeight: "700",
-    letterSpacing: 0.55,
+    letterSpacing: 0.6,
     textTransform: "uppercase",
     lineHeight: 10,
   },
@@ -278,8 +284,8 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 12,
     fontWeight: "700",
-    letterSpacing: -0.15,
-    lineHeight: 15,
+    letterSpacing: -0.2,
+    lineHeight: 16,
   },
   nameEnd: {
     textAlign: "right",
@@ -290,7 +296,7 @@ const styles = StyleSheet.create({
     lineHeight: 12,
   },
   avatarBorder: {
-    borderWidth: 1,
-    borderColor: Theme.driverEmeraldBorderSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
   },
 });

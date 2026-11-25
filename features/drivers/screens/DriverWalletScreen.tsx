@@ -93,7 +93,7 @@ import { injectPulseWatermarkIntoHtml } from '@/lib/reportWatermark.util';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Sharing from 'expo-sharing';
-import { History, Sparkles, Wallet } from 'lucide-react-native';
+import { Banknote, History, Sparkles, Wallet } from 'lucide-react-native';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -241,6 +241,8 @@ export default function DriverWalletScreen() {
   const isRefreshingRef = useRef(false);
   const initialLoadDoneRef = useRef(false);
   const walletAliveRef = useRef(true);
+  /** Active employer only — salary / payment requests never target shippers. */
+  const employerSalaryTargetRef = useRef<{ orgId: string; driverId: string } | null>(null);
   useLayoutEffect(() => {
     walletAliveRef.current = true;
     return () => {
@@ -1239,12 +1241,20 @@ export default function DriverWalletScreen() {
         }
       }
 
-      const driverId = trip.driver_id ?? linkedDrivers[0]?.id ?? null;
-      // Route to the driver's OWN fleet-owner org, not trip.organization_id —
-      // on an aggregator/subcontracted trip those can be different orgs.
-      const orgId =
-        linkedDrivers.find((d) => String(d.id) === String(driverId))?.organization_id ??
-        trip.organization_id ??
+      // Salary / payment requests go only to the active employer — never the
+      // shipper/dispatcher on trip.organization_id (aggregate / open loads).
+      const employerTarget = employerSalaryTargetRef.current;
+      if (!employerTarget?.orgId) {
+        return {
+          ok: false as const,
+          errorMessage: 'No active employer connection. Connect to a fleet to request payment.',
+        };
+      }
+      const orgId = employerTarget.orgId;
+      const driverId =
+        employerTarget.driverId ||
+        trip.driver_id ||
+        linkedDrivers[0]?.id ||
         null;
       const earned = Math.round(tripEarnings(trip, payoutTermsForTrip(trip)));
       const received = Math.round(receivedByTripId[trip.id] ?? 0);
@@ -1343,18 +1353,15 @@ export default function DriverWalletScreen() {
         return { ok: false as const, errorMessage: 'Trips not found.' };
       }
 
-      // Route to the driver's OWN fleet-owner org, not trip.organization_id —
-      // on an aggregator/subcontracted trip those can be different orgs.
-      const resolveOwnerOrgId = (t: tripsService.TripRow): string =>
-        String(
-          linkedDrivers.find((d) => String(d.id) === String(t.driver_id))?.organization_id ??
-            t.organization_id ??
-            '',
-        );
-      const orgId = resolveOwnerOrgId(trips[0]);
-      if (!orgId || trips.some((t) => resolveOwnerOrgId(t) !== orgId)) {
-        return { ok: false as const, errorMessage: 'Select trips from the same fleet only.' };
+      // Always the active employer — never shipper/dispatcher trip.organization_id.
+      const employerTarget = employerSalaryTargetRef.current;
+      if (!employerTarget?.orgId) {
+        return {
+          ok: false as const,
+          errorMessage: 'No active employer connection. Connect to a fleet to request payment.',
+        };
       }
+      const orgId = employerTarget.orgId;
 
       // Hard gate: refuse the whole batch if any selected trip has no agreed
       // payout terms — never create a request that includes a fabricated amount.
@@ -1389,7 +1396,11 @@ export default function DriverWalletScreen() {
         }
       }
 
-      const driverId = trips[0].driver_id ?? linkedDrivers[0]?.id ?? null;
+      const driverId =
+        employerTarget.driverId ||
+        trips[0].driver_id ||
+        linkedDrivers[0]?.id ||
+        null;
       if (!driverId) {
         return { ok: false as const, errorMessage: 'Missing driver for these trips.' };
       }
@@ -1602,7 +1613,33 @@ export default function DriverWalletScreen() {
 
   const salaryRequestOrgOptions = useMemo(() => {
     const accepted = invites.filter((i) => (i.status || '').toLowerCase() === 'accepted');
-    const activeEmployers = linkedDrivers.filter((d) => isActiveFleetMembership(d, accepted));
+    const acceptedOrgIds = new Set(
+      accepted.map((i) => String(i.from_organization_id ?? '')).filter(Boolean),
+    );
+    const hasPayArrangement = (d: driversService.DriverRow): boolean =>
+      (d.payable_amount != null && Number(d.payable_amount) > 0) ||
+      (d.commission_percent != null && Number(d.commission_percent) > 0) ||
+      (d.commission_per_km != null && Number(d.commission_per_km) > 0) ||
+      accepted.some(
+        (i) =>
+          String(i.from_organization_id ?? '') === String(d.organization_id ?? '') &&
+          (
+            (i.payable_amount != null && Number(i.payable_amount) > 0) ||
+            (i.commission_percent != null && Number(i.commission_percent) > 0) ||
+            (i.commission_per_km != null && Number(i.commission_per_km) > 0)
+          ),
+      );
+
+    // Employers only — never shipper / client tracking links.
+    // Prefer accepted fleet invite; without invites, require explicit pay terms.
+    const activeEmployers = linkedDrivers.filter((d) => {
+      if (!isActiveFleetMembership(d, accepted)) return false;
+      if (!driversService.isSalaryEligibleDriver(d)) return false;
+      const orgId = String(d.organization_id ?? '');
+      if (!orgId) return false;
+      if (acceptedOrgIds.size > 0) return acceptedOrgIds.has(orgId);
+      return hasPayArrangement(d);
+    });
     return activeEmployers.map((d) => {
       const inv = accepted.find(
         (i) => String(i.from_organization_id || '') === String(d.organization_id || '')
@@ -2096,6 +2133,17 @@ export default function DriverWalletScreen() {
 
     return null;
   }, [fleetCards, linkedDrivers, invites, salaryRequests, completedTrips, ledgerEntries, orgNameById]);
+
+  useEffect(() => {
+    if (!currentEmployer?.orgId) {
+      employerSalaryTargetRef.current = null;
+      return;
+    }
+    employerSalaryTargetRef.current = {
+      orgId: String(currentEmployer.orgId),
+      driverId: String(currentEmployer.driverId ?? ''),
+    };
+  }, [currentEmployer]);
 
   const pastEmployerFleetCards = useMemo(() => {
     const accepted = invites.filter((i) => (i.status || '').toLowerCase() === 'accepted');
@@ -3202,6 +3250,35 @@ export default function DriverWalletScreen() {
                   </View>
                 </View>
                 <View style={styles.fleetTopRight}>
+                  {!isDco ? (
+                    <TouchableOpacity
+                      onPress={() =>
+                        router.push({
+                          pathname: '/(driver)/salary-request',
+                          params: {
+                            orgId: String(currentEmployer.orgId ?? ''),
+                            orgName: currentEmployer.orgName,
+                            driverId: String(currentEmployer.driverId ?? ''),
+                          },
+                        } as Parameters<typeof router.push>[0])
+                      }
+                      style={[
+                        styles.employerSalaryIconBtn,
+                        {
+                          borderColor: isDark ? colors.borderSubtle : Theme.borderMedium,
+                          backgroundColor: isDark
+                            ? colors.surfaceElevated
+                            : Theme.surfaceGray,
+                        },
+                      ]}
+                      hitSlop={6}
+                      accessibilityRole="button"
+                      accessibilityLabel="Request salary from employer"
+                      activeOpacity={0.85}
+                    >
+                      <Banknote size={16} color={colors.emerald} strokeWidth={2.3} />
+                    </TouchableOpacity>
+                  ) : null}
                   <View
                     style={[
                       styles.fleetStatusPillNew,
@@ -3600,7 +3677,7 @@ export default function DriverWalletScreen() {
           colors={colors}
           isDark={isDark}
           showMonthPnl
-          showSalaryRequest={!isDco}
+          showSalaryRequest={false}
           tripExpenses={tripExpenses}
           isFleetDispatched={isFleetDispatchedTrip}
         />
@@ -4654,8 +4731,18 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   fleetTopRight: {
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
+    flexShrink: 0,
+  },
+  employerSalaryIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   fleetStatusPillNew: {
     paddingHorizontal: 8,

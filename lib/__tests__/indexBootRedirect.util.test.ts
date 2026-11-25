@@ -6,6 +6,7 @@ import {
   markFreshSignInLanding,
   peekFreshSignInLanding,
   resetIndexBootRedirect,
+  claimWebRefreshRedirect,
   resolveWebRefreshHref,
 } from '@/lib/indexBootRedirect.util';
 
@@ -50,6 +51,14 @@ describe('resolveWebRefreshHref', () => {
 
   it('does not fight when Expo is already on another deep route', () => {
     expect(resolveWebRefreshHref('/trips', '/trip/abc', '')).toBeNull();
+  });
+
+  it('restores one browser href once, even if Index re-renders', () => {
+    resetIndexBootRedirect();
+    expect(claimWebRefreshRedirect('/compliance/bulk-payment')).toBe(true);
+    expect(claimWebRefreshRedirect('/compliance/bulk-payment')).toBe(false);
+    resetIndexBootRedirect();
+    expect(claimWebRefreshRedirect('/compliance/bulk-payment')).toBe(true);
   });
 });
 

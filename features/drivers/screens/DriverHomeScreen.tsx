@@ -770,10 +770,15 @@ export default function DriverRadarScreen() {
 
     const normalizedDriverStatus = String(primaryDriver.status ?? "").toLowerCase();
     const hasActiveTrip = trips.some((t) => isTripInProgress(t));
+    const hasIncomingAssigned = trips.some(
+      (t) => isAssignedNotStarted(t.status) && !t.started_at,
+    );
     const nextOnline =
       normalizedDriverStatus === "online" ||
       normalizedDriverStatus === "on_trip" ||
-      hasActiveTrip;
+      hasActiveTrip ||
+      // Bring the accept popup onto the live map sheet as soon as a trip lands.
+      hasIncomingAssigned;
     setIsOnline((prev) => (prev || nextOnline ? true : prev));
 
     finishLoading();

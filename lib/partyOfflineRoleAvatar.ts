@@ -4,12 +4,12 @@ import type { PartyEntityAccent } from "@/lib/partyEntityAccent";
 
 type OfflinePartyRole = "client" | "supplier" | "driver" | "vehicle";
 
-/** Offline client tile — golden fill + ink icon. */
+/** Offline client tile — soft slate plate + line icon. */
 const OFFLINE_CLIENT_ACCENT: PartyEntityAccent = {
-  ring: Theme.brandBlueInk,
-  glow: Theme.accentGoldMuted,
-  glowCore: Theme.accentGoldMuted,
-  tint: Theme.accentGold,
+  ring: Theme.borderMedium,
+  glow: "rgba(100, 116, 139, 0.18)",
+  glowCore: "rgba(100, 116, 139, 0.1)",
+  tint: Theme.surfaceGray,
 };
 
 /** Offline supplier tile — pink fill + ink icon (latest badge style). */
@@ -51,7 +51,7 @@ export function shouldUseOfflinePartyRoleAvatar(
 }
 
 export function offlinePartyRoleIconSize(avatarSize: number): number {
-  return Math.max(14, Math.round(avatarSize * 0.44));
+  return Math.max(15, Math.round(avatarSize * 0.5));
 }
 
 export function offlinePartyRolePresentation(entityType: OfflinePartyRole) {
@@ -78,7 +78,7 @@ export function offlinePartyRolePresentation(entityType: OfflinePartyRole) {
   }
   return {
     accent: OFFLINE_CLIENT_ACCENT,
-    iconColor: Theme.brandBlueInk,
+    iconColor: Theme.textRouteCard,
     accessibilityLabel: "Client",
   };
 }

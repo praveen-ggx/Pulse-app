@@ -70,7 +70,9 @@ export async function listChatHubDocuments(params: {
   const out: ChatHubDocument[] = [];
 
   if (params.tripId) {
-    const { documents } = await getDocumentsByTripId(params.tripId);
+    const { documents } = await getDocumentsByTripId(params.tripId, {
+      includeStorageFallback: true,
+    });
     for (const doc of documents) {
       const typeLabel =
         TRIP_DOC_LABELS[doc.document_type] ?? doc.document_type;

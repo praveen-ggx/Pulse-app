@@ -8,7 +8,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { PulseImage } from "@/components/PulseImage";
-import { Building2, Truck, User } from "lucide-react-native";
+import { Landmark, Truck, User } from "lucide-react-native";
 import Theme from "@/constants/Theme";
 import { useFailedImageUriGuard } from "@/hooks/useFailedImageUriGuard";
 import {
@@ -138,21 +138,26 @@ export function PartyAvatar({
         ? Truck
         : roleType === "driver"
           ? User
-          : Building2;
+          : Landmark;
     if (flatRolePlate) {
       return (
         <View
           accessibilityLabel={accessibilityLabel}
           style={[
             styles.offlineRoleFlatWrap,
-            { width: size, height: size, borderRadius: radius },
+            {
+              width: size,
+              height: size,
+              borderRadius: radius,
+              borderColor: Theme.borderMedium,
+            },
             style,
           ]}
         >
           <Icon
             size={offlinePartyRoleIconSize(size)}
-            color={Theme.textMuted}
-            strokeWidth={2.2}
+            color={Theme.textRouteCard}
+            strokeWidth={1.85}
           />
         </View>
       );
@@ -175,7 +180,7 @@ export function PartyAvatar({
         <Icon
           size={offlinePartyRoleIconSize(size)}
           color={iconColor}
-          strokeWidth={2.2}
+          strokeWidth={roleType === "client" ? 1.85 : 2.2}
         />
       </View>
     );
@@ -274,7 +279,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-    backgroundColor: "transparent",
+    backgroundColor: Theme.surfaceGray,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   photoFrame: {
     backgroundColor: Theme.surface,

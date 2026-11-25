@@ -81,7 +81,7 @@ describe('driver mode UI gates (defects A–D)', () => {
 
   it('D: wallet terminology follows operating mode', () => {
     expect(driverWalletBookTabLabel(mode({ mode: 'DRIVER', is_employee_driver: false }))).toBe(
-      'Independent',
+      'Receivables',
     );
     expect(driverWalletBookTabLabel(mode({ mode: 'DRIVER', is_employee_driver: true }))).toBe(
       'Fleet',

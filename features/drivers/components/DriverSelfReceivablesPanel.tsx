@@ -133,18 +133,6 @@ export function DriverSelfReceivablesPanel({
         </>
       )}
 
-      <View style={[styles.headerRow, { borderBottomColor: hairline }]}>
-        <Text style={[styles.headerCell, styles.headerParty, { color: colors.textMuted }]}>
-          Party
-        </Text>
-        <Text style={[styles.headerCell, styles.headerTrips, { color: colors.textMuted }]}>
-          Trips
-        </Text>
-        <Text style={[styles.headerCell, styles.headerAmt, { color: colors.textMuted }]}>
-          Outstanding
-        </Text>
-      </View>
-
       {rows.length === 0 ? (
         <View
           style={[
@@ -168,6 +156,21 @@ export function DriverSelfReceivablesPanel({
             { backgroundColor: colors.surface, borderColor: hairline },
           ]}
         >
+          <View style={[styles.headerRow, { borderBottomColor: hairline }]}>
+            <View style={styles.partyCol}>
+              <Text style={[styles.headerCell, { color: colors.textMuted }]}>Party</Text>
+            </View>
+            <View style={styles.tripsCol}>
+              <Text style={[styles.headerCell, styles.headerCenter, { color: colors.textMuted }]}>
+                Trips
+              </Text>
+            </View>
+            <View style={styles.amtCol}>
+              <Text style={[styles.headerCell, styles.headerRight, { color: colors.textMuted }]}>
+                Earnings
+              </Text>
+            </View>
+          </View>
           {rows.map((row, idx) => {
             const unpaid = row.due > 0;
             const isLast = idx === rows.length - 1;
@@ -177,37 +180,54 @@ export function DriverSelfReceivablesPanel({
                 key={row.id}
                 style={[
                   styles.row,
-                  !isLast && { borderBottomColor: hairline, borderBottomWidth: StyleSheet.hairlineWidth },
+                  !isLast && {
+                    borderBottomColor: hairline,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                  },
                 ]}
                 onPress={() => router.push(ROUTES.driverPartyReceivable(row.id))}
                 activeOpacity={0.82}
                 accessibilityRole="button"
                 accessibilityLabel={`${row.name}, ${row.trips} trips, ${inr(row.due)} outstanding`}
               >
-                <EntityAvatar
-                  name={row.name}
-                  initialsColorSeed={row.id}
-                  avatarUrl={avatar.avatarUrl}
-                  avatarSeed={avatar.avatarSeed}
-                  organizationImageUrl={avatar.organizationImageUrl}
-                  organizationAvatarSeed={avatar.organizationAvatarSeed}
-                  entityType={row.kind === "marketplace" ? "supplier" : "client"}
-                  isIntegrated={row.kind === "marketplace" ? true : avatar.isIntegrated}
-                  size={36}
-                  showIntegrationBadge={false}
-                />
-                <View style={styles.partyMid}>
-                  <Text style={[styles.partyName, { color: colors.text }]} numberOfLines={1}>
-                    {row.name}
-                  </Text>
-                  <Text style={[styles.partySub, { color: colors.textMuted }]} numberOfLines={1}>
-                    {row.subtitle}
-                    {" · "}
-                    Sales {inr(row.billed)}
-                  </Text>
+                <View style={styles.partyCol}>
+                  <EntityAvatar
+                    name={row.name}
+                    initialsColorSeed={row.id}
+                    avatarUrl={avatar.avatarUrl}
+                    avatarSeed={avatar.avatarSeed}
+                    organizationImageUrl={avatar.organizationImageUrl}
+                    organizationAvatarSeed={avatar.organizationAvatarSeed}
+                    entityType={row.kind === "marketplace" ? "supplier" : "client"}
+                    isIntegrated={
+                      row.kind === "marketplace" ? true : avatar.isIntegrated
+                    }
+                    size={36}
+                    showIntegrationBadge={false}
+                  />
+                  <View style={styles.partyMid}>
+                    <Text
+                      style={[styles.partyName, { color: colors.text }]}
+                      numberOfLines={1}
+                    >
+                      {row.name}
+                    </Text>
+                    <Text
+                      style={[styles.partySub, { color: colors.textMuted }]}
+                      numberOfLines={1}
+                    >
+                      {row.subtitle}
+                      {" · "}
+                      Sales {inr(row.billed)}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.tripsPill}>
-                  <Text style={[styles.tripsPillText, { color: colors.text }]}>{row.trips}</Text>
+                <View style={styles.tripsCol}>
+                  <View style={styles.tripsPill}>
+                    <Text style={[styles.tripsPillText, { color: colors.text }]}>
+                      {row.trips}
+                    </Text>
+                  </View>
                 </View>
                 <View style={styles.amtCol}>
                   <Text
@@ -219,7 +239,10 @@ export function DriverSelfReceivablesPanel({
                   >
                     {inr(row.due)}
                   </Text>
-                  <Text style={[styles.receivedLine, { color: colors.textMuted }]} numberOfLines={1}>
+                  <Text
+                    style={[styles.receivedLine, { color: colors.textMuted }]}
+                    numberOfLines={1}
+                  >
                     Received {inr(row.received)}
                   </Text>
                 </View>
@@ -293,12 +316,19 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 2,
   },
+  table: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 4,
-    paddingBottom: 6,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 10,
   },
   headerCell: {
     ...driverUISemiBold,
@@ -306,14 +336,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
-  headerParty: { flex: 1, minWidth: 0 },
-  headerTrips: { width: 44, textAlign: "center" },
-  headerAmt: { width: 92, textAlign: "right" },
-  table: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-  },
+  headerCenter: { textAlign: "center", width: "100%" },
+  headerRight: { textAlign: "right", width: "100%" },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -321,6 +345,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     minHeight: 64,
+  },
+  partyCol: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   partyMid: { flex: 1, minWidth: 0, gap: 2 },
   partyName: {
@@ -332,21 +363,30 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 13,
   },
+  tripsCol: {
+    width: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   tripsPill: {
-    width: 36,
+    minWidth: 32,
     height: 28,
-    borderRadius: 14,
+    paddingHorizontal: 8,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.surfaceGray,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
   },
   tripsPillText: {
     ...driverUIBold,
     fontSize: 11,
   },
   amtCol: {
-    width: 92,
+    width: 96,
     alignItems: "flex-end",
+    justifyContent: "center",
     gap: 2,
   },
   dueValue: {

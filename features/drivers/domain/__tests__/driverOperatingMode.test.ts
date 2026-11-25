@@ -56,7 +56,7 @@ describe('parseDriverOperatingMode', () => {
     expect(canManageDcoSelfBook(m)).toBe(false);
     expect(canTagOfflineParty(m)).toBe(true);
     expect(canAttributeToEmployer(m)).toBe(false);
-    expect(driverWalletBookTabLabel(m)).toBe('Independent');
+    expect(driverWalletBookTabLabel(m)).toBe('Receivables');
     expect(driverOfflinePartyBookKicker(m)).toBe('Saved customers');
   });
 

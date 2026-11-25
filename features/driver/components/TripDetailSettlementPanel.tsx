@@ -559,19 +559,6 @@ export function TripDetailSettlementPanel({
         <Text style={[styles.tdTimelineHeaderTitle, { color: colors.text }]} numberOfLines={1}>
           Expense log
         </Text>
-        <TouchableOpacity
-          onPress={openAddExpense}
-          activeOpacity={0.8}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityRole="button"
-          accessibilityLabel="Add expense"
-          style={panelStyles.addExpenseHeaderBtn}
-        >
-          <Text style={[styles.tdLogMetaV, { color: colors.emerald, fontWeight: "700" }]}>
-            Add
-          </Text>
-          <ChevronRight size={14} color={colors.emerald} strokeWidth={2.4} />
-        </TouchableOpacity>
       </View>
 
       <DriverTripExpenseLogSection
@@ -763,13 +750,5 @@ const panelStyles = StyleSheet.create({
     fontWeight: "500",
     lineHeight: 16,
     color: "rgba(255,255,255,0.82)",
-  },
-  addExpenseHeaderBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    flexShrink: 0,
-    minHeight: 44,
-    justifyContent: "center",
   },
 });

@@ -6,6 +6,7 @@ import { tGlobal } from '@/contexts/LanguageContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
 import {
   claimIndexBootRedirect,
+  claimWebRefreshRedirect,
   consumeFreshSignInLanding,
   getBrowserLocation,
   hasIndexBootRedirected,
@@ -128,6 +129,7 @@ function IndexBoot({
         browser?.search ?? '',
       );
       if (webHref) {
+        if (!claimWebRefreshRedirect(webHref)) return;
         if (uid) claimIndexBootRedirect(uid);
         logRouteDecision('redirect_web_refresh_url', { uid, pathname, webHref });
         router.replace(webHref as Href);

@@ -56,7 +56,9 @@ export function buildOpsAlertFooterPlan(ops: GlobalOperationAlert): AlertDetailF
     summary: ops.subtitle?.trim() || ops.title,
     hint:
       ops.category === "unassigned_trip"
-        ? "Assign a driver and vehicle to clear this alert."
+        ? /declin/i.test(ops.title)
+          ? "Update the driver details to clear this alert."
+          : "Assign a driver and vehicle to clear this alert."
         : null,
   };
 }

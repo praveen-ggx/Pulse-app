@@ -132,33 +132,29 @@ export function DriverTripExpenseLogSection({
   return (
     <View style={styles.wrap}>
       {onAddExpense ? (
-        <View
-          style={[
-            td.tdTimelineCard,
-            styles.addExpenseCard,
-            { backgroundColor: colors.surface, borderColor: colors.border },
-          ]}
-        >
+        <View style={styles.addExpenseBlock}>
           <Pressable
             style={({ pressed }) => [
-              styles.addExpenseRow,
-              pressed && styles.addExpenseRowPressed,
+              styles.addExpenseBtn,
+              {
+                backgroundColor: colors.emeraldDark,
+                borderColor: colors.emeraldDark,
+                opacity: pressed ? 0.9 : 1,
+                transform: [{ scale: pressed ? 0.985 : 1 }],
+              },
             ]}
             onPress={onAddExpense}
             accessibilityRole="button"
             accessibilityLabel="Log expense"
           >
-            <View style={[styles.addExpenseIcon, { backgroundColor: colors.emeraldDark }]}>
-              <Feather name="plus" size={14} color="#fff" />
+            <View style={styles.addExpenseBtnIcon}>
+              <Feather name="plus" size={16} color="#fff" />
             </View>
-            <View style={styles.addExpenseCopy}>
-              <Text style={[td.tdLogStatus, { color: colors.text }]}>Log expense</Text>
-              <Text style={[td.tdLogLoc, { color: colors.textMuted }]} numberOfLines={1}>
-                Fuel, toll, parking & other costs
-              </Text>
-            </View>
-            <Feather name="chevron-right" size={14} color={colors.textMuted} />
+            <Text style={styles.addExpenseBtnLabel}>Log expense</Text>
           </Pressable>
+          <Text style={[styles.addExpenseHint, { color: colors.textMuted }]}>
+            Fuel · toll · parking · other trip costs
+          </Text>
         </View>
       ) : null}
 
@@ -300,34 +296,41 @@ const styles = StyleSheet.create({
   wrap: {
     gap: 0,
   },
-  addExpenseCard: {
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-    marginBottom: 10,
+  addExpenseBlock: {
+    marginBottom: 12,
+    gap: 8,
   },
-  addExpenseRow: {
+  addExpenseBtn: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
   },
-  addExpenseRowPressed: {
-    opacity: 0.88,
-  },
-  addExpenseIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+  addExpenseBtnIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
-    flexShrink: 0,
+    backgroundColor: "rgba(255,255,255,0.18)",
   },
-  addExpenseCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 1,
+  addExpenseBtnLabel: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  addExpenseHint: {
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 16,
+    textAlign: "center",
+    paddingHorizontal: 8,
   },
   segmentBar: {
     marginBottom: 10,

@@ -79,7 +79,10 @@ export function PooledOpportunityCard({
 
   return (
     <View
-      onPointerEnter={() => setHovered(true)}
+      onPointerEnter={() => {
+        setHovered(true);
+        onWarm?.();
+      }}
       onPointerLeave={() => setHovered(false)}
       style={[
         styles.card,

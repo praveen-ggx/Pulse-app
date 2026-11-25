@@ -47,7 +47,7 @@ import {
   normalizeComplianceUtr,
   validateComplianceUtr,
 } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
-import { formatTruckTypeWithSize } from "@/features/tripCompliance/utils/complianceTruckType.util";
+import { resolveTripContractTruckType } from "@/features/tripCompliance/services/complianceContractTruckType.service";
 import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import {
   COMPLIANCE_ACTION_BTN,
@@ -58,10 +58,6 @@ import {
   getTripDisplayNumber,
   type TripRow,
 } from "@/features/trips/services/trips.service";
-import {
-  getVehicleById,
-  getVehicleForTripViewer,
-} from "@/features/vehicles/services/vehicles.service";
 import { PAYMENT_MODES } from "@/lib/paymentModes";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Banknote, Calendar, Clock, Eye, Hash, Route } from "lucide-react-native";
@@ -554,23 +550,21 @@ export function CompliancePaymentConfirmModal({
   }, [visible, summary?.trip.id, category, isAdvance]);
 
   useEffect(() => {
-    const vehicleId = trip?.vehicle_id?.trim();
     const orgId = trip?.organization_id?.trim();
-    if (!visible || !trip || !vehicleId || !orgId) {
+    if (!visible || !trip || !orgId) {
       setTruckType(null);
       return;
     }
     let cancelled = false;
     void (async () => {
-      const owned = await getVehicleById(orgId, vehicleId);
-      const ownedType = formatTruckTypeWithSize(owned.vehicle?.vehicle_type, owned.vehicle?.vehicle_size);
-      if (ownedType) {
-        if (!cancelled) setTruckType(ownedType);
-        return;
-      }
-      const shared = await getVehicleForTripViewer(vehicleId, trip.id, orgId);
-      if (!cancelled)
-        setTruckType(formatTruckTypeWithSize(shared.vehicle?.vehicle_type, shared.vehicle?.vehicle_size) || null);
+      const label = await resolveTripContractTruckType({
+        orgId,
+        tripId: trip.id,
+        indentId: trip.indent_id,
+        sourceIndentId: trip.source_indent_id,
+        vehicleId: trip.vehicle_id,
+      });
+      if (!cancelled) setTruckType(label || null);
     })();
     return () => {
       cancelled = true;

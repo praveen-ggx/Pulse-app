@@ -4,7 +4,10 @@
  * compliance trip onto LogHardCopyPodModal's manifest summary, so every entry
  * point (workspace pane, workspace popup, Debit control table) shows the same.
  */
-import type { ComplianceListTripFacts } from "@/features/tripCompliance/services/complianceListFacts.service";
+import {
+  complianceTruckTypeForTrip,
+  type ComplianceListTripFacts,
+} from "@/features/tripCompliance/services/complianceListFacts.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
   LogHardCopyPodModal,
@@ -20,7 +23,10 @@ type Props = {
   organizationId: string | null;
   canManage: boolean;
   lrOptions: HardCopyPodLrOption[];
-  tripFacts: Pick<ComplianceListTripFacts, "truckTypeByVehicleId" | "supplierNameByTripId">;
+  tripFacts: Pick<
+    ComplianceListTripFacts,
+    "truckTypeByTripId" | "truckTypeByVehicleId" | "supplierNameByTripId"
+  >;
   /** Called with every trip the save touched (one courier docket can cover several). */
   onChanged: (tripIds: string[]) => void | Promise<void>;
   /** Render inside a pane instead of as the drawer. */
@@ -65,8 +71,7 @@ export function ComplianceHardCopyPodSheet({
         delivery: trip.drop_location?.trim() || "—",
         driverName: trip.driver_display_name?.trim() || "Unassigned",
         vehicleLabel: trip.vehicle_display_number?.trim() || "Pending",
-        vehicleType:
-          (trip.vehicle_id ? tripFacts.truckTypeByVehicleId[trip.vehicle_id] : null)?.trim() || "—",
+        vehicleType: complianceTruckTypeForTrip(tripFacts, trip.id, trip.vehicle_id)?.trim() || "—",
         vendorName:
           (tripFacts.supplierNameByTripId[trip.id] ?? trip.supplier_name)?.trim() || "—",
       }}

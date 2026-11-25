@@ -72,6 +72,7 @@ it("300 trips → exactly one facts RPC, no per-trip vehicle/supplier calls", as
   expect(mockRpc.mock.calls[0][1].p_viewer_org_id).toBe("viewer-org");
   expect(mockRpc.mock.calls[0][1].p_trip_ids).toHaveLength(300);
   expect(mockFrom).not.toHaveBeenCalled();
+  expect(hook.result.current.truckTypeByTripId.t3).toBe("32 ft");
   expect(hook.result.current.truckTypeByVehicleId.v3).toBe("32 ft");
   expect(hook.result.current.supplierNameByTripId.t0).toBe("Own fleet");
   expect(hook.result.current.supplierNameByTripId.t1).toBe("Supplier 1");
@@ -90,7 +91,11 @@ it("no call before the user session is attached", async () => {
   const hook = render(summaries(10));
   await new Promise((r) => setTimeout(r, 20));
   expect(mockRpc).not.toHaveBeenCalled();
-  expect(hook.result.current).toEqual({ truckTypeByVehicleId: {}, supplierNameByTripId: {} });
+  expect(hook.result.current).toEqual({
+    truckTypeByTripId: {},
+    truckTypeByVehicleId: {},
+    supplierNameByTripId: {},
+  });
 });
 
 it("a failed batch is not retried", async () => {

@@ -45,6 +45,7 @@ import {
 import { ComplianceRejectRemarkModal } from "@/features/tripCompliance/components/ComplianceRejectRemarkModal";
 import { complianceActionButtonStyles } from "@/features/tripCompliance/utils/complianceActionButton.util";
 import type { ComplianceListTripFacts } from "@/features/tripCompliance/hooks/useComplianceListTripFacts";
+import { complianceTruckTypeForTrip } from "@/features/tripCompliance/services/complianceListFacts.service";
 import {
   COMPLIANCE_QUEUE_WINDOW_SIZE,
   useComplianceListWindow,
@@ -3521,7 +3522,7 @@ export function ComplianceDocumentWorkspace({
   const focusUploadTypeRef = useRef<string | null>(null);
   const appliedChargeFocus = useRef(0);
   const appliedSelectedTripId = useRef<string | null>(selectedTripId ?? null);
-  const { truckTypeByVehicleId, supplierNameByTripId } = tripFacts;
+  const { supplierNameByTripId } = tripFacts;
   const clientsQuery = useClientsQuery(organizationId);
   const suppliersQuery = useSuppliersQuery(organizationId);
   const linkedOrgByOrganizationId = useLinkedOrgProfileMap(
@@ -6454,11 +6455,7 @@ export function ComplianceDocumentWorkspace({
             >
               <ChecklistTripDetailsPanel
                 summary={summary}
-                truckType={
-                  summary.trip.vehicle_id
-                    ? truckTypeByVehicleId[summary.trip.vehicle_id] ?? null
-                    : null
-                }
+                truckType={complianceTruckTypeForTrip(tripFacts, summary.trip.id, summary.trip.vehicle_id)}
                 supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                 onOpenDocumentUpload={openDocumentUploadFromDetails}
                 hideCommercials={hideCommercials}
@@ -7210,11 +7207,7 @@ export function ComplianceDocumentWorkspace({
                     >
                       <ChecklistTripDetailsPanel
                         summary={summary}
-                        truckType={
-                          summary.trip.vehicle_id
-                            ? truckTypeByVehicleId[summary.trip.vehicle_id] ?? null
-                            : null
-                        }
+                        truckType={complianceTruckTypeForTrip(tripFacts, summary.trip.id, summary.trip.vehicle_id)}
                         supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                         onOpenDocumentUpload={openDocumentUploadFromDetails}
                       hideCommercials={hideCommercials}

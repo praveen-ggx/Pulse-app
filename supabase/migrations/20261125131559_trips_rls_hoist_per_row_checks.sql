@@ -5,8 +5,14 @@
 --   has_platform_permission() costs ~35 us per call and is_org_staff() ~18 us per call (both are
 --   SECURITY DEFINER, so they are never inlined). Both were evaluated once per trips row, because the
 --   policy passed a row column (is_org_staff) or sat in an OR with row-dependent terms
---   (has_platform_permission). That per-row cost sits under every trips read: search_trips_for_org,
---   get_trips_for_org, hub lists, compliance reads.
+--   (has_platform_permission).
+--   Preprod, same query, before -> after this migration: ~345-436 ms -> ~52 ms; visible trip sets identical
+--   for all 333 users (supabase/tests/trips_rls_equivalence.sql diff empty).
+--
+-- Scope: this speeds up reads that go through trips RLS (PostgREST .from('trips') queries, joins into
+-- trips from other tables' policies, and writes). It does NOT change the SECURITY DEFINER RPCs
+-- (search_trips_for_org, get_trips_for_org, list_org_hub_trips_keyset*, get_trip_detail_bundle,
+-- count_org_hub_metrics): those bypass RLS and keep their own cost.
 --
 -- This migration changes WHERE the checks are computed, never WHAT they allow:
 --   1. trips_platform_admin_select: same two has_platform_permission() calls, wrapped in a scalar

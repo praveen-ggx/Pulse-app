@@ -1,5 +1,5 @@
 # trips RLS: hoist has_platform_permission (platform admin policy) and is_org_staff (manage policy) out of the
 # per-row loop. Same access, computed once per statement. DRAFT: needs preprod timing + the equivalence
 # script (supabase/tests/trips_rls_equivalence.sql) before/after diff before any prod apply.
-# sha256 fe7e90fab28059bcc784f615b55bbc38908fc556f0b953e1d4bf11b5c81832f3  20261125131559_trips_rls_hoist_per_row_checks.sql
+# sha256 8160d59b4e04e831f47300bea4ee31294cf59bda25461e72012e5f31355016a9  20261125131559_trips_rls_hoist_per_row_checks.sql
 20261125131559

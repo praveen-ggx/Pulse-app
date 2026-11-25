@@ -41,7 +41,9 @@ export function useTripVerificationPhotos(
       ? queryKeys.trips.verificationPhotos(tripId)
       : ["q", "trips", "verification", "photos", "noop"],
     queryFn: async () => {
-      const { documents, error } = await tripDocumentsService.getDocumentsByTripId(tripId!);
+      const { documents, error } = await tripDocumentsService.getDocumentsByTripId(tripId!, {
+        includeStorageFallback: true,
+      });
       if (error) throw error;
       return documents.filter(
         (d) =>

@@ -76,6 +76,23 @@ describe("getHubTripKeysetPage", () => {
   });
 });
 
+describe("getHubTripKeysetPage", () => {
+  it("sends the rail tile and the attribution filter on the first page", async () => {
+    mockTrips = makeTrips(1);
+    serve();
+    const page = await getHubTripKeysetPage("org-1", {
+      bucket: "unassigned",
+      attributed: "attributed",
+      withCounts: true,
+    });
+    expect(page.error).toBeNull();
+    expect(mockRpc.mock.calls[0][0]).toBe("list_org_hub_trips_keyset");
+    expect(mockRpc.mock.calls[0][1].p_bucket).toBe("unassigned");
+    expect(mockRpc.mock.calls[0][1].p_attributed).toBe("attributed");
+    expect(mockRpc.mock.calls[0][1].p_compliance).toBe(false);
+  });
+});
+
 describe("loadHubTripKeysetRange", () => {
   it("counts once, then walks rows-only pages of 250", async () => {
     mockTrips = makeTrips(1_234);

@@ -1,5 +1,6 @@
 /**
- * Driver Profile — hero, fleet vehicle, levels, KYC shortcut to documents (single upload hub).
+ * Driver Profile — hero, levels, DCO entry, KYC shortcut to documents (single upload hub).
+ * Fleet-assigned vehicle lives in DCO onboarding (`/(driver)/assigned-vehicle`).
  */
 import { useAvatar } from '@/lib/useAvatar';
 import Layout from '@/constants/Layout';
@@ -28,7 +29,6 @@ import { ROUTES } from '@/lib/routes';
 import { supabase } from '@/lib/supabase';
 import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
 import * as driversService from '@/features/drivers/services/drivers.service';
-import { getVehicleById } from '@/features/vehicles/services/vehicles.service';
 import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
 import { VerifiedDcoBadge } from '@/components/driver/VerifiedDcoBadge';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
@@ -39,11 +39,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Crown,
-  Dna,
   Edit3,
-  Fuel,
   Gavel,
-  Gauge,
   Globe,
   History,
   LogOut,
@@ -52,11 +49,8 @@ import {
   Share2,
   Shield,
   Star,
-  Thermometer,
   Trophy,
-  Truck,
   UserPlus,
-  Wrench
 } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -93,7 +87,7 @@ const SLATE_50 = '#f8fafc';
 const AMBER_400 = '#fbbf24';
 const AMBER_500 = '#f59e0b';
 
-type ProfileView = 'main' | 'vehicle' | 'levels';
+type ProfileView = 'main' | 'levels';
 
 /** Same completion rule as trip history: status or a stamped completed_at. */
 const COMPLETED_TRIP_FILTER =
@@ -113,28 +107,6 @@ async function countCompletedTrips(driverIds: string[]): Promise<number> {
   return count ?? 0;
 }
 
-async function lookupTripVehicleNumber(driverIds: string[]): Promise<string | null> {
-  const { data, error } = await supabase()
-    .from('trips')
-    .select('vehicle_display_number')
-    .in('driver_id', driverIds)
-    .not('vehicle_display_number', 'is', null)
-    .limit(1);
-  if (error) return null;
-  const row = (data ?? [])[0] as { vehicle_display_number?: string | null } | undefined;
-  const num = (row?.vehicle_display_number ?? '').trim();
-  return num.length > 0 ? num : null;
-}
-
-function formatShortDate(iso?: string | null) {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-  } catch {
-    return '—';
-  }
-}
-
 export default function DriverProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -143,7 +115,7 @@ export default function DriverProfileScreen() {
   const colors = useDriverThemeColors();
   const { user, profile, signOut, refreshSession, patchProfile } = useAuth();
   const { status: dcoStatus } = useDcoStatusQuery(profile?.uid);
-  const { canSeeMarketplace, canManageOwnerVehicles } = useDriverOperatingModeQuery(profile?.uid);
+  const { canSeeMarketplace } = useDriverOperatingModeQuery(profile?.uid);
   const { locale, localeOptions } = useLanguage();
   const languageLabel =
     localeOptions.find((o) => o.value === locale)?.label ?? 'English';
@@ -151,12 +123,10 @@ export default function DriverProfileScreen() {
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileView, setProfileView] = useState<ProfileView>('main');
   const [guideLevel, setGuideLevel] = useState<ExperienceLevelConfig | null>(null);
-  const [drivers, setDrivers] = useState<driversService.DriverRow[]>([]);
   const [driverIds, setDriverIds] = useState<string[]>([]);
   const [completedTripCount, setCompletedTripCount] = useState(0);
   const [loadingTrips, setLoadingTrips] = useState(true);
   const [tripsLoaded, setTripsLoaded] = useState(false);
-  const [tripVehicleLabel, setTripVehicleLabel] = useState<string | null>(null);
   const [driverRatings, setDriverRatings] = useState<RatingRow[]>([]);
   const [loadingDriverRatings, setLoadingDriverRatings] = useState(false);
   const [kycUploadedCount, setKycUploadedCount] = useState(0);
@@ -165,12 +135,6 @@ export default function DriverProfileScreen() {
     isVerified: boolean;
     verifiedDocs: number;
     requiredDocs: number;
-  } | null>(null);
-  const [assignedVehicleLabel, setAssignedVehicleLabel] = useState<string | null>(null);
-  const [assignedVehicleMeta, setAssignedVehicleMeta] = useState<{
-    model?: string | null;
-    type?: string | null;
-    brand?: string | null;
   } | null>(null);
 
   const scrollBottomPad = driverTabBarScrollInset(insets.bottom);
@@ -201,7 +165,6 @@ export default function DriverProfileScreen() {
       setLoadingTrips(false);
       setTripsLoaded(true);
       setCompletedTripCount(0);
-      setTripVehicleLabel(null);
       return;
     }
     setLoadingTrips(true);
@@ -212,24 +175,16 @@ export default function DriverProfileScreen() {
         // All driver rows (including left fleets) — experience is cumulative.
         const allRows = res.drivers ?? [];
         const ids = allRows.map((d) => d.id);
-        // UI fleet display: active fleet links only. tracking_only rows are trip-assignment
-        // identities (e.g. the shipper that awarded a Marketplace bid), not a fleet.
-        setDrivers(allRows.filter((d) => !d.left_at && d.tracking_only !== true));
         // Same id set the count below uses — drives the realtime subscription filter.
         setDriverIds(ids);
         if (ids.length === 0) {
           setCompletedTripCount(0);
-          setTripVehicleLabel(null);
           setTripsLoaded(true);
           return;
         }
-        const [count, plate] = await Promise.all([
-          countCompletedTrips(ids),
-          lookupTripVehicleNumber(ids),
-        ]);
+        const count = await countCompletedTrips(ids);
         if (gen !== tripLoadGen.current) return;
         setCompletedTripCount(count);
-        setTripVehicleLabel(plate);
         setTripsLoaded(true);
       })
       .catch((err: unknown) => {
@@ -325,37 +280,6 @@ export default function DriverProfileScreen() {
     void loadKycSummary();
   }, [loadKycSummary]);
 
-  const primaryDriver = drivers[0] ?? null;
-
-  useEffect(() => {
-    let cancelled = false;
-    const orgId = String(primaryDriver?.organization_id ?? '').trim();
-    const vehicleId = String(primaryDriver?.assigned_vehicle_id ?? '').trim();
-    if (!orgId || !vehicleId) {
-      setAssignedVehicleLabel(null);
-      setAssignedVehicleMeta(null);
-      return;
-    }
-    void getVehicleById(orgId, vehicleId).then((res) => {
-      if (cancelled) return;
-      const v = res.vehicle;
-      if (!v) {
-        setAssignedVehicleLabel(null);
-        setAssignedVehicleMeta(null);
-        return;
-      }
-      setAssignedVehicleLabel((v.vehicle_number ?? '').trim() || null);
-      setAssignedVehicleMeta({
-        model: v.vehicle_model,
-        type: v.vehicle_type,
-        brand: v.vehicle_brand,
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [primaryDriver?.organization_id, primaryDriver?.assigned_vehicle_id]);
-
   const tripsCount = completedTripCount;
 
   useEffect(() => {
@@ -418,36 +342,6 @@ export default function DriverProfileScreen() {
     if (kind === 'find_work') {
       router.push(canSeeMarketplace ? ROUTES.driverAvailableLoads() : ROUTES.driverDcoStatus());
     }
-  };
-
-  const fleetOrgName =
-    (primaryDriver?.organizations as { name?: string } | null | undefined)?.name?.trim() ||
-    'Fleet';
-  const plateLabel = assignedVehicleLabel || tripVehicleLabel;
-  const modelParts = [
-    assignedVehicleMeta?.brand?.trim(),
-    assignedVehicleMeta?.model?.trim() || assignedVehicleMeta?.type?.trim(),
-  ].filter(Boolean);
-  const vehicleDisplay = {
-    model: modelParts.length > 0 ? modelParts.join(' ') : plateLabel ? 'Assigned vehicle' : 'No vehicle assigned',
-    plate: plateLabel || (primaryDriver ? 'Not linked yet' : '—'),
-    fleetId: fleetOrgName.slice(0, 18).toUpperCase(),
-    assignedOn: formatShortDate(primaryDriver?.created_at),
-    supervisor: fleetOrgName,
-    odometer: '—',
-    fuel: '—',
-    engineTemp: '—',
-    specs: [
-      { label: 'Type', value: assignedVehicleMeta?.type?.trim() || '—' },
-      { label: 'Brand', value: assignedVehicleMeta?.brand?.trim() || '—' },
-      { label: 'Model', value: assignedVehicleMeta?.model?.trim() || '—' },
-      { label: 'Plate', value: plateLabel || '—' },
-    ] as { label: string; value: string }[],
-    health: [
-      { label: 'Assignment', value: plateLabel ? 'Linked' : 'Pending', color: Theme.driverEmerald },
-      { label: 'Fleet', value: fleetOrgName, color: Theme.driverEmerald },
-      { label: 'Status', value: primaryDriver ? 'Active' : '—', color: Theme.driverEmerald },
-    ] as { label: string; value: string; color: string }[],
   };
 
   const handleBack = () => {
@@ -594,88 +488,6 @@ export default function DriverProfileScreen() {
             </Text>
           </View>
         </View>
-      </View>
-    </View>
-  );
-
-  const VehicleTechnicalView = () => (
-    <View style={styles.subPage}>
-      <View style={styles.subHeaderRow}>
-        <TouchableOpacity style={[styles.iconPill, { borderColor: cardBorder, backgroundColor: colors.surface }]} onPress={() => setProfileView('main')}>
-          <ChevronLeft size={20} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.subTitle, { color: colors.text }]}>FLEET VEHICLE</Text>
-      </View>
-
-      <View style={styles.heroDark}>
-        <View style={[styles.heroWatermark, { padding: 28 }]}>
-          <Truck size={120} color="rgba(255,255,255,0.1)" />
-        </View>
-        <View style={styles.vehicleHeroTop}>
-          <View style={styles.fleetBadge}>
-            <Text style={styles.fleetBadgeText}>{vehicleDisplay.fleetId}</Text>
-          </View>
-          <View style={styles.connectedRow}>
-            <View style={styles.pulseDot} />
-            <Text style={styles.connectedText}>Connected</Text>
-          </View>
-        </View>
-        <Text style={styles.vehicleModel}>{vehicleDisplay.model}</Text>
-        <Text style={styles.vehiclePlate}>{vehicleDisplay.plate}</Text>
-        <View style={styles.vehicleGrid2}>
-          <View style={styles.vehicleStatDark}>
-            <Text style={styles.vehicleStatLabel}>ASSIGNED ON</Text>
-            <Text style={styles.vehicleStatValue}>{vehicleDisplay.assignedOn}</Text>
-          </View>
-          <View style={styles.vehicleStatDark}>
-            <Text style={styles.vehicleStatLabel}>SUPERVISOR</Text>
-            <Text style={styles.vehicleStatValue}>{vehicleDisplay.supervisor}</Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.triGaugeRow}>
-        <View style={[styles.gaugeCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          <Fuel size={20} color={Theme.driverEmerald} />
-          <Text style={[styles.gaugeVal, { color: colors.text }]}>{vehicleDisplay.fuel}</Text>
-          <Text style={[styles.gaugeLbl, { color: muted }]}>FUEL</Text>
-        </View>
-        <View style={[styles.gaugeCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          <Gauge size={20} color="#3b82f6" />
-          <Text style={[styles.gaugeVal, { color: colors.text }]}>{vehicleDisplay.odometer}</Text>
-          <Text style={[styles.gaugeLbl, { color: muted }]}>KM</Text>
-        </View>
-        <View style={[styles.gaugeCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          <Thermometer size={20} color="#f43f5e" />
-          <Text style={[styles.gaugeVal, { color: colors.text }]}>{vehicleDisplay.engineTemp}</Text>
-          <Text style={[styles.gaugeLbl, { color: muted }]}>TEMP</Text>
-        </View>
-      </View>
-
-      <View style={[styles.whiteCardLg, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-        <View style={styles.cardHeadRow}>
-          <Dna size={16} color={muted} />
-          <Text style={[styles.cardHeadTitle, { color: muted }]}>TECH SPECS</Text>
-        </View>
-        {vehicleDisplay.specs.map((spec, i) => (
-          <View key={spec.label} style={[styles.specRow, i < vehicleDisplay.specs.length - 1 && styles.specRowBorder]}>
-            <Text style={[styles.specLabel, { color: muted }]}>{spec.label}</Text>
-            <Text style={[styles.specValue, { color: colors.text }]}>{spec.value}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={[styles.whiteCardLg, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-        <View style={styles.cardHeadRow}>
-          <Wrench size={16} color={muted} />
-          <Text style={[styles.cardHeadTitle, { color: muted }]}>HEALTH DIAGNOSTICS</Text>
-        </View>
-        {vehicleDisplay.health.map((h) => (
-          <View key={h.label} style={[styles.healthRow, { backgroundColor: isDark ? colors.surfaceElevated : '#f8fafc' }]}>
-            <Text style={[styles.healthLabel, { color: colors.text }]}>{h.label}</Text>
-            <Text style={[styles.healthValue, { color: h.color }]}>{h.value}</Text>
-          </View>
-        ))}
       </View>
     </View>
   );
@@ -867,41 +679,6 @@ export default function DriverProfileScreen() {
                   </View>
                 </TouchableOpacity>
 
-                {/* A DCO is never a fleet employee: their trucks live in My Fleet, not a fleet assignment. */}
-                <TouchableOpacity
-                  style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]}
-                  onPress={() =>
-                    canManageOwnerVehicles
-                      ? router.push(ROUTES.driverMyFleet() as Parameters<typeof router.push>[0])
-                      : setProfileView('vehicle')
-                  }
-                  activeOpacity={0.88}
-                  accessibilityRole="button"
-                  accessibilityLabel={canManageOwnerVehicles ? 'My vehicles' : 'Assigned vehicle'}
-                >
-                  <View style={styles.rowCardLeft}>
-                    <View style={styles.blueIcon}>
-                      <Truck size={20} color="#3b82f6" />
-                    </View>
-                    <View style={styles.rowCardText}>
-                      <Text style={[styles.rowEyebrow, { color: muted }]}>
-                        {canManageOwnerVehicles ? 'MY VEHICLES' : 'FLEET ASSIGNED'}
-                      </Text>
-                      <Text style={[styles.rowTitle, { color: colors.text }]}>
-                        {canManageOwnerVehicles ? 'Manage my trucks' : vehicleDisplay.model}
-                      </Text>
-                      {canManageOwnerVehicles ? (
-                        <Text style={[styles.rowSub, { color: muted }]} numberOfLines={1}>
-                          Add or update the vehicles you bid with
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
-                    <ChevronRight size={18} color={muted} />
-                  </View>
-                </TouchableOpacity>
-
                 <Pressable
                   style={({ pressed }) => [
                     styles.rowCard,
@@ -1040,7 +817,6 @@ export default function DriverProfileScreen() {
               </View>
             )}
             {profileView === 'levels' && <LevelView />}
-            {profileView === 'vehicle' && <VehicleTechnicalView />}
         </>
       </ScrollView>
 
@@ -1374,58 +1150,4 @@ const styles = StyleSheet.create({
   metricCell: { flex: 1, padding: 14, borderRadius: 18 },
   metricLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 1, marginBottom: 6 },
   metricValue: { fontSize: 14, fontWeight: '900' },
-
-  vehicleHeroTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 18 },
-  fleetBadge: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  fleetBadgeText: { fontSize: 9, fontWeight: '700', color: '#fff', letterSpacing: 1.2 },
-  connectedRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  pulseDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Theme.driverEmerald },
-  connectedText: { fontSize: 10, fontWeight: '600', color: Theme.driverPrimary },
-  vehicleModel: { fontSize: 20, fontWeight: '800', color: '#fff', letterSpacing: -0.3 },
-  vehiclePlate: { marginTop: 4, fontSize: 11, fontWeight: '700', color: 'rgba(148,163,184,0.95)', letterSpacing: 2 },
-  vehicleGrid2: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  vehicleStatDark: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  vehicleStatLabel: { fontSize: 10, color: 'rgba(148,163,184,0.85)', fontWeight: '600', marginBottom: 4 },
-  vehicleStatValue: { fontSize: 12, fontWeight: '700', color: '#fff' },
-  triGaugeRow: { flexDirection: 'row', gap: 8 },
-  gaugeCard: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 4,
-  },
-  gaugeVal: { fontSize: 16, fontWeight: '800' },
-  gaugeLbl: { fontSize: 8, fontWeight: '700', letterSpacing: 1.2 },
-  whiteCardLg: { borderRadius: 16, padding: 14, borderWidth: 1 },
-  cardHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  cardHeadTitle: { fontSize: 10, fontWeight: '700', letterSpacing: 1.5 },
-  specRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10 },
-  specRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(226,232,240,0.8)' },
-  specLabel: { fontSize: 12, fontWeight: '600' },
-  specValue: { fontSize: 12, fontWeight: '700' },
-  healthRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 12,
-    borderRadius: 14,
-    marginBottom: 8,
-  },
-  healthLabel: { fontSize: 12, fontWeight: '600' },
-  healthValue: { fontSize: 10, fontWeight: '700' },
 });

@@ -25,7 +25,9 @@ export function useTripDocumentsByType(
     if (!tripId) return;
     if (!opts?.silent) setLoading(true);
     try {
-      const { documents: rows, error } = await tripDocumentsService.getDocumentsByTripId(tripId);
+      const { documents: rows, error } = await tripDocumentsService.getDocumentsByTripId(tripId, {
+        includeStorageFallback: true,
+      });
       if (!error) {
         setDocuments(rows.filter((d) => d.document_type === documentType));
         lastTripIdRef.current = tripId;

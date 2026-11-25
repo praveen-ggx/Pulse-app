@@ -111,6 +111,7 @@ function DriverTabsNavigator() {
       <Tabs.Screen name="expense-capture" options={{ title: 'Capture expense', href: null }} />
       <Tabs.Screen name="general-expense" options={{ title: 'General expense', href: null }} />
       <Tabs.Screen name="dco-status" options={{ title: 'DCO Status', href: null }} />
+      <Tabs.Screen name="assigned-vehicle" options={{ title: 'Assigned vehicle', href: null }} />
       <Tabs.Screen name="my-fleet" options={{ title: 'My Fleet', href: null }} />
       <Tabs.Screen name="available-loads" options={{ title: 'Market' }} />
       <Tabs.Screen name="my-bids" options={{ title: 'My Bids', href: null }} />

@@ -7,13 +7,15 @@
  * unmodified and is still what renders for:
  *   - any driver whose participation isn't DCO-eligible (employed/invited)
  *   - a DCO-eligible driver who currently has an active trip (unavailable)
- *   - while participation/availability are still loading (fail safe to the
- *     existing behavior rather than flash the new surface incorrectly)
+ *   - a DCO-eligible driver with an incoming assignment / pending OTP claim
+ *   - a plain driver with no fleet (Find Work / Market is DCO-only)
+ *   - while participation/availability/incoming trips are still loading
+ *     (fail safe to Home rather than flash Available over an accept popup)
  *
  * DriverAvailableScreen (new, A7.2-approved) renders only for a DCO-eligible
- * driver who is currently available (is_driver_available() === true) and is
- * an approved DCO allowed to see Market (canSeeMarketplace). A plain driver
- * with no fleet keeps DriverHomeScreen -- Find Work is DCO-only.
+ * driver who is currently available (is_driver_available() === true), is an
+ * approved DCO allowed to see Market (canSeeMarketplace), and has no linked
+ * assigned-not-started trip and no pending OTP claim.
  *
  * Participation is fetched locally here (not via a shared hook) rather than
  * touching features/reach/screens/DriverStoriesScreen.tsx's own inline
@@ -23,15 +25,21 @@
 import { useAuth } from '@/contexts/AuthContext';
 import DriverAvailableScreen from '@/features/drivers/screens/DriverAvailableScreen';
 import DriverHomeScreen from '@/features/drivers/screens/DriverHomeScreen';
+import {
+  hasIncomingAssignableTrips,
+  shouldShowDriverAvailableSurface,
+} from '@/features/driver/utils/driverIncomingAssignment.util';
 import { useDriverAvailabilityQuery } from '@/lib/queries/useDriverAvailabilityQuery';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
+import { useDriverUiTripsQuery } from '@/lib/queries/useDriverUiTripsQuery';
+import { usePendingOtpTripsQuery } from '@/lib/queries/usePendingOtpTripsQuery';
 import { getDriverFleetMemberships } from '@/features/reach/services/driverReferrals.service';
 import {
   isDcoEligibleParticipation,
   resolveDriverParticipation,
   type DriverMembershipLike,
 } from '@/features/reach/utils/driverParticipation';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export default function DriverIndexRoute() {
   const { profile } = useAuth();
@@ -59,19 +67,36 @@ export default function DriverIndexRoute() {
   const { available, isLoading: availabilityLoading, isError: availabilityError } =
     useDriverAvailabilityQuery(uid);
   const { canSeeMarketplace } = useDriverOperatingModeQuery(uid);
+  const tripsQuery = useDriverUiTripsQuery(uid || null);
+  const pendingOtpQuery = usePendingOtpTripsQuery(uid || null);
 
   const participationKnown = memberships !== null;
   const isDcoEligible = participationKnown
     ? isDcoEligibleParticipation(resolveDriverParticipation(memberships))
     : false;
 
+  const hasIncomingAssignment = useMemo(() => {
+    if (hasIncomingAssignableTrips(tripsQuery.trips)) return true;
+    return (pendingOtpQuery.pendingTrips?.length ?? 0) > 0;
+  }, [tripsQuery.trips, pendingOtpQuery.pendingTrips]);
+
+  // Trips query stays disabled until linked drivers fetch; treat "no linked
+  // drivers yet" as known empty. Pending OTP is known once that query fetches.
+  const incomingAssignmentKnown =
+    (tripsQuery.linkedFetched || tripsQuery.isFetched || tripsQuery.isError) &&
+    (pendingOtpQuery.isFetched || pendingOtpQuery.isError);
+
   const showAvailableSurface =
-    participationKnown &&
-    !availabilityLoading &&
-    !availabilityError &&
-    isDcoEligible &&
     canSeeMarketplace &&
-    available === true;
+    shouldShowDriverAvailableSurface({
+      participationKnown,
+      availabilityLoading,
+      availabilityError,
+      isDcoEligible,
+      available,
+      hasIncomingAssignment,
+      incomingAssignmentKnown,
+    });
 
   return showAvailableSurface ? <DriverAvailableScreen /> : <DriverHomeScreen />;
 }

@@ -237,6 +237,15 @@ export const tripHistoryDetailStyles = withWebSafeShadows(
     color: "#ffffff",
     letterSpacing: 0.5,
   },
+  tdHeroMetaCompare: {
+    marginTop: 3,
+    fontSize: 10,
+    fontWeight: "600",
+    color: "rgba(167,243,208,0.92)",
+    letterSpacing: 0.2,
+    lineHeight: 13,
+    maxWidth: 160,
+  },
   tdHeroAssignerRow: {
     marginTop: 16,
     paddingTop: 12,

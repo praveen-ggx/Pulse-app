@@ -19,8 +19,9 @@ import {
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 
-const STALE_MS = 30_000;
-const POLL_MS = 120_000;
+const STALE_MS = 15_000;
+/** Faster than before so a freshly linked phone-assign stub reaches Home quickly. */
+const POLL_MS = 30_000;
 const EMPTY_DRIVERS: DriverRow[] = [];
 
 export function driverHomeLinkedDriversQueryKey(userId: string) {
@@ -44,7 +45,7 @@ export function useDriverHomeDriversQuery(userId: string | null) {
     gcTime: 10 * 60_000,
     retry: infrastructureShouldRetry,
     retryDelay: infrastructureRetryDelay,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchInterval: appActive ? POLL_MS : false,
     placeholderData: keepPreviousData,

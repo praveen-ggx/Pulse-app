@@ -3,7 +3,10 @@
  * RPC once, and that result is marked unpaged. A repeated id returns no rows.
  */
 const mockRpc = jest.fn();
-jest.mock("@/lib/supabase", () => ({ supabase: () => ({ rpc: (...args: unknown[]) => mockRpc(...args) }) }));
+jest.mock("@/lib/supabase", () => ({
+  supabase: () => ({ rpc: (...args: unknown[]) => mockRpc(...args) }),
+  getAccessToken: async () => "test-token",
+}));
 
 import { getTripsWhereOrgIsSupplier } from "../trips.service";
 

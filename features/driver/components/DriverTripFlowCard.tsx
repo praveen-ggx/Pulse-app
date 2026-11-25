@@ -55,6 +55,7 @@ import {
 } from '@/features/driver/components/DriverTripCompletedModal';
 import { getTripDisplayLabel } from '@/lib/globalId';
 import { findLatestMissionDebriefMessage } from '@/features/chat/utils/missionDebrief.util';
+import { DriverDocumentGalleryPreview } from '@/features/driver/components/DriverDocumentGalleryPreview';
 import { DriverPodCompletionPage } from '@/features/driver/components/DriverPodCompletionPage';
 import { LoadingComplianceNotice } from '@/features/tripCompliance/components/LoadingComplianceNotice';
 import { missionStagePeekCopy } from '@/features/driver/utils/missionStagePeekLabel.util';
@@ -98,7 +99,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
     Alert,
-    Image,
     Linking,
     Modal,
     Platform,
@@ -542,10 +542,7 @@ export function DriverTripFlowCard({
   const [podViewUrls, setPodViewUrls] = useState<Record<string, string>>({});
   const podViewUrlsRequestedRef = useRef<Set<string>>(new Set());
   const lastPodTripIdRef = useRef<string | null>(null);
-  const [viewingPodUrl, setViewingPodUrl] = useState<string | null>(null);
-  const [viewingPodDocId, setViewingPodDocId] = useState<string | null>(null);
-  const [viewingPodLoading, setViewingPodLoading] = useState(false);
-  const [viewingPodError, setViewingPodError] = useState(false);
+  const [podGalleryIndex, setPodGalleryIndex] = useState<number | null>(null);
   const [podDeletingId, setPodDeletingId] = useState<string | null>(null);
   const podUploadCancelledRef = useRef(false);
   /** Full-page POD finish flow — auto-opens when entering AT DROP. */
@@ -755,12 +752,26 @@ export function DriverTripFlowCard({
   );
 
   const resolvePodPreviewUrl = useCallback(
-    async (doc: tripDocumentsService.TripDocumentRow): Promise<string | null> => {
+    async (
+      doc: tripDocumentsService.TripDocumentRow,
+      opts?: { force?: boolean },
+    ): Promise<string | null> => {
       const cached = podViewUrls[doc.id];
-      if (cached) return cached;
+      if (!opts?.force && cached) return cached;
+      if (opts?.force) {
+        retainDocPreview(doc.id, null);
+        setPodViewUrls((prev) => {
+          if (!prev[doc.id]) return prev;
+          const next = { ...prev };
+          delete next[doc.id];
+          return next;
+        });
+      }
       const url = retainDocPreview(
         doc.id,
-        await tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path),
+        await (opts?.force
+          ? tripDocumentsService.refreshDocumentViewUrl(doc.storage_path)
+          : tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path)),
       );
       if (url) {
         setPodViewUrls((prev) => ({ ...prev, [doc.id]: url }));
@@ -771,34 +782,34 @@ export function DriverTripFlowCard({
   );
 
   const openPodPreview = useCallback(
-    async (doc: tripDocumentsService.TripDocumentRow) => {
-      setViewingPodError(false);
-      setViewingPodLoading(true);
-      setViewingPodUrl(null);
-      setViewingPodDocId(doc.id);
-      try {
-        const url = await resolvePodPreviewUrl(doc);
-        if (url) {
-          setViewingPodUrl(url);
-        } else {
-          setViewingPodError(true);
-        }
-      } catch {
-        setViewingPodError(true);
-      } finally {
-        setViewingPodLoading(false);
-      }
+    (doc: tripDocumentsService.TripDocumentRow) => {
+      const idx = podDocuments.findIndex((d) => d.id === doc.id);
+      setPodGalleryIndex(idx >= 0 ? idx : 0);
     },
-    [resolvePodPreviewUrl],
+    [podDocuments],
   );
 
   const resolveLrPreviewUrl = useCallback(
-    async (doc: tripDocumentsService.TripDocumentRow): Promise<string | null> => {
+    async (
+      doc: tripDocumentsService.TripDocumentRow,
+      opts?: { force?: boolean },
+    ): Promise<string | null> => {
       const cached = lrViewUrls[doc.id];
-      if (cached) return cached;
+      if (!opts?.force && cached) return cached;
+      if (opts?.force) {
+        retainDocPreview(doc.id, null);
+        setLrViewUrls((prev) => {
+          if (!prev[doc.id]) return prev;
+          const next = { ...prev };
+          delete next[doc.id];
+          return next;
+        });
+      }
       const url = retainDocPreview(
         doc.id,
-        await tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path),
+        await (opts?.force
+          ? tripDocumentsService.refreshDocumentViewUrl(doc.storage_path)
+          : tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path)),
       );
       if (url) {
         setLrViewUrls((prev) => ({ ...prev, [doc.id]: url }));
@@ -1038,7 +1049,7 @@ export function DriverTripFlowCard({
       const id = localTrip?.id;
       if (!id) return;
       if (!opts?.silent) setPodLoading(true);
-      tripDocumentsService.getDocumentsByTripId(id).then(({ documents, error }) => {
+      tripDocumentsService.getDocumentsByTripId(id, { includeStorageFallback: true }).then(({ documents, error }) => {
         setPodLoading(false);
         if (!error) {
           setPodDocuments(documents.filter((d) => d.document_type === 'pod'));
@@ -1066,7 +1077,7 @@ export function DriverTripFlowCard({
       const id = localTrip?.id;
       if (!id) return;
       if (!opts?.silent) setLrLoading(true);
-      tripDocumentsService.getDocumentsByTripId(id).then(({ documents, error }) => {
+      tripDocumentsService.getDocumentsByTripId(id, { includeStorageFallback: true }).then(({ documents, error }) => {
         setLrLoading(false);
         if (!error) {
           setLrDocuments(documents.filter((d) => d.document_type === 'lr'));
@@ -1756,15 +1767,6 @@ export function DriverTripFlowCard({
     </TouchableOpacity>
   ) : null;
 
-  const viewingPodIndex = viewingPodDocId
-    ? podDocuments.findIndex((d) => d.id === viewingPodDocId)
-    : -1;
-  const viewingPodPrevDoc = viewingPodIndex > 0 ? podDocuments[viewingPodIndex - 1] : null;
-  const viewingPodNextDoc =
-    viewingPodIndex >= 0 && viewingPodIndex < podDocuments.length - 1
-      ? podDocuments[viewingPodIndex + 1]
-      : null;
-
   return (
     <View
       style={[
@@ -2383,125 +2385,15 @@ export function DriverTripFlowCard({
         </View>
       </Modal>
 
-      <Modal
-        visible={!!(viewingPodUrl || viewingPodLoading)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setViewingPodUrl(null);
-          setViewingPodDocId(null);
-          setViewingPodLoading(false);
-          setViewingPodError(false);
-        }}
-      >
-        <Pressable
-          style={styles.podModalBackdrop}
-          onPress={() => {
-            setViewingPodUrl(null);
-            setViewingPodDocId(null);
-            setViewingPodLoading(false);
-            setViewingPodError(false);
-          }}
-        >
-          <Pressable style={styles.podModalContent} onPress={() => {}}>
-            <View style={styles.podModalTopBar}>
-              <TouchableOpacity
-                style={[
-                  styles.podModalNavBtn,
-                  (!viewingPodPrevDoc || viewingPodLoading) && styles.podModalNavBtnDisabled,
-                ]}
-                onPress={() => {
-                  if (!viewingPodPrevDoc || viewingPodLoading) return;
-                  void openPodPreview(viewingPodPrevDoc);
-                }}
-                disabled={!viewingPodPrevDoc || viewingPodLoading}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Previous POD image"
-              >
-                <FontAwesome name="chevron-left" size={16} color={Theme.textPrimaryDark} />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.podModalClose,
-                  {
-                    marginBottom: 0,
-                    backgroundColor: Theme.screenBackground,
-                    borderColor: Theme.border,
-                  },
-                ]}
-                onPress={() => {
-                  setViewingPodUrl(null);
-                  setViewingPodDocId(null);
-                  setViewingPodLoading(false);
-                  setViewingPodError(false);
-                }}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Close POD preview"
-              >
-                <FontAwesome name="times" size={18} color={Theme.textPrimaryDark} />
-                <Text style={[styles.podModalCloseText, { color: Theme.textPrimaryDark }]}>Close</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.podModalNavBtn,
-                  (!viewingPodNextDoc || viewingPodLoading) && styles.podModalNavBtnDisabled,
-                ]}
-                onPress={() => {
-                  if (!viewingPodNextDoc || viewingPodLoading) return;
-                  void openPodPreview(viewingPodNextDoc);
-                }}
-                disabled={!viewingPodNextDoc || viewingPodLoading}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Next POD image"
-              >
-                <FontAwesome name="chevron-right" size={16} color={Theme.textPrimaryDark} />
-              </TouchableOpacity>
-            </View>
-
-            {podDocuments.length > 1 && viewingPodIndex >= 0 ? (
-              <Text style={styles.podModalCounterText}>
-                {viewingPodIndex + 1}/{podDocuments.length}
-              </Text>
-            ) : null}
-            {viewingPodLoading ? (
-              <View style={styles.podModalImage}>
-                <LoadingIndicator size="large" color={colors.emerald} />
-                <Text style={[styles.podModalLoadingText, { color: Theme.textMuted }]}>Loading...</Text>
-              </View>
-            ) : viewingPodUrl ? (
-              <>
-                <Image
-                  source={{ uri: viewingPodUrl }}
-                  style={styles.podModalImage}
-                  resizeMode="contain"
-                  onError={() => setViewingPodError(true)}
-                  onLoad={() => setViewingPodError(false)}
-                />
-                {viewingPodError ? (
-                  <View style={[styles.podModalFallback, { backgroundColor: Theme.screenBackground, borderColor: Theme.border }]}>
-                    <Text style={[styles.podModalFallbackText, { color: Theme.textMuted }]}>
-                      Preview not available. Open in browser to view.
-                    </Text>
-                    <TouchableOpacity
-                      style={[styles.primaryBtn, { backgroundColor: colors.emerald, marginTop: 12 }]}
-                      onPress={() => viewingPodUrl && Linking.openURL(viewingPodUrl)}
-                      activeOpacity={0.8}
-                    >
-                      <FontAwesome name="external-link" size={16} color={Theme.textOnPrimary} />
-                      <Text style={styles.primaryBtnText}>Open in browser</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : null}
-              </>
-            ) : null}
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <DriverDocumentGalleryPreview
+        visible={podGalleryIndex != null}
+        documents={podDocuments}
+        viewUrls={podViewUrls}
+        initialIndex={podGalleryIndex ?? 0}
+        onClose={() => setPodGalleryIndex(null)}
+        onResolvePreview={resolvePodPreviewUrl}
+        fallbackLabel="POD"
+      />
       {partyTagOpen ? (
         <DriverCollectFromSheet
           visible

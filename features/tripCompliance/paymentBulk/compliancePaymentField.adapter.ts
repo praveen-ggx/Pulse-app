@@ -162,8 +162,8 @@ export async function previewPaymentFieldUpdate(params: {
 }): Promise<BulkPreviewRow[]> {
   const sheet: BulkSheetRow[] = params.records.map((record) => ({
     rowIndex: record.rowIndex,
-    tripKey: record.tripId ?? "",
-    lrKey: record.lrNumber ?? "",
+    tripKey: (record.tripId ?? "").trim(),
+    lrKey: (record.lrNumber ?? "").trim(),
     amount: null,
     mode: "",
     date: parseBulkPaymentDate(record.transactionDate),

@@ -1528,16 +1528,21 @@ export function TripDetailFinanceView({
                   <View style={styles.activityTimeline}>
                     {effectiveRows.map((row) => {
                       const eventLabel =
-                        row.event_type === "reassignment"
-                          ? "Reassignment"
-                          : "Assignment";
+                        row.event_type === "declined_pending"
+                          ? "Declined"
+                          : row.event_type === "reassignment"
+                            ? "Reassignment"
+                            : row.event_type === "driver_accepted"
+                              ? "Accepted"
+                              : "Assignment";
                       const dateStr = formatAssignmentDateActivityMeta(
                         row.changed_at,
                       );
                       const isDriverDeclined =
-                        row.event_type === "reassignment" &&
-                        row.driver_id_prev != null &&
-                        row.driver_id_new == null;
+                        row.event_type === "declined_pending" ||
+                        (row.event_type === "reassignment" &&
+                          row.driver_id_prev != null &&
+                          row.driver_id_new == null);
                       const byLabel = isDriverDeclined
                         ? ` · ${t("driverRejected")}`
                         : row.changed_by != null

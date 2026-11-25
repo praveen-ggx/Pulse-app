@@ -14,6 +14,7 @@ import * as standingLaneBidsService from "@/features/network/services/standingLa
 jest.mock("react-native", () => jest.requireActual("react-native"));
 
 const mockPush = jest.fn();
+let mockBidParam: string | undefined;
 jest.mock("expo-router", () => ({
   useRouter: () => ({
     canGoBack: () => true,
@@ -25,6 +26,7 @@ jest.mock("expo-router", () => ({
     pickup: "Bhandara",
     drop: "Bengaluru",
     vehicle: "40 FT",
+    bid: mockBidParam,
   }),
 }));
 let mockDesktop = false;
@@ -226,10 +228,35 @@ async function openSheetAndSubmit(screen: ReturnType<typeof renderScreen>) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockDesktop = false;
+  mockBidParam = undefined;
   mockCanBid = true;
   svc.getOrgMarketplacePool.mockReset();
   serves(manifest(LOADS));
   svc.listMyOrgMarketBids.mockResolvedValue({ error: null, bids: [] });
+});
+
+describe("PooledOpportunityScreen — direct bid", () => {
+  it("opens the rate pad while the lane is still loading", async () => {
+    mockBidParam = "1";
+    let resolvePool: (value: { error: null; pool: ReturnType<typeof manifest> }) => void =
+      () => {};
+    svc.getOrgMarketplacePool.mockReset();
+    svc.getOrgMarketplacePool.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePool = resolve;
+        }),
+    );
+    const screen = renderScreen();
+    expect(await screen.findByTestId("bid-sheet")).toBeTruthy();
+    expect(screen.queryByText(/Opening the bid/)).toBeNull();
+    expect(screen.getByText(/Enter your rate now/)).toBeTruthy();
+    await act(async () => {
+      resolvePool({ error: null, pool: manifest(LOADS) });
+    });
+    expect(screen.getByTestId("bid-sheet")).toBeTruthy();
+    expect(screen.queryByText(/Enter your rate now/)).toBeNull();
+  });
 });
 
 describe("PooledOpportunityScreen — anonymous pooled requirement", () => {

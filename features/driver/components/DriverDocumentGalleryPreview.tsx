@@ -3,7 +3,13 @@
  * Used by driver POD upload and trip history detail so preview UX stays aligned.
  */
 import { LoadingIndicator } from '@/components/LoadingIndicator';
+import { PdfViewer } from '@/components/PdfViewer';
 import { FLOW_EMERALD, FLOW_MINT } from '@/components/driver/DriverTripSheetLayout';
+import {
+  canOpenPreviewExternally,
+  isDriverDocImage,
+  isDriverDocPdf,
+} from '@/features/driver/utils/driverDocumentPreview.util';
 import type * as tripDocumentsService from '@/features/trips/services/tripDocuments.service';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
@@ -40,6 +46,7 @@ export type DriverDocumentGalleryPreviewProps = {
   onClose: () => void;
   onResolvePreview: (
     doc: tripDocumentsService.TripDocumentRow,
+    opts?: { force?: boolean },
   ) => Promise<string | null>;
   /** Fallback label when file_name is missing. */
   fallbackLabel?: string;
@@ -77,6 +84,7 @@ export function DriverDocumentGalleryPreview({
   const galleryRef = useRef<FlatList<tripDocumentsService.TripDocumentRow>>(null);
   const thumbStripRef = useRef<ScrollView>(null);
   const openedForVisibleRef = useRef(false);
+  const autoRetriedIdsRef = useRef<Set<string>>(new Set());
 
   const resetLocal = useCallback(() => {
     setPreviewResolvingId(null);
@@ -84,6 +92,7 @@ export function DriverDocumentGalleryPreview({
     setHasSwipedPreview(false);
     swipeHint.value = 0;
     openedForVisibleRef.current = false;
+    autoRetriedIdsRef.current.clear();
   }, [swipeHint]);
 
   useEffect(() => {
@@ -109,11 +118,14 @@ export function DriverDocumentGalleryPreview({
   }, [visible, initialIndex, documents.length, resetLocal, swipeHint]);
 
   const ensurePreviewUrl = useCallback(
-    async (doc: tripDocumentsService.TripDocumentRow) => {
-      if (viewUrls[doc.id]) return viewUrls[doc.id];
+    async (
+      doc: tripDocumentsService.TripDocumentRow,
+      opts?: { force?: boolean },
+    ) => {
+      if (!opts?.force && viewUrls[doc.id]) return viewUrls[doc.id];
       setPreviewResolvingId(doc.id);
       try {
-        const url = await onResolvePreview(doc);
+        const url = await onResolvePreview(doc, opts);
         if (!url) {
           setPreviewFailedIds((prev) => ({ ...prev, [doc.id]: true }));
           onUnusableDocument?.(doc);
@@ -135,6 +147,19 @@ export function DriverDocumentGalleryPreview({
       }
     },
     [onResolvePreview, onUnusableDocument, viewUrls],
+  );
+
+  const retryPreview = useCallback(
+    (doc: tripDocumentsService.TripDocumentRow) => {
+      setPreviewFailedIds((prev) => {
+        if (!prev[doc.id]) return prev;
+        const next = { ...prev };
+        delete next[doc.id];
+        return next;
+      });
+      void ensurePreviewUrl(doc, { force: true });
+    },
+    [ensurePreviewUrl],
   );
 
   useEffect(() => {
@@ -218,39 +243,50 @@ export function DriverDocumentGalleryPreview({
       const url = viewUrls[item.id];
       const failed = !!previewFailedIds[item.id];
       const loading = !url && !failed && previewResolvingId === item.id;
+      const asPdf = isDriverDocPdf(item);
+      const asImage = isDriverDocImage(item) || (!asPdf && !!url);
       return (
         <View style={[styles.galleryPage, { width: windowWidth }]}>
           <View style={styles.galleryFrame}>
-            {url && !failed ? (
+            {url && !failed && asPdf ? (
+              <PdfViewer pdfUri={url} style={styles.previewImage} />
+            ) : url && !failed && asImage ? (
               <Image
                 source={{ uri: url }}
                 style={styles.previewImage}
                 resizeMode="contain"
-                onError={() =>
-                  setPreviewFailedIds((prev) => ({ ...prev, [item.id]: true }))
-                }
+                onError={() => {
+                  if (!autoRetriedIdsRef.current.has(item.id)) {
+                    autoRetriedIdsRef.current.add(item.id);
+                    void ensurePreviewUrl(item, { force: true });
+                    return;
+                  }
+                  setPreviewFailedIds((prev) => ({ ...prev, [item.id]: true }));
+                }}
               />
             ) : (
               <View style={styles.previewBody}>
                 {failed ? (
                   <>
                     <Text style={styles.previewFallbackText}>
-                      Preview not available.
+                      {asPdf
+                        ? 'PDF preview not available.'
+                        : 'Preview not available.'}
                     </Text>
                     <TouchableOpacity
                       style={styles.previewBrowserBtn}
-                      onPress={() => {
-                        setPreviewFailedIds((prev) => {
-                          if (!prev[item.id]) return prev;
-                          const next = { ...prev };
-                          delete next[item.id];
-                          return next;
-                        });
-                        void ensurePreviewUrl(item);
-                      }}
+                      onPress={() => retryPreview(item)}
                     >
                       <Text style={styles.previewBrowserBtnText}>Retry</Text>
                     </TouchableOpacity>
+                    {canOpenPreviewExternally(url) ? (
+                      <TouchableOpacity
+                        style={[styles.previewBrowserBtn, styles.previewBrowserBtnSecondary]}
+                        onPress={() => void Linking.openURL(url)}
+                      >
+                        <Text style={styles.previewBrowserBtnText}>Open in browser</Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </>
                 ) : (
                   <>
@@ -270,6 +306,7 @@ export function DriverDocumentGalleryPreview({
       ensurePreviewUrl,
       previewFailedIds,
       previewResolvingId,
+      retryPreview,
       viewUrls,
       windowWidth,
     ],
@@ -312,10 +349,10 @@ export function DriverDocumentGalleryPreview({
           <View style={styles.previewCounterPill}>
             <Text style={styles.previewCounterText}>{previewCounterLabel}</Text>
           </View>
-          {activeUrl ? (
+          {canOpenPreviewExternally(activeUrl) ? (
             <TouchableOpacity
               style={styles.previewOpenBtn}
-              onPress={() => void Linking.openURL(activeUrl)}
+              onPress={() => void Linking.openURL(activeUrl!)}
               accessibilityLabel="Open in browser"
             >
               <FontAwesome name="external-link" size={12} color={FLOW_MINT} />
@@ -681,6 +718,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10,
+  },
+  previewBrowserBtnSecondary: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.28)',
   },
   previewBrowserBtnText: {
     color: '#fff',

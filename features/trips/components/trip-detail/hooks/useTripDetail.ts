@@ -1856,6 +1856,9 @@ export function useTripDetail({
         typeof payload.new === "object" &&
         (payload.new as { id?: string }).id === tripId
       ) {
+        const nextDriverId =
+          (payload.new as { driver_id?: string | null }).driver_id ?? null;
+        const prevDriverId = tripRef.current?.driver_id ?? null;
         setTrip((prev) => {
           if (!prev || prev.id !== tripId) return prev;
           return { ...prev, ...(payload.new as Partial<TripRow>) } as TripRow;
@@ -1867,6 +1870,10 @@ export function useTripDetail({
             if (!old || old.trip.id !== tripId) return old;
             return { ...old, trip: { ...old.trip, ...(payload.new as Partial<typeof old.trip>) } };
           });
+        // Driver clear / reassignment writes audit rows — refresh so decline copy shows.
+        if (String(prevDriverId ?? "") !== String(nextDriverId ?? "")) {
+          loadAssignmentAudit();
+        }
         return;
       }
       isRefreshingRef.current = true;

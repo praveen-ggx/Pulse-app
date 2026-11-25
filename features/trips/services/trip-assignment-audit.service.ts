@@ -67,6 +67,8 @@ export type AssignmentEventType =
   | 'reassignment'
   /** Driver acted on the assignment themselves — see 20270116000000_driver_accepted_assignment_audit. */
   | 'driver_accepted'
+  /** Pre-claim decline — see 20270227100000_driver_decline_pending_assignment. */
+  | 'declined_pending'
   | 'completed';
 
 export interface InsertTripAssignmentAuditParams {
@@ -171,7 +173,7 @@ async function fetchLatestAssignmentAuditByTripIdsLegacy(
     .from('trip_assignment_audit')
     .select('trip_id, changed_by, changed_at')
     .in('trip_id', tripIds)
-    .in('event_type', ['assignment', 'reassignment'])
+    .in('event_type', ['assignment', 'reassignment', 'declined_pending', 'driver_accepted'])
     .order('changed_at', { ascending: false });
 
   if (error) {
@@ -265,7 +267,7 @@ export async function getTripAssignmentAuditHistory(
         "id, trip_id, event_type, driver_id_prev, driver_id_new, vehicle_id_prev, vehicle_id_new, changed_at, changed_by",
       )
       .eq("trip_id", tripId)
-      .in("event_type", ["assignment", "reassignment"])
+      .in("event_type", ["assignment", "reassignment", "declined_pending", "driver_accepted"])
       .order("changed_at", { ascending: false })
       .limit(Math.max(1, Math.min(50, limit)));
 

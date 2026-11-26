@@ -53,6 +53,20 @@ describe("appendTripOperationalTimelineEvent", () => {
     expect(mockInsert).not.toHaveBeenCalled();
   });
 
+  it("does NOT fall back when 42883 comes from a broken helper inside the function", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { code: "42883", message: "function private.org_is_trip_party(uuid, uuid) does not exist" } });
+    const r = await appendTripOperationalTimelineEvent({ ...base, organizationId: "o1" });
+    expect(r.error?.message).toContain("org_is_trip_party");
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it("falls back on 42883 that names the function itself", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { code: "42883", message: "function public.record_trip_operational_timeline_event(uuid) does not exist" } });
+    const r = await appendTripOperationalTimelineEvent({ ...base, organizationId: "o1" });
+    expect(r.error).toBeNull();
+    expect(mockInsert).toHaveBeenCalledTimes(1);
+  });
+
   describe("legacy fallback when the function is not deployed", () => {
     beforeEach(() => mockRpc.mockResolvedValue({ data: null, error: { code: "PGRST202", message: "missing" } }));
 

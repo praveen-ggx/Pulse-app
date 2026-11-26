@@ -1,5 +1,7 @@
 # Hardening of the two event functions after code review (driver actor/event-type limits, party-org rule,
 # generic errors, active-member rule, retry safety). Function replacements + one private helper; no table,
 # policy or data change. Requires 20261125124952 and 20261125132909 to be applied first.
-# sha256 06b695b3ac3b029d049fa057d264e56334505d0e58bfe9ea946dfe9df5fb3c60  20261125142041_harden_trip_event_functions.sql
+# Version order: 20261125131559 (trips-rls-hoist) sits before this one. Apply every set ONLY with
+# scripts/db-push-set.sh (it snapshots the allowlist); a plain `supabase db push` would refuse the older version.
+# sha256 75d5306577a8c6bd6a9764f58b63f33f86ca515e03874660e8b83a25de32989a  20261125142041_harden_trip_event_functions.sql
 20261125142041

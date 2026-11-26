@@ -56,6 +56,16 @@ describe("hardening migration contract (behaviour is proven by scripts/run-trip-
     expect(sql.match(/om\.status = 'active'/g)!.length).toBe(2);
   });
 
+  it("counts the accepted marketplace winner org as a party (found by code review)", () => {
+    expect(sql).toContain("public.market_bids mb");
+    expect(sql).toContain("mb.status = 'accepted'");
+  });
+
+  it("only dedupes timeline writes that carry a source id", () => {
+    expect(sql).toMatch(/IF p_source_id IS NOT NULL THEN\s+PERFORM pg_advisory_xact_lock/);
+    expect(sql).not.toMatch(/e\.source_id IS NOT DISTINCT FROM/);
+  });
+
   it("uses one generic error so trip ids cannot be probed", () => {
     expect(sql).not.toContain("not_found");
   });

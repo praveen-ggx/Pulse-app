@@ -7,14 +7,21 @@
 --     the actor, and accepts approval_changed only for a driver cancelling their own request.
 --  2. Any member of any org could write events for another org's trip (and claim the global singleton
 --     key "<trip>:<event>" so the real org's event was silently dropped). Now the target org must be a
---     party to the trip: its owner, the linked supplier or client org, or the accepted direct-quote
---     bidder org. Checked against prod history: 10,371 workflow rows and 85 timeline rows, 0 outside this rule.
+--     party to the trip: its owner, the linked supplier or client org, the accepted direct-quote bidder org,
+--     or the accepted marketplace (market_bids) winner org. Checked against prod history: 10,371 workflow rows
+--     and 85 timeline rows, 0 outside this rule. Code review also found 3 of 51 accepted marketplace org
+--     winners outside the first version of the rule, hence the market_bids branch.
 --  3. A missing trip and an unauthorized caller now raise the same generic error (no trip-id probing).
 --  4. record_trip_workflow_event now requires an ACTIVE membership, like record_trip_operational_timeline_event
 --     (prod has 285 active and 17 inactive members, none NULL).
---  5. Timeline writes are retry-safe: an identical row (same trip, org, type, source, actor, payload) written
---     in the last 2 minutes is not inserted again; the existing id is returned. Serialised with an advisory
---     transaction lock, no table change. Legitimate repeated events differ in payload or time.
+--  5. Timeline writes that carry a p_source_id are retry-safe: an identical row (same trip, org, type, source,
+--     actor, payload) written in the last 2 minutes is not inserted again; the existing id is returned.
+--     Serialised with an advisory transaction lock, no table change. Events WITHOUT a source id are never
+--     merged (two real events with the same payload must both be recorded).
+--
+--  Deliberately unchanged: an org member may still pass any p_actor_user_id / p_event_type for their own
+--  party org (same as the old INSERT policy; callers pass approvers and system actors, and one caller passes
+--  NULL). Only the non-member driver path is restricted.
 --
 -- Not changed: table policies, grants (authenticated only), SECURITY DEFINER + empty search_path.
 
@@ -47,6 +54,16 @@ AS $function$
             WHERE dq.indent_id = t.indent_id
               AND lower(trim(COALESCE(dq.status, ''))) = 'accepted'
               AND dq.bidder_organization_id = p_org_id
+          )
+        )
+        OR (
+          t.indent_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM public.market_bids mb
+            WHERE mb.indent_id = t.indent_id
+              AND mb.status = 'accepted'
+              AND mb.bidder_type = 'organization'
+              AND mb.bidder_organization_id = p_org_id
           )
         )
       )
@@ -182,26 +199,29 @@ BEGIN
     v_actor := v_uid;  -- a driver can never attribute an event to someone else
   END IF;
 
-  -- Retry safety: serialise identical writes and skip an identical row from the last 2 minutes.
-  PERFORM pg_advisory_xact_lock(
-    hashtextextended(concat_ws('|', p_trip_id, v_org, p_event_type, p_source_type, p_source_id, v_actor), 0)
-  );
+  -- Retry safety (only when the caller names a source): serialise identical writes and skip an identical
+  -- row from the last 2 minutes. No source id means no dedupe.
+  IF p_source_id IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(
+      hashtextextended(concat_ws('|', p_trip_id, v_org, p_event_type, p_source_type, p_source_id, v_actor), 0)
+    );
 
-  SELECT e.id INTO v_id
-  FROM public.trip_operational_timeline_events e
-  WHERE e.trip_id = p_trip_id
-    AND e.organization_id = v_org
-    AND e.event_type = p_event_type
-    AND e.source_type IS NOT DISTINCT FROM p_source_type
-    AND e.source_id IS NOT DISTINCT FROM p_source_id
-    AND e.actor_user_id IS NOT DISTINCT FROM v_actor
-    AND e.payload = v_payload
-    AND e.created_at > now() - interval '2 minutes'
-  ORDER BY e.created_at DESC
-  LIMIT 1;
+    SELECT e.id INTO v_id
+    FROM public.trip_operational_timeline_events e
+    WHERE e.trip_id = p_trip_id
+      AND e.organization_id = v_org
+      AND e.event_type = p_event_type
+      AND e.source_type IS NOT DISTINCT FROM p_source_type
+      AND e.source_id = p_source_id
+      AND e.actor_user_id IS NOT DISTINCT FROM v_actor
+      AND e.payload = v_payload
+      AND e.created_at > now() - interval '2 minutes'
+    ORDER BY e.created_at DESC
+    LIMIT 1;
 
-  IF v_id IS NOT NULL THEN
-    RETURN v_id;
+    IF v_id IS NOT NULL THEN
+      RETURN v_id;
+    END IF;
   END IF;
 
   INSERT INTO public.trip_operational_timeline_events

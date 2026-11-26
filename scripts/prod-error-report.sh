@@ -22,6 +22,10 @@ RESP="$(printf 'header = "Authorization: Bearer %s"\n' "$TOK" | curl -sS --fail-
 printf '%s' "$RESP" | python3 -c '
 import sys, json, collections
 rows = json.load(sys.stdin).get("result") or []
+if rows and not any("parsed.error_severity" in (r.get("log_attributes") or {}) for r in rows):
+    sys.exit("ERROR: unexpected log_attributes shape; this is NOT a clean report")
+if len(rows) >= 1000:
+    print("WARNING: 1000-row cap reached; older errors in this window are NOT counted. Use a shorter window.")
 c = collections.Counter()
 for r in rows:
     a = r["log_attributes"]

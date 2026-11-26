@@ -172,7 +172,10 @@ export async function recordTripWorkflowEvent(params: {
       : { error: null, event: null, alreadyExists: true };
   }
   // Function not deployed yet (code can ship before the migration): use the legacy path below.
-  const missingRpc = rpc.error.code === 'PGRST202' || rpc.error.code === '42883';
+  // 42883 only counts when it names this function (a broken helper inside the function raises it too).
+  const missingRpc =
+    rpc.error.code === 'PGRST202' ||
+    (rpc.error.code === '42883' && String(rpc.error.message ?? '').includes('record_trip_workflow_event'));
   if (!missingRpc) {
     return { error: new Error(rpc.error.message), event: null, alreadyExists: false };
   }

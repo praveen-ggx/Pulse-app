@@ -61,7 +61,7 @@ export function PoolBidCommitSheet({
   onClose,
   onSubmit,
   amount,
-  poolSize: _poolSize,
+  poolSize,
   fleetVehicleCount,
   routeLabel,
   submitting = false,
@@ -82,14 +82,18 @@ export function PoolBidCommitSheet({
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const isDesktop = Platform.OS === "web" && width >= Layout.webDesktopMinWidth;
-  const maxCommit = MAX_POOL_VEHICLE_COMMIT;
+  const maxCommit = clampPoolVehicleCommit(
+    MAX_POOL_VEHICLE_COMMIT,
+    poolSize,
+    fleetVehicleCount,
+  );
   const [count, setCount] = useState(1);
   const [countDraft, setCountDraft] = useState("1");
   const [validUntil, setValidUntil] = useState(defaultPoolBidValidUntilIso());
   const [calOpen, setCalOpen] = useState(false);
 
   const applyCount = (next: number) => {
-    const clamped = clampPoolVehicleCommit(next);
+    const clamped = clampPoolVehicleCommit(next, poolSize, fleetVehicleCount);
     setCount(clamped);
     setCountDraft(String(clamped));
     return clamped;
@@ -191,10 +195,17 @@ export function PoolBidCommitSheet({
             value={countDraft}
             onChangeText={(raw) => {
               const digits = raw.replace(/[^\d]/g, "");
-              setCountDraft(digits);
               const parsed = Number.parseInt(digits, 10);
               if (Number.isFinite(parsed) && parsed > 0) {
-                setCount(clampPoolVehicleCommit(parsed));
+                const clamped = clampPoolVehicleCommit(
+                  parsed,
+                  poolSize,
+                  fleetVehicleCount,
+                );
+                setCount(clamped);
+                setCountDraft(String(clamped));
+              } else {
+                setCountDraft(digits);
               }
             }}
             onBlur={commitCount}

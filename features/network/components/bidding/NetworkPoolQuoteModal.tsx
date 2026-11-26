@@ -375,7 +375,11 @@ export function NetworkPoolQuoteModal({
           setCommitError("Choose a valid-until date.");
           return;
         }
-        const limit = clampPoolVehicleCommit(vehicleLimit);
+        const limit = clampPoolVehicleCommit(
+          vehicleLimit,
+          count ?? pool.members.length,
+          fleetCount ?? fleetQ.data ?? null,
+        );
         setCommitSubmitting(true);
         setCommitError(undefined);
         void submitPoolQuote(draftAmount, {

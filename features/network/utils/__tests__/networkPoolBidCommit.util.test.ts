@@ -46,10 +46,12 @@ describe("networkPoolBidCommit", () => {
     ).toBe(true);
   });
 
-  it("lets the operator commit above current pool size, up to 10", () => {
-    expect(clampPoolVehicleCommit(10, 1, 2)).toBe(10);
+  it("caps the commit at the pool load count and never above 10", () => {
+    expect(clampPoolVehicleCommit(10, 1, 2)).toBe(1);
+    expect(clampPoolVehicleCommit(3, 2, null)).toBe(2);
     expect(clampPoolVehicleCommit(0, 33, 8)).toBe(1);
     expect(clampPoolVehicleCommit(8, 12, null)).toBe(8);
     expect(clampPoolVehicleCommit(11, 12, null)).toBe(10);
+    expect(clampPoolVehicleCommit(5, undefined, null)).toBe(5);
   });
 });

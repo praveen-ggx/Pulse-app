@@ -64,6 +64,10 @@ export function shipperCanSeePendingPoolQuote(
 
 export const MAX_POOL_VEHICLE_COMMIT = 10;
 
+/**
+ * Cap committed vehicles at the pool's load count (and never above 10).
+ * Fleet size stays a guide only — the server rejects vehicle_limit > member_count.
+ */
 export function clampPoolVehicleCommit(
   count: number,
   poolSize?: number,
@@ -71,8 +75,10 @@ export function clampPoolVehicleCommit(
 ): number {
   const n = Math.floor(count);
   if (!Number.isFinite(n) || n < 1) return 1;
-  // Pool/fleet size is a hint for the operator, not a hard lock on +/−.
-  void poolSize;
   void fleetSize;
-  return Math.min(n, MAX_POOL_VEHICLE_COMMIT);
+  const poolCap =
+    poolSize != null && Number.isFinite(poolSize) && poolSize >= 1
+      ? Math.floor(poolSize)
+      : MAX_POOL_VEHICLE_COMMIT;
+  return Math.min(n, Math.min(MAX_POOL_VEHICLE_COMMIT, poolCap));
 }

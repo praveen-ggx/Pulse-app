@@ -38,8 +38,9 @@ export async function appendTripOperationalTimelineEvent(input: {
 }) {
   const organizationId = String(input.organizationId ?? "").trim();
 
-  // Preferred path: server function. Members behave exactly as before; the trip's assigned driver
-  // (not an org member) is now allowed too. The org defaults to the trip's own org when omitted.
+  // Preferred path: server function. A refusal (not an active member of a party org, or not the trip's
+  // assigned driver) is final: it does NOT fall back to the direct insert. The trip's assigned driver (not an
+  // org member) is allowed for driver-flow events. The org defaults to the trip's own org when omitted.
   const rpc = await supabase().rpc("record_trip_operational_timeline_event", {
     p_trip_id: input.tripId,
     p_event_type: input.eventType,
@@ -51,7 +52,11 @@ export async function appendTripOperationalTimelineEvent(input: {
   });
   if (!rpc.error) return { error: null };
   // Function not deployed yet (code can ship before the migration): use the direct insert below.
-  const missingRpc = rpc.error.code === "PGRST202" || rpc.error.code === "42883";
+  // 42883 only counts when it names this function: the same code is raised when a helper INSIDE a deployed
+  // function is broken, and that must not silently route every write back to the old insert.
+  const missingRpc =
+    rpc.error.code === "PGRST202" ||
+    (rpc.error.code === "42883" && String(rpc.error.message ?? "").includes("record_trip_operational_timeline_event"));
   if (!missingRpc) return { error: new Error(rpc.error.message) };
 
   let legacyOrganizationId = organizationId;

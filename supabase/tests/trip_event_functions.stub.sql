@@ -11,6 +11,7 @@ create table trips (id uuid primary key default gen_random_uuid(), organization_
 create table suppliers (id uuid primary key default gen_random_uuid(), linked_organization_id uuid);
 create table clients (id uuid primary key default gen_random_uuid(), linked_organization_id uuid);
 create table direct_quotes (indent_id uuid, status text, bidder_organization_id uuid);
+create table market_bids (indent_id uuid, status text, bidder_type text, bidder_organization_id uuid);
 create table organization_members (organization_id uuid, user_id uuid, status text default 'active');
 create table drivers (id uuid primary key default gen_random_uuid(), user_id uuid);
 create table trip_workflow_events (id uuid primary key default gen_random_uuid(), trip_id uuid not null references trips(id), org_id uuid not null, actor_id uuid, event_type text not null, payload jsonb not null default '{}', created_at timestamptz not null default now(), idempotency_key text);

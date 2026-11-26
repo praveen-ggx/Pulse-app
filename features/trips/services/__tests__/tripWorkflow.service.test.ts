@@ -59,6 +59,13 @@ describe("recordTripWorkflowEvent", () => {
     expect(mockInsert).not.toHaveBeenCalled();
   });
 
+  it("does NOT fall back when 42883 comes from a broken helper inside the function", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { code: "42883", message: "function private.org_is_trip_party(uuid, uuid) does not exist" } });
+    const r = await recordTripWorkflowEvent({ tripId: "t1", orgId: "o1", eventType: "pod.uploaded" });
+    expect(r.error?.message).toContain("org_is_trip_party");
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
   describe("legacy fallback when the RPC is not deployed", () => {
     beforeEach(() => mockRpc.mockResolvedValue({ data: null, error: { code: "PGRST202", message: "missing" } }));
 

@@ -6435,7 +6435,8 @@ const s = StyleSheet.create({
     borderTopWidth: 0,
   },
   chatInputDockWebFixed: {
-    position: "fixed",
+    // RN typings omit CSS `fixed`; web runtime accepts it (repo pattern).
+    position: "fixed" as "absolute",
     left: 0,
     right: 0,
     zIndex: 40,

@@ -24,7 +24,10 @@ async function syncDriverPartyLaneAfterAssignment(trip: TripRow): Promise<void> 
   const driverId = trip.driver_id ?? null;
   const driverName = (trip.driver_display_name ?? "").trim() || null;
 
-  const patch: Record<string, unknown> = {
+  const patch: {
+    driver_id: string | null;
+    party_name?: string;
+  } = {
     driver_id: driverId,
   };
   if (driverName) patch.party_name = driverName;
@@ -228,7 +231,7 @@ export async function postAssignmentUpdateToTripChats(params: {
       p_content: content,
       p_sender_role: "system",
       p_sender_name: "Trip System",
-      p_sender_user_id: null,
+      p_sender_user_id: undefined,
       p_message_type: "assignment_update",
       p_metadata: metadata,
     });
@@ -325,7 +328,7 @@ export async function postAggregateAssignmentMessage(
       p_content: content,
       p_sender_role: 'system',
       p_sender_name: 'Trip System',
-      p_sender_user_id: null,
+      p_sender_user_id: undefined,
       p_message_type: 'assignment_update',
       p_metadata: {
         agg_dedupe_key: dedupeKey,

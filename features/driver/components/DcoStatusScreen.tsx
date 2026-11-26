@@ -3,7 +3,7 @@
  * checklist: identity, DCO docs, assigned/own vehicle, submit, leave fleet.
  * Leave fleet comes LAST and unlocks only after admin approval (DOCS_APPROVED),
  * so a driver never quits their fleet before knowing they are approved.
- * @see supabase/migrations/20271125125050_dco_approve_before_leaving_fleet.sql
+ * @see supabase/migrations/20271127101550_dco_approve_before_leaving_fleet.sql
  * @see supabase/migrations/20270310200000_dco_schema_foundation.sql
  * @see supabase/migrations/20270310210000_dco_eligibility_and_admin_rpcs.sql
  */

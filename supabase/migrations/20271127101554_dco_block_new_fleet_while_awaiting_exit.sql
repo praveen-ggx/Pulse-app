@@ -1,6 +1,6 @@
 -- DCO corner case: no NEW fleet employment while DOCS_APPROVED.
 --
--- DOCS_APPROVED (20271125125050) means "admin approved the DCO request; the
+-- DOCS_APPROVED (20271127101550) means "admin approved the DCO request; the
 -- driver is leaving their fleet". Joining another fleet in that state would
 -- either park a second employment behind the approval (leaving fleet A no
 -- longer activates DCO) or, if activation was missed, let an approved driver

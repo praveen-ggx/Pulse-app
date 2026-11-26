@@ -144,7 +144,7 @@ export async function remindDriverExpenseRequest(input: {
 
   // Server checks ownership + pending state again, limits to one reminder per
   // 6 hours, and sends the fleet a bell notification
-  // (20271125125057_driver_expense_reminder_notify.sql).
+  // (20271127101557_driver_expense_reminder_notify.sql).
   const { error } = await supabase().rpc("remind_driver_expense" as never, {
     p_expense_kind: input.kind,
     p_entry_id: input.entryId,

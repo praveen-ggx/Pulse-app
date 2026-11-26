@@ -9,6 +9,7 @@ import {
 } from "@/features/drivers/domain/driverOperatingMode";
 import {
   offlineEnteredBilled,
+  offlineTripAmount,
   parseDcoPartyTagFromNotes,
 } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import { tripEarningsDetailForDriver } from "@/features/drivers/utils/driverUtils.util";
@@ -191,6 +192,19 @@ export function partyAvatarLookup(
 }
 
 /**
+ * Offline amount the driver typed for this trip (entered tag, or a pre-release
+ * tag that is not the app's old guess). Never a calculated figure.
+ */
+export function offlineTripEnteredBilled(trip: TripRow): number {
+  return offlineEnteredBilled(trip.notes, offlineLegacyGuesses(trip));
+}
+
+/** What the app used to pre-fill on an offline tag (10% guess / trip price). */
+export function offlineLegacyGuesses(trip: TripRow): number[] {
+  return [tripEarningsDetailForDriver(trip).amount, Number(trip.client_price ?? 0)];
+}
+
+/**
  * Offline flow: every amount is typed by the driver — never a 10% guess, the
  * trip price, or an old app-filled tag amount. Billed = the amount the driver
  * typed when tagging, or what they captured if that is more (captured money is
@@ -202,8 +216,7 @@ export function tripReceivableBilled(
   opts?: { lane?: DriverHistoryLane; received?: number },
 ): number {
   if (opts?.lane === "offline") {
-    const received = Math.max(0, Math.round(opts.received ?? 0));
-    return Math.max(offlineEnteredBilled(trip.notes), received);
+    return offlineTripAmount(trip.notes, opts.received, offlineLegacyGuesses(trip));
   }
   const noted = parseDcoPartyTagFromNotes(trip.notes)?.billed;
   if (noted && noted > 0) return noted;

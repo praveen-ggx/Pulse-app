@@ -1,7 +1,7 @@
-import Layout from "@/constants/Layout";
-import Theme from "@/constants/Theme";
-import { withWebSafeShadows } from "@/lib/platformViewStyle.util";
 import { Platform, StyleSheet } from "react-native";
+import Theme from "@/constants/Theme";
+import Layout from "@/constants/Layout";
+import { withWebSafeShadows } from "@/lib/platformViewStyle.util";
 
 const DETAIL_REF = {
   pageBg: "#ffffff",

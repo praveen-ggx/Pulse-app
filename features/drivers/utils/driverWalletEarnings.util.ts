@@ -1,10 +1,11 @@
 import type { TripRow } from "@/features/trips/services/trips.service";
 import {
-  offlineEnteredBilled,
+  offlineTripAmount,
   parseDcoPartyTagFromNotes,
 } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import { driverHistoryLane } from "@/features/drivers/domain/driverOperatingMode";
 import {
+  tripEarningsDetailForDriver,
   tripEarningsForDriver,
   type DriverTripPayoutTerms,
 } from "@/features/drivers/utils/driverUtils.util";
@@ -47,7 +48,10 @@ export function driverWalletTripEarnings(
       : 0;
   }
   if (ctx.received != null && driverHistoryLane(trip, false) === "offline") {
-    return Math.max(offlineEnteredBilled(trip.notes), Math.max(0, Math.round(ctx.received)));
+    return offlineTripAmount(trip.notes, ctx.received, [
+      tripEarningsDetailForDriver(trip).amount,
+      Number(trip.client_price ?? 0),
+    ]);
   }
   const tagged = parseDcoPartyTagFromNotes(trip.notes)?.billed;
   if (tagged != null && tagged > 0) return Math.round(tagged);

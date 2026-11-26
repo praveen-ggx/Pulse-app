@@ -60,10 +60,40 @@ export function applyDcoPartyTagToNotes(
 /**
  * Offline trip amount the driver typed when tagging the party. 0 when nothing
  * was typed — never a calculated figure (no 10% guess, no trip price).
+ *
+ * Tags saved before the `entered` flag existed may hold either a typed amount
+ * or the app's pre-filled guess. Pass the guesses for that trip: an old amount
+ * that matches one is dropped, any other old amount was typed and is kept.
  */
-export function offlineEnteredBilled(notes: string | null | undefined): number {
+export function offlineEnteredBilled(
+  notes: string | null | undefined,
+  legacyGuesses: ReadonlyArray<number | null | undefined> = [],
+): number {
   const tag = parseDcoPartyTagFromNotes(notes);
-  return tag?.entered && tag.billed ? tag.billed : 0;
+  if (!tag?.billed) return 0;
+  if (tag.entered) return tag.billed;
+  const guesses = legacyGuesses
+    .map((n) => Math.round(Number(n) || 0))
+    .filter((n) => n > 0);
+  return guesses.includes(Math.round(tag.billed)) ? 0 : tag.billed;
+}
+
+/**
+ * Offline trip amount (Yield / expected / earnings): what the driver typed, or
+ * what they captured if that is more. A pre-release tag with no `entered` flag
+ * counts only when nothing is captured yet (captured money is the truth) and it
+ * is not one of the app's old guesses. Nothing typed, nothing captured → 0.
+ */
+export function offlineTripAmount(
+  notes: string | null | undefined,
+  received: number | null | undefined,
+  legacyGuesses: ReadonlyArray<number | null | undefined> = [],
+): number {
+  const got = Math.max(0, Math.round(Number(received) || 0));
+  const tag = parseDcoPartyTagFromNotes(notes);
+  if (tag?.entered && tag.billed) return Math.max(tag.billed, got);
+  if (got > 0) return got;
+  return offlineEnteredBilled(notes, legacyGuesses);
 }
 
 export function offlinePartyId(name: string, phone?: string | null): string {

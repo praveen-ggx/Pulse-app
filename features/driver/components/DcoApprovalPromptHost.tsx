@@ -14,6 +14,7 @@ import Theme from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOptionalDriverInviteModal } from '@/contexts/DriverInviteModalContext';
 import { useDriverThemeColors } from '@/contexts/DriverThemeContext';
+import { activateMyDco } from '@/features/driver/services/dco.service';
 import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { ROUTES } from '@/lib/routes';
@@ -40,7 +41,8 @@ export function DcoApprovalPromptHost() {
   const { status, isSuccess, invalidate } = useDcoStatusQuery(uid);
   const { operatingMode } = useDriverOperatingModeQuery(uid);
   const inviteCtx = useOptionalDriverInviteModal();
-  const invitePopupOpen = (inviteCtx?.pendingCount ?? 0) > 0;
+  // Only an invite popup actually on screen — snoozed / hidden invites don't block these prompts.
+  const invitePopupOpen = inviteCtx?.invitePopupVisible ?? false;
 
   const [prompt, setPrompt] = useState<Prompt>(null);
   const welcomeChecked = useRef<string | null>(null);
@@ -54,6 +56,19 @@ export function DcoApprovalPromptHost() {
   // Mode is loaded once it reports the same DCO status as the profile query.
   const modeLoaded = operatingMode.dcoStatus === status;
   const stillOnFleet = operatingMode.isEmployeeDriver === true;
+
+  // Approved while on a fleet but no longer in one (e.g. left during approval):
+  // the server normally activates on leave; this covers any path it missed.
+  useEffect(() => {
+    if (!uid || !isDriver || status !== 'DOCS_APPROVED' || !modeLoaded || stillOnFleet) return;
+    let cancelled = false;
+    void activateMyDco().then(({ status: next }) => {
+      if (!cancelled && next && next !== 'DOCS_APPROVED') invalidate();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, isDriver, status, modeLoaded, stillOnFleet, invalidate]);
 
   useEffect(() => {
     if (!uid || !isDriver || !isSuccess) return;

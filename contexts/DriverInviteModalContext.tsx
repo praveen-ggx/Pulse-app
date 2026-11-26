@@ -31,6 +31,8 @@ import { askDeclineReason } from '@/features/drivers/utils/askDeclineReason.util
 type DriverInviteModalContextValue = {
   allInvites: DriverInviteRow[];
   pendingCount: number;
+  /** An invite / decline / counter popup is on screen now (snoozed invites don't count). */
+  invitePopupVisible: boolean;
   pendingInvites: DriverInviteRow[];
   refreshInvites: () => Promise<void>;
   presentPendingInvite: () => void;
@@ -303,10 +305,13 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
     [counterTarget, invalidateInvites],
   );
 
+  const invitePopupVisible = showModal || !!declineTarget || counterTarget != null;
+
   const value = useMemo(
     (): DriverInviteModalContextValue => ({
       allInvites,
       pendingCount,
+      invitePopupVisible,
       pendingInvites,
       refreshInvites,
       presentPendingInvite,
@@ -316,6 +321,7 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
     [
       allInvites,
       pendingCount,
+      invitePopupVisible,
       pendingInvites,
       refreshInvites,
       presentPendingInvite,

@@ -26,6 +26,7 @@ import {
     type DriverHistoryTabId,
 } from "@/features/drivers/domain/driverOperatingMode";
 import * as driversService from "@/features/drivers/services/drivers.service";
+import { receivedByTripFromDriverBooks } from "@/features/drivers/services/driverCapturePayment.service";
 import {
     canTagPartyOnTrip,
     isTripTaggedToParty,
@@ -309,6 +310,8 @@ export default function DriverTripsScreen() {
     Awaited<ReturnType<typeof driversService.getDriverInvitesReceived>>["invites"]
   >([]);
   const [trips, setTrips] = useState<tripsService.TripRow[]>([]);
+  /** Amount captured per trip (driver books) — offline Yield = max(entered, captured). */
+  const [receivedByTripId, setReceivedByTripId] = useState<Record<string, number>>({});
   const [tagTrip, setTagTrip] = useState<tripsService.TripRow | null>(null);
   const [tagSheetStartAt, setTagSheetStartAt] = useState<"pick" | "editBilled">(
     "pick",
@@ -417,6 +420,11 @@ export default function DriverTripsScreen() {
       if (drivers.length > 0) {
         setDriver(activeDriver);
         const driverIds = drivers.map((d) => d.id);
+        void receivedByTripFromDriverBooks()
+          .then((received) => {
+            if (!stale()) setReceivedByTripId(received);
+          })
+          .catch(() => undefined);
         Promise.all([
           tripsService.getDriverUiTripsByDriverIds(driverIds, { signal: ac.signal }),
           driversService.getDriverInvitesReceived(),
@@ -863,7 +871,10 @@ export default function DriverTripsScreen() {
       const offline = tripHistoryLane(trip) === "offline";
       if (offline) {
         const tagged = isTripTaggedToParty(trip);
-        const billed = tripReceivableBilled(trip);
+        const billed = tripReceivableBilled(trip, {
+          lane: "offline",
+          received: receivedByTripId[trip.id] ?? 0,
+        });
         if (tagged && billed > 0) {
           return {
             text: formatINR(billed),
@@ -894,7 +905,7 @@ export default function DriverTripsScreen() {
         startAt: "pick" as const,
       };
     },
-    [isFleetDispatchedTrip],
+    [isFleetDispatchedTrip, receivedByTripId],
   );
 
   const filteredTrips = useMemo(() => {

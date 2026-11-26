@@ -7,7 +7,7 @@ import {
 } from "@/features/drivers/utils/driverUtils.util";
 import { getDriverTripDisplayNumber } from "@/features/driver/utils/driverTripSequence.util";
 import { driverHistoryLane } from "@/features/drivers/domain/driverOperatingMode";
-import { offlineEnteredBilled } from "@/features/drivers/utils/dcoTripPartyTag.util";
+import { offlineTripAmount } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import type { DriverLedgerRow } from "@/features/drivers/services/drivers.service";
 import { formatLedgerReceiptDate } from "@/features/finance/utils/ledgerTransactionReceipt.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -343,10 +343,10 @@ export function buildDriverTripSettlementView(input: {
   const useEnteredAmountOnly =
     !isFleetLinked && !isSalary && driverHistoryLane(trip, false) === "offline";
   const expectedAmount = useEnteredAmountOnly
-    ? Math.max(
-        offlineEnteredBilled(trip.notes),
-        Math.round(ledgerIndex.receivedByTripId[trip.id] ?? 0),
-      )
+    ? offlineTripAmount(trip.notes, ledgerIndex.receivedByTripId[trip.id] ?? 0, [
+        tripEarningsDetailForDriver(trip).amount,
+        Number(trip.client_price ?? 0),
+      ])
     : Math.round(earningsDetail.amount);
   const isEstimated = useEnteredAmountOnly ? false : earningsDetail.isEstimated;
   const commissionApplies =

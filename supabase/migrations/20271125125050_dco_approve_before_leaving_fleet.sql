@@ -155,6 +155,9 @@ BEGIN
     RETURN false;
   END IF;
 
+  -- Same lock as platform_approve_dco: approve and "leave fleet" can't interleave.
+  PERFORM pg_advisory_xact_lock(hashtext('dco_activation:' || p_user_id::text));
+
   -- Cheap exit for everyone who is not waiting on activation.
   IF NOT EXISTS (
     SELECT 1 FROM public.dco_profiles dp
@@ -295,6 +298,9 @@ BEGIN
       v_missing;
   END IF;
 
+  -- Serialise with _activate_dco_if_free (fleet-leave trigger) for this driver.
+  PERFORM pg_advisory_xact_lock(hashtext('dco_activation:' || p_user_id::text));
+
   v_employed := public._is_active_employee_driver(p_user_id);
 
   UPDATE public.dco_profiles
@@ -306,6 +312,12 @@ BEGIN
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'invalid_state: no PENDING dco_profiles row for user %', p_user_id;
+  END IF;
+
+  -- Driver may have left the fleet since the check: activate now if free.
+  IF v_employed AND public._activate_dco_if_free(p_user_id) THEN
+    SELECT * INTO v_row FROM public.dco_profiles WHERE user_id = p_user_id;
+    RETURN v_row;
   END IF;
 
   IF v_employed THEN

@@ -578,7 +578,9 @@ export default function DriverSignUpScreen() {
       return;
     }
     const typedEmail = email.trim();
-    if (typedEmail) {
+    // Skip the check for the account this screen already created (sign-up worked,
+    // sign-in failed, driver tapped Continue again) — establishLink signs into it.
+    if (typedEmail && createdAuthEmailRef.current !== typedEmail.toLowerCase()) {
       if (!isOnline) {
         showAppAlert('No internet', 'Connect to the internet to continue.');
         return;

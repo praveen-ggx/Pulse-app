@@ -53,6 +53,7 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - Odometer screens: Back / Cancel / Save fall back to the trip when there is no history (web "GO_BACK was not handled").
 - Driver Home map (APK): fixed "Something went wrong" when a trip arrives — MapLibre route layers now have fixed keys, so the casing no longer takes over the line layer and changes its id (`` `id` cannot be changed ``).
 - 2026-11-26 sync with V1 (#173–#179): kept Vasanth's newer wallet, receivables and "EARNINGS" title; ported our offline-amount and payer rules into them.
+- PR #180 review fixes: (1) Trips → History Yield, Home capture pre-fill and the active-trip card use the same offline rule as Wallet / Receivables (typed or captured amount; no 10% guess). (2) Offline tags saved before the `entered` flag keep a typed amount unless it equals the old guess / trip price, or the trip already has a capture (captured wins). (3) `remind_driver_expense` takes a per-expense advisory lock before the 6 h check (no double reminder). (4) `platform_approve_dco` and `_activate_dco_if_free` share a per-driver advisory lock; approve activates at once if the driver already left; `DcoApprovalPromptHost` also calls `activate_my_dco`. (5) Driver sign-up retry skips the email pre-check for the account it just created. (6) DCO prompts wait only for an invite popup actually on screen (snoozed invites no longer block them). (7) Format-only edits to `DriverTripHistoryDetailScreen.tsx` / `tripHistoryDetail.styles.ts` reverted; `process.env?.X` → `process.env.X` kept on purpose (Expo inlines `EXPO_PUBLIC_*` only for `process.env.X`, so map / Places keys were empty in the APK). (8) RBAC changelog migration refs corrected.
 ## Why
 - Driver / DCO Self surfaces needed mode-aware UI and book routing so Self vs fleet work does not hit the wrong gates or books.
 - Lagged `booking_ref_seq` vs existing refs caused unique violations after paid DCO awards (“could not confirm your job after payment”).
@@ -66,6 +67,7 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 
 - Wallet named the company's customer (e.g. Godrej) as payer on trips a company assigned, but that company pays the driver.
 - Home crashed for drivers when a trip's road route loaded (seen in the phone crash log).
+- PR #180 review: the same offline trip showed different amounts on different screens; old typed amounts would read 0; double tap / race conditions in expense reminder and DCO approve vs leave fleet.
 ## Areas
 - `lib/crypto/sha256File.util.ts` (+ unit test) — web odometer / Pulse Scan fingerprint
 - `features/trips/verification/hooks/useOdometerPhotoOcr.ts`, `features/ocr/services/ocrQuota.service.ts`
@@ -112,4 +114,5 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - jest 931 suites / 6632 tests pass; tsc 0 errors; lint 100 and cycles 98 are identical on clean V1 (no new ones from this branch).
 - Migrations: run on preprod by Gowtham under the OLD names (`20271123110000`, `20271123113000`, `20271124101500`). Before `db push`, preprod needs `supabase migration repair --status reverted 20271123110000 20271123113000 20271124101500`; the new-named files are safe to re-run.
 - DCO approve-first, expense reminder and web camera: not clicked through.
+- PR #180 review fixes: driver util / settlement tests (incl. 5 new for old typed amounts) and 84 related screen / migration suites pass; tsc clean on changed files; APK built. Not clicked through; SQL locks not run on a DB.
 - Earlier items: not clicked through

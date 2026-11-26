@@ -142,6 +142,11 @@ BEGIN
     RAISE EXCEPTION 'no_fleet: This trip has no fleet to remind';
   END IF;
 
+  -- Serialise reminders per expense so a double tap can't pass the 6 h check twice.
+  PERFORM pg_advisory_xact_lock(
+    hashtext('driver_expense_reminder:' || p_expense_kind || ':' || p_entry_id::text)
+  );
+
   SELECT max(r.reminded_at) INTO v_last
   FROM public.driver_expense_reminders r
   WHERE r.expense_kind = p_expense_kind AND r.entry_id = p_entry_id;

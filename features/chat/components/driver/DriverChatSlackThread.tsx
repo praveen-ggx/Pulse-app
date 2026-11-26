@@ -8,18 +8,26 @@ import { useOptionalOrganization } from "@/contexts/OrganizationContext";
 import { ChatPartyAvatar } from "@/features/chat/components/ChatPartyAvatar";
 import { ChatMobileComposer } from "@/features/chat/components/ChatMobileComposer";
 import { ChatLocationSystemCard } from "@/features/chat/components/ChatLocationSystemCard";
+import { ChatStageRevokeCard } from "@/features/chat/components/ChatStageRevokeCard";
+import { ChatSystemEventCard } from "@/features/chat/components/ChatEventCard";
+import {
+  isStageRevokeChatMessage,
+  isStageRevokeStatusNote,
+} from "@/features/chat/utils/stageRevokeChat.util";
 import { ChatSlackThreadHeader } from "@/features/chat/components/mobile/ChatSlackMobileChrome";
 import {
   SLACK_AVATAR,
   slackMobileStyles as slackSt,
 } from "@/features/chat/components/mobile/chatSlackMobile.styles";
 import { ChatFeedbackCard } from "@/features/chat/components/ChatFeedbackCard";
+import { DriverShipperFeedbackModal } from "@/features/chat/components/driver/DriverShipperFeedbackModal";
 import { ChatSlackMessageRow } from "@/features/chat/components/mobile/ChatSlackMessageRow";
 import { DocumentShareCard } from "@/features/chat/components/DocumentShareCard";
 import { SmartChatImage } from "@/features/chat/components/SmartChatImage";
 import { ChatMediaBurstRow } from "@/features/chat/components/shared/ChatMediaBurstRow";
 import { ChatHistoryExpiryNotice } from "@/features/chat/components/shared/ChatHistoryExpiryNotice";
 import type { TripMessageRow } from "@/features/chat/types/chat.types";
+import { resolveDriverChatFeedbackChrome } from "@/features/chat/utils/driverChatTripChrome.util";
 import {
   buildChatMediaBurstIndex,
   tripChatMessageSenderKey,
@@ -36,7 +44,10 @@ import {
   type DriverChatMessagesPage,
 } from "@/features/chat/utils/driverChatMessageCache.util";
 import { stripChatPreviewEmojiPrefix } from "@/features/chat/utils/chatAvatar.util";
-import { isMissionDebriefMessage } from "@/features/chat/utils/missionDebrief.util";
+import {
+  findLatestMissionDebriefMessage,
+  isMissionDebriefMessage,
+} from "@/features/chat/utils/missionDebrief.util";
 import { formatChatPartyHandle } from "@/features/chat/utils/partyDisplay";
 import { resolveDocumentShareDisplay } from "@/features/chat/utils/documentShareDisplay.util";
 import {
@@ -97,6 +108,14 @@ function isStatusNoteRedundantWithChat(
   messages: TripMessageRow[],
 ): boolean {
   const t = new Date(u.timestamp).getTime();
+  // Stage revoke notes are mirrored as system chat cards — prefer the card.
+  if (isStageRevokeStatusNote(u.message)) {
+    return messages.some(
+      (m) =>
+        isStageRevokeChatMessage(m) &&
+        Math.abs(new Date(m.created_at).getTime() - t) < 120_000,
+    );
+  }
   return messages.some(
     (m) =>
       m.sender_role === "driver" &&
@@ -390,6 +409,7 @@ export function DriverChatSlackThread({
   const [trip, setTrip] = useState<TripRow | null>(initialTrip);
   const [uploading, setUploading] = useState(false);
   const [statusSending, setStatusSending] = useState<string | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const mountedAtMs = useRef(Date.now()).current;
 
   const {
@@ -447,10 +467,36 @@ export function DriverChatSlackThread({
   const displayMessages = useMemo(
     () =>
       messages.filter(
-        (m) => m.message_type !== "system" || isLocationPingMessage(m),
+        (m) =>
+          m.message_type !== "system" ||
+          isLocationPingMessage(m) ||
+          isStageRevokeChatMessage(m),
       ),
     [messages],
   );
+
+  /**
+   * Collapse consecutive auto location pings into one smart receipt —
+   * driver chat should not spam “Driver is at…” rows.
+   */
+  const locationPingRunInfo = useMemo(() => {
+    const info = new Map<string, { isLast: boolean; runCount: number }>();
+    let runIds: string[] = [];
+    const flushRun = () => {
+      if (runIds.length === 0) return;
+      const count = runIds.length;
+      runIds.forEach((id, idx) =>
+        info.set(id, { isLast: idx === count - 1, runCount: count }),
+      );
+      runIds = [];
+    };
+    for (const m of displayMessages) {
+      if (isLocationPingMessage(m)) runIds.push(m.id);
+      else flushRun();
+    }
+    flushRun();
+    return info;
+  }, [displayMessages]);
 
   const senderKey = useCallback(
     (m: TripMessageRow) =>
@@ -657,6 +703,18 @@ export function DriverChatSlackThread({
           </View>
         );
       }
+      if (isStageRevokeChatMessage(m)) {
+        return <ChatStageRevokeCard message={m} />;
+      }
+      if (
+        m.message_type === "system" ||
+        m.message_type === "update" ||
+        m.message_type === "status_change"
+      ) {
+        if (!isLocationPingMessage(m)) {
+          return <ChatSystemEventCard message={m} isMobile />;
+        }
+      }
       const own = m.sender_role === "driver";
       const burstLeader = mediaBurstIndexRef.current.leaders.get(m.id);
       if (burstLeader) {
@@ -682,6 +740,8 @@ export function DriverChatSlackThread({
       }
 
       if (isLocationPingMessage(m)) {
+        const pingInfo = locationPingRunInfo.get(m.id);
+        if (pingInfo && !pingInfo.isLast) return null;
         const loc = parseSystemLogLocationData(m);
         return (
           <ChatLocationSystemCard
@@ -689,6 +749,13 @@ export function DriverChatSlackThread({
             location={loc}
             isMobile
             isOwnDriverSend={own}
+            driverAppPresentation
+            consolidatedCount={pingInfo?.runCount ?? 1}
+            tripHint={{
+              pickupArea: trip?.pickup_area ?? null,
+              dropLocation: trip?.drop_location ?? null,
+              status: trip?.status ?? null,
+            }}
           />
         );
       }
@@ -779,6 +846,9 @@ export function DriverChatSlackThread({
               void queryClient.invalidateQueries({
                 queryKey: driverChatMessagesQueryKey(conversationId),
               });
+              void queryClient.invalidateQueries({
+                queryKey: ["q", "driver-chat", "conversations"],
+              });
             }}
           />
         );
@@ -817,12 +887,33 @@ export function DriverChatSlackThread({
       tripId,
       conversationId,
       queryClient,
+      locationPingRunInfo,
     ],
   );
 
   const renderThreadRow = useCallback(
     ({ item }: { item: ThreadRow }) => {
       if (item.kind === "status") {
+        if (isStageRevokeStatusNote(item.u.message)) {
+          return (
+            <ChatStageRevokeCard
+              message={
+                {
+                  id: `note-revoke-${item.u.timestamp}-${item.u.message}`,
+                  content: item.u.message,
+                  created_at: item.u.timestamp,
+                  message_type: "system",
+                  metadata: null,
+                } as TripMessageRow
+              }
+              noteFallback={{
+                message: item.u.message,
+                at: item.u.timestamp,
+                driverName: selfName,
+              }}
+            />
+          );
+        }
         return (
           <View style={slackSt.threadSysMsg}>
             <Text style={slackSt.threadSysMsgText}>{item.u.message}</Text>
@@ -831,7 +922,7 @@ export function DriverChatSlackThread({
       }
       return renderTripMessage(item.m);
     },
-    [renderTripMessage],
+    [renderTripMessage, selfName],
   );
 
   const threadListFooter = useMemo(
@@ -858,6 +949,26 @@ export function DriverChatSlackThread({
     }
   })();
   const idLine = [tripNumber || trip?.trip_number, tripDateLabel].filter(Boolean).join(" · ");
+
+  const tripChrome = useMemo(
+    () =>
+      resolveDriverChatFeedbackChrome({
+        trip_status: trip?.status ?? null,
+        trip_feedback_status: undefined,
+        messages,
+        last_message_preview: null,
+      }),
+    [trip?.status, messages],
+  );
+  const headerFeedbackMessage = useMemo(
+    () => findLatestMissionDebriefMessage(messages),
+    [messages],
+  );
+  const feedbackTargetName =
+    (trip?.client_name ?? "").trim() ||
+    (trip?.supplier_name ?? "").trim() ||
+    (fleetName ?? "").trim() ||
+    "this shipper";
 
   const composerBottomPad = keyboardOpen
     ? 8
@@ -929,6 +1040,11 @@ export function DriverChatSlackThread({
         compactRoleTag={driverRoleTag}
         topInset={insets.top}
         contentPaddingHorizontal={DRIVER_CHAT_EDGE}
+        tripKind={tripChrome.tripKind}
+        showFeedbackStar={tripChrome.showStar}
+        feedbackStarFilled={tripChrome.starFilled}
+        feedbackStarScore={tripChrome.starScore}
+        onPressFeedbackStar={() => setFeedbackOpen(true)}
       />
       {uploading ? (
         <View style={localStyles.uploadBar}>
@@ -979,6 +1095,24 @@ export function DriverChatSlackThread({
     </View>
   );
 
+  const feedbackModal = (
+    <DriverShipperFeedbackModal
+      visible={feedbackOpen}
+      onClose={() => setFeedbackOpen(false)}
+      tripId={tripId}
+      message={headerFeedbackMessage}
+      targetName={feedbackTargetName}
+      onSubmitted={() => {
+        void queryClient.invalidateQueries({
+          queryKey: driverChatMessagesQueryKey(conversationId),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["q", "driver-chat", "conversations"],
+        });
+      }}
+    />
+  );
+
   if (Platform.OS === "ios") {
     return (
       <KeyboardAvoidingView
@@ -987,11 +1121,17 @@ export function DriverChatSlackThread({
         keyboardVerticalOffset={insets.top}
       >
         {threadBody}
+        {feedbackModal}
       </KeyboardAvoidingView>
     );
   }
 
-  return <View style={localStyles.root}>{threadBody}</View>;
+  return (
+    <View style={localStyles.root}>
+      {threadBody}
+      {feedbackModal}
+    </View>
+  );
 }
 
 const localStyles = StyleSheet.create({

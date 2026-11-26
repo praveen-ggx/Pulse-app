@@ -553,19 +553,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "800",
-    letterSpacing: 0.2,
+    letterSpacing: -0.1,
     color: Theme.textPrimaryDark,
   },
   sectionHint: {
-    marginTop: 1,
-    fontSize: 10,
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: "500",
     color: Theme.textMuted,
   },
   modeRow: {
     flexDirection: "row",
-    gap: 6,
+    alignItems: "stretch",
+    gap: 8,
   },
   modeCell: {
     flex: 1,

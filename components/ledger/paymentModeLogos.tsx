@@ -68,7 +68,7 @@ export const CashLogo = memo(function CashLogo({
   );
 });
 
-/** UPI — stacked transfer chevrons (NPCI-inspired, monoline). */
+/** UPI — QR code (scan-to-pay), monoline. */
 export const UpiLogo = memo(function UpiLogo({
   size = 48,
   color = LINE,
@@ -78,15 +78,23 @@ export const UpiLogo = memo(function UpiLogo({
       <G
         fill="none"
         stroke={color}
-        strokeWidth={2}
+        strokeWidth={1.85}
         strokeLinecap="round"
         strokeLinejoin="round"
       >
-        <Path d="M12 14 C18.5 14 23 17.5 28.5 22 L34 22" />
-        <Path d="M28.5 18.5 L34 22 L28.5 25.5" />
-        <Path d="M12 24 C18.5 24 23 27.5 28.5 32 L34 32" />
-        <Path d="M28.5 28.5 L34 32 L28.5 35.5" />
-        <Path d="M12 34 C17 34 21 36.5 25.5 39.5" />
+        <Rect x={8} y={8} width={32} height={32} rx={3} />
+        <Rect x={12} y={12} width={9} height={9} rx={1.2} />
+        <Rect x={14.5} y={14.5} width={4} height={4} rx={0.6} fill={color} stroke="none" />
+        <Rect x={27} y={12} width={9} height={9} rx={1.2} />
+        <Rect x={29.5} y={14.5} width={4} height={4} rx={0.6} fill={color} stroke="none" />
+        <Rect x={12} y={27} width={9} height={9} rx={1.2} />
+        <Rect x={14.5} y={29.5} width={4} height={4} rx={0.6} fill={color} stroke="none" />
+        <Rect x={25} y={25} width={3.2} height={3.2} rx={0.4} fill={color} stroke="none" />
+        <Rect x={30.5} y={25} width={3.2} height={3.2} rx={0.4} fill={color} stroke="none" />
+        <Rect x={25} y={30.5} width={3.2} height={3.2} rx={0.4} fill={color} stroke="none" />
+        <Rect x={30.5} y={30.5} width={3.2} height={3.2} rx={0.4} fill={color} stroke="none" />
+        <Rect x={35} y={25} width={3.2} height={3.2} rx={0.4} fill={color} stroke="none" />
+        <Rect x={25} y={35} width={3.2} height={3.2} rx={0.4} fill={color} stroke="none" />
       </G>
     </LogoSvg>
   );

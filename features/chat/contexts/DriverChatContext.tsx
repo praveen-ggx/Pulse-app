@@ -48,7 +48,17 @@ type MinimalTripSource = {
   drop_location?: string | null;
   pickup_address?: string | null;
   dropoff_address?: string | null;
+  organization_name?: string | null;
+  client_name?: string | null;
 };
+
+function resolveShipperPartyNameForDriverLane(trip: MinimalTripSource): string {
+  return (
+    (trip.organization_name ?? "").trim() ||
+    (trip.client_name ?? "").trim() ||
+    "Shipper"
+  );
+}
 
 function buildMinimalDriverTripConversation(
   trip: MinimalTripSource,
@@ -61,8 +71,15 @@ function buildMinimalDriverTripConversation(
     display_trip_id: trip.display_trip_id ?? null,
     trip_number: trip.trip_number ?? null,
   });
+  const shipperName = resolveShipperPartyNameForDriverLane(trip);
   return {
     ...row,
+    // Prefer real shipper / fleet org — never leave the driver’s own name here.
+    party_name: shipperName || row.party_name,
+    trip_organization_name:
+      (trip.organization_name ?? "").trim() ||
+      row.trip_organization_name ||
+      null,
     trip_number: operational !== "—" ? operational : perDriver || trip.trip_number || '',
     pickup_area: trip.pickup_area ?? trip.pickup_address ?? '',
     drop_location: trip.drop_location ?? trip.dropoff_address ?? '',
@@ -126,7 +143,12 @@ export function DriverChatProvider({
   } = useDriverChatConversationsQuery(isActive ? driverIds : []);
 
   const patchConversationListPreview = useCallback(
-    (conversationId: string, preview: string, at: string) => {
+    (
+      conversationId: string,
+      preview: string,
+      at: string,
+      senderRole: TripMessageRow["sender_role"] = "driver",
+    ) => {
       if (!driverIdsKey) return;
       queryClient.setQueryData<TripConversation[]>(
         driverChatConversationsQueryKey(driverIdsKey),
@@ -137,6 +159,7 @@ export function DriverChatProvider({
                   ...c,
                   last_message_at: at,
                   last_message_preview: preview.slice(0, 120),
+                  last_message_sender_role: senderRole,
                 }
               : c,
           ),
@@ -181,10 +204,8 @@ export function DriverChatProvider({
       const assignedDriverId = String(trip.driver_id);
       if (!resolvedDriverIds.some((d) => String(d) === assignedDriverId)) return null;
 
-      const partyName =
-        (profile as { full_name?: string; displayName?: string })?.full_name ||
-        (profile as { displayName?: string })?.displayName ||
-        'Driver';
+      // Counterparty for the driver is the shipper / dispatching org — not self.
+      const partyName = resolveShipperPartyNameForDriverLane(trip);
 
       let created: TripConversationRow;
       try {

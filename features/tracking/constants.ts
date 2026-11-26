@@ -45,6 +45,8 @@ export const TRACKING_BROADCAST_EVENT = {
   CHECKPOINT: 'checkpoint',
   RESEED: 'reseed',
   PING_REQUEST: 'ping_request',
+  /** Driver → shipper: ping could not get GPS (permission / services off). */
+  PING_STATUS: 'ping_status',
 } as const;
 
 /** Dispatcher waits this long for driver to respond before declaring ping timed out. */

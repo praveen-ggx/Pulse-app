@@ -68,10 +68,43 @@ export function shipperPartyIdForTrip(trip: TripRow): string {
   return shipperPartyKey(trip).id;
 }
 
+/** True for placeholders / CRM short codes (AMzg), not multi-word labels. */
+export function isWeakPartyLabel(value: string | null | undefined): boolean {
+  const v = String(value ?? "").trim();
+  if (!v || v === "Party" || v === "Shipper" || v === "Untagged") return true;
+  // Short alphanumeric codes without spaces (AMzg, ARR) — not "ADANI GROUPS".
+  if (v.length <= 6 && !/\s/.test(v) && /^[A-Za-z0-9._-]+$/.test(v)) return true;
+  return false;
+}
+
+/**
+ * Prefer the human / tagged label over short client codes.
+ * Notes-tag and deliberate book names beat CRM codes like "AMzg".
+ */
+export function preferPartyDisplayName(
+  current: string | null | undefined,
+  candidate: string | null | undefined,
+): string {
+  const a = String(current ?? "").trim();
+  const b = String(candidate ?? "").trim();
+  // Keep the deliberate Untagged bucket label unless a real name arrives.
+  if (a === "Untagged" && isWeakPartyLabel(b)) return "Untagged";
+  if (isWeakPartyLabel(b)) return a || "Party";
+  if (isWeakPartyLabel(a) || a === "Untagged") return b;
+  // Longer label usually wins (ADANI GROUPS over a short alternate).
+  if (b.length >= a.length + 2) return b;
+  return a;
+}
+
 function marketplaceShipperName(trip: TripRow): string {
   const clientName = String(trip.client_name ?? "").trim();
   const orgName = String(trip.organization_name ?? "").trim();
-  return clientName || orgName || "Shipper";
+  const noted = parseDcoPartyTagFromNotes(trip.notes)?.name?.trim() || "";
+  // Notes tag (if any) is the driver's chosen label; else listing shipper / org.
+  return preferPartyDisplayName(
+    preferPartyDisplayName(noted, clientName),
+    orgName,
+  ) || "Shipper";
 }
 
 /** Shipper / client name. Marketplace uses the listing shipper; offline uses the tagged party. */
@@ -80,6 +113,34 @@ export function tripReceivablePartyName(trip: TripRow): string {
     return marketplaceShipperName(trip);
   }
   return shipperPartyKey(trip).name;
+}
+
+/**
+ * Display name for a trip's party.
+ * Priority: notes tag (canonical) → book/collection label → client_name.
+ * Once a trip is tagged, every related payment uses that tagged name —
+ * prior short capture labels (AMzg) do not stick around as a second party.
+ */
+export function resolveTripPartyDisplayName(
+  trip: TripRow | null | undefined,
+  bookFallback?: string | null,
+): string {
+  if (!trip) {
+    const book = String(bookFallback ?? "").trim();
+    return book && book !== "Party" ? book : "Party";
+  }
+  if (String(trip.source ?? "").trim() === "market_bid") {
+    return marketplaceShipperName(trip);
+  }
+  const noted = parseDcoPartyTagFromNotes(trip.notes)?.name?.trim() || "";
+  if (noted) return noted;
+
+  const book = String(bookFallback ?? "").trim();
+  if (book && book !== "Party") return book;
+
+  const tagged = shipperPartyKey(trip);
+  if (tagged.id === UNTAGGED_PARTY_ID) return "Untagged";
+  return tagged.name || "Party";
 }
 
 const UUID_RE =
@@ -137,15 +198,27 @@ export function tripReceivableBilled(trip: TripRow): number {
 function shipperPartyKey(trip: TripRow): { id: string; name: string } {
   const clientId = String(trip.client_id ?? "").trim();
   const clientName = String(trip.client_name ?? "").trim();
-  const orgName = String(trip.organization_name ?? "").trim();
-  // Assigned-by / fleet org is not the DCO commercial party. AR only
-  // after the driver tags a Self shipper or middleman (client_id).
-  if (clientId) {
-    return { id: `shipper:${clientId}`, name: clientName || orgName || "Party" };
-  }
   const noted = parseDcoPartyTagFromNotes(trip.notes);
+  // Notes hold the tagged Self party label — that is the commercial name.
+  // Never fall back to organization_name (assigned-by / fleet owner).
+  const taggedName =
+    (noted?.name && noted.name.trim()) ||
+    (!isWeakPartyLabel(clientName) ? clientName : "") ||
+    clientName ||
+    "";
+  // Assigned-by / fleet org is not the DCO commercial party. AR only
+  // after the driver tags a Self shipper or middleman (client_id / notes).
+  if (clientId) {
+    return {
+      id: `shipper:${clientId}`,
+      name: taggedName || "Party",
+    };
+  }
   if (noted) {
-    return { id: `shipper:${noted.id}`, name: noted.name || clientName || "Party" };
+    return {
+      id: `shipper:${noted.id}`,
+      name: taggedName || "Party",
+    };
   }
   return { id: UNTAGGED_PARTY_ID, name: "Untagged" };
 }
@@ -161,6 +234,8 @@ export function buildDriverPartyReceivables(
   trips: TripRow[],
   receivedByTripId: Record<string, number>,
   isFleetDispatched: (trip: TripRow) => boolean,
+  /** Book / capture labels keyed by trip — fills short client codes (AMzg → Adani). */
+  partyNameByTripId?: Record<string, string> | null,
 ): DriverPartyReceivable[] {
   let marketBilled = 0;
   let marketReceived = 0;
@@ -182,14 +257,22 @@ export function buildDriverPartyReceivables(
       continue;
     }
     const party = shipperPartyKey(trip);
+    // Tagged trip name is canonical. Book labels only upgrade weak codes
+    // (AMzg → ADANI GROUPS) — never overwrite a real tag with a short capture.
+    const bookName =
+      party.id === UNTAGGED_PARTY_ID
+        ? ""
+        : String(partyNameByTripId?.[trip.id] ?? "").trim();
+    const displayName = resolveTripPartyDisplayName(trip, bookName);
     const prev = shippers.get(party.id);
     if (prev) {
       prev.trips += 1;
       prev.billed += billed;
       prev.received += received;
+      prev.name = preferPartyDisplayName(prev.name, displayName);
     } else {
       shippers.set(party.id, {
-        name: party.name,
+        name: displayName,
         trips: 1,
         billed,
         received,

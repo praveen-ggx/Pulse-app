@@ -72,6 +72,76 @@ export async function fetchUsableRouteForKey(
   return isUsableRouteResult(res) ? res : null;
 }
 
+/**
+ * Smart guidance metrics from app routing API (pickup→drop corridor + live
+ * approach / to-drop legs). Prefer road API results over stored trip.distance.
+ *
+ * Live remaining does **not** require a GPS fix when the active route already
+ * came from a usable nav start (pickup fallback after package collected).
+ */
+export function resolveDriverGuidanceMetrics(input: {
+  activeNavigationRoute: RouteResult | null | undefined;
+  tripLegRoute: RouteResult | null | undefined;
+  hasLiveGps: boolean;
+  storedPlannedKm?: number | null;
+}): {
+  /** Remaining km to the current target (or full corridor when no live leg). */
+  remainingKm: number | null;
+  /** Full from→to corridor km for progress bars. */
+  corridorKm: number | null;
+  /** ETA seconds for the active guidance leg (or corridor). */
+  etaSeconds: number | null;
+  /** True when remaining comes from a live GPS→target road route. */
+  isLiveRemaining: boolean;
+} {
+  const live = isUsableRouteResult(input.activeNavigationRoute)
+    ? input.activeNavigationRoute
+    : null;
+  const corridor = isUsableRouteResult(input.tripLegRoute)
+    ? input.tripLegRoute
+    : null;
+
+  const corridorKm =
+    corridor != null
+      ? corridor.distance / 1000
+      : input.storedPlannedKm != null &&
+          Number.isFinite(input.storedPlannedKm) &&
+          input.storedPlannedKm > 0
+        ? input.storedPlannedKm
+        : null;
+
+  if (live) {
+    return {
+      remainingKm: live.distance / 1000,
+      corridorKm: corridorKm ?? live.distance / 1000,
+      etaSeconds:
+        Number.isFinite(live.duration) && live.duration > 0
+          ? live.duration
+          : null,
+      isLiveRemaining: input.hasLiveGps,
+    };
+  }
+
+  if (corridor) {
+    return {
+      remainingKm: corridor.distance / 1000,
+      corridorKm,
+      etaSeconds:
+        Number.isFinite(corridor.duration) && corridor.duration > 0
+          ? corridor.duration
+          : null,
+      isLiveRemaining: false,
+    };
+  }
+
+  return {
+    remainingKm: corridorKm,
+    corridorKm,
+    etaSeconds: null,
+    isLiveRemaining: false,
+  };
+}
+
 /** Stops closer than this are treated as the same point (no leg to route). */
 const MULTI_STOP_MIN_LEG_M = 40;
 

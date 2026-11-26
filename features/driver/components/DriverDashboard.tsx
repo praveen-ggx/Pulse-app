@@ -24,6 +24,7 @@ import {
 import { RoutePlanMapPin } from '@/features/driver/job-card/parts/RoutePlanMapPin';
 import * as driverLocationService from '@/features/driver/services/driverLocation.service';
 import * as driversService from '@/features/drivers/services/drivers.service';
+import { resolveDriverOfferDistanceKm } from '@/features/drivers/utils/driverDisplayDistance.util';
 import { isAggregateTrip, isRosterTrip } from '@/features/drivers/utils/driverUtils.util';
 import { computeDriverCommissionForTrip } from '@/features/finance/aggregation/aggregateDrivers';
 import { isCommerceDriverTrip } from '@/features/trips/domain/driverTripExperience';
@@ -33,6 +34,7 @@ import * as tripsService from '@/features/trips/services/trips.service';
 import { useDriverAvatarUri } from '@/lib/avatarUpload';
 import { formatINR } from '@/lib/format';
 import { formatEstimatedDuration } from '@/lib/formatEstimatedDuration';
+import { openExternalNavigation } from '@/lib/mapsNavigation.util';
 import { darkMapStyle } from '@/lib/mapStyles';
 import {
     reverseGeocodeCityStateLabel,
@@ -1242,7 +1244,11 @@ export default function DriverDashboard() {
 
   const handleShowRouteOnMap = useCallback((stopId?: string | null) => {
     setIsAssignmentSheetExpanded(false);
-    driverSheetRef.current?.snapToIndex?.(0);
+    try {
+      driverSheetRef.current?.snapToIndex?.(0);
+    } catch {
+      /* ignore */
+    }
     planCameraHoldUntilRef.current = Date.now() + 16000;
     const coords = [
       ...(routePlanMap?.stops.map((s) => ({
@@ -1254,36 +1260,91 @@ export default function DriverDashboard() {
     const preview = stopId
       ? routePlanMap?.stops.find((s) => s.stopId === stopId)
       : null;
-    try {
-      if (coords.length >= 1 && mapRef.current && (!preview || routePlanMap?.overview !== false)) {
-        mapRef.current.fitToCoordinates(coords, {
-          edgePadding: { top: 96, right: 40, bottom: 168, left: 40 },
-          animated: true,
-        });
-        return;
+    const fitCorridor = () => {
+      try {
+        if (
+          coords.length >= 1 &&
+          mapRef.current &&
+          (!preview || routePlanMap?.overview !== false)
+        ) {
+          mapRef.current.fitToCoordinates(coords, {
+            edgePadding: { top: 96, right: 40, bottom: 168, left: 40 },
+            animated: true,
+          });
+          return;
+        }
+        if (preview && mapRef.current) {
+          const mapAny = mapRef.current as {
+            animateCamera?: (cam: object, duration?: number) => void;
+          } | null;
+          mapAny?.animateCamera?.(
+            {
+              center: {
+                latitude: preview.latitude,
+                longitude: preview.longitude,
+              },
+              zoom: 14,
+              pitch: 0,
+              heading: 0,
+            },
+            450,
+          );
+        }
+      } catch {
+        // ignore camera failures
       }
-      if (preview && mapRef.current) {
-        const mapAny = mapRef.current as { animateCamera?: (cam: object, duration?: number) => void } | null;
-        mapAny?.animateCamera?.(
-          {
-            center: { latitude: preview.latitude, longitude: preview.longitude },
-            zoom: 14,
-            pitch: 0,
-            heading: 0,
-          },
-          450,
-        );
-      }
-    } catch {
-      // ignore camera failures
-    }
+    };
+    fitCorridor();
+    // Second fit after the sheet peek settles so the corridor fills the stage.
+    setTimeout(fitCorridor, 480);
   }, [driverMapPosition, routePlanMap]);
 
+  // Fit map when an active mission plan loads — do not auto-peek new offers
+  // (those stay full-page until the driver taps Map view).
   useEffect(() => {
     if (!shouldShowMap || !routePlanMap?.stops.length) return;
+    if (showNewAssignmentCard) return;
     const timer = setTimeout(() => handleShowRouteOnMap(), 350);
     return () => clearTimeout(timer);
-  }, [handleShowRouteOnMap, routePlanMap?.tripId, routePlanMap?.stops.length, shouldShowMap]);
+  }, [
+    handleShowRouteOnMap,
+    routePlanMap?.tripId,
+    routePlanMap?.stops.length,
+    shouldShowMap,
+    showNewAssignmentCard,
+  ]);
+
+  useEffect(() => {
+    if (!showNewAssignmentCard || !shouldShowMap) return;
+    setIsAssignmentSheetExpanded(true);
+    const t = setTimeout(() => {
+      try {
+        driverSheetRef.current?.snapToIndex?.(1);
+      } catch {
+        /* ignore */
+      }
+    }, 80);
+    return () => clearTimeout(t);
+  }, [showNewAssignmentCard, shouldShowMap, effectiveFirstIncoming?.id]);
+
+  const handleNavigateToPickup = useCallback(() => {
+    const trip = effectiveFirstIncoming;
+    if (!trip) return;
+    const pickup = getTripStopCoordinate(trip, 'pickup');
+    if (!pickup) {
+      Alert.alert(
+        'Pickup unavailable',
+        'This trip does not have a map pin for pickup yet.',
+      );
+      return;
+    }
+    void openExternalNavigation(pickup.latitude, pickup.longitude);
+  }, [effectiveFirstIncoming]);
+
+  const handleSeeRoute = useCallback(() => {
+    // Same in-app corridor preview as Map (polyline + stops), not Google Maps.
+    handleShowRouteOnMap();
+  }, [handleShowRouteOnMap]);
 
   // Smoothly follow the driver marker with `animateCamera` (avoid jitter from `fitToCoordinates`).
   useEffect(() => {
@@ -1350,7 +1411,17 @@ export default function DriverDashboard() {
     };
 
     if (activeGuidanceTrip && driverMapPosition && guidanceTargetCoordinate) {
+      // Live GPS → current target (API road route).
       fetchRoute(driverMapPosition, guidanceTargetCoordinate);
+    } else if (activeGuidanceTrip) {
+      // No GPS yet — still automate from→to corridor via routing API.
+      const pickup = getTripStopCoordinate(activeGuidanceTrip, 'pickup');
+      const drop = getTripStopCoordinate(activeGuidanceTrip, 'drop');
+      if (pickup && drop) {
+        fetchRoute(pickup, drop);
+      } else {
+        setOptimalRoute(null);
+      }
     } else if (showNewAssignmentCard && effectiveFirstIncoming) {
       const pickup = getTripStopCoordinate(effectiveFirstIncoming, 'pickup');
       const drop = getTripStopCoordinate(effectiveFirstIncoming, 'drop');
@@ -2262,22 +2333,6 @@ export default function DriverDashboard() {
         </View>
       ) : null}
 
-      {/* When the map is visible, the footer dock is semi-transparent.
-          Add a solid backdrop behind the footer so the map doesn't show through. */}
-      {shouldShowMap ? (
-        <View
-          style={[
-            styles.tabBarBackdrop,
-            {
-              height: driverTabBarClearance,
-              backgroundColor: colors.background,
-              zIndex: 999,
-              pointerEvents: 'none',
-            },
-          ]}
-        />
-      ) : null}
-
       {/* Ola-style persistent Operations Panel (bottom sheet) */}
       {shouldShowMap ? (
         <GestureHandlerRootViewComponent style={styles.olaDriverRoot}>
@@ -2339,10 +2394,16 @@ export default function DriverDashboard() {
 
             <BottomSheetComponent
               ref={driverSheetRef as never}
-              snapPoints={['20%', '45%', '88%']}
-              index={0}
+              snapPoints={
+                showNewAssignmentCard ? ['18%', '92%'] : ['20%', '45%', '88%']
+              }
+              index={showNewAssignmentCard ? 1 : 0}
               enablePanDownToClose={false}
-              onChange={(nextIndex) => setIsAssignmentSheetExpanded(nextIndex >= 1)}
+              onChange={(nextIndex) =>
+                setIsAssignmentSheetExpanded(
+                  showNewAssignmentCard ? nextIndex >= 1 : nextIndex >= 1,
+                )
+              }
               bottomInset={driverSheetBottomInset}
               backgroundStyle={{
                 backgroundColor: colors.surface,
@@ -2425,12 +2486,17 @@ export default function DriverDashboard() {
                                 assignmentId={String(effectiveFirstIncoming.id)}
                                 pickup={effectiveFirstIncoming.pickup_area?.trim() || '—'}
                                 dropoff={effectiveFirstIncoming.drop_location?.trim() || '—'}
-                                distance={formatTripDistance(effectiveFirstIncoming.distance)}
+                                distance={formatTripDistance(
+                                  resolveDriverOfferDistanceKm(effectiveFirstIncoming) ??
+                                    effectiveFirstIncoming.distance,
+                                )}
                                 eta={formatEstimatedDuration(effectiveFirstIncoming.estimated_duration)}
                                 earnings={firstIncomingIsAggregate ? '—' : formatINR(Math.max(0, newAssignmentCommission))}
                                 onAccept={() => handleAcceptMission(effectiveFirstIncoming)}
                                 onDecline={() => handleDeclineAssignment(effectiveFirstIncoming.id)}
                                 onViewTripPlan={() => handleShowRouteOnMap()}
+                                onSeeRoute={handleSeeRoute}
+                                onNavigateToPickup={handleNavigateToPickup}
                                 tripPlanAvailable={(routePlanMap?.stops.length ?? 0) > 0}
                                 requireOtp={firstIncomingRequiresOtp}
                                 disabled={acceptLoading || declineLoading}
@@ -3051,12 +3117,17 @@ export default function DriverDashboard() {
             assignmentId={String(effectiveFirstIncoming.id)}
             pickup={effectiveFirstIncoming.pickup_area?.trim() || '—'}
             dropoff={effectiveFirstIncoming.drop_location?.trim() || '—'}
-            distance={formatTripDistance(effectiveFirstIncoming.distance)}
+            distance={formatTripDistance(
+              resolveDriverOfferDistanceKm(effectiveFirstIncoming) ??
+                effectiveFirstIncoming.distance,
+            )}
             eta={formatEstimatedDuration(effectiveFirstIncoming.estimated_duration)}
             earnings={firstIncomingIsAggregate ? '—' : formatINR(Math.max(0, newAssignmentCommission))}
             onAccept={() => handleAcceptMission(effectiveFirstIncoming)}
             onDecline={() => handleDeclineAssignment(effectiveFirstIncoming.id)}
             onViewTripPlan={() => handleShowRouteOnMap()}
+            onSeeRoute={handleSeeRoute}
+            onNavigateToPickup={handleNavigateToPickup}
             tripPlanAvailable={(routePlanMap?.stops.length ?? 0) > 0}
             requireOtp={firstIncomingRequiresOtp}
             disabled={acceptLoading || declineLoading}
@@ -3078,12 +3149,17 @@ export default function DriverDashboard() {
             assignmentId={String(effectiveFirstIncoming.id)}
             pickup={effectiveFirstIncoming.pickup_area?.trim() || '—'}
             dropoff={effectiveFirstIncoming.drop_location?.trim() || '—'}
-            distance={formatTripDistance(effectiveFirstIncoming.distance)}
+            distance={formatTripDistance(
+              resolveDriverOfferDistanceKm(effectiveFirstIncoming) ??
+                effectiveFirstIncoming.distance,
+            )}
             eta={formatEstimatedDuration(effectiveFirstIncoming.estimated_duration)}
             earnings={firstIncomingIsAggregate ? '—' : formatINR(Math.max(0, newAssignmentCommission))}
             onAccept={() => handleAcceptMission(effectiveFirstIncoming)}
             onDecline={() => handleDeclineAssignment(effectiveFirstIncoming.id)}
             onViewTripPlan={() => handleShowRouteOnMap()}
+            onSeeRoute={handleSeeRoute}
+            onNavigateToPickup={handleNavigateToPickup}
             tripPlanAvailable={(routePlanMap?.stops.length ?? 0) > 0}
             requireOtp={firstIncomingRequiresOtp}
             disabled={acceptLoading || declineLoading}
@@ -5136,12 +5212,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.22,
     shadowRadius: 3.5,
     elevation: 5,
-  },
-  tabBarBackdrop: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
   },
   planMapMarkerText: {
     color: Theme.textOnPrimary,

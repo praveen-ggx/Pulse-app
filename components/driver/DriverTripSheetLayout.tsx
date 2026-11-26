@@ -6,7 +6,7 @@ import Theme from "@/constants/Theme";
 import type { JobCardAssignerPayload } from "@/features/trips/utils/driverAssignerDisplay.util";
 import { Clock, MapPin, Navigation, Truck } from "lucide-react-native";
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 export const FLOW_EMERALD = Theme.driverEmerald;
 export const FLOW_EMERALD_DARK = Theme.driverEmeraldDark;
@@ -90,11 +90,15 @@ export function HeroAssignerBlock({
   assigner,
   assignedByLine,
   onPress,
+  /** White Haulr sheets use `onLight` (default). Dark hero chrome uses `onDark`. */
+  tone = "onLight",
 }: {
   assigner: JobCardAssignerPayload | null;
   assignedByLine?: string | null;
   onPress?: () => void;
+  tone?: "onLight" | "onDark";
 }) {
+  const onLight = tone === "onLight";
   const wrap = (child: React.ReactNode) =>
     onPress ? (
       <Pressable
@@ -115,7 +119,12 @@ export function HeroAssignerBlock({
     if (!primary && !secondary) return null;
 
     return wrap(
-      <View style={sheetStyles.heroAssignerBlock}>
+      <View
+        style={[
+          sheetStyles.heroAssignerBlock,
+          onLight && sheetStyles.heroAssignerBlockLight,
+        ]}
+      >
         <View style={sheetStyles.heroAssignerRow}>
           <PartyAvatar
             name={assigner.orgName || primary || "Fleet"}
@@ -127,19 +136,47 @@ export function HeroAssignerBlock({
             size={HERO_SIDE_ICON_SIZE}
             shape="rounded"
             style={sheetStyles.heroAvatarFlex}
-            borderStyle={sheetStyles.heroAvatarBorder}
+            borderStyle={
+              onLight
+                ? sheetStyles.heroAvatarBorderLight
+                : sheetStyles.heroAvatarBorder
+            }
           />
           <View style={sheetStyles.heroAssignerTextCol}>
-            <Text style={sheetStyles.heroAssignLabel} numberOfLines={1}>
+            <Text
+              style={[
+                sheetStyles.heroAssignLabel,
+                onLight
+                  ? sheetStyles.heroAssignLabelLight
+                  : sheetStyles.heroAssignLabelDark,
+              ]}
+              numberOfLines={1}
+            >
               {onPress ? "Assigned by · add client" : "Assigned by"}
             </Text>
             {primary ? (
-              <Text style={sheetStyles.heroAssignPrimary} numberOfLines={1}>
+              <Text
+                style={[
+                  sheetStyles.heroAssignPrimary,
+                  onLight
+                    ? sheetStyles.heroAssignPrimaryLight
+                    : sheetStyles.heroAssignPrimaryDark,
+                ]}
+                numberOfLines={1}
+              >
                 {primary}
               </Text>
             ) : null}
             {secondary ? (
-              <Text style={sheetStyles.heroAssignSecondary} numberOfLines={1}>
+              <Text
+                style={[
+                  sheetStyles.heroAssignSecondary,
+                  onLight
+                    ? sheetStyles.heroAssignSecondaryLight
+                    : sheetStyles.heroAssignSecondaryDark,
+                ]}
+                numberOfLines={1}
+              >
                 {secondary}
               </Text>
             ) : null}
@@ -153,8 +190,21 @@ export function HeroAssignerBlock({
   if (!line) return null;
 
   return wrap(
-    <View style={sheetStyles.heroAssignerBlock}>
-      <Text style={sheetStyles.heroAssignPrimary} numberOfLines={2}>
+    <View
+      style={[
+        sheetStyles.heroAssignerBlock,
+        onLight && sheetStyles.heroAssignerBlockLight,
+      ]}
+    >
+      <Text
+        style={[
+          sheetStyles.heroAssignPrimary,
+          onLight
+            ? sheetStyles.heroAssignPrimaryLight
+            : sheetStyles.heroAssignPrimaryDark,
+        ]}
+        numberOfLines={2}
+      >
         {line}
       </Text>
     </View>,
@@ -343,10 +393,32 @@ export const sheetStyles = StyleSheet.create({
     paddingLeft: 10,
     paddingRight: 0,
   },
+  heroAssignerBlockLight: {
+    paddingLeft: 0,
+    paddingRight: 0,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: Theme.surface,
+    borderWidth: StyleSheet.hairlineWidth + 0.5,
+    borderColor: Theme.driverJobCardBorder,
+    ...Platform.select({
+      web: {
+        boxShadow: "0 1px 3px rgba(15, 23, 42, 0.04)",
+      } as object,
+      default: {
+        shadowColor: "#0f172a",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 1,
+      },
+    }),
+  },
   heroAssignerRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
     minWidth: 0,
   },
   heroAvatarFlex: {
@@ -355,32 +427,52 @@ export const sheetStyles = StyleSheet.create({
   heroAssignerTextCol: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 2,
     justifyContent: "center",
   },
   heroAssignLabel: {
     fontSize: 9,
-    fontWeight: "600",
-    color: "rgba(255,255,255,0.72)",
-    letterSpacing: 0.2,
+    fontWeight: "700",
+    letterSpacing: 0.45,
     lineHeight: 11,
+    textTransform: "uppercase",
+  },
+  heroAssignLabelDark: {
+    color: "rgba(255,255,255,0.72)",
+  },
+  heroAssignLabelLight: {
+    color: Theme.driverEmerald,
   },
   heroAssignPrimary: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "800",
+    lineHeight: 17,
+    letterSpacing: -0.2,
+  },
+  heroAssignPrimaryDark: {
     color: "#fff",
-    lineHeight: 15,
-    letterSpacing: -0.15,
+  },
+  heroAssignPrimaryLight: {
+    color: Theme.textPrimaryDark,
   },
   heroAssignSecondary: {
     fontSize: 11,
     fontWeight: "600",
-    color: FLOW_MINT,
     lineHeight: 14,
+  },
+  heroAssignSecondaryDark: {
+    color: FLOW_MINT,
+  },
+  heroAssignSecondaryLight: {
+    color: Theme.textMuted,
   },
   heroAvatarBorder: {
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.5)",
+  },
+  heroAvatarBorderLight: {
+    borderWidth: 1.5,
+    borderColor: Theme.driverEmeraldBorderSoft,
   },
   tripDetailsCard: {
     borderRadius: 12,

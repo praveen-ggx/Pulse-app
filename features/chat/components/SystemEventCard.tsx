@@ -327,7 +327,23 @@ export const SystemEventCard = React.memo(function SystemEventCard({
     }
 
     case 'system':
-    case 'update':
+    case 'update': {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- keep SystemEventCard light
+      const { isStageRevokeChatMessage } = require('../utils/stageRevokeChat.util') as {
+        isStageRevokeChatMessage: (m: TripMessageRow) => boolean;
+      };
+      if (isStageRevokeChatMessage(message)) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy card
+        const { ChatStageRevokeCard } = require('./ChatStageRevokeCard') as {
+          ChatStageRevokeCard: React.ComponentType<{
+            message: TripMessageRow;
+            composeTrip?: SystemEventCardProps['composeTrip'];
+          }>;
+        };
+        return (
+          <ChatStageRevokeCard message={message} composeTrip={composeTrip} />
+        );
+      }
       return (
         <ChatSystemEventCard
           message={message}
@@ -336,6 +352,7 @@ export const SystemEventCard = React.memo(function SystemEventCard({
           composeTrip={composeTrip}
         />
       );
+    }
 
     default:
       // text, question, challenge, feedback_request — rendered as chat bubbles elsewhere

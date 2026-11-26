@@ -29,6 +29,10 @@ type Props = {
   created?: boolean;
   billedAmount?: number | null;
   receivable?: TagReceivableDraft | null;
+  /** Defaults to "Yield" for offline bill-to receivable entry. */
+  amountLabel?: string;
+  /** True when updating yield on an already-tagged trip (not first-time Bill to). */
+  editingYield?: boolean;
   onChangeReceivableAmount?: (value: string) => void;
   onCancelReceivable?: () => void;
   onContinueReceivable?: (amount?: string) => void;
@@ -76,6 +80,7 @@ function ConfirmBody({
   billed,
   confirming,
   showPlan,
+  editingYield,
   onBack,
   onConfirm,
 }: {
@@ -83,18 +88,28 @@ function ConfirmBody({
   billed: number | null;
   confirming: boolean;
   showPlan: boolean;
+  editingYield?: boolean;
   onBack: () => void;
   onConfirm: () => void;
 }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.page, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}>
-      {showPlan ? <StepPlan current={2} labels={["Amount", "Confirm"]} /> : null}
-      <Text style={styles.kicker}>Tag party</Text>
-      <Text style={styles.title}>Tag this trip?</Text>
+      {showPlan ? (
+        <StepPlan
+          current={2}
+          labels={editingYield ? ["Yield", "Confirm"] : ["Amount", "Confirm"]}
+        />
+      ) : null}
+      <Text style={styles.kicker}>{editingYield ? "Update yield" : "Tag party"}</Text>
+      <Text style={styles.title}>
+        {editingYield ? "Save this yield?" : "Tag this trip?"}
+      </Text>
       <Text style={styles.body}>
         {billed
-          ? `Bill this trip to ${pendingName} for ${formatInr(billed)}. Receivables will update to this amount.`
+          ? editingYield
+            ? `Bill ${pendingName} ${formatInr(billed)} for this trip. Yield and receivables update to this amount.`
+            : `Bill this trip to ${pendingName} for ${formatInr(billed)}. Receivables will update to this amount.`
           : `Bill this trip to ${pendingName}. Outstanding and collect will follow this party.`}
       </Text>
       {billed ? (
@@ -106,7 +121,9 @@ function ConfirmBody({
             </Text>
           </View>
           <View style={styles.summaryCol}>
-            <Text style={styles.summaryLabel}>Receivable</Text>
+            <Text style={styles.summaryLabel}>
+              {editingYield ? "Yield" : "Receivable"}
+            </Text>
             <Text style={styles.summaryValue}>{formatInr(billed)}</Text>
           </View>
         </View>
@@ -124,9 +141,17 @@ function ConfirmBody({
           onPress={confirming ? undefined : onConfirm}
           style={[styles.goBtn, confirming && styles.goDisabled]}
           accessibilityRole="button"
-          accessibilityLabel="Tag party"
+          accessibilityLabel={editingYield ? "Save yield" : "Tag party"}
         >
-          <Text style={styles.goText}>{confirming ? "Tagging…" : "Tag party"}</Text>
+          <Text style={styles.goText}>
+            {confirming
+              ? editingYield
+                ? "Saving…"
+                : "Tagging…"
+              : editingYield
+                ? "Save yield"
+                : "Tag party"}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -142,6 +167,8 @@ export function DriverTagPartyDialogs({
   created = false,
   billedAmount = null,
   receivable = null,
+  amountLabel = "Yield",
+  editingYield = false,
   onChangeReceivableAmount,
   onCancelReceivable,
   onContinueReceivable,
@@ -170,10 +197,12 @@ export function DriverTagPartyDialogs({
           onContinueReceivable?.(value);
         }}
         initialValue={receivable?.amount ?? (billed != null ? String(billed) : "")}
-        label="Collect from"
+        label={amountLabel}
         contextLine={
           partyName
-            ? `Enter the collection receivable for ${partyName}. This is the amount that shows under their AR for this trip.`
+            ? editingYield
+              ? `Update the yield billed to ${partyName}. This is the amount shown under Yield and their AR for this trip.`
+              : `Enter the collection receivable for ${partyName}. This is the amount that shows under their AR for this trip.`
             : "Set the receivable for this party."
         }
         partyPreview={
@@ -203,6 +232,7 @@ export function DriverTagPartyDialogs({
               billed={billed}
               confirming={confirming}
               showPlan
+              editingYield={editingYield}
               onBack={onBackConfirm ?? onCancelConfirm}
               onConfirm={onConfirm}
             />
@@ -222,6 +252,7 @@ export function DriverTagPartyDialogs({
             billed={null}
             confirming={confirming}
             showPlan={false}
+            editingYield={editingYield}
             onBack={onCancelConfirm}
             onConfirm={onConfirm}
           />

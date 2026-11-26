@@ -54,4 +54,18 @@ describe("dcoTripPartyTag notes marker", () => {
     expect(parseDcoPartyTagFromNotes(second)).toEqual({ id: "b", name: "B" });
     expect(second.match(/pulse-dco-party/g)).toHaveLength(1);
   });
+
+  it("keeps existing yield when retagging without a new billed amount", () => {
+    const first = applyDcoPartyTagToNotes(null, {
+      id: "a",
+      name: "A",
+      billed: 2500,
+    });
+    const second = applyDcoPartyTagToNotes(first, { id: "b", name: "B" });
+    expect(parseDcoPartyTagFromNotes(second)).toEqual({
+      id: "b",
+      name: "B",
+      billed: 2500,
+    });
+  });
 });

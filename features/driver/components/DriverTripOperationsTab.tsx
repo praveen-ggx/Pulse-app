@@ -1,5 +1,5 @@
 import { type Href, useRouter } from "expo-router";
-import { ChevronRight, Gauge, Navigation } from "lucide-react-native";
+import { ChevronRight, Gauge } from "lucide-react-native";
 import { useCallback, type ReactNode } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
@@ -7,6 +7,7 @@ import Theme from "@/constants/Theme";
 import { useDriverThemeColors } from "@/contexts/DriverThemeContext";
 import { tripHistoryDetailStyles as td } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import { DistanceComparisonCard } from "@/features/trips/verification/DistanceComparisonCard";
 import { useGPSDistanceEstimate } from "@/features/trips/verification/GPSDistanceHook";
 import { VerificationStatusChip } from "@/features/trips/verification/VerificationStatusChip";
 import { useTripVerification } from "@/features/trips/verification/queries/useTripVerification";
@@ -138,53 +139,12 @@ export function DriverTripOperationsTab({ trip }: Props) {
           ))}
         </View>
 
-        <View
-          style={[
-            styles.compareStrip,
-            {
-              backgroundColor: colors.background,
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          <View style={styles.compareCell}>
-            <View style={styles.compareHead}>
-              <Gauge size={12} color={Theme.textRouteCard} strokeWidth={2.1} />
-              <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
-                Odometer
-              </Text>
-            </View>
-            <Text style={[styles.compareValue, { color: colors.text }]} numberOfLines={1}>
-              {formatKm(snapshot.odometerDistanceKm)}
-            </Text>
-          </View>
-
-          <View style={[styles.compareRule, { backgroundColor: colors.border }]} />
-
-          <View style={styles.compareCell}>
-            <View style={styles.compareHead}>
-              <Navigation size={12} color={Theme.textRouteCard} strokeWidth={2.1} />
-              <Text style={[styles.metricLabel, { color: colors.textMuted }]}>GPS</Text>
-            </View>
-            <Text style={[styles.compareValue, { color: colors.text }]} numberOfLines={1}>
-              {formatKm(gpsDistanceKm)}
-            </Text>
-          </View>
-
-          <View style={[styles.compareRule, { backgroundColor: colors.border }]} />
-
-          <View style={styles.compareCell}>
-            <Text style={[styles.metricLabel, { color: colors.textMuted }]}>Diff</Text>
-            <Text
-              style={[
-                styles.compareValue,
-                { color: hasWarn ? Theme.warning : colors.text },
-              ]}
-              numberOfLines={1}
-            >
-              {formatKm(distanceDiscrepancyKm)}
-            </Text>
-          </View>
+        <View style={styles.compareBlock}>
+          <DistanceComparisonCard
+            odometerDistanceKm={snapshot.odometerDistanceKm}
+            gpsDistanceKm={gpsDistanceKm}
+            discrepancyKm={distanceDiscrepancyKm}
+          />
         </View>
 
         {missingReadings ? (
@@ -201,10 +161,9 @@ export function DriverTripOperationsTab({ trip }: Props) {
           >
             {odometerComparisonHint?.text ?? "Tap to enter start and end KM"}
           </Text>
-        ) : hasWarn ? (
-          <Text style={[styles.hint, { color: Theme.warning }]} numberOfLines={2}>
-            Odometer and GPS differ by {formatKm(distanceDiscrepancyKm)}. Review when
-            convenient.
+        ) : hasWarn ? null : odometerComparisonHint?.text ? (
+          <Text style={[styles.hint, { color: colors.textMuted }]} numberOfLines={2}>
+            {odometerComparisonHint.text}
           </Text>
         ) : null}
       </TouchableOpacity>
@@ -272,40 +231,8 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
     textAlign: "center",
   },
-  compareStrip: {
+  compareBlock: {
     marginTop: 10,
-    flexDirection: "row",
-    alignItems: "stretch",
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 12,
-    paddingHorizontal: 4,
-    minHeight: 58,
-  },
-  compareCell: {
-    flex: 1,
-    minWidth: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    paddingHorizontal: 4,
-  },
-  compareHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  compareRule: {
-    width: StyleSheet.hairlineWidth,
-    alignSelf: "stretch",
-    marginVertical: 2,
-  },
-  compareValue: {
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: -0.15,
-    fontVariant: ["tabular-nums"],
-    textAlign: "center",
   },
   hint: {
     marginTop: 10,

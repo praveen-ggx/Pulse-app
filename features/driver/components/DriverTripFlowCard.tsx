@@ -16,9 +16,14 @@ import { useInvalidateDriverHomeDashboard } from '@/lib/queries/useInvalidateDri
 import { driverUiTripsQueryKey } from '@/lib/queries/useDriverUiTripsQuery';
 import { useDriverChat } from '@/features/chat/contexts/DriverChatContext';
 import {
+  sendChatMessage,
   sendDocumentShareMessage,
   softDeleteTripChatByStoragePath,
 } from '@/features/chat/services/chat.service';
+import {
+  buildStageRevokeChatContent,
+  buildStageRevokeChatMetadata,
+} from '@/features/chat/utils/stageRevokeChat.util';
 import { invalidateChatDocumentUrlCaches } from '@/features/chat/utils/resolveChatDocumentUrl.util';
 import { useDriverReferralForTripQuery } from '@/lib/queries/useReachCampaignsQuery';
 import type { JobCardAssignerPayload } from '@/features/trips/utils/driverAssignerDisplay.util';
@@ -65,14 +70,24 @@ import {
   markLrPhaseEntered,
 } from '@/features/drivers/services/tripControlProgress.storage';
 import {
+  resolveDriverDisplayDistanceKm,
+} from '@/features/drivers/utils/driverDisplayDistance.util';
+import {
   DRIVER_PAY_NA_AMOUNT,
   DRIVER_PAY_NA_LABEL,
   isAggregateTrip,
 } from '@/features/drivers/utils/driverUtils.util';
 import { DriverCollectFromSheet } from '@/features/drivers/components/DriverCollectFromSheet';
-import { canTagPartyOnTrip } from '@/features/drivers/utils/driverPartyReceivables.util';
+import {
+  canTagPartyOnTrip,
+  isTripTaggedToParty,
+  tripNeedsPartyTag,
+  tripReceivableBilled,
+  tripReceivablePartyName,
+} from '@/features/drivers/utils/driverPartyReceivables.util';
 import { formatINR } from '@/lib/format';
 import { formatEstimatedDuration } from '@/lib/formatEstimatedDuration';
+import { formatEtaFromRouteSeconds } from '@/features/trips/domain/tripStageEta';
 import * as tripDocumentsService from '@/features/trips/services/tripDocuments.service';
 import { findOrgDuplicateLrNumberForTrip } from '@/features/trips/services/orgLrDuplicate.service';
 import { ORG_LR_DUPLICATE_MESSAGE } from '@/features/trips/services/orgLrNumber.util';
@@ -307,6 +322,13 @@ export interface DriverTripFlowCardProps {
   commissionAmount?: number;
   /** Road distance in km from driver's current position to the active target (pickup or drop). */
   distanceToTargetKm?: number | null;
+  /**
+   * Full from→to corridor km from the routing API (preferred over stored
+   * `trips.distance` for progress / labels while navigating).
+   */
+  corridorKm?: number | null;
+  /** Live ETA seconds from the routing API for the active guidance leg. */
+  liveEtaSeconds?: number | null;
   /** Live driver GPS (e.g. map / truck position) — pairs with driverLocationLabel. */
   driverLatitude?: number | null;
   driverLongitude?: number | null;
@@ -434,6 +456,8 @@ export function DriverTripFlowCard({
   trip,
   commissionAmount,
   distanceToTargetKm,
+  corridorKm = null,
+  liveEtaSeconds = null,
   driverLatitude: _driverLatitude = null,
   driverLongitude: _driverLongitude = null,
   driverLocationLabel: _driverLocationLabel = null,
@@ -495,6 +519,9 @@ export function DriverTripFlowCard({
     };
   }, []);
   const [partyTagOpen, setPartyTagOpen] = useState(false);
+  const [partyTagStartAt, setPartyTagStartAt] = useState<"pick" | "editBilled">(
+    "pick",
+  );
 
   const openVehiclePicker = useCallback(() => {
     setVehiclePickerSelectedId(localTrip.owner_vehicle_id ?? null);
@@ -883,9 +910,22 @@ export function DriverTripFlowCard({
     [revokeSharedTripDocumentInChat],
   );
 
+  const canYieldOnTrip =
+    canTagOfflineParty && canTagPartyOnTrip(localTrip, isFleetLinked);
+
   const { earnings, earningsLabel } = useMemo(() => {
+    // Offline DCO: show Yield (bill-to receivable), not PAY N/A.
+    if (canYieldOnTrip) {
+      const billed = tripReceivableBilled(localTrip);
+      if (billed > 0) {
+        return { earnings: formatINR(billed), earningsLabel: 'Yield' };
+      }
+      return {
+        earnings: isTripTaggedToParty(localTrip) ? 'Set amount' : 'Tag & set',
+        earningsLabel: 'Yield',
+      };
+    }
     // Aggregate / supplier-mediated: shipper commercial ₹ is not driver pay.
-    // Driver-cum-Owner earnings are not defined yet for this path.
     if (tripIsAggregate) {
       return {
         earnings: DRIVER_PAY_NA_AMOUNT,
@@ -900,7 +940,15 @@ export function DriverTripFlowCard({
       earnings: DRIVER_PAY_NA_AMOUNT,
       earningsLabel: DRIVER_PAY_NA_LABEL,
     };
-  }, [tripIsAggregate, commissionAmount]);
+  }, [canYieldOnTrip, localTrip, tripIsAggregate, commissionAmount]);
+
+  const openYieldSheet = useCallback(() => {
+    if (!canYieldOnTrip) return;
+    setPartyTagStartAt(
+      isTripTaggedToParty(localTrip) ? 'editBilled' : 'pick',
+    );
+    setPartyTagOpen(true);
+  }, [canYieldOnTrip, localTrip]);
 
   const _progressPct = useMemo(() => progressForStep(step), [step]);
   const title = useMemo(() => titleForStep(step), [step]);
@@ -913,18 +961,27 @@ export function DriverTripFlowCard({
   }, [assignedBy]);
 
   const tripDistanceLabel = useMemo(() => {
-    const d = localTrip.distance;
-    if (d != null && Number(d) > 0) return fmtKm(Number(d));
+    // Prefer live from→to road API corridor, then stored trip km.
+    if (corridorKm != null && Number.isFinite(corridorKm) && corridorKm > 0) {
+      return fmtKm(corridorKm);
+    }
+    const km = resolveDriverDisplayDistanceKm(localTrip);
+    if (km != null) return fmtKm(km);
     return '—';
-  }, [localTrip.distance]);
+  }, [corridorKm, localTrip]);
 
   const tripEtaLabel = useMemo(() => {
+    // Prefer routing-API ETA for the active leg / corridor.
+    if (liveEtaSeconds != null && Number.isFinite(liveEtaSeconds) && liveEtaSeconds > 0) {
+      const fromRoute = formatEtaFromRouteSeconds(liveEtaSeconds);
+      if (fromRoute && fromRoute !== '—') return fromRoute;
+    }
     const e = localTrip.estimated_duration;
     if (e != null && String(e).trim() !== '' && !String(e).includes('00:00:00')) {
       return formatEstimatedDuration(e);
     }
     return '—';
-  }, [localTrip.estimated_duration]);
+  }, [liveEtaSeconds, localTrip.estimated_duration]);
 
   const detailsStatLeft = useMemo(() => {
     if (
@@ -1040,9 +1097,14 @@ export function DriverTripFlowCard({
     };
   }, [navigateCoordinate, stageTarget, pickupLabel, dropLabel]);
   const routeTotalKm = useMemo(() => {
+    if (corridorKm != null && Number.isFinite(corridorKm) && corridorKm > 0) {
+      return corridorKm;
+    }
+    const resolved = resolveDriverDisplayDistanceKm(localTrip);
+    if (resolved != null) return resolved;
     const d = Number(localTrip.distance);
     return Number.isFinite(d) && d > 0 ? d : null;
-  }, [localTrip.distance]);
+  }, [corridorKm, localTrip]);
 
   const loadPodDocuments = useCallback(
     (opts?: { silent?: boolean }) => {
@@ -1258,8 +1320,10 @@ export function DriverTripFlowCard({
     const target = previousStageTarget(step);
     const reason = revokeReason.trim();
     if (!id || !target || stepLoading || reason.length === 0) return;
+    const fromStep = step;
     setStepError(null);
     setStepLoading(true);
+    let nextStatus: string | null = localTrip?.status ?? null;
     if (target.status) {
       const { error, result } = await runDriverCommand(
         { tripId: id, command: 'UNDO_STEP', expectedStatus: localTrip?.status ?? null },
@@ -1271,6 +1335,7 @@ export function DriverTripFlowCard({
         return;
       }
       const nextTrip = applyDriverCommandResult(localTrip, result);
+      nextStatus = nextTrip.status ?? target.status;
       setLocalTrip(nextTrip);
       onTripUpdated?.(nextTrip);
     }
@@ -1283,6 +1348,39 @@ export function DriverTripFlowCard({
     setStepLoading(false);
     const noted = await appendDriverStatusNote(id, target.step, `Stage revoked — ${reason}`);
     if (noted.error) setStepError(noted.error);
+
+    // Mirror into trip chat so the client sees a smart system activity card.
+    try {
+      const conversation = await ensureDriverTripConversation(id);
+      const uid = profile?.uid;
+      if (conversation && uid) {
+        const driverName =
+          (profile as { full_name?: string; displayName?: string })?.full_name ||
+          (profile as { displayName?: string })?.displayName ||
+          'Driver';
+        const payload = {
+          reason,
+          toStep: target.step,
+          toLabel: target.label,
+          fromStep,
+          newStatus: nextStatus,
+          driverName,
+        };
+        await sendChatMessage({
+          conversationId: conversation.convId,
+          organizationId: conversation.orgId || localTrip.organization_id,
+          content: buildStageRevokeChatContent(payload),
+          senderRole: 'driver',
+          senderName: driverName,
+          senderUserId: uid,
+          messageType: 'system',
+          metadata: buildStageRevokeChatMetadata(payload),
+        });
+      }
+    } catch {
+      // Undo already succeeded; chat trail is best-effort.
+    }
+
     syncAfterStatusWrite();
   };
 
@@ -1812,13 +1910,35 @@ export function DriverTripFlowCard({
           title={title}
           earnings={earnings}
           earningsLabel={earningsLabel}
+          onEarningsPress={canYieldOnTrip ? openYieldSheet : null}
+          billToParty={
+            canYieldOnTrip && isTripTaggedToParty(localTrip)
+              ? tripReceivablePartyName(localTrip)
+              : null
+          }
+          billToNeedsTag={
+            canYieldOnTrip && tripNeedsPartyTag(localTrip, isFleetLinked)
+          }
+          onBillToPress={
+            canYieldOnTrip
+              ? onAssignerPress ??
+                (() => {
+                  setPartyTagStartAt('pick');
+                  setPartyTagOpen(true);
+                })
+              : null
+          }
           assignedBy={assignedBy}
           onAssignerPress={
-            canTagOfflineParty && canTagPartyOnTrip(localTrip, isFleetLinked)
-              ? onAssignerPress ?? (() => setPartyTagOpen(true))
+            canYieldOnTrip
+              ? onAssignerPress ??
+                (() => {
+                  setPartyTagStartAt('pick');
+                  setPartyTagOpen(true);
+                })
               : undefined
           }
-          showHeroAssigner={showHeroAssigner}
+          showHeroAssigner={showHeroAssigner && !canYieldOnTrip}
           target={stageTarget}
           pickupLabel={pickupLabel}
           dropLabel={dropLabel}
@@ -2042,12 +2162,14 @@ export function DriverTripFlowCard({
               activeOpacity={0.88}
             >
               <LinearGradient
-                colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                colors={[Theme.driverPrimary, Theme.driverEmerald]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.primaryGradient}
               >
-                <FontAwesome name="check-circle" size={17} color="#fff" />
+                <View style={styles.primaryIconWell}>
+                  <FontAwesome name="check-circle" size={16} color={Theme.textOnPrimary} />
+                </View>
                 <Text style={styles.primaryBtnText}>{stepLoading ? 'Updating…' : 'Arrived at pickup'}</Text>
               </LinearGradient>
             </TouchableOpacity>
@@ -2064,12 +2186,14 @@ export function DriverTripFlowCard({
                     activeOpacity={0.88}
                   >
                     <LinearGradient
-                      colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                      colors={[Theme.driverPrimary, Theme.driverEmerald]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                       style={styles.primaryGradient}
                     >
-                      <FontAwesome name="archive" size={17} color="#fff" />
+                      <View style={styles.primaryIconWell}>
+                        <FontAwesome name="archive" size={16} color={Theme.textOnPrimary} />
+                      </View>
                       <Text style={styles.primaryBtnText}>{stepLoading ? 'Updating…' : 'Package collected'}</Text>
                     </LinearGradient>
                   </TouchableOpacity>
@@ -2081,12 +2205,14 @@ export function DriverTripFlowCard({
                     activeOpacity={0.88}
                   >
                     <LinearGradient
-                      colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                      colors={[Theme.driverPrimary, Theme.driverEmerald]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                       style={styles.primaryGradient}
                     >
-                      <FontAwesome name="map-marker" size={17} color="#fff" />
+                      <View style={styles.primaryIconWell}>
+                        <FontAwesome name="map-marker" size={16} color={Theme.textOnPrimary} />
+                      </View>
                       <Text style={styles.primaryBtnText}>{stepLoading ? 'Updating…' : 'Arrived at drop-off'}</Text>
                     </LinearGradient>
                   </TouchableOpacity>
@@ -2111,12 +2237,14 @@ export function DriverTripFlowCard({
                   accessibilityLabel="Open pickup proof attachment page"
                 >
                   <LinearGradient
-                    colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                    colors={[Theme.driverPrimary, Theme.driverEmerald]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.primaryGradient}
                   >
-                    <FontAwesome name="file-text-o" size={16} color="#fff" />
+                    <View style={styles.primaryIconWell}>
+                      <FontAwesome name="file-text-o" size={15} color={Theme.textOnPrimary} />
+                    </View>
                     <Text style={styles.primaryBtnText}>
                       {lrDocuments.length >= 1 || lrSkipped
                         ? 'Continue to start transit'
@@ -2177,12 +2305,14 @@ export function DriverTripFlowCard({
                   accessibilityLabel="Open proof of delivery page"
                 >
                   <LinearGradient
-                    colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                    colors={[Theme.driverPrimary, Theme.driverEmerald]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.primaryGradient}
                   >
-                    <FontAwesome name="file-text-o" size={16} color="#fff" />
+                    <View style={styles.primaryIconWell}>
+                      <FontAwesome name="file-text-o" size={15} color={Theme.textOnPrimary} />
+                    </View>
                     <Text style={styles.primaryBtnText}>
                       {podDocuments.length >= 1 || podSkipped
                         ? 'Continue to complete delivery'
@@ -2280,7 +2410,7 @@ export function DriverTripFlowCard({
                 onPress={onBackToDashboard}
                 activeOpacity={0.9}
               >
-                <Text style={styles.primaryBtnText}>Close</Text>
+                <Text style={[styles.primaryBtnText, { color: '#fff' }]}>Close</Text>
               </TouchableOpacity>
             </View>
             {revokeButton}
@@ -2399,10 +2529,15 @@ export function DriverTripFlowCard({
           visible
           trip={localTrip}
           due={0}
+          startAt={partyTagStartAt}
           assignerName={assignedBy?.orgName?.trim() || assignedBy?.linePrimary?.trim() || null}
-          onClose={() => setPartyTagOpen(false)}
+          onClose={() => {
+            setPartyTagOpen(false);
+            setPartyTagStartAt('pick');
+          }}
           onTagged={() => {
             setPartyTagOpen(false);
+            setPartyTagStartAt('pick');
             onRefresh?.();
           }}
         />
@@ -2579,7 +2714,7 @@ const styles = StyleSheet.create({
   actionBtnDisabled: { opacity: 0.45 },
   primaryBtnWrap: {
     marginTop: 2,
-    borderRadius: 12,
+    borderRadius: 999,
     overflow: 'hidden',
   },
   stageActionRow: {
@@ -2695,12 +2830,26 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 14,
   },
-  primaryBtnText: { fontSize: 16, fontWeight: '800', letterSpacing: -0.2, color: Theme.buttonDarkText },
+  primaryIconWell: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    flexShrink: 0,
+  },
+  primaryBtnText: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    color: Theme.textOnPrimary,
+  },
   primaryBtn: {
     marginTop: 6,
     minHeight: TRIP_SHEET_BTN_HEIGHT,
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

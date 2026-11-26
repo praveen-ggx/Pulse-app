@@ -2,7 +2,8 @@ import Theme from "@/constants/Theme";
 import { ROUTES } from "@/lib/routes";
 import type { DriverCaptureLane } from "@/features/drivers/utils/driverCapturePayment.util";
 import { type Href, useRouter } from "expo-router";
-import { Pressable, StyleSheet, Text } from "react-native";
+import { Banknote } from "lucide-react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 type Props = {
   tripId: string;
@@ -32,13 +33,15 @@ export function DriverCapturePaymentButton({
   compact,
   block,
   disabled,
-  label = "Capture",
+  label = "Capture payment",
   allowZeroDue = false,
   onPressBeforeNavigate,
 }: Props) {
   const router = useRouter();
   if (!tripId) return null;
   if (due <= 0 && !allowZeroDue) return null;
+
+  const iconSize = compact ? 14 : 15;
 
   return (
     <Pressable
@@ -66,57 +69,95 @@ export function DriverCapturePaymentButton({
       disabled={disabled}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       accessibilityRole="button"
-      accessibilityLabel={`${label} payment`}
+      accessibilityLabel={label}
     >
-      <Text style={[styles.text, compact && styles.textCompact, block && styles.textBlock]}>
-        {label}
-      </Text>
+      <View style={styles.inner}>
+        <View style={styles.iconWell}>
+          <Banknote
+            size={iconSize}
+            color={Theme.textOnPrimary}
+            strokeWidth={2.5}
+          />
+        </View>
+        <Text
+          style={[
+            styles.text,
+            compact && styles.textCompact,
+            block && styles.textBlock,
+          ]}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
+      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   btn: {
-    height: 32,
-    minWidth: 68,
+    minHeight: 36,
+    minWidth: 44,
+    paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Theme.actionBtnInk,
-    backgroundColor: Theme.actionBtnInk,
+    borderRadius: 10,
+    backgroundColor: Theme.driverPrimary,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.driverEmerald,
     alignItems: "center",
     justifyContent: "center",
+    alignSelf: "flex-end",
   },
   btnCompact: {
-    height: 32,
-    minWidth: 68,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    minHeight: 34,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 9,
   },
   btnBlock: {
     flex: 1,
-    height: 44,
-    minHeight: 44,
+    alignSelf: "stretch",
+    minHeight: 36,
     minWidth: 0,
-    borderRadius: 12,
+    borderRadius: 10,
     paddingHorizontal: 12,
   },
+  inner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    minWidth: 0,
+  },
+  iconWell: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.18)",
+    flexShrink: 0,
+  },
   textBlock: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
   },
   btnPressed: {
-    opacity: 0.8,
+    opacity: 0.88,
+    backgroundColor: Theme.driverEmerald,
   },
   btnDisabled: {
-    opacity: 0.55,
+    opacity: 0.5,
   },
   text: {
-    fontSize: 10,
-    fontWeight: "500",
-    color: Theme.buttonDarkText,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: "700",
+    color: Theme.textOnPrimary,
+    letterSpacing: -0.15,
   },
   textCompact: {
-    fontSize: 10,
+    fontSize: 11,
+    fontWeight: "700",
   },
 });

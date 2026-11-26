@@ -110,6 +110,24 @@ export async function publishPingRequest(tripId: string): Promise<void> {
   });
 }
 
+/** Driver → shipper: ping outcome when a position cannot be sent (e.g. GPS off). */
+export async function publishPingStatus(
+  tripId: string,
+  status: 'gps_denied' | 'sharing',
+): Promise<void> {
+  const ch = getOrCreateTripChannel(tripId);
+  await ch.send({
+    type: 'broadcast',
+    event: TRACKING_BROADCAST_EVENT.PING_STATUS,
+    payload: {
+      v: 1,
+      tripId,
+      status,
+      recordedAt: new Date().toISOString(),
+    },
+  });
+}
+
 export function teardownTrackingPublishChannels(tripId?: string, orgId?: string): void {
   if (tripId) {
     const entry = tripChannels.get(tripId);

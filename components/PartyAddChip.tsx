@@ -6,6 +6,9 @@
  * label on hover; mobile expands on press and collapses on release.
  * `collapsedGlyph="icon"` keeps the party glyph visible with a plus badge.
  * Promo rows that should stay labeled leave `expandOnHover` false.
+ *
+ * `tone="driver"`: charcoal dock shell + lime accents, idle lime halo, and a
+ * pulsing plus badge — matches the Haulr floating tab bar.
  */
 import Theme from "@/constants/Theme";
 import Layout from "@/constants/Layout";
@@ -33,18 +36,21 @@ import Animated, {
   interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
+  withSequence,
   withTiming,
 } from "react-native-reanimated";
 
 const MOTION_MS = 180;
 const motion = { duration: MOTION_MS, easing: Easing.out(Easing.cubic) };
-
 const DESKTOP_MIN_WIDTH = 768;
 
 export type PartyAddChipIcon = Extract<
   FABIconName,
   "building" | "warehouse" | "truck" | "user" | "user-plus" | "receipt-text"
 >;
+
+export type PartyAddChipTone = "brand" | "driver";
 
 export type PartyAddChipProps = {
   label: string;
@@ -62,6 +68,11 @@ export type PartyAddChipProps = {
    * plus badge — used when several party chips sit together as a speed dial.
    */
   collapsedGlyph?: "plus" | "icon";
+  /**
+   * `driver` matches the Haulr charcoal dock + lime accents on driver Earnings.
+   * Default `brand` keeps finance / org chrome.
+   */
+  tone?: PartyAddChipTone;
   /** Cross-axis alignment when placed in a flex parent. */
   align?: "start" | "center" | "end";
   /** Stretch chip to parent width (mobile promo rows). */
@@ -96,30 +107,62 @@ export const PartyAddChip = memo(function PartyAddChip({
   accessibilityLabel,
   expandOnHover = false,
   collapsedGlyph = "plus",
+  tone = "brand",
   align = "end",
   fullWidth = false,
   disabled = false,
   testID,
 }: PartyAddChipProps) {
   const showIconWhenCollapsed = collapsedGlyph === "icon";
+  const isDriver = tone === "driver";
   const { width: windowWidth } = useWindowDimensions();
   const isDesktop = windowWidth >= DESKTOP_MIN_WIDTH;
   const isWeb = Platform.OS === "web";
-  /** Pointer hover expands/collapses — desktop web only. */
   const canHoverExpand = expandOnHover && isWeb && isDesktop;
-  /** Mobile / narrow: press expands the label, release collapses. */
   const canPressExpand = expandOnHover && !canHoverExpand;
 
   const expand = useSharedValue(expandOnHover ? 0 : 1);
   const pressed = useSharedValue(0);
+  const idlePulse = useSharedValue(0);
   const PartyIcon = resolvePartyIcon(icon);
 
-  const chipHeight = isDesktop ? 40 : Layout.minTouchTargetSize;
-  const padLeft = 5;
+  const chipHeight = isDesktop ? 40 : isDriver ? 56 : Layout.minTouchTargetSize;
+  const padLeft = isDriver ? 7 : 5;
   const iconWellSize = chipHeight - padLeft * 2;
-  const iconSize = isDesktop ? 14 : 15;
-  const labelGap = isDesktop ? 8 : 8;
-  const padRight = isDesktop ? 12 : 12;
+  const iconSize = isDesktop ? 14 : isDriver ? 20 : 15;
+  const labelGap = 8;
+  const padRight = 12;
+  const badgeSize = isDriver ? 20 : isDesktop ? 14 : 15;
+
+  const palette = isDriver
+    ? {
+        shellRest: Theme.driverDock,
+        shellActive: "#1F1F1F",
+        borderRest: Theme.driverEmeraldBorder,
+        borderActive: Theme.driverPrimary,
+        wellRest: Theme.driverEmeraldMuted,
+        wellActive: "rgba(5,150,105,0.28)",
+        icon: Theme.driverPrimary,
+        label: "#FFFFFF",
+        plusBadgeBg: Theme.driverPrimary,
+        plusBadgeFg: Theme.textOnPrimary,
+        plusBadgeBorder: Theme.driverDock,
+        halo: "rgba(5,150,105,0.45)",
+      }
+    : {
+        shellRest: Theme.cardWhite,
+        shellActive: Theme.brandBlueSoft,
+        borderRest: Theme.borderMedium,
+        borderActive: Theme.brandBlueRing,
+        wellRest: Theme.brandBlueWash,
+        wellActive: Theme.brandBlue,
+        icon: Theme.brandBlueInk,
+        label: Theme.brandBlueInk,
+        plusBadgeBg: Theme.accentGold,
+        plusBadgeFg: Theme.brandBlueInk,
+        plusBadgeBorder: Theme.cardWhite,
+        halo: "transparent",
+      };
 
   useEffect(() => {
     if (!expandOnHover) {
@@ -128,6 +171,21 @@ export const PartyAddChip = memo(function PartyAddChip({
     }
     expand.value = 0;
   }, [expand, expandOnHover]);
+
+  useEffect(() => {
+    if (!isDriver) {
+      idlePulse.value = 0;
+      return;
+    }
+    idlePulse.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.quad) }),
+        withTiming(0, { duration: 1600, easing: Easing.inOut(Easing.quad) }),
+      ),
+      -1,
+      false,
+    );
+  }, [idlePulse, isDriver]);
 
   const setExpanded = useCallback(
     (active: boolean) => {
@@ -154,14 +212,14 @@ export const PartyAddChip = memo(function PartyAddChip({
   const shellStyle = useAnimatedStyle(() => {
     const h = expandOnHover ? expand.value : 1;
     const p = pressed.value;
-    const active = h;
+    const pulse = isDriver ? idlePulse.value : 0;
     return {
       transform: [
-        { scale: 1 + active * 0.012 - p * 0.02 },
-        { translateY: -active * 1.5 },
+        { scale: 1 + h * 0.012 - p * 0.04 + pulse * 0.012 },
+        { translateY: -h * 1.5 - pulse * 0.6 },
       ],
-      backgroundColor: active > 0.35 ? Theme.brandBlueSoft : Theme.cardWhite,
-      borderColor: active > 0.2 ? Theme.brandBlueRing : Theme.borderMedium,
+      backgroundColor: h > 0.35 ? palette.shellActive : palette.shellRest,
+      borderColor: h > 0.2 ? palette.borderActive : palette.borderRest,
       paddingRight: expandOnHover
         ? interpolate(h, [0, 1], [padLeft, padRight])
         : padRight,
@@ -173,11 +231,38 @@ export const PartyAddChip = memo(function PartyAddChip({
 
   const iconWellStyle = useAnimatedStyle(() => {
     const h = expandOnHover ? expand.value : 1;
-    const active = h;
+    const pulse = isDriver ? idlePulse.value : 0;
     return {
-      backgroundColor:
-        active > 0.45 ? Theme.brandBlue : Theme.brandBlueWash,
-      transform: [{ scale: 1 + active * 0.04 }],
+      backgroundColor: h > 0.45 ? palette.wellActive : palette.wellRest,
+      transform: [{ scale: 1 + h * 0.04 + pulse * 0.03 }],
+    };
+  });
+
+  const haloStyle = useAnimatedStyle(() => {
+    if (!isDriver || !showIconWhenCollapsed) {
+      return { opacity: 0, transform: [{ scale: 1 }] };
+    }
+    const h = expandOnHover ? expand.value : 1;
+    const pulse = idlePulse.value;
+    return {
+      opacity: (1 - h) * (0.28 + pulse * 0.42),
+      transform: [{ scale: 1 + pulse * 0.08 + h * 0.12 }],
+    };
+  });
+
+  const badgeStyle = useAnimatedStyle(() => {
+    if (!isDriver || !showIconWhenCollapsed) {
+      return { transform: [{ scale: 1 }] };
+    }
+    const h = expandOnHover ? expand.value : 1;
+    const pulse = idlePulse.value;
+    const p = pressed.value;
+    return {
+      transform: [
+        { scale: (1 - h * 0.15) * (1 + pulse * 0.08 - p * 0.06) },
+        { rotate: `${pulse * 6}deg` },
+      ],
+      opacity: 1 - h * 0.35,
     };
   });
 
@@ -216,7 +301,7 @@ export const PartyAddChip = memo(function PartyAddChip({
     }
     const h = expand.value;
     return {
-      maxWidth: interpolate(h, [0, 1], [0, isDesktop ? 148 : 132]),
+      maxWidth: interpolate(h, [0, 1], [0, isDesktop ? 160 : 140]),
       opacity: interpolate(h, [0, 0.5, 1], [0, 0.35, 1]),
       marginLeft: interpolate(h, [0, 1], [0, labelGap]),
       transform: [{ translateX: interpolate(h, [0, 1], [-6, 0]) }],
@@ -231,72 +316,100 @@ export const PartyAddChip = memo(function PartyAddChip({
         : styles.pressableEnd;
 
   const content = (
-    <Animated.View
-      style={[
-        styles.chip,
-        fullWidth && styles.chipFullWidth,
-        {
-          height: chipHeight,
-          borderRadius: chipHeight / 2,
-          minHeight: chipHeight,
-        },
-        isDesktop && styles.chipDesktop,
-        (showIconWhenCollapsed || expandOnHover) && styles.chipOverflowVisible,
-        shellStyle,
-      ]}
-    >
-      <View style={styles.iconWellWrap}>
+    <View style={styles.orbit} pointerEvents="box-none">
+      {isDriver && showIconWhenCollapsed ? (
         <Animated.View
+          pointerEvents="none"
           style={[
-            styles.iconWell,
+            styles.driverHalo,
             {
-              width: iconWellSize,
-              height: iconWellSize,
-              borderRadius: iconWellSize / 2,
+              width: chipHeight + 14,
+              height: chipHeight + 14,
+              borderRadius: (chipHeight + 14) / 2,
+              borderColor: palette.halo,
             },
-            iconWellStyle,
+            haloStyle,
           ]}
-        >
-          <Animated.View style={[styles.iconLayer, partyIconStyle]}>
-            <PartyIcon
-              size={iconSize}
-              color={Theme.brandBlueInk}
-              strokeWidth={2.15}
-            />
-          </Animated.View>
-          <Animated.View style={[styles.iconLayer, plusStyle]}>
-            <Plus size={iconSize} color={Theme.brandBlueInk} strokeWidth={2.4} />
-          </Animated.View>
-        </Animated.View>
-        {showIconWhenCollapsed ? (
-          <View
+        />
+      ) : null}
+      <Animated.View
+        style={[
+          styles.chip,
+          isDriver && styles.chipDriver,
+          fullWidth && styles.chipFullWidth,
+          {
+            height: chipHeight,
+            borderRadius: chipHeight / 2,
+            minHeight: chipHeight,
+          },
+          isDesktop && !isDriver && styles.chipDesktop,
+          (showIconWhenCollapsed || expandOnHover) && styles.chipOverflowVisible,
+          shellStyle,
+        ]}
+      >
+        <View style={styles.iconWellWrap}>
+          <Animated.View
             style={[
-              styles.plusBadge,
+              styles.iconWell,
+              isDriver && styles.iconWellDriver,
               {
-                width: isDesktop ? 14 : 15,
-                height: isDesktop ? 14 : 15,
-                borderRadius: isDesktop ? 7 : 8,
+                width: iconWellSize,
+                height: iconWellSize,
+                borderRadius: iconWellSize / 2,
               },
+              iconWellStyle,
             ]}
-            pointerEvents="none"
           >
-            <Plus
-              size={isDesktop ? 9 : 10}
-              color={Theme.brandBlueInk}
-              strokeWidth={3}
-            />
-          </View>
-        ) : null}
-      </View>
-      <Animated.View style={[styles.labelWrap, labelWrapStyle]}>
-        <Text
-          style={[styles.label, isDesktop && styles.labelDesktop]}
-          numberOfLines={1}
-        >
-          {label}
-        </Text>
+            <Animated.View style={[styles.iconLayer, partyIconStyle]}>
+              <PartyIcon
+                size={iconSize}
+                color={palette.icon}
+                strokeWidth={isDriver ? 2.35 : 2.15}
+              />
+            </Animated.View>
+            <Animated.View style={[styles.iconLayer, plusStyle]}>
+              <Plus size={iconSize} color={palette.icon} strokeWidth={2.4} />
+            </Animated.View>
+          </Animated.View>
+          {showIconWhenCollapsed ? (
+            <Animated.View
+              style={[
+                styles.plusBadge,
+                isDriver && styles.plusBadgeDriver,
+                {
+                  width: badgeSize,
+                  height: badgeSize,
+                  borderRadius: badgeSize / 2,
+                  backgroundColor: palette.plusBadgeBg,
+                  borderColor: palette.plusBadgeBorder,
+                },
+                badgeStyle,
+              ]}
+              pointerEvents="none"
+            >
+              <Plus
+                size={isDriver ? 12 : isDesktop ? 9 : 10}
+                color={palette.plusBadgeFg}
+                strokeWidth={3.2}
+              />
+            </Animated.View>
+          ) : null}
+        </View>
+        <Animated.View style={[styles.labelWrap, labelWrapStyle]}>
+          <Text
+            style={[
+              styles.label,
+              isDesktop && styles.labelDesktop,
+              isDriver && styles.labelDriver,
+              { color: palette.label },
+            ]}
+            numberOfLines={1}
+          >
+            {label}
+          </Text>
+        </Animated.View>
       </Animated.View>
-    </Animated.View>
+    </View>
   );
 
   if (!onPress) {
@@ -358,6 +471,17 @@ const styles = StyleSheet.create({
   pressableDim: {
     opacity: 0.94,
   },
+  orbit: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+  },
+  driverHalo: {
+    position: "absolute",
+    borderWidth: 1.5,
+    backgroundColor: "transparent",
+  },
   chip: {
     flexDirection: "row",
     alignItems: "center",
@@ -397,11 +521,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: -3,
     bottom: -3,
-    backgroundColor: Theme.accentGold,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.cardWhite,
+    borderWidth: 2,
     ...Platform.select({
       web: {
         boxShadow: "0 1px 3px rgba(77, 54, 54, 0.18)",
@@ -415,6 +537,24 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  plusBadgeDriver: {
+    right: -2,
+    bottom: -2,
+    borderWidth: 2.5,
+    ...Platform.select({
+      web: {
+        boxShadow:
+          "0 0 0 1px rgba(5,150,105,0.35), 0 4px 12px rgba(5,150,105,0.45)",
+      } as object,
+      default: {
+        shadowColor: Theme.driverPrimary,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.45,
+        shadowRadius: 6,
+        elevation: 6,
+      },
+    }),
+  },
   chipDesktop: {
     ...Platform.select({
       web: {
@@ -424,10 +564,30 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
+  chipDriver: {
+    borderWidth: 1.5,
+    ...Platform.select({
+      web: {
+        boxShadow:
+          "0 6px 18px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(198,240,53,0.12), 0 12px 32px rgba(0, 0, 0, 0.2)",
+      } as object,
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.34,
+        shadowRadius: 18,
+        elevation: 14,
+      },
+    }),
+  },
   iconWell: {
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+  },
+  iconWellDriver: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(198,240,53,0.28)",
   },
   iconLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -449,5 +609,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 16,
     letterSpacing: -0.15,
+  },
+  labelDriver: {
+    fontWeight: "700",
+    letterSpacing: -0.2,
   },
 });

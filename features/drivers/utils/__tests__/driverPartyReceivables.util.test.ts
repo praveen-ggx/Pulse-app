@@ -223,6 +223,69 @@ describe("tripReceivablePartyName", () => {
     ).toBe("Godrej India");
   });
 
+  it("prefers the notes tag label over a short client_name code", () => {
+    const tagged = trip({
+      id: "s-adani",
+      client_id: "c-amzg",
+      client_name: "AMzg",
+      notes: applyDcoPartyTagToNotes(null, {
+        id: "c-amzg",
+        name: "ADANI GROUPS",
+      }),
+    });
+    expect(tripReceivablePartyName(tagged)).toBe("ADANI GROUPS");
+  });
+
+  it("uses book capture labels when building the party list", () => {
+    const rows = buildDriverPartyReceivables(
+      [
+        trip({
+          id: "t1",
+          source: "manual",
+          operating_mode: "DCO",
+          client_id: "c-amzg",
+          client_name: "AMzg",
+          client_price: 8000,
+        }),
+        trip({
+          id: "t2",
+          source: "manual",
+          operating_mode: "DCO",
+          client_id: "c-arr",
+          client_name: "ARR Paaku",
+          client_price: 2500,
+        }),
+      ],
+      { t1: 6560, t2: 1250 },
+      () => false,
+      { t1: "ADANI GROUPS", t2: "AERO" },
+    );
+    expect(rows.map((r) => r.name)).toEqual(["ADANI GROUPS", "AERO"]);
+  });
+
+  it("keeps the notes tag name even when book captures used a short code", () => {
+    const rows = buildDriverPartyReceivables(
+      [
+        trip({
+          id: "t1",
+          source: "manual",
+          operating_mode: "DCO",
+          client_id: "c-amzg",
+          client_name: "AMzg",
+          client_price: 8000,
+          notes: applyDcoPartyTagToNotes(null, {
+            id: "c-amzg",
+            name: "ADANI GROUPS",
+          }),
+        }),
+      ],
+      { t1: 6560 },
+      () => false,
+      { t1: "AMzg" },
+    );
+    expect(rows.map((r) => r.name)).toEqual(["ADANI GROUPS"]);
+  });
+
   it("treats a notes party marker as tagged when client_id is blocked", () => {
     const tagged = trip({
       id: "n1",

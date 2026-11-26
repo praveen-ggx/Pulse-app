@@ -29,7 +29,6 @@ import type { TripRow } from "@/features/trips/services/trips.service";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, type Href } from "expo-router";
 import {
-  ArrowRight,
   Banknote,
   Bell,
   Building2,
@@ -181,6 +180,17 @@ function routeEnds(
     return { from: parts[0], to: parts[1] };
   }
   return { single: (a || b || route || "Trip").trim() };
+}
+
+/** City / first segment for dense trip cards. */
+function compactPlace(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "—";
+  const comma = t.indexOf(",");
+  if (comma > 0) return t.slice(0, comma).trim();
+  const mid = t.indexOf(" · ");
+  if (mid > 0) return t.slice(0, mid).trim();
+  return t;
 }
 
 const REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -572,33 +582,18 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
   const openTripCollectionPreview = (line: DayTripLine) => {
     if (selectMode) return;
     const isPending = line.pending > 0;
+    const partyName = line.meta.fleetName?.trim() || "Fleet";
+    const tripLabel = line.meta.displayId?.trim() || "Trip";
     const routeLabel =
       [line.meta.from, line.meta.to].filter(Boolean).join(" → ") ||
       line.route ||
       "—";
-    const formatKm = (v: number | null | undefined) => {
-      if (v == null || !Number.isFinite(Number(v)) || Number(v) <= 0) return "—";
-      return `${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 1 })} km`;
-    };
-    const sourceTrip = completedTrips.find((t) => String(t.id) === String(line.id));
+    const margin = Math.round(line.earned - line.spent);
     const details = [
-      { label: "Party", value: line.meta.fleetName?.trim() || "Fleet" },
-      { label: "Trip", value: line.meta.displayId?.trim() || "Trip" },
+      { label: "Trip", value: tripLabel },
       { label: "Route", value: routeLabel, multiline: true },
-      { label: "Odometer", value: formatKm(sourceTrip?.odometer_distance_km) },
-      { label: "GPS", value: formatKm(sourceTrip?.gps_distance_km) },
-      { label: "Earned", value: `₹${line.earned.toLocaleString("en-IN")}` },
-    ];
-    if (showMonthPnl) {
-      details.push({
-        label: "Spend",
-        value: `₹${line.spent.toLocaleString("en-IN")}`,
-      });
-    }
-    details.push(
-      { label: "Received", value: `₹${line.received.toLocaleString("en-IN")}` },
       { label: "Due", value: `₹${line.pending.toLocaleString("en-IN")}` },
-    );
+    ];
     if (line.meta.lastReminderAt) {
       try {
         details.push({
@@ -630,10 +625,22 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
 
     setTripReceiptPreview({
       statusLabel: isPending ? "Due" : "Settled",
-      title: line.meta.fleetName?.trim() || "Fleet",
+      title: isPending ? "Outstanding" : "Collected",
       amount: heroAmount,
       isIn: !isPending && line.received > 0,
+      partyAvatar: {
+        name: partyName,
+        entityType: "client",
+        initialsColorSeed: line.organizationId || partyName,
+      },
+      financeSnapshot: {
+        sales: line.earned,
+        received: line.received,
+        expenses: line.spent,
+        margin,
+      },
       details,
+      heroAnimation: false,
       tripAction: {
         label: "View trip",
         onPress: () => {
@@ -1461,9 +1468,11 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                   ? Theme.driverEmeraldBorder
                                   : isPending
                                     ? isDark
-                                      ? "rgba(251,191,36,0.28)"
-                                      : "rgba(245,158,11,0.22)"
-                                    : cardBorder,
+                                      ? "rgba(245,158,11,0.35)"
+                                      : "rgba(245,158,11,0.28)"
+                                    : isDark
+                                      ? colors.borderSubtle
+                                      : Theme.borderLight,
                                 opacity: selectMode && !canSelect ? 0.55 : pressed ? 0.94 : 1,
                               },
                             ]}
@@ -1472,13 +1481,13 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                               {selectMode ? (
                                 isSelected ? (
                                   <CheckSquare
-                                    size={22}
+                                    size={20}
                                     color={colors.emerald}
                                     strokeWidth={2.4}
                                   />
                                 ) : (
                                   <Square
-                                    size={22}
+                                    size={20}
                                     color={canSelect ? colors.textMuted : colors.border}
                                     strokeWidth={2.2}
                                   />
@@ -1499,7 +1508,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                   ]}
                                 >
                                   <Route
-                                    size={14}
+                                    size={15}
                                     color={isPending ? Theme.warning : colors.emerald}
                                     strokeWidth={2.3}
                                   />
@@ -1572,71 +1581,61 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                             </View>
 
                             {"from" in ends ? (
-                              <View style={styles.dayTripRouteBlock}>
-                                <Text
-                                  style={[styles.dayTripPlace, { color: colors.text }]}
-                                  numberOfLines={2}
-                                >
-                                  {ends.from}
-                                </Text>
-                                <ArrowRight
-                                  size={12}
-                                  color={colors.textMuted}
-                                  strokeWidth={2.2}
-                                  style={styles.dayTripArrow}
-                                />
-                                <Text
-                                  style={[styles.dayTripPlace, { color: colors.text }]}
-                                  numberOfLines={2}
-                                >
-                                  {ends.to}
-                                </Text>
+                              <View style={styles.dayTripRouteStack}>
+                                <View style={styles.dayTripRouteLine}>
+                                  <Text style={[styles.dayTripRouteKicker, { color: colors.textMuted }]}>
+                                    From
+                                  </Text>
+                                  <Text
+                                    style={[styles.dayTripRoutePlace, { color: colors.text }]}
+                                    numberOfLines={1}
+                                  >
+                                    {compactPlace(ends.from)}
+                                  </Text>
+                                </View>
+                                <View style={styles.dayTripRouteLine}>
+                                  <Text style={[styles.dayTripRouteKicker, { color: colors.textMuted }]}>
+                                    To
+                                  </Text>
+                                  <Text
+                                    style={[styles.dayTripRoutePlace, { color: colors.text }]}
+                                    numberOfLines={1}
+                                  >
+                                    {compactPlace(ends.to)}
+                                  </Text>
+                                </View>
                               </View>
                             ) : (
                               <Text
-                                style={[styles.dayTripPlace, styles.dayTripPlaceSingle, { color: colors.text }]}
-                                numberOfLines={2}
+                                style={[styles.dayTripRoutePlace, { color: colors.text }]}
+                                numberOfLines={1}
                               >
-                                {ends.single}
+                                {compactPlace(ends.single)}
                               </Text>
                             )}
 
-                            <View style={styles.dayTripStats}>
+                            <View
+                              style={[
+                                styles.dayTripStats,
+                                {
+                                  backgroundColor: isDark
+                                    ? "rgba(15,23,42,0.4)"
+                                    : Theme.driverEmeraldWash,
+                                  borderColor: isDark ? colors.borderSubtle : Theme.borderLight,
+                                },
+                              ]}
+                            >
                               <View style={styles.dayTripStat}>
                                 <Text style={[styles.dayTripStatLabel, { color: colors.textMuted }]}>
-                                  Earned
+                                  Sales
                                 </Text>
-                                <Text style={[styles.dayTripStatValue, { color: colors.text }]}>
+                                <Text
+                                  style={[styles.dayTripStatValue, { color: colors.text }]}
+                                  numberOfLines={1}
+                                >
                                   ₹{line.earned.toLocaleString("en-IN")}
                                 </Text>
                               </View>
-                              {showMonthPnl ? (
-                                <>
-                                  <View
-                                    style={[
-                                      styles.dayTripStatRule,
-                                      { backgroundColor: isDark ? colors.borderSubtle : Theme.borderLight },
-                                    ]}
-                                  />
-                                  <View style={styles.dayTripStat}>
-                                    <Text style={[styles.dayTripStatLabel, { color: colors.textMuted }]}>
-                                      Spend
-                                    </Text>
-                                    <Text
-                                      style={[styles.dayTripStatValue, { color: Theme.driverGold }]}
-                                      numberOfLines={1}
-                                    >
-                                      ₹{line.spent.toLocaleString("en-IN")}
-                                    </Text>
-                                  </View>
-                                </>
-                              ) : null}
-                              <View
-                                style={[
-                                  styles.dayTripStatRule,
-                                  { backgroundColor: isDark ? colors.borderSubtle : Theme.borderLight },
-                                ]}
-                              />
                               <View style={styles.dayTripStat}>
                                 <Text style={[styles.dayTripStatLabel, { color: colors.textMuted }]}>
                                   Received
@@ -1646,16 +1645,24 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                     styles.dayTripStatValue,
                                     { color: line.received > 0 ? colors.emerald : colors.textMuted },
                                   ]}
+                                  numberOfLines={1}
                                 >
                                   ₹{line.received.toLocaleString("en-IN")}
                                 </Text>
                               </View>
-                              <View
-                                style={[
-                                  styles.dayTripStatRule,
-                                  { backgroundColor: isDark ? colors.borderSubtle : Theme.borderLight },
-                                ]}
-                              />
+                              {showMonthPnl ? (
+                                <View style={styles.dayTripStat}>
+                                  <Text style={[styles.dayTripStatLabel, { color: colors.textMuted }]}>
+                                    Spend
+                                  </Text>
+                                  <Text
+                                    style={[styles.dayTripStatValue, { color: Theme.driverGold }]}
+                                    numberOfLines={1}
+                                  >
+                                    ₹{line.spent.toLocaleString("en-IN")}
+                                  </Text>
+                                </View>
+                              ) : null}
                               <View style={styles.dayTripStat}>
                                 <Text style={[styles.dayTripStatLabel, { color: colors.textMuted }]}>
                                   Due
@@ -1665,6 +1672,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                     styles.dayTripStatValue,
                                     { color: isPending ? Theme.warning : colors.textMuted },
                                   ]}
+                                  numberOfLines={1}
                                 >
                                   ₹{line.pending.toLocaleString("en-IN")}
                                 </Text>
@@ -1678,7 +1686,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                   lane="fleet"
                                   partyName={line.meta.fleetName}
                                   block
-                                  label="Capture"
+                                  label="Capture payment"
                                   onPressBeforeNavigate={() => setTripReceiptPreview(null)}
                                 />
                                 <Pressable
@@ -1693,15 +1701,15 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                         ? "rgba(15,23,42,0.35)"
                                         : "#ffffff",
                                       borderColor: isDark
-                                        ? "rgba(4,120,87,0.4)"
-                                        : Theme.driverEmeraldBorderSoft,
+                                        ? "rgba(148,163,184,0.45)"
+                                        : Theme.borderMedium,
                                       opacity: pressed ? 0.88 : 1,
                                     },
                                   ]}
                                   accessibilityRole="button"
                                   accessibilityLabel="Follow up and request payment"
                                 >
-                                  <Bell size={14} color={colors.emerald} strokeWidth={2.4} />
+                                  <Bell size={12} color={colors.emerald} strokeWidth={2.4} />
                                   <Text style={[styles.followUpBtnText, { color: colors.emerald }]}>
                                     {lineCooldown.blocked
                                       ? "Reminder"
@@ -2700,29 +2708,31 @@ const styles = StyleSheet.create({
   dayTripList: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: "rgba(226,232,240,0.95)",
-    paddingHorizontal: 10,
-    paddingTop: 10,
-    paddingBottom: 10,
-    gap: 10,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 8,
   },
   dayTripRowWrap: {
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
     paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 12,
-    gap: 10,
+    paddingTop: 11,
+    paddingBottom: 11,
+    gap: 8,
+    alignSelf: "stretch",
+    width: "100%",
   },
   dayTripHead: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 9,
   },
   dayTripHeadText: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
+    gap: 1,
   },
   dayTripId: {
     ...driverUIBold,
@@ -2731,7 +2741,9 @@ const styles = StyleSheet.create({
   },
   dayTripFleet: {
     ...driverBodySecondary,
-    fontSize: 11,
+    fontSize: 10,
+    letterSpacing: 0.2,
+    textTransform: "uppercase",
   },
   tagChip: {
     flexDirection: "row",
@@ -2741,8 +2753,8 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 8,
-    paddingVertical: 5,
-    minHeight: 28,
+    paddingVertical: 4,
+    minHeight: 26,
     minWidth: 44,
     flexShrink: 0,
     zIndex: 2,
@@ -2760,55 +2772,61 @@ const styles = StyleSheet.create({
   },
   dayTripStatusText: {
     ...driverUIBold,
-    fontSize: 10,
-    letterSpacing: 0.3,
+    fontSize: 9,
+    letterSpacing: 0.35,
     textTransform: "uppercase",
   },
   dayTripIcon: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
-  dayTripRouteBlock: {
+  dayTripRouteStack: {
+    gap: 4,
+  },
+  dayTripRouteLine: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 6,
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
   },
-  dayTripPlace: {
+  dayTripRouteKicker: {
+    ...driverUIBold,
+    width: 36,
+    fontSize: 9,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    flexShrink: 0,
+  },
+  dayTripRoutePlace: {
     ...driverUISemiBold,
     flex: 1,
     minWidth: 0,
     fontSize: 12,
-    lineHeight: 16,
-  },
-  dayTripPlaceSingle: {
-    paddingRight: 4,
-  },
-  dayTripArrow: {
-    marginTop: 2,
+    letterSpacing: -0.1,
   },
   dayTripStats: {
     flexDirection: "row",
     alignItems: "stretch",
-    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
   },
   dayTripStat: {
     flex: 1,
     minWidth: 0,
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 2,
-    paddingHorizontal: 4,
-  },
-  dayTripStatRule: {
-    width: StyleSheet.hairlineWidth,
-    alignSelf: "stretch",
+    paddingHorizontal: 8,
+    paddingVertical: 8,
   },
   dayTripStatLabel: {
     ...driverUISemiBold,
-    fontSize: 9,
-    letterSpacing: 0.4,
+    fontSize: 8,
+    letterSpacing: 0.45,
     textTransform: "uppercase",
   },
   dayTripStatValue: {
@@ -2819,7 +2837,7 @@ const styles = StyleSheet.create({
   },
   dayTripActions: {
     flexDirection: "row",
-    alignItems: "stretch",
+    alignItems: "center",
     gap: 8,
   },
   followUpBtn: {
@@ -2827,15 +2845,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    minHeight: 44,
-    borderRadius: 12,
+    gap: 5,
+    height: 30,
+    minHeight: 30,
+    borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
   },
   followUpBtnText: {
     ...driverUIBold,
-    fontSize: 13,
+    fontSize: 11,
     letterSpacing: -0.1,
   },
   fullPage: {

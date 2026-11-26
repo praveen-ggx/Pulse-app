@@ -114,6 +114,11 @@ type Props = {
   due: number;
   lane?: DriverCaptureLane;
   assignerName?: string | null;
+  /**
+   * `editBilled` — skip the party list and open amount entry for the
+   * already-tagged bill-to party (Yield tap on history cards).
+   */
+  startAt?: "pick" | "editBilled";
   onClose: () => void;
   onTagged?: (party: { id: string; name: string }) => void;
 };
@@ -124,6 +129,7 @@ export function DriverCollectFromSheet({
   due: _due,
   lane: _lane,
   assignerName,
+  startAt = "pick",
   onClose,
   onTagged,
 }: Props) {
@@ -141,6 +147,7 @@ export function DriverCollectFromSheet({
   const [billedForTag, setBilledForTag] = useState<number | null>(null);
   const [successParty, setSuccessParty] = useState<{ id: string; name: string } | null>(null);
   const [activeFleet, setActiveFleet] = useState<DriverActiveFleet | null>(null);
+  const editingYield = startAt === "editBilled";
 
   const fleetAssignerName = useMemo(() => {
     return (
@@ -181,27 +188,88 @@ export function DriverCollectFromSheet({
   const loadPartiesRef = useRef(loadParties);
   loadPartiesRef.current = loadParties;
 
-  useEffect(() => {
-    if (!visible) return;
-    void loadPartiesRef.current();
-  }, [visible, trip.id]);
-
   const currentBilled = useMemo(() => tripReceivableBilled(trip), [trip]);
+  const confirmingRef = useRef(false);
 
-  const handlePick = useCallback((party: PartyOption) => {
-    if (busyId || !party.id) return;
+  const resetFlow = useCallback(() => {
+    setPendingParty(null);
+    setReceivableParty(null);
+    setReceivableAmount("");
+    setBilledForTag(null);
+    setSuccessParty(null);
+    setBusyId(null);
+    confirmingRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    if (!visible) {
+      resetFlow();
+      return;
+    }
+    void loadPartiesRef.current();
+  }, [visible, trip.id, resetFlow]);
+
+  // Yield tap: jump straight into amount entry for the tagged bill-to party.
+  // Bill-to / Untagged always uses startAt "pick" and must not enter this path.
+  useEffect(() => {
+    if (!visible || !editingYield) return;
+    if (!isTripTaggedToParty(trip)) return;
+    const name = tripReceivablePartyName(trip).trim();
+    const id =
+      taggedPartyId ||
+      parseDcoPartyTagFromNotes(trip.notes)?.id ||
+      "";
+    if (!id || !name || name === "Untagged") return;
     setBilledForTag(null);
     setPendingParty(null);
-    setReceivableParty(party);
+    setSuccessParty(null);
+    setReceivableParty({
+      id,
+      name,
+      linkedToTrip: true,
+      avatar: EMPTY_DRIVER_PARTY_AVATAR,
+    });
+    // Prefill the filed yield so the driver confirms the same value or edits it.
     setReceivableAmount(currentBilled > 0 ? String(currentBilled) : "");
-  }, [busyId, currentBilled]);
+  }, [
+    visible,
+    editingYield,
+    trip,
+    taggedPartyId,
+    currentBilled,
+  ]);
 
-  const confirmingRef = useRef(false);
+  const beginAmountForParty = useCallback(
+    (party: PartyOption) => {
+      if (!party.id) return;
+      setBilledForTag(null);
+      setPendingParty(null);
+      setSuccessParty(null);
+      setReceivableParty(party);
+      // If yield was set earlier, show that amount in the tag flow.
+      setReceivableAmount(currentBilled > 0 ? String(currentBilled) : "");
+    },
+    [currentBilled],
+  );
+
+  const handlePick = useCallback(
+    (party: PartyOption) => {
+      if (busyId) return;
+      beginAmountForParty(party);
+    },
+    [beginAmountForParty, busyId],
+  );
 
   const handleConfirmTag = useCallback(async () => {
     if (!pendingParty?.id || busyId || confirmingRef.current) return;
     confirmingRef.current = true;
     setBusyId(pendingParty.id);
+    const billed =
+      billedForTag != null && billedForTag > 0
+        ? billedForTag
+        : currentBilled > 0
+          ? currentBilled
+          : undefined;
     try {
       const { error } = await tagTripWithDcoClient(
         trip.id,
@@ -209,7 +277,7 @@ export function DriverCollectFromSheet({
           id: pendingParty.id,
           name: pendingParty.name,
         },
-        billedForTag != null && billedForTag > 0 ? { billed: billedForTag } : undefined,
+        billed != null ? { billed } : undefined,
       );
       if (error) {
         showAppAlert("Could not tag party", error.message);
@@ -220,12 +288,12 @@ export function DriverCollectFromSheet({
       setSuccessParty({ id: pendingParty.id, name: pendingParty.name });
       setPendingParty(null);
       setReceivableParty(null);
-      setBilledForTag(billedForTag);
+      setBilledForTag(billed ?? null);
     } finally {
       confirmingRef.current = false;
       setBusyId(null);
     }
-  }, [billedForTag, busyId, pendingParty, queryClient, trip.id]);
+  }, [billedForTag, busyId, currentBilled, pendingParty, queryClient, trip.id]);
 
   const handleSuccessOk = useCallback(() => {
     const tagged = successParty;
@@ -244,33 +312,37 @@ export function DriverCollectFromSheet({
   }, [onClose, router, trip.id]);
 
   const handleTagAssigner = useCallback(async () => {
-    if (!fleetAssignerName || busyId || confirmingRef.current) return;
-    confirmingRef.current = true;
+    if (!fleetAssignerName || busyId) return;
+    // Same path as picking a party: amount (prefilled yield) → confirm → tag.
     setBusyId("assigner");
     try {
-      // The assigner is the driver's own offline party (client-direct trip),
-      // not fleet work. Tag it so the trip stays in the Offline lane.
       const key = fleetAssignerName.trim().toLowerCase();
       const saved = parties.find((row) => row.name.trim().toLowerCase() === key);
-      const party = saved
-        ? { id: saved.id, name: saved.name }
-        : await rememberDriverOfflineParty({ name: fleetAssignerName });
-      const { error } = await tagTripWithDcoClient(trip.id, {
-        id: party.id,
-        name: party.name,
-      });
-      if (error) {
-        showAppAlert("Could not tag party", error.message);
-        return;
-      }
-      await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(trip.id) });
-      setSuccessParty({ id: party.id, name: party.name });
-    } finally {
-      confirmingRef.current = false;
+      const party: PartyOption = saved
+        ? {
+            id: saved.id,
+            name: saved.name,
+            phone: saved.phone,
+            linkedToTrip: saved.linkedToTrip,
+            matchesAssigner: true,
+            avatar: saved.avatar,
+          }
+        : {
+            ...(await rememberDriverOfflineParty({ name: fleetAssignerName })),
+            linkedToTrip: false,
+            matchesAssigner: true,
+            avatar: EMPTY_DRIVER_PARTY_AVATAR,
+          };
       setBusyId(null);
+      beginAmountForParty(party);
+    } catch (err) {
+      setBusyId(null);
+      showAppAlert(
+        "Could not tag party",
+        err instanceof Error ? err.message : "Try again.",
+      );
     }
-  }, [busyId, fleetAssignerName, parties, queryClient, trip.id]);
+  }, [beginAmountForParty, busyId, fleetAssignerName, parties]);
 
   /** Fleet-connected driver only: this trip is my own fleet's work. */
   const handleMarkMyFleet = useCallback(async () => {
@@ -296,11 +368,18 @@ export function DriverCollectFromSheet({
   }, [activeFleet, busyId, queryClient, trip.id]);
 
   const flowOpen = !!(pendingParty || receivableParty || successParty);
+  // Yield edit: amount/confirm overlays only — hide the party picker sheet.
+  const showPartyPicker = visible && !editingYield;
   if (!visible && !flowOpen) return null;
 
   return (
     <>
-    <Modal visible={visible && !flowOpen} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={showPartyPicker && !flowOpen}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
@@ -460,24 +539,36 @@ export function DriverCollectFromSheet({
       successTitle={
         successParty?.id.startsWith("fleet:")
           ? `Marked as ${successParty.name} fleet trip`
-          : null
+          : editingYield
+            ? "Yield updated"
+            : billedForTag != null && billedForTag > 0
+              ? `Tagged ${successParty?.name ?? "party"}`
+              : null
       }
       successMessage={
         successParty?.id.startsWith("fleet:")
           ? "This trip is fleet work now. It leaves Untagged and no longer asks for a bill-to party."
-          : null
+          : editingYield && billedForTag != null && billedForTag > 0
+            ? `Yield is ₹${Math.round(billedForTag).toLocaleString("en-IN")} for ${successParty?.name ?? "this party"}.`
+            : billedForTag != null && billedForTag > 0
+              ? `Bill to ${successParty?.name ?? "this party"} · Yield ₹${Math.round(billedForTag).toLocaleString("en-IN")}.`
+              : null
       }
       billedAmount={billedForTag}
+      amountLabel="Yield"
+      editingYield={editingYield}
       receivable={
         receivableParty
           ? {
               partyName: receivableParty.name,
               amount: receivableAmount,
-              subtitle: tagPartyListDetail({
-                phone: receivableParty.phone,
-                contactPerson: receivableParty.contactPerson,
-                linkedOrganizationId: receivableParty.linkedOrganizationId,
-              }),
+              subtitle: editingYield
+                ? "Edit yield · client receivable"
+                : tagPartyListDetail({
+                    phone: receivableParty.phone,
+                    contactPerson: receivableParty.contactPerson,
+                    linkedOrganizationId: receivableParty.linkedOrganizationId,
+                  }),
               avatarUrl: receivableParty.avatar.avatarUrl,
               avatarSeed: receivableParty.avatar.avatarSeed,
               organizationImageUrl: receivableParty.avatar.organizationImageUrl,
@@ -490,6 +581,7 @@ export function DriverCollectFromSheet({
       onCancelReceivable={() => {
         setReceivableParty(null);
         setReceivableAmount("");
+        if (editingYield) onClose();
       }}
       onContinueReceivable={(value) => {
         if (!receivableParty || pendingParty) return;
@@ -500,11 +592,13 @@ export function DriverCollectFromSheet({
         setPendingParty(receivableParty);
       }}
       onBackConfirm={() => {
+        // Always return to the amount step so yield stays visible and editable.
         setPendingParty(null);
       }}
       onCancelConfirm={() => {
         setPendingParty(null);
         setBilledForTag(null);
+        if (editingYield) onClose();
       }}
       onConfirm={() => void handleConfirmTag()}
       onSuccessOk={handleSuccessOk}

@@ -72,3 +72,16 @@ Org `ChatV2 Smoke Org` (`3d27f76a-7f79-49a2-87b6-4032c3f51fa8`) with three contr
 ## Evidence index
 
 `changes/evidence/chat-v2-final-acceptance/`
+
+## Production path status (2026-11-26 update)
+
+| Item | Status |
+|---|---|
+| Three-session / WS / signed-URL preprod acceptance | Closed as above |
+| Branch synced onto latest `nihas/V1` | `release/chat-v2-preprod-onto-v1` |
+| Chat V2 SQL on production DB | **NOT APPLIED** (only preprod) |
+| Release set | `supabase/release-sets/prod-chat-v2-2026-11-26.versions` |
+| Netlify `pulse-gx` / gogopulse.com | **NOT UPDATED** — schema-before-code |
+| Production CLI quarantine | Remains in force until prod target verified |
+
+**Do not deploy Chat V2 app code to production until the release-set migrations are applied to `nafxpivddesgsrthmosv`.**

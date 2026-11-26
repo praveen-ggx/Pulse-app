@@ -22,6 +22,5 @@
 - none
 
 ## Tested
-- `npx jest features/network/utils/__tests__/networkPoolBidCommit.util.test.ts --ci --silent`
-- `npx jest features/network/components/bidding/__tests__/PoolBidCommitSheet.max.test.tsx --ci --silent`
-- UI not clicked through
+- `npx jest features/network/utils/__tests__/networkPoolBidCommit.util.test.ts features/network/components/bidding/__tests__/PoolBidCommitSheet.max.test.tsx --ci --silent` (10 passed)
+- UI not clicked through (please tick PR test-plan UI boxes after manual check)

@@ -6,10 +6,12 @@ import React from "react";
 import { act, fireEvent, render } from "@testing-library/react-native";
 import { PoolBidCommitSheet } from "@/features/network/components/bidding/PoolBidCommitSheet";
 
-jest.mock("react-native-calendars", () => {
-  const ReactNative = jest.requireActual("react-native");
-  return { Calendar: () => ReactNative.createElement(ReactNative.View) };
-});
+jest.mock("react-native", () => jest.requireActual("react-native"));
+jest.mock("lucide-react-native", () => new Proxy({}, { get: () => () => null }));
+jest.mock("react-native-calendars", () => ({ Calendar: () => null }));
+jest.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+}));
 
 const baseProps = {
   visible: true,
@@ -49,9 +51,7 @@ describe("PoolBidCommitSheet — pool size max", () => {
     const { getByLabelText, getByText } = render(
       <PoolBidCommitSheet {...baseProps} poolSize={0} onSubmit={onSubmit} />,
     );
-    expect(
-      getByText(/Pool size is unavailable/i),
-    ).toBeTruthy();
+    expect(getByText(/Pool size is unavailable/i)).toBeTruthy();
     const submit = getByLabelText("Commit vehicles and send pool bid");
     expect(submit.props.accessibilityState?.disabled ?? submit.props.disabled).toBe(
       true,

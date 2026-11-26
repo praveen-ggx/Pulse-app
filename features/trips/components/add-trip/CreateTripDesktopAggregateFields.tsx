@@ -250,7 +250,7 @@ export const CreateTripDesktopAggregateFields = memo(
             <View style={s.salePriceInputShell}>
               <TextInput
                 style={s.aggregateAmountInput}
-                placeholder="10"
+                placeholder="0"
                 placeholderTextColor={Theme.placeholder}
                 value={driverCommissionPercent}
                 onChangeText={(v) =>

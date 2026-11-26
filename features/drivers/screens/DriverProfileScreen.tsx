@@ -661,7 +661,9 @@ export default function DriverProfileScreen() {
                           ? 'Become a DCO'
                           : dcoStatus === 'PENDING'
                             ? 'DCO — Under review'
-                            : dcoStatus === 'APPROVED'
+                            : dcoStatus === 'DOCS_APPROVED'
+                              ? 'DCO — Approved'
+                              : dcoStatus === 'APPROVED'
                               ? 'DCO account'
                               : dcoStatus === 'REJECTED'
                                 ? 'DCO — Request again'
@@ -670,7 +672,9 @@ export default function DriverProfileScreen() {
                       <Text style={[styles.rowSub, { color: muted }]} numberOfLines={2}>
                         {dcoStatus === 'APPROVED'
                           ? 'Status · Marketplace bids & awards'
-                          : 'Become an independent owner-operator'}
+                          : dcoStatus === 'DOCS_APPROVED'
+                            ? 'Leave your fleet to start as a DCO'
+                            : 'Become an independent owner-operator'}
                       </Text>
                     </View>
                   </View>

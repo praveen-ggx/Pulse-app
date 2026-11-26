@@ -409,9 +409,13 @@ export default function DriverPartyReceivableScreen() {
               partyName !== "Shipper" &&
               partyName !== "Untagged";
             const needsTag = tripNeedsPartyTag(line.trip, false);
+            // Offline trip with no amount typed and nothing captured: the driver
+            // still records what they got — the amount is never calculated.
+            const amountNotEntered =
+              !isMarketplace && line.billed === 0 && line.received === 0;
             const canCapture =
               !needsTag &&
-              line.due > 0 &&
+              (line.due > 0 || amountNotEntered) &&
               (isMarketplace || isTripTaggedToParty(line.trip));
             const rowAvatar =
               tripAvatarById[line.trip.id] ?? (isMarketplace ? EMPTY_DRIVER_PARTY_AVATAR : avatar);
@@ -467,11 +471,17 @@ export default function DriverPartyReceivableScreen() {
                     <Text
                       style={[
                         styles.dueAmt,
-                        { color: line.due > 0 ? Theme.negative : Theme.positive },
+                        {
+                          color: amountNotEntered
+                            ? Theme.textMuted
+                            : line.due > 0
+                              ? Theme.negative
+                              : Theme.positive,
+                        },
                       ]}
                       numberOfLines={1}
                     >
-                      {inr(line.due)}
+                      {amountNotEntered ? "—" : inr(line.due)}
                     </Text>
                   </View>
                   {needsTag ? (
@@ -495,6 +505,7 @@ export default function DriverPartyReceivableScreen() {
                       lane={captureLane}
                       partyName={showParty ? partyName : party?.name}
                       compact
+                      allowZeroDue={amountNotEntered}
                     />
                   ) : (
                     <Text style={styles.actionIdle}>—</Text>

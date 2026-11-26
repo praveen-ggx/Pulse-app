@@ -916,7 +916,8 @@ export function DriverTripFlowCard({
   const { earnings, earningsLabel } = useMemo(() => {
     // Offline DCO: show Yield (bill-to receivable), not PAY N/A.
     if (canYieldOnTrip) {
-      const billed = tripReceivableBilled(localTrip);
+      // Offline: only the driver-typed amount — never the 10% guess / trip price.
+      const billed = tripReceivableBilled(localTrip, { lane: 'offline' });
       if (billed > 0) {
         return { earnings: formatINR(billed), earningsLabel: 'Yield' };
       }

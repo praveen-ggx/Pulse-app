@@ -1,4 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { useSafeBack } from "@/lib/useSafeBack";
 import { showAppAlert } from "@/lib/appAlert";
 import { useIsOnline } from "@/contexts/NetworkContext";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -48,6 +49,10 @@ export function OdometerEntryScreen({
 }) {
   const router = useRouter();
   const { profile } = useAuth();
+  // No in-app history (page reloaded / opened by URL): go to the trip, not nowhere.
+  const goBack = useSafeBack(
+    profile?.role === "driver" ? `/driver-trip/${trip.id}` : `/trip/${trip.id}`,
+  );
   const isOnline = useIsOnline();
   const saveVerification = useSaveTripVerification();
   const { pendingCount, failedCount, refresh } = useVerificationSyncState();
@@ -181,7 +186,7 @@ export function OdometerEntryScreen({
         );
       }
       await refresh();
-      router.back();
+      goBack();
     } catch (e) {
       Alert.alert(
         "Could not save verification",
@@ -204,7 +209,7 @@ export function OdometerEntryScreen({
     <OdometerEntryShell
       title={title}
       subtitle={contextLine}
-      onBack={() => router.back()}
+      onBack={() => goBack()}
       scan={scanState}
       attachment={{
         uri: photoUri,
@@ -215,7 +220,7 @@ export function OdometerEntryScreen({
       footer={
         <DriverOpsEntryFooter
           cancelLabel="Skip for now"
-          onCancel={() => router.back()}
+          onCancel={() => goBack()}
           saveLabel={saving ? "Saving…" : "Save reading"}
           onSave={() => void handleSave()}
           saving={saving}

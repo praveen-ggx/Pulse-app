@@ -10,6 +10,8 @@ import {
     ArrowRight,
     Briefcase,
     Check,
+    ChevronLeft,
+    ChevronRight,
     MapPin,
     Percent,
     Sparkles,
@@ -38,6 +40,9 @@ type Props = {
   invite: DriverInviteRow;
   queueIndex?: number;
   queueTotal?: number;
+  /** Switch between pending invites so the driver can compare offers. */
+  onPrev?: () => void;
+  onNext?: () => void;
   busy?: boolean;
   onAccept: () => void;
   onDecline: () => void;
@@ -68,6 +73,8 @@ export function DriverInviteModal({
   invite,
   queueIndex = 1,
   queueTotal = 1,
+  onPrev,
+  onNext,
   busy = false,
   onAccept,
   onDecline,
@@ -193,8 +200,34 @@ export function DriverInviteModal({
                 <Text style={styles.heroEyebrow}>FLEET INVITATION</Text>
               </View>
               {queueTotal > 1 && (
-                <View style={styles.queueBadge}>
-                  <Text style={styles.queueText}>{queueIndex}/{queueTotal}</Text>
+                <View style={styles.queueNav}>
+                  {onPrev ? (
+                    <TouchableOpacity
+                      onPress={onPrev}
+                      disabled={busy}
+                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 6 }}
+                      style={styles.queueArrow}
+                      accessibilityRole="button"
+                      accessibilityLabel="Previous invite"
+                    >
+                      <ChevronLeft size={14} color="#fff" strokeWidth={2.5} />
+                    </TouchableOpacity>
+                  ) : null}
+                  <View style={styles.queueBadge}>
+                    <Text style={styles.queueText}>{queueIndex}/{queueTotal}</Text>
+                  </View>
+                  {onNext ? (
+                    <TouchableOpacity
+                      onPress={onNext}
+                      disabled={busy}
+                      hitSlop={{ top: 12, bottom: 12, left: 6, right: 12 }}
+                      style={styles.queueArrow}
+                      accessibilityRole="button"
+                      accessibilityLabel="Next invite"
+                    >
+                      <ChevronRight size={14} color="#fff" strokeWidth={2.5} />
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               )}
             </View>
@@ -655,6 +688,19 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
     color: MINT,
     textTransform: 'uppercase',
+  },
+  queueNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  queueArrow: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   queueBadge: {
     backgroundColor: 'rgba(255,255,255,0.18)',

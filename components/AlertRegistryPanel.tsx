@@ -430,8 +430,13 @@ function RegistryFeedList({
           );
         }
 
-        // Driver left the fleet: a driver signal, not a load lane — no indent, no bid actions.
-        if (entry.kind === "network" && entry.network?.event_type === "driver_disconnected") {
+        // Driver left the fleet / reminded about an expense: driver signals, not a
+        // load lane — no indent, no bid actions.
+        if (
+          entry.kind === "network" &&
+          (entry.network?.event_type === "driver_disconnected" ||
+            entry.network?.event_type === "expense_reminder")
+        ) {
           const item = entry.network;
           const avatar = resolveNetworkRegistryAvatar(item, {
             partnerDisplay: partyCtx.partnerDisplay,
@@ -442,9 +447,13 @@ function RegistryFeedList({
           const dismiss = () => {
             void markNetworkRead.mutateAsync(item.id).catch(() => {});
           };
+          const reminderTripId =
+            item.event_type === "expense_reminder" && typeof item.payload_json?.trip_id === "string"
+              ? item.payload_json.trip_id
+              : null;
           const openDrivers = () => {
             dismiss();
-            router.push(ROUTES.TABS.RESOURCES);
+            router.push(reminderTripId ? ROUTES.tripDetail(reminderTripId) : ROUTES.TABS.RESOURCES);
           };
           return (
             <AlertRegistrySignalCard

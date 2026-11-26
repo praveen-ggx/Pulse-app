@@ -1,8 +1,8 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { useSafeBack } from "@/lib/useSafeBack";
 import { useIsOnline } from "@/contexts/NetworkContext";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { DriverOpsEntryFooter } from "@/features/trips/operations/shared/DriverOpsEntryFooter";
-import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   StyleSheet,
@@ -37,8 +37,11 @@ function rawToKm(raw: string): number | null {
 }
 
 export function OdometerStartEndScreen({ trip }: { trip: TripRow }) {
-  const router = useRouter();
   const { profile } = useAuth();
+  // No in-app history (page reloaded / opened by URL): go to the trip, not nowhere.
+  const goBack = useSafeBack(
+    profile?.role === "driver" ? `/driver-trip/${trip.id}` : `/trip/${trip.id}`,
+  );
   const isOnline = useIsOnline();
   const saveOdometer = useSaveTripOdometerBoth();
   const { pendingCount, failedCount, refresh } = useVerificationSyncState();
@@ -157,7 +160,7 @@ export function OdometerStartEndScreen({ trip }: { trip: TripRow }) {
         );
       }
       await refresh();
-      router.back();
+      goBack();
     } catch (e) {
       showAppAlert(
         "Could not save odometer",
@@ -186,7 +189,7 @@ export function OdometerStartEndScreen({ trip }: { trip: TripRow }) {
       title={activeTitle}
       subtitle={contextLine}
       kicker={`Odometer · ${activeField === "start" ? "Start" : "End"}`}
-      onBack={() => router.back()}
+      onBack={() => goBack()}
       scan={activeOcr.scanState}
       attachment={{
         uri: activeOcr.photoUri,
@@ -197,7 +200,7 @@ export function OdometerStartEndScreen({ trip }: { trip: TripRow }) {
       footer={
         <DriverOpsEntryFooter
           cancelLabel="Cancel"
-          onCancel={() => router.back()}
+          onCancel={() => goBack()}
           saveLabel={saving ? "Saving…" : "Save odometer"}
           onSave={() => void handleSave()}
           saving={saving}

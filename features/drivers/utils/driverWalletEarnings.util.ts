@@ -1,6 +1,11 @@
 import type { TripRow } from "@/features/trips/services/trips.service";
-import { parseDcoPartyTagFromNotes } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import {
+  offlineTripAmount,
+  parseDcoPartyTagFromNotes,
+} from "@/features/drivers/utils/dcoTripPartyTag.util";
+import { driverHistoryLane } from "@/features/drivers/domain/driverOperatingMode";
+import {
+  tripEarningsDetailForDriver,
   tripEarningsForDriver,
   type DriverTripPayoutTerms,
 } from "@/features/drivers/utils/driverUtils.util";
@@ -13,6 +18,12 @@ export type DriverWalletEarningsContext = {
   payoutTerms?: DriverTripPayoutTerms | null;
   /** Orgs the driver works for. Scopes earnings so a broker's copy earns nothing. */
   driverOrgIds: readonly string[];
+  /**
+   * Amount captured for this trip. When given, the driver's own offline trip
+   * earns what the driver typed at tagging or what was captured (whichever is
+   * more) — never a calculated figure. Same rule as the Receivables screen.
+   */
+  received?: number;
 };
 
 /**
@@ -35,6 +46,12 @@ export function driverWalletTripEarnings(
     return ctx.hasAgreedPayoutTerms
       ? tripEarningsForDriver(trip, ctx.payoutTerms ?? undefined, ctx.driverOrgIds)
       : 0;
+  }
+  if (ctx.received != null && driverHistoryLane(trip, false) === "offline") {
+    return offlineTripAmount(trip.notes, ctx.received, [
+      tripEarningsDetailForDriver(trip).amount,
+      Number(trip.client_price ?? 0),
+    ]);
   }
   const tagged = parseDcoPartyTagFromNotes(trip.notes)?.billed;
   if (tagged != null && tagged > 0) return Math.round(tagged);

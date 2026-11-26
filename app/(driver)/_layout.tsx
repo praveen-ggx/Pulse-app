@@ -14,6 +14,7 @@ import { DriverCommunicationProvider } from '@/features/driver/communication';
 import { DriverTripCompletedHost } from '@/features/driver/components/DriverTripCompletedModal';
 import { DriverIncomingMessageProvider } from '@/features/chat/components/driver/DriverIncomingMessageHost';
 import { DcoEmploymentConflictModal } from '@/features/drivers/components/DcoEmploymentConflictModal';
+import { DcoApprovalPromptHost } from '@/features/driver/components/DcoApprovalPromptHost';
 import { useDriverIndieOutboxFlush } from '@/features/driver-indie/hooks/useDriverIndieOutboxFlush';
 import {
   consumePendingDriverInviteAfterAuth,
@@ -271,6 +272,7 @@ export default function DriverAppLayout() {
                 <DriverTabsNavigator />
                 <DriverTripCompletedHost />
                 <DcoEmploymentConflictModal />
+                <DcoApprovalPromptHost />
               </DriverTripOpsProvider>
             </DriverInviteModalProvider>
           </DriverIncomingMessageProvider>

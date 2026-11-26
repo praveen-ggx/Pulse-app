@@ -60,6 +60,7 @@ type PendingAction =
 
 const STATUS_FILTERS: { key: 'all' | DcoProfileStatus; label: string }[] = [
   { key: 'PENDING', label: 'Pending' },
+  { key: 'DOCS_APPROVED', label: 'Awaiting fleet exit' },
   { key: 'APPROVED', label: 'Approved' },
   { key: 'SUSPENDED', label: 'Suspended' },
   { key: 'REJECTED', label: 'Rejected' },
@@ -71,6 +72,7 @@ const STATUS_BADGE: Record<
   { label: string; variant: 'info' | 'success' | 'secondary' | 'destructive' }
 > = {
   PENDING: { label: 'Pending', variant: 'info' },
+  DOCS_APPROVED: { label: 'Approved · awaiting fleet exit', variant: 'info' },
   APPROVED: { label: 'Approved', variant: 'success' },
   REJECTED: { label: 'Rejected', variant: 'secondary' },
   SUSPENDED: { label: 'Suspended', variant: 'destructive' },
@@ -281,6 +283,11 @@ export function DcoReviewPanel() {
                       <Badge variant={badge.variant} appearance="light" size="xs">
                         {badge.label}
                       </Badge>
+                      {r.still_in_fleet ? (
+                        <div className="mt-1 text-[10px] text-muted-foreground">
+                          Still in a fleet — activates after they leave
+                        </div>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2">
                       <Badge variant={kycBadge.variant} appearance="light" size="xs">
@@ -300,7 +307,19 @@ export function DcoReviewPanel() {
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex justify-end gap-1.5">
-                        {r.status === 'PENDING' ? (
+                        {r.status === 'DOCS_APPROVED' ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 gap-1 px-2 text-[11px]"
+                            disabled={busy}
+                            title="Withdraw the approval before the driver leaves their fleet"
+                            onClick={() => openAction({ kind: 'reject', userId: r.user_id })}
+                          >
+                            <ShieldX className="size-3" />
+                            Reject
+                          </Button>
+                        ) : r.status === 'PENDING' ? (
                           <>
                             <Button
                               size="sm"
@@ -400,7 +419,9 @@ export function DcoReviewPanel() {
           {pending?.kind === 'approve' ? (
             <p className="mt-3 text-[11px] text-muted-foreground">
               Creates this driver's permanent DCO payee record and lets them bid in the
-              marketplace as an independent owner-operator.
+              marketplace as an independent owner-operator. If the driver is still in a
+              fleet, they are told they're approved and DCO status turns on as soon as
+              they leave that fleet.
             </p>
           ) : pending?.kind === 'reinstate' ? (
             <p className="mt-3 text-[11px] text-muted-foreground">

@@ -33,6 +33,8 @@ export interface OperationalQueueItem {
   paymentOwner: string | null;
   postingError: string | null;
   queueKinds: OperationalQueueKind[];
+  /** Latest driver "Remind" on this expense (driver_expense_reminders); reminded items sort first. */
+  remindedAt?: string | null;
 }
 
 export interface QueueSection {

@@ -284,6 +284,10 @@ export type DriverBookCollection = {
   amount: number;
   at: string;
   partyName: string;
+  /** Mode the driver picked at capture (UPI / CASH / …). */
+  paymentMode?: string | null;
+  /** UTR / reference the driver typed at capture. */
+  reference?: string | null;
 };
 
 type CollectionRow = {
@@ -292,6 +296,8 @@ type CollectionRow = {
   amount: number;
   created_at?: string | null;
   paid_on?: string | null;
+  payment_mode?: string | null;
+  reference?: string | null;
 };
 
 /** Each collected receipt on the independent and Self books, one row per payment. */
@@ -302,13 +308,13 @@ export async function listDriverBookCollections(): Promise<DriverBookCollection[
       .select("id, operational_trip_id, party_label"),
     supabase()
       .from("driver_indie_collections" as never)
-      .select("id, receivable_id, amount, created_at, paid_on"),
+      .select("id, receivable_id, amount, created_at, paid_on, payment_mode, reference"),
     supabase()
       .from("dco_self_receivables" as never)
       .select("id, operational_trip_id, party_a_label"),
     supabase()
       .from("dco_self_collections" as never)
-      .select("id, receivable_id, amount, created_at, paid_on"),
+      .select("id, receivable_id, amount, created_at, paid_on, payment_mode, reference"),
   ]);
 
   const indieTrip = new Map<string, { tripId: string | null; partyName: string }>();
@@ -352,6 +358,8 @@ export async function listDriverBookCollections(): Promise<DriverBookCollection[
         amount,
         at,
         partyName: linked?.partyName || "Party",
+        paymentMode: String(row.payment_mode ?? "").trim() || null,
+        reference: String(row.reference ?? "").trim() || null,
       });
     }
   };

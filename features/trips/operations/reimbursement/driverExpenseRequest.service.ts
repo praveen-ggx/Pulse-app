@@ -114,6 +114,14 @@ export async function cancelDriverExpenseRequest(input: {
   return { error: null };
 }
 
+function friendlyRemindError(message: string): string {
+  const tooSoon = /reminder_too_soon:\s*(.+)$/i.exec(message);
+  if (tooSoon) return `You already reminded the fleet. Try again after ${tooSoon[1].trim()}.`;
+  const coded = /^(?:not_your_expense|not_awaiting_fleet|expense_not_found|no_fleet):\s*(.+)$/i.exec(message);
+  if (coded) return coded[1].trim();
+  return message;
+}
+
 export async function remindDriverExpenseRequest(input: {
   kind: DriverExpenseEntryKind;
   entryId: string;
@@ -134,13 +142,16 @@ export async function remindDriverExpenseRequest(input: {
     return { error: new Error("This request is no longer awaiting fleet approval") };
   }
 
-  const now = new Date().toISOString();
-  const { error } = await supabase()
-    .from(tableForKind(input.kind))
-    .update({ updated_at: now })
-    .eq("id", input.entryId);
+  // Server checks ownership + pending state again, limits to one reminder per
+  // 6 hours, and sends the fleet a bell notification
+  // (20271127101557_driver_expense_reminder_notify.sql).
+  const { error } = await supabase().rpc("remind_driver_expense" as never, {
+    p_expense_kind: input.kind,
+    p_entry_id: input.entryId,
+  } as never);
 
-  if (error) return { error: new Error(error.message) };
+  if (error) return { error: new Error(friendlyRemindError(error.message)) };
+  const now = new Date().toISOString();
 
   await appendTripOperationalTimelineEventSafe({
     organizationId: input.organizationId ?? null,

@@ -190,3 +190,61 @@ describe("filter and group wallet transactions", () => {
     ]);
   });
 });
+
+describe("walletTxnPayerName — who pays the driver", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { walletTxnPayerName } = require("../driverWalletTransactions.util");
+
+  it("company-assigned trip: the assigning company, not its customer", () => {
+    const t = { ...trip("t1"), client_name: "Godrej", operating_mode: null, source: "manual" } as TripRow;
+    expect(walletTxnPayerName(t, "Party", "nihas logs")).toBe("nihas logs");
+  });
+
+  it("driver's own DCO trip: the party the driver tagged", () => {
+    const t = { ...trip("t1"), client_name: "JSW Steels", operating_mode: "DCO" } as TripRow;
+    expect(walletTxnPayerName(t, "Party", "Driver's own workspace")).toBe("JSW Steels");
+  });
+
+  it("marketplace trip: unchanged (listing shipper)", () => {
+    const t = { ...trip("t1"), client_name: "Ultratech", source: "market_bid" } as TripRow;
+    expect(walletTxnPayerName(t, "Party", "Some org")).toBe("Ultratech");
+  });
+
+  it("no assigning company known: falls back as before", () => {
+    const t = { ...trip("t1"), client_name: "Godrej" } as TripRow;
+    expect(walletTxnPayerName(t, "Party", null)).toBe("Godrej");
+  });
+});
+
+describe("book receipt names follow the trip, not the first saved label", () => {
+  it("uses the assigning company when the trip was assigned by one", () => {
+    const rows = buildDriverWalletTransactions({
+      settlements: [],
+      expenses: [],
+      tripsById: { t1: trip("t1") },
+      tripDisplay: () => "TRP001",
+      partyNameForTrip: () => "Godrej",
+      assignerNameForTrip: () => "nihas logs",
+      includeExpenses: false,
+      collections: [
+        { id: "indie:1", tripId: "t1", amount: 1500, at: "2026-11-25T10:00:00Z", partyName: "Godrej" },
+      ],
+    });
+    expect(rows[0]?.title).toBe("nihas logs");
+  });
+
+  it("keeps the saved label when the trip is not loaded", () => {
+    const rows = buildDriverWalletTransactions({
+      settlements: [],
+      expenses: [],
+      tripsById: {},
+      tripDisplay: () => "Trip",
+      partyNameForTrip: () => "Party",
+      includeExpenses: false,
+      collections: [
+        { id: "indie:2", tripId: "t9", amount: 2000, at: "2026-11-25T10:00:00Z", partyName: "JSW Steels" },
+      ],
+    });
+    expect(rows[0]?.title).toBe("JSW Steels");
+  });
+});

@@ -1,6 +1,9 @@
 /**
  * Become a DCO (driver-come-owner / independent owner-operator) — onboarding
- * checklist: leave fleet, identity, DCO docs, assigned/own vehicle, submit.
+ * checklist: identity, DCO docs, assigned/own vehicle, submit, leave fleet.
+ * Leave fleet comes LAST and unlocks only after admin approval (DOCS_APPROVED),
+ * so a driver never quits their fleet before knowing they are approved.
+ * @see supabase/migrations/20271127101550_dco_approve_before_leaving_fleet.sql
  * @see supabase/migrations/20270310200000_dco_schema_foundation.sql
  * @see supabase/migrations/20270310210000_dco_eligibility_and_admin_rpcs.sql
  */
@@ -12,7 +15,7 @@ import {
 import Theme from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
-import { requestDcoStatus } from '@/features/driver/services/dco.service';
+import { activateMyDco, requestDcoStatus } from '@/features/driver/services/dco.service';
 import { useDriverAssignedVehicleDisplay } from '@/features/driver/hooks/useDriverAssignedVehicleDisplay';
 import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
@@ -22,7 +25,7 @@ import { canManageOwnerVehicles } from '@/features/drivers/domain/driverOperatin
 import { ROUTES } from '@/lib/routes';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
   BadgeCheck,
   Building2,
@@ -143,6 +146,35 @@ export default function DcoStatusScreen() {
 
   const cardBorder = isDark ? colors.borderSubtle : Theme.borderMedium;
   const leftFleet = !operatingMode.isEmployeeDriver;
+  const stillOnFleet = !leftFleet;
+  // Approved while still on a fleet: Leave fleet unlocks now.
+  const fleetUnlocked = status === 'DOCS_APPROVED';
+
+  // Back from Leave fleet (wallet) → pick up DOCS_APPROVED → APPROVED.
+  useFocusEffect(
+    useCallback(() => {
+      if (profile?.uid) invalidate();
+    }, [profile?.uid, invalidate]),
+  );
+
+  // Approved while on a fleet, and the fleet link is now gone: the server
+  // normally activates on leave; this covers any path it missed.
+  const modeLoaded = operatingMode.dcoStatus !== 'NONE';
+  useEffect(() => {
+    if (status !== 'DOCS_APPROVED' || !modeLoaded || stillOnFleet) return;
+    let cancelled = false;
+    void activateMyDco().then(({ status: next }) => {
+      if (!cancelled && next && next !== 'DOCS_APPROVED') invalidate();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [status, modeLoaded, stillOnFleet, invalidate]);
+
+  const goLeaveFleet = useCallback(() => {
+    router.push(ROUTES.driverWalletSelf() as Parameters<typeof router.push>[0]);
+  }, [router]);
+
   const identityDone = Boolean(kyc?.isVerified);
   const ownerVehicleCount = ownerVehicles.length;
   const hasOwnVehicle = ownerVehicleCount > 0;
@@ -153,30 +185,27 @@ export default function DcoStatusScreen() {
     : hasAssignment;
   const submitWaiting = status === 'PENDING';
 
-  const leaveState: StepState = leftFleet ? 'done' : 'active';
-  const identityState: StepState = identityDone ? 'done' : leftFleet ? 'active' : 'pending';
+  // Order: identity → DCO docs → vehicle → submit → leave fleet (after approval).
+  const identityState: StepState = identityDone ? 'done' : 'active';
   const docsState: StepState =
-    status === 'APPROVED' || status === 'PENDING'
+    status === 'APPROVED' || status === 'PENDING' || status === 'DOCS_APPROVED'
       ? 'done'
       : identityDone
         ? 'active'
         : 'pending';
-  const vehicleState: StepState = vehicleStepDone
-    ? 'done'
-    : leftFleet || useOwnVehiclePath
-      ? 'active'
-      : 'pending';
+  const vehicleState: StepState = vehicleStepDone ? 'done' : 'active';
   const submitState: StepState = submitWaiting
     ? 'waiting'
-    : status === 'APPROVED'
+    : status === 'APPROVED' || status === 'DOCS_APPROVED'
       ? 'done'
       : status === 'REJECTED'
         ? 'active'
-        : leftFleet && !operatingMode.isEmployeeDriver
+        : identityDone
           ? 'active'
           : 'pending';
+  const leaveState: StepState = leftFleet ? 'done' : fleetUnlocked ? 'active' : 'pending';
 
-  const stepStates = [leaveState, identityState, docsState, vehicleState, submitState];
+  const stepStates = [identityState, docsState, vehicleState, submitState, leaveState];
   const doneCount = stepStates.filter((s) => s === 'done').length;
   const progressPct = Math.round((doneCount / stepStates.length) * 100);
 
@@ -254,8 +283,8 @@ export default function DcoStatusScreen() {
           </View>
           <Text style={styles.heroTitle}>Run as your own operator</Text>
           <Text style={styles.heroBody}>
-            Keep your driver KYC. Add PAN and bank proof, leave fleet employment, then
-            submit for Pulse approval.
+            Keep your driver KYC. Add PAN and bank proof and submit for Pulse approval.
+            Leave your fleet only after you are approved.
           </Text>
 
           <View style={styles.progressBlock}>
@@ -302,22 +331,6 @@ export default function DcoStatusScreen() {
             <View style={styles.stepList}>
               <ChecklistStep
                 index={1}
-                state={leaveState}
-                title="Leave fleet"
-                body={
-                  leftFleet
-                    ? 'Not linked to any fleet employer.'
-                    : 'Leave your current fleet employer before Marketplace bids.'
-                }
-                colors={colors}
-                isDark={isDark}
-                softSurface={softSurface}
-                cardBorder={cardBorder}
-                icon={<Building2 size={15} color={colors.emerald} strokeWidth={2.2} />}
-              />
-
-              <ChecklistStep
-                index={2}
                 state={identityState}
                 title="Identity documents"
                 body={
@@ -337,7 +350,7 @@ export default function DcoStatusScreen() {
               />
 
               <ChecklistStep
-                index={3}
+                index={2}
                 state={docsState}
                 title="DCO documents"
                 body="Required only for DCO verification."
@@ -371,7 +384,7 @@ export default function DcoStatusScreen() {
               </ChecklistStep>
 
               <ChecklistStep
-                index={4}
+                index={3}
                 state={vehicleState}
                 title={vehicleTitle}
                 body={vehicleSub}
@@ -410,25 +423,47 @@ export default function DcoStatusScreen() {
               </ChecklistStep>
 
               <ChecklistStep
-                index={5}
+                index={4}
                 state={submitState}
                 title="Submit for approval"
                 body={
                   status === 'PENDING'
                     ? 'Submitted — waiting for Pulse admin approval.'
-                    : status === 'APPROVED'
-                      ? 'Approved — you can operate as an independent owner-operator.'
-                      : status === 'REJECTED'
-                        ? 'Rejected — request again after fixing issues.'
-                        : status === 'SUSPENDED'
-                          ? 'Suspended — contact Pulse support.'
-                          : 'Request DCO status when fleet leave and documents are ready.'
+                    : status === 'DOCS_APPROVED'
+                      ? 'Approved by Pulse admin.'
+                      : status === 'APPROVED'
+                        ? 'Approved — you can operate as an independent owner-operator.'
+                        : status === 'REJECTED'
+                          ? 'Rejected — request again after fixing issues.'
+                          : status === 'SUSPENDED'
+                            ? 'Suspended — contact Pulse support.'
+                            : 'Request DCO status when your documents are ready. You can stay on your fleet.'
                 }
                 colors={colors}
                 isDark={isDark}
                 softSurface={softSurface}
                 cardBorder={cardBorder}
                 icon={<BadgeCheck size={15} color={colors.emerald} strokeWidth={2.2} />}
+              />
+
+              <ChecklistStep
+                index={5}
+                state={leaveState}
+                title="Leave fleet"
+                body={
+                  leftFleet
+                    ? 'Not linked to any fleet employer.'
+                    : fleetUnlocked
+                      ? 'You are approved. Leave your fleet now to start as a DCO (pending-pay warning shown; the owner is notified).'
+                      : 'Keep driving for your fleet. This unlocks after Pulse admin approves you.'
+                }
+                colors={colors}
+                isDark={isDark}
+                softSurface={softSurface}
+                cardBorder={cardBorder}
+                icon={<Building2 size={15} color={colors.emerald} strokeWidth={2.2} />}
+                actionLabel={stillOnFleet && fleetUnlocked ? 'Leave fleet' : undefined}
+                onAction={stillOnFleet && fleetUnlocked ? goLeaveFleet : undefined}
                 isLast
               />
             </View>
@@ -440,13 +475,12 @@ export default function DcoStatusScreen() {
         {!isLoading && (status === 'NONE' || status === 'REJECTED') ? (
           <Pressable
             onPress={() => void handleRequest()}
-            disabled={busy || operatingMode.isEmployeeDriver}
+            disabled={busy}
             style={({ pressed }) => [
               styles.cta,
               {
                 backgroundColor: colors.emerald,
-                opacity:
-                  pressed || busy || operatingMode.isEmployeeDriver ? 0.72 : 1,
+                opacity: pressed || busy ? 0.72 : 1,
               },
             ]}
             accessibilityRole="button"
@@ -680,7 +714,7 @@ function StatusBlock({
   colors,
   cardBorder,
 }: {
-  status: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+  status: 'NONE' | 'PENDING' | 'DOCS_APPROVED' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
   operatingMode: DriverOperatingModeKind;
   reason: string | null;
   leftFleet: boolean;
@@ -697,8 +731,17 @@ function StatusBlock({
       bg: isDark ? 'rgba(180,83,9,0.18)' : 'rgba(255,247,237,0.98)',
       title: 'Under review',
       body: leftFleet
-        ? 'Pulse admin is reviewing your DCO request. Fleet disconnect is already done.'
-        : 'Pulse admin is reviewing your DCO request.',
+        ? 'Pulse admin is reviewing your DCO request.'
+        : 'Pulse admin is reviewing your DCO request. Keep driving for your fleet — you leave only after approval.',
+    },
+    DOCS_APPROVED: {
+      icon: Check,
+      tint: colors.emerald,
+      bg: isDark ? colors.emeraldMuted : 'rgba(236,253,245,0.98)',
+      title: 'You are approved 🎉',
+      body: leftFleet
+        ? 'Activating your DCO status…'
+        : 'Leave your fleet to start as a DCO. Your DCO status turns on as soon as you leave.',
     },
     APPROVED: {
       icon: Check,

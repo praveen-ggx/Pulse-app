@@ -1,5 +1,7 @@
 import {
   applyDcoPartyTagToNotes,
+  offlineEnteredBilled,
+  offlineTripAmount,
   offlinePartiesFromTrips,
   offlinePartyId,
   parseDcoPartyTagFromNotes,
@@ -67,5 +69,35 @@ describe("dcoTripPartyTag notes marker", () => {
       name: "B",
       billed: 2500,
     });
+  });
+});
+
+describe("offline amounts — tags saved before the entered flag", () => {
+  const oldTag = (billed: number) =>
+    `<!--pulse-dco-party:${JSON.stringify({ id: "c-1", name: "Ravi", billed })}-->`;
+  const typedTag = (billed: number) =>
+    applyDcoPartyTagToNotes(null, { id: "c-1", name: "Ravi", billed, entered: true });
+
+  it("keeps an old amount the driver typed (not an app guess)", () => {
+    expect(offlineEnteredBilled(oldTag(5000), [400, 4000])).toBe(5000);
+    expect(offlineTripAmount(oldTag(5000), 0, [400, 4000])).toBe(5000);
+  });
+
+  it("drops an old amount that equals the app's guess or trip price", () => {
+    expect(offlineEnteredBilled(oldTag(400), [400, 4000])).toBe(0);
+    expect(offlineEnteredBilled(oldTag(4000), [400, 4000])).toBe(0);
+  });
+
+  it("captured money wins over an old untagged amount", () => {
+    expect(offlineTripAmount(oldTag(2500), 2000, [400, 4000])).toBe(2000);
+  });
+
+  it("typed amount (entered) vs captured: the higher one", () => {
+    expect(offlineTripAmount(typedTag(3000), 2000)).toBe(3000);
+    expect(offlineTripAmount(typedTag(3000), 5000)).toBe(5000);
+  });
+
+  it("nothing typed, nothing captured → 0", () => {
+    expect(offlineTripAmount(null, 0)).toBe(0);
   });
 });

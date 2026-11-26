@@ -31,6 +31,7 @@ import { syncPostedTripExpensesToOperationLedger } from "../vehicle/syncPostedEx
 import type { TripCostEvent, TripCostCategory } from "@/features/finance";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { useMemberAccess } from "@/lib/useMemberAccess";
+import { showAppAlert } from "@/lib/appAlert";
 
 type ListFilter = "all" | "action";
 
@@ -841,12 +842,13 @@ export function TripExpensesScreen({
           actorUserId: profile?.uid ?? null,
           organizationId: trip.organization_id,
         });
-        Alert.alert(
+        // showAppAlert: Alert.alert is a no-op on web, so the driver saw nothing.
+        showAppAlert(
           "Reminder sent",
-          "Fleet owner will see this reimbursement request at the top of their queue.",
+          "The fleet owner has been notified about this expense.",
         );
       } catch (e) {
-        Alert.alert(
+        showAppAlert(
           "Could not send reminder",
           e instanceof Error ? e.message : "Unknown error",
         );

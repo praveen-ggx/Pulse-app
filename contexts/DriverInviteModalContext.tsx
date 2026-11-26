@@ -31,6 +31,8 @@ import { askDeclineReason } from '@/features/drivers/utils/askDeclineReason.util
 type DriverInviteModalContextValue = {
   allInvites: DriverInviteRow[];
   pendingCount: number;
+  /** An invite / decline / counter popup is on screen now (snoozed invites don't count). */
+  invitePopupVisible: boolean;
   pendingInvites: DriverInviteRow[];
   refreshInvites: () => Promise<void>;
   presentPendingInvite: () => void;
@@ -141,8 +143,30 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
     [pendingInvites, sessionSnoozedIds],
   );
 
-  const activeInvite = visiblePendingInvites[0] ?? null;
+  /**
+   * Invite on screen when the driver browses with the arrows. Newest is shown
+   * first; if the chosen one leaves the list (declined, withdrawn), fall back to
+   * the newest remaining invite.
+   */
+  const [activeInviteId, setActiveInviteId] = useState<string | null>(null);
+  const activeIndex = Math.max(
+    0,
+    visiblePendingInvites.findIndex((i) => i.id === activeInviteId),
+  );
+  const activeInvite = visiblePendingInvites[activeIndex] ?? null;
   const showModal = !!activeInvite && !declineTarget && !counterTarget;
+
+  const goToInvite = useCallback(
+    (step: 1 | -1) => {
+      const total = visiblePendingInvites.length;
+      if (total < 2) return;
+      const nextIndex = (activeIndex + step + total) % total;
+      setActiveInviteId(visiblePendingInvites[nextIndex]?.id ?? null);
+    },
+    [visiblePendingInvites, activeIndex],
+  );
+  const handleNextInvite = useCallback(() => goToInvite(1), [goToInvite]);
+  const handlePrevInvite = useCallback(() => goToInvite(-1), [goToInvite]);
 
   const presentPendingInvite = useCallback(() => {
     clearSessionSnooze();
@@ -175,17 +199,24 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
       );
       return;
     }
+    // Driver picked this fleet: hide the other offers for this session (the
+    // server refuses a second fleet anyway). They stay pending in the DB.
     setSessionSnoozedIds((prev) => {
       const next = new Set(prev);
       next.delete(activeInvite.id);
+      for (const invite of pendingInvites) {
+        if (invite.id !== activeInvite.id) next.add(invite.id);
+      }
       return next;
     });
+    setActiveInviteId(null);
     invalidateInvites();
     bumpFleetConnectionRevision();
     // Phase 2: sync linked driver rows after invite accept (not inside drivers queryFn).
     if (uid) void syncAndInvalidateLinkedDrivers(queryClient, uid);
   }, [
     activeInvite,
+    pendingInvites,
     invalidateInvites,
     bumpFleetConnectionRevision,
     uid,
@@ -274,10 +305,13 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
     [counterTarget, invalidateInvites],
   );
 
+  const invitePopupVisible = showModal || !!declineTarget || counterTarget != null;
+
   const value = useMemo(
     (): DriverInviteModalContextValue => ({
       allInvites,
       pendingCount,
+      invitePopupVisible,
       pendingInvites,
       refreshInvites,
       presentPendingInvite,
@@ -287,6 +321,7 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
     [
       allInvites,
       pendingCount,
+      invitePopupVisible,
       pendingInvites,
       refreshInvites,
       presentPendingInvite,
@@ -303,10 +338,10 @@ export function DriverInviteModalProvider({ children }: { children: ReactNode })
         <DriverInviteModal
           visible={showModal}
           invite={activeInvite}
-          queueIndex={
-            pendingInvites.findIndex((i) => i.id === activeInvite.id) + 1 || 1
-          }
-          queueTotal={pendingInvites.length}
+          queueIndex={activeIndex + 1}
+          queueTotal={visiblePendingInvites.length}
+          onPrev={handlePrevInvite}
+          onNext={handleNextInvite}
           busy={busyId === activeInvite.id}
           onAccept={() => void handleAccept()}
           onDecline={handleDeclinePress}

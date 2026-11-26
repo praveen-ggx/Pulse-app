@@ -12,6 +12,14 @@ const SECTION_META: Record<OperationalQueueKind, { title: string }> = {
   offline_sync_failure: { title: "Offline sync failures" },
 };
 
+/** Driver-reminded items first (latest reminder on top), then newest entered. */
+export function compareQueueItems(a: OperationalQueueItem, b: OperationalQueueItem): number {
+  const ra = a.remindedAt ? +new Date(a.remindedAt) : 0;
+  const rb = b.remindedAt ? +new Date(b.remindedAt) : 0;
+  if (ra !== rb) return rb - ra;
+  return +new Date(b.enteredAt) - +new Date(a.enteredAt);
+}
+
 const SECTION_ORDER: OperationalQueueKind[] = [
   "pending_approval",
   "reimbursement_required",
@@ -31,9 +39,7 @@ export function buildQueueSections(
     }
   }
   return SECTION_ORDER.map((kind) => {
-    const sectionItems = (map.get(kind) ?? []).sort(
-      (a, b) => +new Date(b.enteredAt) - +new Date(a.enteredAt),
-    );
+    const sectionItems = (map.get(kind) ?? []).sort(compareQueueItems);
     return {
       kind,
       title: SECTION_META[kind].title,

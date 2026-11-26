@@ -5,7 +5,7 @@
 function readMapboxToken(): string {
   if (typeof process === "undefined") return "";
   return (
-    process.env?.EXPO_PUBLIC_MAPBOX_TOKEN?.trim() ||
+    process.env.EXPO_PUBLIC_MAPBOX_TOKEN?.trim() ||
     process.env?.MAPBOX_TOKEN?.trim() ||
     ""
   );
@@ -13,7 +13,7 @@ function readMapboxToken(): string {
 
 function readGoogleMapsKey(): string {
   if (typeof process === "undefined") return "";
-  return process.env?.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY?.trim() || "";
+  return process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY?.trim() || "";
 }
 
 export function isUsableMapCoordinate(lat: number, lng: number): boolean {

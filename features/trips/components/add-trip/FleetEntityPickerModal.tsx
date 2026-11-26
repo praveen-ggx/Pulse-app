@@ -1,6 +1,7 @@
 /**
  * Centered fleet picker — reference layout: title, search, rich rows.
  */
+import { KeyboardAwareLayout } from "@/components/KeyboardAwareLayout";
 import { CreateTripSheetSearchInput } from "@/components/CreateTripSheetSearchInput";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import Layout from "@/constants/Layout";
@@ -129,6 +130,8 @@ export function FleetEntityPickerModal({
       animationType="fade"
       onRequestClose={onClose}
     >
+      {/* Lift the card above the keyboard (Android APK is edge-to-edge). */}
+      <KeyboardAwareLayout scroll={false}>
       <View style={styles.root} accessibilityViewIsModal>
         <Pressable style={styles.backdropPress} onPress={onClose}>
           <View style={styles.backdropDim} />
@@ -195,6 +198,7 @@ export function FleetEntityPickerModal({
           </View>
         </View>
       </View>
+      </KeyboardAwareLayout>
     </Modal>
   );
 }

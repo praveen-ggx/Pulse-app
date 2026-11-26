@@ -26,10 +26,12 @@ import {
   type DriverActiveFleet,
 } from "@/features/drivers/utils/driverActiveFleet.util";
 import { type DriverCaptureLane } from "@/features/drivers/utils/driverCapturePayment.util";
-import { parseDcoPartyTagFromNotes } from "@/features/drivers/utils/dcoTripPartyTag.util";
+import {
+  parseDcoPartyTagFromNotes,
+} from "@/features/drivers/utils/dcoTripPartyTag.util";
 import {
   isTripTaggedToParty,
-  tripReceivableBilled,
+  offlineTripEnteredBilled,
   tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
 import {
@@ -188,7 +190,8 @@ export function DriverCollectFromSheet({
   const loadPartiesRef = useRef(loadParties);
   loadPartiesRef.current = loadParties;
 
-  const currentBilled = useMemo(() => tripReceivableBilled(trip), [trip]);
+  // Offline flow: never pre-fill a calculated amount — only what the driver typed before.
+  const currentBilled = useMemo(() => offlineTripEnteredBilled(trip), [trip]);
   const confirmingRef = useRef(false);
 
   const resetFlow = useCallback(() => {

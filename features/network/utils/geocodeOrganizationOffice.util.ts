@@ -17,7 +17,7 @@ type GeocodeHit = { coordinate: OfficeMapCoordinate; name: string };
 
 function readMapboxToken(): string {
   if (typeof process === "undefined") return "";
-  return process.env?.EXPO_PUBLIC_MAPBOX_TOKEN?.trim() ?? "";
+  return process.env.EXPO_PUBLIC_MAPBOX_TOKEN?.trim() ?? "";
 }
 
 function officeGeocodeQueries(

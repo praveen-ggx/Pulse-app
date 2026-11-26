@@ -6269,14 +6269,18 @@ export default function DriverRadarScreen() {
                       })
                     : incomingFleetLinked;
                   const lane = driverCaptureLaneForTrip(trip, fleetLinked);
+                  // Offline (shipper lane): only what the driver typed — never the
+                  // 10% guess / trip price. Fleet and marketplace keep their amounts.
                   const due = Math.max(
                     0,
                     Math.round(
-                      tripReceivableBilled(trip) ||
-                        (activeMission
-                          ? activeMissionCommission
-                          : newAssignmentCommission) ||
-                        0,
+                      lane === "shipper"
+                        ? tripReceivableBilled(trip, { lane: "offline" })
+                        : tripReceivableBilled(trip) ||
+                            (activeMission
+                              ? activeMissionCommission
+                              : newAssignmentCommission) ||
+                            0,
                     ),
                   );
                   router.push(

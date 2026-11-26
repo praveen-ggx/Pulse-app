@@ -3,6 +3,7 @@
  * Dropdown is always in a Modal so the list scrolls reliably on both iOS and Android.
  * Includes "Create new client" at bottom (opens sub-modal).
  */
+import { KeyboardAwareLayout } from "@/components/KeyboardAwareLayout";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { CreateTripSheetSearchInput } from "@/components/CreateTripSheetSearchInput";
 import Layout from "@/constants/Layout";
@@ -197,7 +198,15 @@ export function ClientSearchField({
         )}
       </View>
       {!loading && dropdownOpen && (
-        <Modal visible transparent animationType="fade" statusBarTranslucent>
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+          onRequestClose={closeDropdown}
+        >
+          {/* Lift the card above the keyboard (Android APK is edge-to-edge). */}
+          <KeyboardAwareLayout scroll={false}>
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback onPress={closeDropdown}>
               <View style={StyleSheet.absoluteFill} />
@@ -233,6 +242,7 @@ export function ClientSearchField({
               </ScrollView>
             </View>
           </View>
+          </KeyboardAwareLayout>
         </Modal>
       )}
     </View>

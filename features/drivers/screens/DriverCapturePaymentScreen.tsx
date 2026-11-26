@@ -100,8 +100,12 @@ export default function DriverCapturePaymentScreen() {
   const [isFleetLinked, setIsFleetLinked] = useState(false);
   const [selfReceivableId, setSelfReceivableId] = useState<string | null>(null);
   const [indieReceivableId, setIndieReceivableId] = useState<string | null>(null);
+  // Offline (shipper lane): the driver types what they actually received —
+  // never pre-filled. Due stays visible as a hint and upper limit.
   const [amount, setAmount] = useState(
-    dueHint > 0 ? formatLedgerAmountInput(dueHint) : "",
+    dueHint > 0 && parseDriverCaptureLane(firstParam(params.lane)) !== "shipper"
+      ? formatLedgerAmountInput(dueHint)
+      : "",
   );
   const [modeId, setModeId] = useState(
     CAPTURE_MODES.some((m) => m.id === modeHint) ? modeHint : "UPI",

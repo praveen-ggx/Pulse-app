@@ -2,6 +2,7 @@
  * Transport partner (supplier) picker — same sheet pattern as FleetEntityPickerModal +
  * shared CreateTripSheetSearchInput.
  */
+import { KeyboardAwareLayout } from "@/components/KeyboardAwareLayout";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { CreateTripSheetSearchInput } from "@/components/CreateTripSheetSearchInput";
 import { PartyAvatar } from "@/components/PartyAvatar";
@@ -135,6 +136,8 @@ export function PartnerSupplierPickerModal({
       animationType="fade"
       onRequestClose={onClose}
     >
+      {/* Lift the card above the keyboard (Android APK is edge-to-edge). */}
+      <KeyboardAwareLayout scroll={false}>
       <View style={styles.root} accessibilityViewIsModal>
         <Pressable style={styles.backdropPress} onPress={onClose}>
           <View style={styles.backdropDim} />
@@ -200,6 +203,7 @@ export function PartnerSupplierPickerModal({
           </View>
         </View>
       </View>
+      </KeyboardAwareLayout>
     </Modal>
   );
 }

@@ -234,6 +234,7 @@ export const LeafletMapMapLibre = React.forwardRef<
                 // White casing under the route so it stays readable over
                 // parks, water and busy streets.
                 <Layer
+                  key={`leaflet-polyline-casing-${layer.id}`}
                   id={`leaflet-polyline-casing-${layer.id}`}
                   type="line"
                   source={`leaflet-polyline-source-${layer.id}`}
@@ -246,6 +247,9 @@ export const LeafletMapMapLibre = React.forwardRef<
                 />
               ) : null}
               <Layer
+                // Fixed key: MapLibre re-indexes children after dropping nulls,
+                // so without it the casing reuses this layer and its id changes.
+                key={`leaflet-polyline-layer-${layer.id}`}
                 id={`leaflet-polyline-layer-${layer.id}`}
                 type="line"
                 source={`leaflet-polyline-source-${layer.id}`}
@@ -260,6 +264,7 @@ export const LeafletMapMapLibre = React.forwardRef<
               />
               {!layer.dashed && (layer.width ?? 5) >= ROUTE_ARROW_MIN_WIDTH ? (
                 <Layer
+                  key={`leaflet-polyline-arrows-${layer.id}`}
                   id={`leaflet-polyline-arrows-${layer.id}`}
                   type="symbol"
                   source={`leaflet-polyline-source-${layer.id}`}

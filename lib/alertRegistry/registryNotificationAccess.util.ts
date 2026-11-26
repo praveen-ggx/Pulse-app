@@ -48,7 +48,10 @@ export function entryAllowedByAccess(
 ): boolean {
   if (entry.kind === "network") {
     // A driver leaving the fleet is a Driver-tab signal, not a load event.
-    if (entry.network?.event_type === "driver_disconnected") {
+    if (
+      entry.network?.event_type === "driver_disconnected" ||
+      entry.network?.event_type === "expense_reminder"
+    ) {
       return access.trips || access.driverPay;
     }
     return access.indents;

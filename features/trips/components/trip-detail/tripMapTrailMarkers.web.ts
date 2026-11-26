@@ -242,40 +242,51 @@ export function tripCardHtml(opts: {
     `style="flex-shrink:0;transform:rotate(${opts.expanded ? 180 : 0}deg);"><path d="M6 9l6 6 6-6"/></svg>`;
   const halts = opts.rows.filter((r) => r.kind === 'halt').length;
 
+  // Compact header — one tap target that opens/closes the details. Collapsed it is
+  // three short lines so the route underneath stays visible.
+  const moving = opts.stats.find((s) => s.label === 'Moving');
+  const summary = [
+    opts.subtitle,
+    moving ? `${moving.value} moving` : '',
+    `${halts} halt${halts === 1 ? '' : 's'}`,
+  ]
+    .filter(Boolean)
+    .map(escapeHtml)
+    .join(' · ');
   const header =
-    `<div style="padding:14px 16px 12px;">` +
-    `<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#64748b;">` +
-    `<span style="display:inline-flex;align-items:center;gap:6px;font-weight:600;letter-spacing:0.06em;">` +
+    `<button type="button" data-trip-card-toggle aria-expanded="${opts.expanded}" ` +
+    `aria-label="${opts.expanded ? 'Hide trip details' : 'Show trip details'}" ` +
+    `style="display:flex;align-items:flex-start;gap:10px;width:100%;min-height:44px;padding:10px 12px;border:0;background:#ffffff;` +
+    `cursor:pointer;font-family:${FONT};color:${TRAIL_COLORS.ink};text-align:left;">` +
+    `<div style="flex:1;min-width:0;">` +
+    `<div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#64748b;">` +
+    `<span style="display:inline-flex;align-items:center;gap:5px;font-weight:600;letter-spacing:0.06em;">` +
     `<span style="width:6px;height:6px;border-radius:50%;background:${statusDot};"></span>${statusText}</span>` +
     (opts.dateLabel ? `<span style="color:#94a3b8;">·</span><span>${escapeHtml(opts.dateLabel)}</span>` : '') +
     `</div>` +
     (opts.title
-      ? `<div style="margin-top:6px;font-size:15px;font-weight:700;letter-spacing:-0.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(opts.title)}</div>`
+      ? `<div style="margin-top:3px;font-size:13px;font-weight:700;letter-spacing:-0.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(opts.title)}</div>`
       : '') +
-    `<div style="margin-top:2px;font-size:12px;color:#475569;">${escapeHtml(opts.subtitle)}</div>` +
-    `</div>`;
+    `<div style="margin-top:2px;font-size:11px;color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${summary}</div>` +
+    `</div>` +
+    `<span style="padding-top:2px;">${chevron}</span>` +
+    `</button>`;
+
+  if (!opts.expanded) {
+    return `<div style="font-family:${FONT};${NUMS}color:${TRAIL_COLORS.ink};">${header}</div>`;
+  }
 
   const stats =
     `<div style="display:grid;grid-template-columns:repeat(${opts.stats.length},minmax(0,1fr));border-top:1px solid #eef0f3;">` +
     opts.stats
       .map(
         (s, i) =>
-          `<div style="padding:10px ${i === 0 ? 16 : 12}px;${i > 0 ? 'border-left:1px solid #eef0f3;' : ''}">` +
-          `<div style="font-size:11px;color:#64748b;">${escapeHtml(s.label)}</div>` +
-          `<div style="margin-top:2px;font-size:14px;font-weight:700;">${escapeHtml(s.value)}</div></div>`,
+          `<div style="padding:8px ${i === 0 ? 12 : 10}px;${i > 0 ? 'border-left:1px solid #eef0f3;' : ''}">` +
+          `<div style="font-size:10px;color:#64748b;">${escapeHtml(s.label)}</div>` +
+          `<div style="margin-top:1px;font-size:13px;font-weight:700;">${escapeHtml(s.value)}</div></div>`,
       )
       .join('') +
     `</div>`;
-
-  const toggle =
-    `<button type="button" data-trip-card-toggle aria-expanded="${opts.expanded}" style="display:flex;align-items:center;justify-content:space-between;` +
-    `width:100%;min-height:40px;padding:10px 16px;border:0;border-top:1px solid #eef0f3;background:#ffffff;cursor:pointer;` +
-    `font:600 12px/1.2 ${FONT};color:${TRAIL_COLORS.ink};text-align:left;">` +
-    `<span>Timeline · ${halts} halt${halts === 1 ? '' : 's'}</span>${chevron}</button>`;
-
-  if (!opts.expanded) {
-    return `<div style="font-family:${FONT};${NUMS}color:${TRAIL_COLORS.ink};">${header}${stats}${toggle}</div>`;
-  }
 
   const placeLine = (key: string) => {
     const p = opts.places[key];
@@ -324,7 +335,7 @@ export function tripCardHtml(opts: {
   const keyItem = (swatch: string, label: string) =>
     `<span style="display:inline-flex;align-items:center;gap:5px;">${swatch}${label}</span>`;
   const key =
-    `<div style="display:flex;flex-wrap:wrap;gap:6px 12px;padding:8px 16px;border-top:1px solid #eef0f3;font-size:10px;color:#475569;">` +
+    `<div style="display:flex;flex-wrap:wrap;gap:4px 10px;padding:6px 12px;border-top:1px solid #eef0f3;background:#f8fafc;font-size:10px;color:#475569;">` +
     keyItem(`<span style="width:16px;height:4px;border-radius:2px;background:${TRAIL_COLORS.route};"></span>`, 'Driven') +
     keyItem(`<span style="width:16px;height:7px;border-radius:4px;background:#2196F3;opacity:0.45;"></span>`, 'Planned') +
     keyItem(`<span style="width:6px;height:6px;border-radius:50%;background:#ffffff;border:2px solid ${TRAIL_COLORS.routeDark};"></span>`, 'GPS ping') +
@@ -338,8 +349,8 @@ export function tripCardHtml(opts: {
     `</div>`;
 
   return (
-    `<div style="font-family:${FONT};${NUMS}color:${TRAIL_COLORS.ink};">${header}${stats}${toggle}` +
-    `<div style="max-height:260px;overflow-y:auto;padding:4px 6px;border-top:1px solid #eef0f3;">${rowsHtml}</div>` +
+    `<div style="font-family:${FONT};${NUMS}color:${TRAIL_COLORS.ink};">${header}${stats}` +
+    `<div style="max-height:200px;overflow-y:auto;padding:4px 6px;border-top:1px solid #eef0f3;">${rowsHtml}</div>` +
     `${key}</div>`
   );
 }

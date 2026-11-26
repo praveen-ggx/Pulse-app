@@ -39,7 +39,21 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - Completed trip map: shows the driven path (GPS history + checkpoints) instead of only pickup/drop. Read once (no realtime), only points between trip creation and completion (+10 min) so the history RPC's driver-wide fallback never draws unrelated places; GPS wobble (<30 m steps) skipped; driver never moved (all within 100 m, e.g. office test) → one last-location dot, no line. Open/live trips unchanged.
 - Completed trip map (web): driven path drawn bold (solid orange, white casing) and road-snapped via `routingService` (≤12 points, ≤11 cached calls, 3 at a time; failed/detour gaps stay straight); planned route faded; start / end dots with times; legend (Driven / Planned); map card reads "Trip completed · Driven route shown on map" (or last location / no GPS). Live trips unchanged; native map unchanged.
 - Trip map halts + GPS pings (web), in the existing map colours (orange route, blue planned band, green pickup / amber drop pins unchanged): pings where the driver stayed within 100 m for ≥5 min become one dark halt pill ("25 min"; red dot when > 1 hr; turns orange while its card is open). Every GPS ping is a white bead with a dark-orange ring, always visible (thinned only when dots overlap on screen; hover = time, tap = card with place looked up on tap). Completed trips: green start ring + "Start · time" tag, dark-orange end ring + "End · time" tag, moving gaps with no GPS drawn dashed grey along the road (road-routed like the rest of the path) with "No signal · 40 min" — only on trails that normally ping every ≤ 5 min and only when the gap is ≥ 15 min and ≥ 4× the usual step (sparse 12-ping trails never show it); gap tags hide while they would overlap the start/end tags or a halt, top-left trip card (Completed · date, pickup → drop, time range, Moving / Stopped / GPS pings, collapsible timeline Started → halts → Ended with place names, key). Replaces the earlier top-right legend. Live trips: ping dots restyled to the same bead, halt pills, and a collapsed "Tracked so far" card only when there are halts; dashed line, arrows, ETA box, driver pin unchanged. Completed path builder keeps the last point of a ≥5 min stay so halt length is known. Display only — no tracking, interval or DB change.
+- Fleet invite popup (driver): with two or more pending invites, ‹ 1/2 › arrows in the header switch between offers (newest first). Accept closes the popup and hides the other invites for the session (they stay pending; driver can still decline them; server already refuses a second fleet). Decline shows the next invite. Remind me later still hides all at once. No DB change.
+- DCO: approve first, leave the fleet after. Driver submits while still in a fleet; admin approval sets new status `DOCS_APPROVED` (still employed) or `APPROVED` (not employed). Leaving the fleet by any path flips `DOCS_APPROVED` → `APPROVED` automatically (triggers + `activate_my_dco()` retry). DCO screen steps: Identity → DCO docs → Submit → Leave fleet (unlocks after approval). Driver push on approve / reject / activation (`chat_push_outbox`), app popup "You're approved — leave fleet" (once per app start until they leave) and one-time "You're now a DCO" welcome. Console: "Approved · awaiting fleet exit" badge + filter, "Still in a fleet" note, Reject can withdraw an awaiting approval. Existing approved DCOs untouched.
+- DCO migration renamed `20271123101500` → `20271123110000`: V1 added `20271123101500_ground_ops_pickup_event_at.sql` with the same timestamp, and the second one pushed would be silently skipped. Content unchanged.
+- Admin Driver KYC: new "DCO docs" filter lists only drivers with an open DCO request whose PAN / bank proof still needs checking; other filters unchanged. DCO corner case: a driver approved and waiting to leave (`DOCS_APPROVED`) can no longer join another fleet by invite, phone link or membership (both guard triggers); driver sees "You're approved as a DCO. Finish leaving your fleet".
 
+- Driver expenses: "Remind fleet" sends a real notification to the fleet (bell + reimbursement queue), at most once per 6 h (migration `20271127101557_driver_expense_reminder_notify`).
+- Driver wallet: offline trips use only the amount the driver typed or captured (never the 10% guess or trip price); receivables show "—" when nothing was entered and can still be collected; book receipts show payment mode and UTR.
+- Driver wallet Transactions: a trip assigned by a company (OTP / fleet / supplier) shows that company as payer, not its customer; DCO-own and marketplace unchanged. Combined with V1's tagged-name rule for the driver's own trips.
+- Create Trip: fields stay above the keyboard on the Android APK; Driver commission (%) placeholder 0 (was 10, no value change).
+- 2026-11-25 sync: DCO screen keeps Vasanth's 5-step design, reordered for approve-first (Leave fleet last, unlocked at `DOCS_APPROVED`); migrations re-timed after V1 (`20271125125050`, `20271125125054`, `20271125125057`), content unchanged.
+- Web: odometer photo and expense receipt open the phone camera (file input with capture), also on plain http where live camera is blocked.
+- Odometer screens: Back / Cancel / Save fall back to the trip when there is no history (web "GO_BACK was not handled").
+- Driver Home map (APK): fixed "Something went wrong" when a trip arrives — MapLibre route layers now have fixed keys, so the casing no longer takes over the line layer and changes its id (`` `id` cannot be changed ``).
+- 2026-11-26 sync with V1 (#173–#179): kept Vasanth's newer wallet, receivables and "EARNINGS" title; ported our offline-amount and payer rules into them.
+- PR #180 review fixes: (1) Trips → History Yield, Home capture pre-fill and the active-trip card use the same offline rule as Wallet / Receivables (typed or captured amount; no 10% guess). (2) Offline tags saved before the `entered` flag keep a typed amount unless it equals the old guess / trip price, or the trip already has a capture (captured wins). (3) `remind_driver_expense` takes a per-expense advisory lock before the 6 h check (no double reminder). (4) `platform_approve_dco` and `_activate_dco_if_free` share a per-driver advisory lock; approve activates at once if the driver already left; `DcoApprovalPromptHost` also calls `activate_my_dco`. (5) Driver sign-up retry skips the email pre-check for the account it just created. (6) DCO prompts wait only for an invite popup actually on screen (snoozed invites no longer block them). (7) Format-only edits to `DriverTripHistoryDetailScreen.tsx` / `tripHistoryDetail.styles.ts` reverted; `process.env?.X` → `process.env.X` kept on purpose (Expo inlines `EXPO_PUBLIC_*` only for `process.env.X`, so map / Places keys were empty in the APK). (8) RBAC changelog migration refs corrected.
 ## Why
 - Driver / DCO Self surfaces needed mode-aware UI and book routing so Self vs fleet work does not hit the wrong gates or books.
 - Lagged `booking_ref_seq` vs existing refs caused unique violations after paid DCO awards (“could not confirm your job after payment”).
@@ -47,7 +61,13 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - Drivers were leaving fleets without a pending-pay warning or owner notification, and could request DCO while still employed; approval must follow disconnect + admin.
 - Live tracking showed the driver every ~30 min+ (ETA ÷ 12 pings) and stopped when the screen was off; pushing faster pings into `driver_locations` would spam trip chat and fan out `trips` updates, so live position goes over broadcast instead.
 - OSM tags Chennai corporation wards as the area's neighbourhood, so picking "Madhavaram" in search saved "Ward 30, Tamil Nadu".
+- Fleet invites: only the newest invite was reachable — the popup showed `[0]` with a 1/2 badge and no way to see Fleet A's offer once Fleet B invited the same driver.
+- DCO: drivers had to quit their fleet before even submitting, so a rejected driver had already lost their job.
+- DCO: a fleet owner linking an approved-and-waiting driver by phone would park a second employment behind the approval, so leaving the first fleet no longer activated DCO.
 
+- Wallet named the company's customer (e.g. Godrej) as payer on trips a company assigned, but that company pays the driver.
+- Home crashed for drivers when a trip's road route loaded (seen in the phone crash log).
+- PR #180 review: the same offline trip showed different amounts on different screens; old typed amounts would read 0; double tap / race conditions in expense reminder and DCO approve vs leave fleet.
 ## Areas
 - `lib/crypto/sha256File.util.ts` (+ unit test) — web odometer / Pulse Scan fingerprint
 - `features/trips/verification/hooks/useOdometerPhotoOcr.ts`, `features/ocr/services/ocrQuota.service.ts`
@@ -68,6 +88,9 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - `supabase/migrations/20271113104500_dco_require_verified_kyc.sql`, `features/driver/components/DcoStatusScreen.tsx`, `lib/queryKeys.ts`, `analytics/src/lib/dco.ts`, `analytics/src/components/queue/DcoReviewPanel.tsx`, `analytics/src/components/queue/DriverKycPanel.tsx`, `analytics/src/lib/driverKyc.ts`, `features/drivers/screens/DriverDocumentsScreen.tsx`, `features/drivers/services/driverKycDocuments.service.ts`
 - `supabase/tests/dco_operating_model_boundary.sql`
 - `features/tracking/**` (driverLiveTracking.service, driverLiveLocationTask.service, useDriverLiveTracking, constants, flags, movement filter, map store, checkpoint service + tests), `features/driver/communication/hooks/useDriverLocationStream.ts`, `features/trips/components/trip-detail/hooks/useTripDetail.ts`, `app/_layout.tsx`, `app.config.js` (expo-location plugin: background + foreground service), `types/expo-location.d.ts`, `package.json` (`expo-task-manager`)
+- `components/driver/DriverInviteModal.tsx` (queue arrows), `contexts/DriverInviteModalContext.tsx` (active invite, next/prev, hide others after accept)
+- `supabase/migrations/20271127101550_dco_approve_before_leaving_fleet.sql`, `features/driver/components/DcoStatusScreen.tsx`, `features/driver/components/DcoApprovalPromptHost.tsx` (new), `app/(driver)/_layout.tsx`, `features/driver/services/dco.service.ts`, `features/drivers/domain/driverOperatingMode.ts`, `features/drivers/screens/DriverProfileScreen.tsx`, `analytics/src/lib/dco.ts`, `analytics/src/components/queue/DcoReviewPanel.tsx`, `docs/RBAC_OPERATING_MODEL_CHANGELOG.md`
+- `analytics/src/components/queue/DriverKycPanel.tsx` (DCO docs filter), `features/drivers/services/drivers.service.ts` (`dco_awaiting_fleet_exit` message), `supabase/migrations/20271127101554_dco_block_new_fleet_while_awaiting_exit.sql`
 
 ## Migrations
 - `20271113100000_booking_ref_skip_taken_refs.sql`
@@ -75,6 +98,11 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - `20271113103000_fleet_disconnect_notify_and_dco_request_gate.sql`
 - `20271113104500_dco_require_verified_kyc.sql`
 - `20271113110000_ocr_jobs_insert_allow_trip_access.sql`
+- `20271127101550_dco_approve_before_leaving_fleet.sql`
+- `20271127101554_dco_block_new_fleet_while_awaiting_exit.sql`
+- `20271127101557_driver_expense_reminder_notify.sql`
+- 2026-11-26 sync (after #182 Chat V2, latest `20271126235530`): re-timed again (were `20271125125050`, `20271125125054`, `20271125125057`). Content = the review-fix version (adds the advisory locks), so preprod must run the new files even if the old names were applied.
+- 2026-11-25 sync: these three were re-timed after V1's `20271124154500` (were `20271123110000`, `20271123113000`, `20271124101500`). Content unchanged.
 - Not applied from this branch. Nihas applies to preprod after merge; Vasanth applies to prod on release.
 - `lib/maps/placeSearch.util.ts` (`cleanOsmAreaName`), `lib/placesService.ts`, `lib/placeCityState.util.ts`, `lib/mapLocationLabel.service.ts` (+ `lib/__tests__/placeWardName.test.ts`)
 - `lib/placesService.ts` (`searchGooglePlaces` → Places API (New), `resolvePlaceSelection`, `isPendingGooglePlace`), `features/trips/components/add-trip/LocationSearchField.tsx` (+ `lib/__tests__/placesGoogleNew.test.ts`)
@@ -83,4 +111,9 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - `features/trips/utils/tripHalts.util.ts` (+ test), `features/trips/components/trip-detail/tripMapTrailMarkers.web.ts`, `TripMap.web.tsx` (halt pills, cards, timeline, arrows, zoom-gated dots), `completedTripPath.util.ts` (keep halt end point, + tests)
 
 ## Tested
-- not clicked through
+- Trip-arrival crash: error read from phone logcat (OnePlus CPH2707, Android 16); fixed APK installed and opened with no errors. A new trip has not yet arrived on it since the fix.
+- jest 931 suites / 6632 tests pass; tsc 0 errors; lint 100 and cycles 98 are identical on clean V1 (no new ones from this branch).
+- Migrations: run on preprod by Gowtham under the OLD names (`20271123110000`, `20271123113000`, `20271124101500`). Before `db push`, preprod needs `supabase migration repair --status reverted 20271123110000 20271123113000 20271124101500`; the new-named files are safe to re-run.
+- DCO approve-first, expense reminder and web camera: not clicked through.
+- PR #180 review fixes: driver util / settlement tests (incl. 5 new for old typed amounts) and 84 related screen / migration suites pass; tsc clean on changed files; APK built. Not clicked through; SQL locks not run on a DB.
+- Earlier items: not clicked through

@@ -22,7 +22,7 @@ export function ReimbursementQueue({
           <View key={item.id} style={styles.rowWrap}>
             <OperationalListRow
               title={`${item.trip?.tripLabel ?? "Unlinked"} · ${item.sourceType.toUpperCase()}`}
-              subtitle={`${item.reimbursementState ?? "reported"} · paid by ${item.paymentOwner ?? "driver"}`}
+              subtitle={`${item.reimbursementState ?? "reported"} · paid by ${item.paymentOwner ?? "driver"}${item.remindedAt ? " · Reminded by driver" : ""}`}
               trailing={
                 <Pressable
                   onPress={() => onToggle(item.id)}

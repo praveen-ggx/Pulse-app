@@ -44,6 +44,15 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - DCO migration renamed `20271123101500` → `20271123110000`: V1 added `20271123101500_ground_ops_pickup_event_at.sql` with the same timestamp, and the second one pushed would be silently skipped. Content unchanged.
 - Admin Driver KYC: new "DCO docs" filter lists only drivers with an open DCO request whose PAN / bank proof still needs checking; other filters unchanged. DCO corner case: a driver approved and waiting to leave (`DOCS_APPROVED`) can no longer join another fleet by invite, phone link or membership (both guard triggers); driver sees "You're approved as a DCO. Finish leaving your fleet".
 
+- Driver expenses: "Remind fleet" sends a real notification to the fleet (bell + reimbursement queue), at most once per 6 h (migration `20271125125057_driver_expense_reminder_notify`).
+- Driver wallet: offline trips use only the amount the driver typed or captured (never the 10% guess or trip price); receivables show "—" when nothing was entered and can still be collected; book receipts show payment mode and UTR.
+- Driver wallet Transactions: a trip assigned by a company (OTP / fleet / supplier) shows that company as payer, not its customer; DCO-own and marketplace unchanged. Combined with V1's tagged-name rule for the driver's own trips.
+- Create Trip: fields stay above the keyboard on the Android APK; Driver commission (%) placeholder 0 (was 10, no value change).
+- 2026-11-25 sync: DCO screen keeps Vasanth's 5-step design, reordered for approve-first (Leave fleet last, unlocked at `DOCS_APPROVED`); migrations re-timed after V1 (`20271125125050`, `20271125125054`, `20271125125057`), content unchanged.
+- Web: odometer photo and expense receipt open the phone camera (file input with capture), also on plain http where live camera is blocked.
+- Odometer screens: Back / Cancel / Save fall back to the trip when there is no history (web "GO_BACK was not handled").
+- Driver Home map (APK): fixed "Something went wrong" when a trip arrives — MapLibre route layers now have fixed keys, so the casing no longer takes over the line layer and changes its id (`` `id` cannot be changed ``).
+- 2026-11-26 sync with V1 (#173–#179): kept Vasanth's newer wallet, receivables and "EARNINGS" title; ported our offline-amount and payer rules into them.
 ## Why
 - Driver / DCO Self surfaces needed mode-aware UI and book routing so Self vs fleet work does not hit the wrong gates or books.
 - Lagged `booking_ref_seq` vs existing refs caused unique violations after paid DCO awards (“could not confirm your job after payment”).
@@ -55,6 +64,8 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - DCO: drivers had to quit their fleet before even submitting, so a rejected driver had already lost their job.
 - DCO: a fleet owner linking an approved-and-waiting driver by phone would park a second employment behind the approval, so leaving the first fleet no longer activated DCO.
 
+- Wallet named the company's customer (e.g. Godrej) as payer on trips a company assigned, but that company pays the driver.
+- Home crashed for drivers when a trip's road route loaded (seen in the phone crash log).
 ## Areas
 - `lib/crypto/sha256File.util.ts` (+ unit test) — web odometer / Pulse Scan fingerprint
 - `features/trips/verification/hooks/useOdometerPhotoOcr.ts`, `features/ocr/services/ocrQuota.service.ts`
@@ -97,4 +108,8 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - `features/trips/utils/tripHalts.util.ts` (+ test), `features/trips/components/trip-detail/tripMapTrailMarkers.web.ts`, `TripMap.web.tsx` (halt pills, cards, timeline, arrows, zoom-gated dots), `completedTripPath.util.ts` (keep halt end point, + tests)
 
 ## Tested
-- not clicked through
+- Trip-arrival crash: error read from phone logcat (OnePlus CPH2707, Android 16); fixed APK installed and opened with no errors. A new trip has not yet arrived on it since the fix.
+- jest 931 suites / 6632 tests pass; tsc 0 errors; lint 100 and cycles 98 are identical on clean V1 (no new ones from this branch).
+- Migrations: run on preprod by Gowtham under the OLD names (`20271123110000`, `20271123113000`, `20271124101500`). Before `db push`, preprod needs `supabase migration repair --status reverted 20271123110000 20271123113000 20271124101500`; the new-named files are safe to re-run.
+- DCO approve-first, expense reminder and web camera: not clicked through.
+- Earlier items: not clicked through

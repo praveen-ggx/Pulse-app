@@ -137,7 +137,7 @@ export const ChatComposerMarkdownInput = React.forwardRef<
         placeholderTextColor={placeholderTextColor}
         // caretColor is a web-only CSS prop RN Web forwards via TextInput; not in RN types.
         {...(CARET_PROP as object)}
-        selectionColor="rgba(91, 94, 244, 0.22)"
+        selectionColor={Theme.brandBlueWash}
         underlineColorAndroid="transparent"
       />
     </View>
@@ -148,9 +148,11 @@ const styles = StyleSheet.create({
   wrap: {
     flex: 1,
     minWidth: 0,
+    width: "100%",
     position: "relative",
-    justifyContent: "center",
-    alignSelf: "center",
+    // Top-left typing — never vertically/horizontally center short drafts.
+    justifyContent: "flex-start",
+    alignSelf: "stretch",
   },
   previewLayer: {
     position: "absolute",
@@ -158,6 +160,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 0,
+    textAlign: "left",
   },
   inputLayer: {
     position: "relative",

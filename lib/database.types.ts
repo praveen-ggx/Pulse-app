@@ -17180,6 +17180,160 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      /**
+       * Team channel RPCs — signatures verified against preprod
+       * `xbisiveavvbifbzyfhgy` (2026-11-26). Hand-authored because CLI
+       * typegen must not target production-linked local config.
+       */
+      create_team_chat_channel: {
+        Args: {
+          p_organization_id: string
+          p_channel_key: string
+          p_title?: string | null
+          p_topic?: string | null
+          p_visibility?: string | null
+          p_member_ids?: string[] | null
+        }
+        Returns: {
+          channel_key: string | null
+          client_id: string | null
+          conversation_type: string
+          created_at: string
+          created_by: string | null
+          driver_id: string | null
+          id: string
+          is_archived: boolean
+          last_message_at: string | null
+          last_message_preview: string | null
+          legacy_network_conversation_id: string | null
+          legacy_trip_conversation_id: string | null
+          message_count: number
+          metadata: Json
+          organization_id: string
+          supplier_id: string | null
+          title: string | null
+          trip_id: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "chat_conversations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      list_team_chat_channels: {
+        Args: { p_organization_id: string; p_limit?: number }
+        Returns: {
+          id: string
+          organization_id: string
+          channel_key: string | null
+          title: string | null
+          topic: string | null
+          visibility: string
+          is_archived: boolean
+          is_member: boolean
+          is_admin: boolean
+          member_count: number
+          last_message_at: string | null
+          last_message_preview: string | null
+          created_at: string
+          created_by: string | null
+        }[]
+      }
+      join_team_chat_channel: {
+        Args: { p_conversation_id: string }
+        Returns: {
+          channel_key: string | null
+          client_id: string | null
+          conversation_type: string
+          created_at: string
+          created_by: string | null
+          driver_id: string | null
+          id: string
+          is_archived: boolean
+          last_message_at: string | null
+          last_message_preview: string | null
+          legacy_network_conversation_id: string | null
+          legacy_trip_conversation_id: string | null
+          message_count: number
+          metadata: Json
+          organization_id: string
+          supplier_id: string | null
+          title: string | null
+          trip_id: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "chat_conversations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      leave_team_chat_channel: {
+        Args: { p_conversation_id: string }
+        Returns: undefined
+      }
+      invite_team_chat_channel_members: {
+        Args: { p_conversation_id: string; p_member_ids: string[] }
+        Returns: number
+      }
+      list_team_chat_channel_members: {
+        Args: { p_conversation_id: string }
+        Returns: {
+          user_id: string
+          participant_role: string
+          joined_at: string | null
+          full_name: string
+          avatar_url: string | null
+          avatar_seed: string | null
+          org_role: string | null
+        }[]
+      }
+      update_team_chat_channel: {
+        Args: {
+          p_conversation_id: string
+          p_title?: string | null
+          p_topic?: string | null
+          p_visibility?: string | null
+        }
+        Returns: {
+          channel_key: string | null
+          client_id: string | null
+          conversation_type: string
+          created_at: string
+          created_by: string | null
+          driver_id: string | null
+          id: string
+          is_archived: boolean
+          last_message_at: string | null
+          last_message_preview: string | null
+          legacy_network_conversation_id: string | null
+          legacy_trip_conversation_id: string | null
+          message_count: number
+          metadata: Json
+          organization_id: string
+          supplier_id: string | null
+          title: string | null
+          trip_id: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "chat_conversations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      archive_team_chat_channel: {
+        Args: { p_conversation_id: string }
+        Returns: undefined
+      }
+      list_team_chat_eligible_user_ids: {
+        Args: { p_organization_id: string }
+        Returns: string[]
+      }
       ensure_driver_row_by_phone_insert: {
         Args: {
           p_commission_percent?: number

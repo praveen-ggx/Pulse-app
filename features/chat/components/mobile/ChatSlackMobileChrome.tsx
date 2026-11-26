@@ -7,7 +7,7 @@ import { ChatLocationPingInboxPreview } from "@/features/chat/components/shared/
 import { ChatSlackDocumentAttachmentCompact } from "@/features/chat/components/shared/ChatSlackDocumentAttachment";
 import type { ConversationImagePreview } from "@/features/chat/utils/conversationImagePreview.util";
 import { ChatSlackMirrorToggle } from "@/features/chat/components/shared/ChatSlackMirrorToggle";
-import { SLACK_STREAM_TABS } from "@/features/chat/components/shared/chatSlackStreamTabs";
+import { getVisibleSlackStreamTabs } from "@/features/chat/components/shared/chatSlackStreamTabs";
 import type { ResolvedPartyAvatarIdentity } from "@/lib/entityIdentity";
 import { getSignedAvatarUrl } from "@/lib/avatarUpload";
 import { CHAT_ACCENT } from "@/features/chat/chatTheme";
@@ -89,7 +89,7 @@ const PEOPLE_STRIP_LOTTIE = 52;
 
 const PEOPLE_STRIP_EMPTY_ANIMATIONS = {
   partners: require("@/assets/Animated folder/add-friend.json"),
-  integrated: require("@/assets/Animated folder/conversation-verified.json"),
+  team: require("@/assets/Animated folder/add-friend.json"),
   trip: require("@/assets/Animated folder/chat-with-driver.json"),
 } as const;
 
@@ -99,15 +99,15 @@ const PEOPLE_STRIP_EMPTY_COPY: Record<
 > = {
   partners: {
     title: "Grow your network",
-    subtitle: "Integrated partners you message will show up here.",
+    subtitle: "Clients and suppliers you message will show up here.",
   },
-  integrated: {
-    title: "Integrated chat",
-    subtitle: "Driver and party threads show up on active integrated trips.",
+  team: {
+    title: "Workspace team",
+    subtitle: "Message active members of this workspace.",
   },
   trip: {
     title: "On-trip chat",
-    subtitle: "Driver chat shows up on active trips.",
+    subtitle: "Driver and party threads show up on active trips.",
   },
 };
 
@@ -116,7 +116,7 @@ function resolvePeopleStripEmptyVariant(
 ): keyof typeof PEOPLE_STRIP_EMPTY_ANIMATIONS {
   const key = sectionLabel.trim().toLowerCase();
   if (key === "partners") return "partners";
-  if (key === "integrated") return "integrated";
+  if (key === "team") return "team";
   return "trip";
 }
 
@@ -166,7 +166,7 @@ function PeopleStripEmptyState({
   );
 }
 
-export type SlackStreamTabId = "network" | "trips" | "indent";
+export type SlackStreamTabId = "network" | "trips" | "team";
 
 export type SlackPeopleItem = {
   id: string;
@@ -196,7 +196,7 @@ export function ChatSlackListHeader({
   profileAvatarSeed,
   profileOrgLogoUrl,
 }: {
-  /** Active stream tab — DMs, Trips, Integrated. */
+  /** Active stream tab — DM, Trips, Team. */
   streamLabel: string;
   orgName?: string;
   topInset: number;
@@ -306,7 +306,7 @@ export function ChatSlackBottomNav({
         variant="bottomNav"
         activeId={activeTab}
         onSelect={(id) => onSelect(id as SlackStreamTabId)}
-        items={SLACK_STREAM_TABS.map((tab) => ({
+        items={getVisibleSlackStreamTabs().map((tab) => ({
           id: tab.id,
           label: tab.shortLabel,
           Icon: tab.Icon,
@@ -442,12 +442,14 @@ export function ChatSlackFilterRow({
       items={chips.map((chip) => ({
         id: chip.id,
         label: chip.label,
-        showFilterIcon: chip.id === "all" || chip.id === "active",
+        // Filter icon only on DM "All" — Trips Active|History stays label-only (driver chrome).
+        showFilterIcon: chip.id === "all",
       }))}
       style={
         inline
           ? [st.inboxToolbarFilter, st.inboxToolbarFilterInline, { marginHorizontal: 0, marginBottom: 0 }]
-          : [st.inboxToolbarFilter, st.inboxToolbarFilterStandalone, { marginHorizontal: 12, marginBottom: 8 }]
+          : // filterTrack already insets; don't re-apply horizontal margin.
+            [st.inboxToolbarFilter, st.inboxToolbarFilterStandalone, { marginHorizontal: 0, marginBottom: 4 }]
       }
     />
   );
@@ -544,6 +546,9 @@ export function ChatSlackInboxToolbar({
   searchPlaceholder,
   searchInputRef,
   showSearch,
+  showPeopleStrip = true,
+  /** `stacked` = full-width Active|History then search (driver-style Trips). */
+  filterSearchLayout = "inline",
 }: {
   peopleItems: SlackPeopleItem[];
   selectedPeopleId?: string | null;
@@ -557,23 +562,42 @@ export function ChatSlackInboxToolbar({
   searchPlaceholder: string;
   searchInputRef?: React.RefObject<TextInputType | null>;
   showSearch: boolean;
+  showPeopleStrip?: boolean;
+  filterSearchLayout?: "inline" | "stacked";
 }) {
+  const showStrip = showPeopleStrip && (peopleItems.length > 0 || Boolean(onCompose));
+  const stackFilters = filterSearchLayout === "stacked" || !showSearch;
   return (
     <ChatSlackInboxChrome>
-      <ChatSlackPeopleStrip
-        items={peopleItems}
-        selectedId={selectedPeopleId}
-        sectionLabel={peopleSectionLabel}
-        onCompose={onCompose}
-      />
+      {showStrip ? (
+        <ChatSlackPeopleStrip
+          items={peopleItems}
+          selectedId={selectedPeopleId}
+          sectionLabel={peopleSectionLabel}
+          onCompose={onCompose}
+        />
+      ) : null}
       {networkStoryStrip ? (
         <>
-          <View style={st.chromeDivider} />
+          {showStrip ? <View style={st.chromeDivider} /> : null}
           {networkStoryStrip}
         </>
       ) : null}
-      {(peopleItems.length > 0 || onCompose) ? <View style={st.chromeDivider} /> : null}
-      {showSearch && filterChips.length > 0 ? (
+      {showStrip || networkStoryStrip ? <View style={st.chromeDivider} /> : null}
+      {stackFilters ? (
+        <>
+          <ChatSlackFilterRow chips={filterChips} />
+          {showSearch ? (
+            <ChatSlackTripSearchStrip
+              value={searchValue}
+              onChangeText={onSearchChange}
+              onClear={onSearchClear}
+              inputRef={searchInputRef}
+              placeholder={searchPlaceholder}
+            />
+          ) : null}
+        </>
+      ) : (
         <View style={st.inboxToolbarRow}>
           <ChatSlackFilterRow chips={filterChips} inline />
           <View style={st.inboxToolbarSearch}>
@@ -587,19 +611,6 @@ export function ChatSlackInboxToolbar({
             />
           </View>
         </View>
-      ) : (
-        <>
-          <ChatSlackFilterRow chips={filterChips} />
-          {showSearch ? (
-            <ChatSlackTripSearchStrip
-              value={searchValue}
-              onChangeText={onSearchChange}
-              onClear={onSearchClear}
-              inputRef={searchInputRef}
-              placeholder={searchPlaceholder}
-            />
-          ) : null}
-        </>
       )}
     </ChatSlackInboxChrome>
   );
@@ -770,6 +781,9 @@ function ChatSlackListRowInner({
     Boolean(previewImagePreviews && previewImagePreviews.length > 0);
   const hasDriverSwapPreview =
     previewKind === "driver_swap" && Boolean(previewDriverSwap);
+  const unreadCount = Math.max(0, Number(unread ?? 0));
+  const showUnread = unreadCount > 0 && !active;
+  const unreadLabel = unreadCount > 9 ? "9+" : String(unreadCount);
   return (
     <Pressable
       onPress={onPress}
@@ -781,6 +795,10 @@ function ChatSlackListRowInner({
         active && st.listRowActive,
         pressed && st.listRowPressed,
       ]}
+      accessibilityState={{ selected: Boolean(active) }}
+      accessibilityHint={
+        showUnread ? `${unreadLabel} unread messages` : undefined
+      }
     >
       <View style={st.listRowAvatarWrap}>
         <View
@@ -791,9 +809,7 @@ function ChatSlackListRowInner({
         >
           <ChatPartyAvatar identity={identity} size={SLACK_AVATAR.list} />
         </View>
-        {unread && unread > 0 && !active ? (
-          <View style={st.listRowUnreadDot} />
-        ) : null}
+        {showUnread ? <View style={st.listRowUnreadDot} /> : null}
         {tripKind === "completed" ? (
           <View style={st.listRowAvatarCompletedBadge} pointerEvents="none">
             <CompletedSolidBadge size={15} />
@@ -803,7 +819,10 @@ function ChatSlackListRowInner({
       <View style={st.listRowBody}>
         <View style={st.listRowTop}>
           <View style={st.listRowTitleWrap}>
-            <Text style={st.listRowTitle} numberOfLines={1}>
+            <Text
+              style={[st.listRowTitle, showUnread && st.listRowTitleUnread]}
+              numberOfLines={1}
+            >
               {title}
             </Text>
             {tripKind === "active" ? (
@@ -813,7 +832,7 @@ function ChatSlackListRowInner({
               </View>
             ) : null}
           </View>
-          {titleMeta || time ? (
+          {titleMeta || time || showUnread ? (
             <View style={st.listRowMetaCol}>
               {titleMeta ? (
                 <Text style={st.listRowTitleMeta} numberOfLines={1}>
@@ -821,9 +840,20 @@ function ChatSlackListRowInner({
                 </Text>
               ) : null}
               {time ? (
-                <Text style={st.listRowTime} numberOfLines={1}>
+                <Text
+                  style={[st.listRowTime, showUnread && st.listRowTimeUnread]}
+                  numberOfLines={1}
+                >
                   {time}
                 </Text>
+              ) : null}
+              {showUnread ? (
+                <View
+                  style={st.listRowUnreadCount}
+                  accessibilityLabel={`${unreadLabel} unread`}
+                >
+                  <Text style={st.listRowUnreadCountText}>{unreadLabel}</Text>
+                </View>
               ) : null}
             </View>
           ) : null}
@@ -886,7 +916,10 @@ function ChatSlackListRowInner({
           ) : (
             <ChatListPreviewWithStar
               text={preview}
-              style={st.listRowPreview}
+              style={[
+                st.listRowPreview,
+                showUnread && st.listRowPreviewUnread,
+              ]}
               numberOfLines={2}
               showStar={showPreviewStar}
               starFilled={previewStarFilled}

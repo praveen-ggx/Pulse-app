@@ -80,7 +80,9 @@ function resolveDriverAvatarIdentity(params: {
   return {
     displayName: params.displayName,
     entityType: "driver",
+    // Prefer real photo (http or storage path); Avatar signs private paths.
     avatarUrl: url,
+    // Profile/user seeds (user-*) beat invented driver-N cartoons when present.
     avatarSeed: dbSeed || (driverId ? driverAvatarSeedFromId(driverId) : null),
   };
 }

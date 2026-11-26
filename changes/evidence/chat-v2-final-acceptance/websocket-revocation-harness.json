@@ -1,0 +1,101 @@
+{
+  "ranAt": "2026-11-26T07:01:22.986Z",
+  "orgId": "3d27f76a-7f79-49a2-87b6-4032c3f51fa8",
+  "conversationId": "5ffdb55c-b963-4576-b717-810d3c83b529",
+  "steps": [
+    {
+      "step": "create_channel",
+      "id": "5ffdb55c-b963-4576-b717-810d3c83b529"
+    },
+    {
+      "step": "subscribe",
+      "status": "SUBSCRIBED"
+    },
+    {
+      "step": "send_before",
+      "status": 200,
+      "id": "62b5b0c8-38f7-455c-b4d3-6a03b28fabdd",
+      "msg": null
+    },
+    {
+      "step": "received_before",
+      "count": 1,
+      "events": [
+        {
+          "at": "2026-11-26T07:01:23.428Z",
+          "id": "62b5b0c8-38f7-455c-b4d3-6a03b28fabdd",
+          "content": "before-1795676483190"
+        }
+      ]
+    },
+    {
+      "step": "revoke_leave",
+      "status": 204,
+      "msg": null
+    },
+    {
+      "step": "members_after",
+      "status": 200,
+      "stillMember": false,
+      "count": 2
+    },
+    {
+      "step": "select_after_revoke",
+      "error": null,
+      "count": 0
+    },
+    {
+      "step": "send_after",
+      "status": 200,
+      "id": "aa830eba-8952-4027-979f-232788927031",
+      "msg": null
+    },
+    {
+      "step": "received_after",
+      "count": 0,
+      "total": 1
+    },
+    {
+      "step": "reconnect",
+      "status": "SUBSCRIBED"
+    },
+    {
+      "step": "send_reconnect",
+      "status": 200,
+      "id": "7b0c423a-63f7-497e-aada-4f66a19ec6e4",
+      "msg": null
+    },
+    {
+      "step": "received_reconnect",
+      "count": 0
+    },
+    {
+      "step": "control_admin_still_receives",
+      "sub": "SUBSCRIBED",
+      "send": {
+        "status": 200,
+        "id": "4ca6a79a-6b93-43aa-b1ed-5f943beafcdc",
+        "msg": null
+      },
+      "received": 1
+    }
+  ],
+  "verdict": {
+    "subscribed": true,
+    "messageDeliveryBefore": true,
+    "sendBeforeOk": true,
+    "memberRemoved": true,
+    "sendAfterOk": true,
+    "noDeliveryAfterRevoke": true,
+    "sendReconnectOk": true,
+    "reconnectNoDelivery": true,
+    "controlReceiverStillWorks": true,
+    "pass": true
+  },
+  "notes": [
+    "Real Supabase Realtime postgres_changes subscription on chat_messages.",
+    "INSERT delivered to member before leave_team_chat_channel.",
+    "After leave: member absent from list_team_chat_channel_members; SELECT returns 0; subsequent owner INSERTs not delivered to revoked subscriber.",
+    "Reconnect as revoked user still receives 0 events while control admin subscription receives the next INSERT."
+  ]
+}

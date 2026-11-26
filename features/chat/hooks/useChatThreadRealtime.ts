@@ -10,7 +10,7 @@
  * Only the device with the thread open receives message payloads; everyone else's
  * inbox updates via the cheap `chat_conversations` row stream (useChatInboxQuery).
  */
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { queryKeys } from "@/lib/queryKeys";
@@ -42,9 +42,12 @@ function upsertMessage(
   return [row, ...old];
 }
 
+const TEAM_THREAD_PAGE = 30;
+
 /**
  * Loads the newest message page and keeps it live while the thread is open.
  * Pass `null` to park the hook (no subscription, no query).
+ * Older pages load on demand via {@link loadOlder} (WhatsApp-style).
  */
 export function useChatThreadRealtime(
   conversationId: string | null,
@@ -53,10 +56,23 @@ export function useChatThreadRealtime(
   const qc = useQueryClient();
   // Buffer Realtime events that fire before the bootstrap cache exists.
   const pendingRef = useRef<ChatPlatformMessageRow[]>([]);
+  const olderInFlightRef = useRef(false);
+  const [hasMoreOlder, setHasMoreOlder] = useState(true);
+
+  useEffect(() => {
+    olderInFlightRef.current = false;
+    setHasMoreOlder(true);
+  }, [conversationId]);
 
   const query = useQuery({
     queryKey: queryKeys.chatPlatform.messages(conversationId ?? "_"),
-    queryFn: () => getChatMessages(conversationId!),
+    queryFn: async () => {
+      const rows = await getChatMessages(conversationId!, {
+        limit: TEAM_THREAD_PAGE,
+      });
+      setHasMoreOlder(rows.length >= TEAM_THREAD_PAGE);
+      return rows;
+    },
     enabled: !!conversationId,
     staleTime: 60_000,
     gcTime: 30 * 60_000,
@@ -130,5 +146,51 @@ export function useChatThreadRealtime(
     );
   }, [conversationId, organizationId, qc]);
 
-  return query;
+  const loadOlder = useCallback(async () => {
+    if (!conversationId || olderInFlightRef.current || !hasMoreOlder) return;
+    const current =
+      qc.getQueryData<ChatPlatformMessageRow[]>(
+        queryKeys.chatPlatform.messages(conversationId),
+      ) ?? [];
+    if (current.length === 0) return;
+    const oldest = [...current].sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    )[0];
+    if (!oldest?.created_at) return;
+
+    olderInFlightRef.current = true;
+    try {
+      const older = await getChatMessages(conversationId, {
+        before: oldest.created_at,
+        limit: TEAM_THREAD_PAGE,
+      });
+      setHasMoreOlder(older.length >= TEAM_THREAD_PAGE);
+      if (older.length === 0) return;
+      qc.setQueryData<ChatPlatformMessageRow[]>(
+        queryKeys.chatPlatform.messages(conversationId),
+        (prev) => {
+          const base = Array.isArray(prev) ? prev : [];
+          const byId = new Map(base.map((m) => [m.id, m]));
+          for (const row of older) {
+            if (!byId.has(row.id)) byId.set(row.id, row);
+          }
+          return Array.from(byId.values()).sort(
+            (a, b) =>
+              new Date(b.created_at).getTime() -
+              new Date(a.created_at).getTime(),
+          );
+        },
+      );
+    } finally {
+      olderInFlightRef.current = false;
+    }
+  }, [conversationId, hasMoreOlder, qc]);
+
+  return {
+    ...query,
+    loadOlder,
+    hasMoreOlder,
+    isLoadingOlder: olderInFlightRef.current,
+  };
 }

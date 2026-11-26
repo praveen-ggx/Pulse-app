@@ -760,6 +760,36 @@ export const slackMobileStyles = withWebSafeShadows(
     textTransform: "lowercase",
     textAlign: "right",
   },
+  listRowTimeUnread: {
+    color: PULSE_CHAT.accent,
+    fontWeight: "700",
+  },
+  listRowTitleUnread: {
+    fontWeight: "700",
+    color: SLACK_MOBILE.textPrimary,
+  },
+  listRowPreviewUnread: {
+    fontWeight: "600",
+    color: SLACK_MOBILE.textPrimary,
+  },
+  /** WhatsApp / driver-style numeric unread on the trailing edge. */
+  listRowUnreadCount: {
+    marginTop: 4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    backgroundColor: PULSE_CHAT.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "flex-end",
+  },
+  listRowUnreadCountText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
   partyRecommendedHeader: {
     flexDirection: "row",
     alignItems: "center",

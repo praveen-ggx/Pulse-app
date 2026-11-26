@@ -315,11 +315,17 @@ export function SmartChatImage({
   }, [fullUri, fullState]);
 
   const fullImageLayout = fullNaturalSize
-    ? resolveFitImageLayout(fullNaturalSize, windowW, viewportHeight, {
-        horizontal: 16,
-        top: 56,
-        bottom: 24,
-      })
+    ? resolveFitImageLayout(
+        fullNaturalSize,
+        windowW,
+        viewportHeight,
+        {
+          horizontal: 16,
+          top: 56,
+          bottom: 24,
+        },
+        { allowUpscale: true },
+      )
     : null;
 
   if (thumbState === "error") {
@@ -419,7 +425,9 @@ export function SmartChatImage({
                     width: fullImageLayout.width,
                     height: fullImageLayout.height,
                     maxWidth: windowW - 32,
-                    maxHeight: viewportHeight - 80,
+                    ...(fullImageLayout.scrollable
+                      ? null
+                      : { maxHeight: viewportHeight - 80 }),
                   }}
                   contentFit="contain"
                   cachePolicy="memory-disk"

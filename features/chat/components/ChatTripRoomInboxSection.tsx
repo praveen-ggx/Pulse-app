@@ -70,7 +70,7 @@ function TripRoomRow({
           {item.title ?? "Trip team"}
         </Text>
         <ChatListPreviewText
-          text={item.last_message_preview?.trim() || "Team room · all parties"}
+          text={item.last_message_preview?.trim() || "Trip room · all parties"}
           style={styles.preview}
           numberOfLines={1}
         />
@@ -108,7 +108,7 @@ export function ChatTripRoomInboxSection({
 
   return (
     <View style={[styles.section, style]}>
-      <Text style={styles.sectionLabel}>Team rooms</Text>
+      <Text style={styles.sectionLabel}>Trip rooms</Text>
       {tripRooms.map((item) => (
         <TripRoomRow
           key={item.id}

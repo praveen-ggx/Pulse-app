@@ -37,20 +37,22 @@ export function resolveFitImageLayout(
   const natW = Math.max(1, natural.width);
   const natH = Math.max(1, natural.height);
 
+  const allowUpscale = options?.allowUpscale === true;
   const isTallPage = natH / natW > maxH / maxW && natH > maxH;
 
   if (isTallPage) {
-    const width = Math.min(natW, maxW);
+    // Fill desktop width when previewing; keep natural width on thumbnails.
+    const width = allowUpscale ? maxW : Math.min(natW, maxW);
     const height = (width / natW) * natH;
     return {
-      width,
-      height,
+      width: Math.max(1, width),
+      height: Math.max(1, height),
       scrollable: height > maxH + 1,
     };
   }
 
   let scale = Math.min(maxW / natW, maxH / natH);
-  if (!options?.allowUpscale) {
+  if (!allowUpscale) {
     scale = Math.min(scale, 1);
   }
   return {

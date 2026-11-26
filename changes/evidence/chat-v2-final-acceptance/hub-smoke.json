@@ -1,0 +1,16 @@
+{
+  "url": "https://pulse-preprod.netlify.app/chat",
+  "org": "INDIVIDUALTESTORG",
+  "authHost": "xbisiveavvbifbzyfhgy",
+  "prodAuthPresent": false,
+  "tabs": ["DM", "Trips", "Team"],
+  "results": {
+    "DM": "PASS — PARTNERS empty state + search",
+    "Trips": "PASS — ON TRIP / Active empty state",
+    "Team": "PASS — CHANNELS + DIRECT MESSAGES empty states, Browse/New visible"
+  },
+  "sessions": {
+    "single": "PASS",
+    "threeIndependent": "BLOCKED — only one authenticated browser session available"
+  }
+}

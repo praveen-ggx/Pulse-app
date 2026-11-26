@@ -89,7 +89,8 @@ function ImageLightbox({ url, fileName, onClose }: DocumentPreviewProps) {
           width: imageLayout.width,
           height: imageLayout.height,
           maxWidth: maxW,
-          maxHeight: maxH,
+          // Tall document pages scroll; only clamp non-scroll previews.
+          ...(imageLayout.scrollable ? null : { maxHeight: maxH }),
         }}
         contentFit="contain"
         transition={180}

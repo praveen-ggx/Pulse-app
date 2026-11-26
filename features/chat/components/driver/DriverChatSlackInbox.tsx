@@ -18,6 +18,7 @@ import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { driverConversationUnreadCount } from "@/features/chat/utils/driverChatUnread.util";
 import { resolveDriverFacingShipperName } from "@/features/chat/utils/driverIncomingShipperMessage.util";
+import { formatChatInboxTime } from "@/features/chat/utils/formatChatInboxTime.util";
 
 function formatTripDate(iso: string | null | undefined): string {
   const raw = String(iso ?? "").trim();
@@ -69,13 +70,7 @@ function DriverChatSlackInboxInner({
 
   const renderConvItem = useCallback(
     ({ item }: { item: TripConversation }) => {
-      const time = item.last_message_at
-        ? new Date(item.last_message_at).toLocaleTimeString("en-IN", {
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: true,
-          })
-        : "";
+      const time = formatChatInboxTime(item.last_message_at) ?? "";
       const routeLine = [item.pickup_area, item.drop_location]
         .filter(Boolean)
         .join(" → ");

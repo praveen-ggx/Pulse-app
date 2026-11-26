@@ -38,7 +38,8 @@ export function useDriverChatConversationsQuery(driverIds: string[]) {
     networkMode: 'offlineFirst',
     retry: infrastructureShouldRetry,
     retryDelay: infrastructureRetryDelay,
-    refetchOnWindowFocus: false,
+    // Reassign / chat denorm can land while backgrounded — refresh on focus.
+    refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     placeholderData: keepPreviousData,
   });

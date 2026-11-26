@@ -1,0 +1,4 @@
+ features/chat/components/ChatScreen.tsx            |   3 +-
+ .../chat/services/chatAssignmentBridge.service.ts  |   9 +-
+ lib/database.types.ts                              | 154 +++++++++++++++++++++
+ 3 files changed, 162 insertions(+), 4 deletions(-)

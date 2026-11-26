@@ -18,6 +18,14 @@ export function MessageTick({ status, compact }: MessageTickProps) {
   const size = compact ? 8 : 9;
   const gap = compact ? 0 : 1;
 
+  if (status === "failed") {
+    return (
+      <View style={styles.wrap} accessibilityLabel="Failed to send">
+        <FontAwesome name="exclamation-circle" size={size + 1} color="#DC2626" />
+      </View>
+    );
+  }
+
   if (!status || status === "sending") {
     return (
       <View style={styles.wrap} accessibilityLabel="Sending">

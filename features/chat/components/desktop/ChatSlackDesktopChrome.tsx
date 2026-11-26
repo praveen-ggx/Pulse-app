@@ -1,4 +1,5 @@
 import { OrgAvatar } from "@/components/Avatar";
+import { ChatImage } from "@/features/chat/components/ChatImage";
 import { ChatPartyAvatar } from "@/features/chat/components/ChatPartyAvatar";
 import { ChatDriverSwapInboxPreview } from "@/features/chat/components/shared/ChatDriverSwapInboxPreview";
 import { ChatInboxImagePreviewStrip } from "@/features/chat/components/shared/ChatInboxImagePreviewStrip";
@@ -7,12 +8,12 @@ import type { DriverSwapPair } from "@/features/chat/utils/chatAvatar.util";
 import { ChatLocationPingInboxPreview } from "@/features/chat/components/shared/ChatLocationPingInboxPreview";
 import { ChatSlackDocumentAttachmentCompact } from "@/features/chat/components/shared/ChatSlackDocumentAttachment";
 import type { ConversationImagePreview } from "@/features/chat/utils/conversationImagePreview.util";
+import { isDirectChatImageHttpUrl } from "@/features/chat/utils/storageRenderImageUrl";
 import type { ResolvedPartyAvatarIdentity } from "@/lib/entityIdentity";
 import { LinearGradient } from "expo-linear-gradient";
 import { ChevronDown, PenLine, Search, X } from "lucide-react-native";
 import { useState, type Ref } from "react";
 import {
-  Image,
   Pressable,
   Text,
   TextInput,
@@ -29,6 +30,41 @@ import {
 } from "./chatSlackDesktop.styles";
 
 const WORKSPACE_AVATAR_SIZE = 24;
+
+/** Inbox image thumb — signs storage paths (cold cache) instead of a dead placeholder. */
+function DesktopSidebarImageThumb({
+  previewImageUrl,
+  previewImagePreviews,
+}: {
+  previewImageUrl?: string | null;
+  previewImagePreviews?: ConversationImagePreview[];
+}) {
+  const fromStrip = previewImagePreviews?.[previewImagePreviews.length - 1];
+  const storagePath =
+    (fromStrip?.storagePath ?? "").trim() ||
+    (!isDirectChatImageHttpUrl(previewImageUrl) ? String(previewImageUrl ?? "").trim() : "") ||
+    (!isDirectChatImageHttpUrl(fromStrip?.url) ? String(fromStrip?.url ?? "").trim() : "");
+  const preferredUrl =
+    (isDirectChatImageHttpUrl(previewImageUrl) ? previewImageUrl : null) ||
+    (isDirectChatImageHttpUrl(fromStrip?.url) ? fromStrip!.url : null);
+
+  if (!storagePath && !preferredUrl) {
+    return <View style={st.sidebarPreviewThumbPlaceholder} />;
+  }
+
+  return (
+    <View style={[st.sidebarPreviewThumb, { overflow: "hidden" }]}>
+      <ChatImage
+        storagePath={storagePath || preferredUrl || ""}
+        preferredUrl={preferredUrl}
+        thumbnail
+        displayWidth={34}
+        displayHeight={34}
+        style={st.sidebarPreviewThumb}
+      />
+    </View>
+  );
+}
 
 export function ChatSlackDesktopSidebarChrome({
   workspaceName,
@@ -145,6 +181,7 @@ export function ChatSlackDesktopSidebarRow({
   documentIsImage,
   time,
   active,
+  unread,
   anchorRef,
   onPress,
   showAvatar = true,
@@ -161,6 +198,8 @@ export function ChatSlackDesktopSidebarRow({
   documentIsImage?: boolean;
   time?: string;
   active?: boolean;
+  /** Dispatcher unread — numeric chip on the right (driver/WhatsApp pattern). */
+  unread?: number;
   anchorRef?: Ref<View>;
   onPress: () => void;
   showAvatar?: boolean;
@@ -195,6 +234,9 @@ export function ChatSlackDesktopSidebarRow({
     Boolean(previewImagePreviews && previewImagePreviews.length > 0);
   const hasDriverSwapPreview =
     previewKind === "driver_swap" && Boolean(previewDriverSwap);
+  const unreadCount = Math.max(0, Number(unread ?? 0));
+  const showUnread = unreadCount > 0 && !active;
+  const unreadLabel = unreadCount > 9 ? "9+" : String(unreadCount);
   return (
     <View ref={anchorRef} collapsable={false}>
       <Pressable
@@ -207,28 +249,55 @@ export function ChatSlackDesktopSidebarRow({
           hovered && active && st.sidebarRowActiveHover,
           pressed && !active && st.sidebarRowPressed,
         ]}
+        accessibilityHint={
+          showUnread ? `${unreadLabel} unread messages` : undefined
+        }
       >
         {active ? <View style={st.sidebarRowActiveInset} pointerEvents="none" /> : null}
         {showAvatar ? (
-          <View style={[st.sidebarRowAvatarWrap, active && st.sidebarRowContentAboveInset]}>
+          <View
+            style={[
+              st.sidebarRowAvatarWrap,
+              showUnread && st.sidebarRowAvatarWrapUnread,
+              active && st.sidebarRowContentAboveInset,
+            ]}
+          >
             <ChatPartyAvatar identity={identity} size={SLACK_DESKTOP_AVATAR.sidebar} />
+            {showUnread ? <View style={st.sidebarRowUnreadDot} /> : null}
           </View>
         ) : null}
         <View style={[st.sidebarRowBody, active && st.sidebarRowContentAboveInset]}>
           <View style={st.sidebarRowTop}>
             <Text
-              style={[st.sidebarRowName, active && st.sidebarRowNameActive]}
+              style={[
+                st.sidebarRowName,
+                active && st.sidebarRowNameActive,
+                showUnread && st.sidebarRowNameUnread,
+              ]}
               numberOfLines={1}
             >
               {title}
             </Text>
-            {time ? (
-              <Text
-                style={[st.sidebarRowTime, active && st.sidebarRowTimeActive]}
-                numberOfLines={1}
-              >
-                {time}
-              </Text>
+            {time || showUnread ? (
+              <View style={st.sidebarRowMetaCol}>
+                {time ? (
+                  <Text
+                    style={[
+                      st.sidebarRowTime,
+                      active && st.sidebarRowTimeActive,
+                      showUnread && st.sidebarRowTimeUnread,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {time}
+                  </Text>
+                ) : null}
+                {showUnread ? (
+                  <View style={st.sidebarRowUnreadCount}>
+                    <Text style={st.sidebarRowUnreadCountText}>{unreadLabel}</Text>
+                  </View>
+                ) : null}
+              </View>
             ) : null}
           </View>
           {partyLine ? (
@@ -267,14 +336,13 @@ export function ChatSlackDesktopSidebarRow({
                   isImage: documentIsImage ?? false,
                 }}
               />
-            ) : previewKind !== "default" ? (
+            ) : previewKind === "image" ? (
               <View style={st.sidebarSystemPreviewWrap}>
                 <View style={st.sidebarPreviewRichRow}>
-                  {previewKind === "image" && previewImageUrl ? (
-                    <Image source={{ uri: previewImageUrl }} style={st.sidebarPreviewThumb} />
-                  ) : (
-                    <View style={st.sidebarPreviewThumbPlaceholder} />
-                  )}
+                  <DesktopSidebarImageThumb
+                    previewImageUrl={previewImageUrl}
+                    previewImagePreviews={previewImagePreviews}
+                  />
                   <View style={st.sidebarPreviewTextWrap}>
                     <Text style={[st.sidebarPreviewBadge, badgeStyle, badgeTextStyle]}>
                       {badgeLabel}
@@ -287,10 +355,25 @@ export function ChatSlackDesktopSidebarRow({
                   </View>
                 </View>
               </View>
+            ) : previewKind !== "default" ? (
+              // System / data / html — badge + text only (no empty blue thumb).
+              <View style={st.sidebarSystemPreviewWrap}>
+                <Text style={[st.sidebarPreviewBadge, badgeStyle, badgeTextStyle]}>
+                  {badgeLabel}
+                </Text>
+                <ChatListPreviewText
+                  text={preview}
+                  style={st.sidebarRowPreview}
+                  numberOfLines={2}
+                />
+              </View>
             ) : (
               <ChatListPreviewText
                 text={preview}
-                style={st.sidebarRowPreview}
+                style={[
+                  st.sidebarRowPreview,
+                  showUnread && st.sidebarRowPreviewUnread,
+                ]}
                 numberOfLines={2}
               />
             )

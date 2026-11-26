@@ -142,6 +142,8 @@ export function ChatSlackDesktopComposer({
     setFormatActive(active ? fmt : null);
   };
 
+  const hasDraft = value.trim().length > 0;
+
   return (
     <View>
       {replyContext ? (
@@ -152,7 +154,7 @@ export function ChatSlackDesktopComposer({
         />
       ) : null}
       <View style={st.composerWrap}>
-        <View style={st.composerBox}>
+        <View style={[st.composerBox, hasDraft && st.composerBoxActive]}>
           <ChatComposerMarkdownInput
             ref={inputRef}
             style={[st.composerInput, INPUT_WEB]}
@@ -168,6 +170,7 @@ export function ChatSlackDesktopComposer({
             multiline
             scrollEnabled
             blurOnSubmit={false}
+            textAlign="left"
             textAlignVertical="top"
             maxLength={MAX_LENGTH + 50}
             submitOnEnter
@@ -285,13 +288,17 @@ export function ChatSlackDesktopComposer({
               <TouchableOpacity
                 onPress={submitMessage}
                 disabled={!canSend}
-                style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
+                style={[styles.sendBtn, canSend && styles.sendBtnReady, !canSend && styles.sendBtnOff]}
                 hitSlop={6}
                 accessibilityRole="button"
                 accessibilityLabel="Send message"
               >
                 <ComposerToolbarIcon>
-                  <Send size={TOOLBAR_ICON_SIZE} color={canSend ? "#FFFFFF" : SLACK_DESKTOP.textTertiary} strokeWidth={2} />
+                  <Send
+                    size={TOOLBAR_ICON_SIZE}
+                    color={canSend ? Theme.buttonPrimaryText : SLACK_DESKTOP.textTertiary}
+                    strokeWidth={2.25}
+                  />
                 </ComposerToolbarIcon>
               </TouchableOpacity>
             </View>
@@ -327,39 +334,40 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 6,
-    paddingTop: 6,
+    marginTop: 8,
+    paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: SLACK_DESKTOP.border,
   },
   toolbarLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 0,
-    minHeight: 28,
+    gap: 2,
+    minHeight: 32,
   },
   toolbarRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    minHeight: 28,
+    minHeight: 32,
   },
   toolBtn: {
-    width: 28,
-    height: 28,
+    width: 30,
+    height: 30,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    ...(Platform.OS === "web" ? ({ display: "flex" } as object) : {}),
+    ...(Platform.OS === "web" ? ({ display: "flex", cursor: "pointer" } as object) : {}),
   },
   toolIconSlot: {
-    width: 28,
-    height: 28,
+    width: 30,
+    height: 30,
     alignItems: "center",
     justifyContent: "center",
     ...(Platform.OS === "web" ? ({ display: "flex" } as object) : {}),
   },
   toolBtnActive: {
-    backgroundColor: "rgba(91, 94, 244, 0.1)",
+    backgroundColor: Theme.brandBlueWash,
   },
   fmtGlyph: {
     fontSize: 14,
@@ -409,16 +417,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   sendBtn: {
-    width: 28,
-    height: 28,
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: Theme.surfaceGray,
+    borderWidth: 1,
+    borderColor: SLACK_DESKTOP.border,
+    borderRadius: Theme.buttonPrimaryRadius,
+    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as object) : {}),
+  },
+  sendBtnReady: {
     backgroundColor: Theme.buttonPrimary,
     borderWidth: Theme.buttonPrimaryBorderWidth,
     borderColor: Theme.buttonPrimaryBorder,
-    borderRadius: Theme.buttonPrimaryRadius,
   },
   sendBtnOff: {
-    backgroundColor: "transparent",
+    opacity: 0.72,
   },
 });

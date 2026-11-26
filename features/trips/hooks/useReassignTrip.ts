@@ -15,6 +15,8 @@ import {
 } from '@/features/trips/utils/tripReassignConflict.util';
 import { useInvalidateDrivers } from '@/lib/queries/useDriversQuery';
 import { useInvalidateVehicles } from '@/lib/queries/useVehiclesQuery';
+import { queryKeys } from '@/lib/queryKeys';
+import { useQueryClient } from '@tanstack/react-query';
 
 export type ReassignPayload = {
   driverId: string;
@@ -67,6 +69,20 @@ export function useReassignTrip({
   const savingRef = useRef(false);
   const invalidateDrivers = useInvalidateDrivers();
   const invalidateVehicles = useInvalidateVehicles();
+  const queryClient = useQueryClient();
+
+  const invalidateDriverSurfaces = useCallback(() => {
+    // Driver Trips Active + chat inbox must drop the previous assignee and
+    // pick up the new one without waiting for a cold remount.
+    void queryClient.invalidateQueries({ queryKey: ["q", "driver-app"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.driverChat.conversations("") });
+    void queryClient.invalidateQueries({
+      predicate: (q) =>
+        Array.isArray(q.queryKey) &&
+        q.queryKey[0] === "q" &&
+        q.queryKey[1] === "driver-chat",
+    });
+  }, [queryClient]);
 
   const auditOptions =
     currentUserId != null
@@ -127,6 +143,7 @@ export function useReassignTrip({
         }
         invalidateDrivers(organizationId);
         invalidateVehicles(organizationId);
+        invalidateDriverSurfaces();
         return { ok: true, trip: updated };
       } finally {
         savingRef.current = false;
@@ -137,6 +154,7 @@ export function useReassignTrip({
       auditOptions,
       invalidateDrivers,
       invalidateVehicles,
+      invalidateDriverSurfaces,
       organizationId,
       trip.id,
     ],
@@ -232,6 +250,7 @@ export function useReassignTrip({
 
           invalidateDrivers(organizationId);
           invalidateVehicles(organizationId);
+          invalidateDriverSurfaces();
           return { ok: true, trip: finalTrip };
         }
 
@@ -274,6 +293,7 @@ export function useReassignTrip({
         }
         invalidateDrivers(organizationId);
         invalidateVehicles(organizationId);
+        invalidateDriverSurfaces();
         return { ok: true, trip: finalTrip, otpCode: otp?.code ?? null };
       } finally {
         savingRef.current = false;
@@ -286,6 +306,8 @@ export function useReassignTrip({
       auditOptions,
       driverAssignOrgId,
       invalidateDrivers,
+      invalidateVehicles,
+      invalidateDriverSurfaces,
       isAggregate,
       organizationId,
       trip.id,

@@ -11,7 +11,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
 import { subscribeSharedPostgresChanges } from "@/lib/realtimeRegistry";
 import { setTripUnreadCount } from "@/lib/chatUnreadSignal";
+import { subscribeTripChatMessagesChanged } from "@/lib/tripChatInvalidate";
 import { supabase } from "@/lib/supabase";
+
 import { useActiveTripLaneRealtime } from "../hooks/useActiveTripLaneRealtime";
 import { useChatOutboxSync } from "../hooks/useChatOutboxSync";
 import { useTripStatusRealtimeSync } from "../hooks/useTripStatusRealtimeSync";
@@ -103,6 +105,8 @@ interface TripChatContextType {
     replyToId?: string | null,
     replyToPreview?: Record<string, unknown> | null,
   ) => Promise<void>;
+  /** Re-attempt a failed optimistic send without creating a second bubble. */
+  retryFailedMessage: (conversationId: string, messageId: string) => Promise<void>;
   markAsRead: (conversationId: string) => Promise<void>;
   /** Marks every party-lane thread for this trip read (DB + store). */
   markTripThreadsRead: (tripId: string) => Promise<void>;
@@ -227,6 +231,16 @@ export function TripChatProvider({
   // Chat bootstrap is once per org-session (`useChatStore.bootstrap` no-ops when
   // `bootstrappedOrg` matches). Updates arrive via Realtime — no periodic full
   // refetch (reduces DB load; matches WhatsApp-style cold load + patch).
+
+  // Bridge / ledger notify when Realtime publication lags — soft refresh open org.
+  useEffect(() => {
+    if (!organizationId || !selfUid) return;
+    return subscribeTripChatMessagesChanged(() => {
+      bootstrappedOrgRef.current = null;
+      useChatStore.setState({ bootstrappedOrg: null });
+      void loadConversations();
+    });
+  }, [organizationId, selfUid, loadConversations]);
 
   // Single mark-seen RPC path for all `useMarkSeen` instances (debounced in store).
   useEffect(() => {
@@ -452,10 +466,45 @@ export function TripChatProvider({
         useChatStore.getState().replaceOptimistic(conversationId, optimisticMsg.id, persisted);
         noteLocalTripSend(conversationId);
       } catch {
-        useChatStore.getState().removeMessage(conversationId, optimisticMsg.id);
+        // Keep the bubble so the user can retry — never silently discard.
+        useChatStore.getState().markMessageFailed(conversationId, optimisticMsg.id);
       }
     },
     [organizationId, profile]
+  );
+
+  const retryFailedMessage = useCallback(
+    async (conversationId: string, messageId: string) => {
+      if (!organizationId || !profile) return;
+      const conv = useChatStore.getState().getConversationByConvId(conversationId);
+      if (!conv) return;
+      const msg = conv.messages.find((m) => m.id === messageId);
+      if (!msg || msg.delivery_status !== "failed") return;
+
+      useChatStore.getState().patchMessage(conversationId, messageId, {
+        delivery_status: "sending",
+      });
+      noteLocalTripSend(conversationId);
+
+      try {
+        const persisted = await chatService.sendChatMessage({
+          conversationId,
+          organizationId,
+          content: msg.content,
+          senderRole: "dispatcher",
+          senderName: msg.sender_name,
+          senderUserId: profile.uid ?? null,
+          messageType: msg.message_type ?? "text",
+          replyToId: msg.reply_to_id ?? null,
+          replyToPreview: (msg.reply_to_preview as Record<string, unknown> | null) ?? null,
+        });
+        useChatStore.getState().replaceOptimistic(conversationId, messageId, persisted);
+        noteLocalTripSend(conversationId);
+      } catch {
+        useChatStore.getState().markMessageFailed(conversationId, messageId);
+      }
+    },
+    [organizationId, profile],
   );
 
   // ── changeTripStatus: optimistic + atomic RPC + rollback ──────────────────
@@ -634,6 +683,7 @@ export function TripChatProvider({
       conversations,
       isLoading,
       sendMessage,
+      retryFailedMessage,
       markAsRead,
       markTripThreadsRead,
       totalUnreadCount,
@@ -651,6 +701,7 @@ export function TripChatProvider({
       conversations,
       isLoading,
       sendMessage,
+      retryFailedMessage,
       markAsRead,
       markTripThreadsRead,
       totalUnreadCount,

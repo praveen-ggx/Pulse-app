@@ -5,7 +5,12 @@ export type ChatTripFlow = "integrated_group" | "private_trip";
 export type MessageSenderRole = "dispatcher" | "client" | "supplier" | "driver" | "system";
 
 /** WhatsApp-style local delivery / read state (outgoing bubbles + optimistic sends). */
-export type MessageDeliveryStatus = "sending" | "sent" | "delivered" | "read";
+export type MessageDeliveryStatus =
+  | "sending"
+  | "sent"
+  | "delivered"
+  | "read"
+  | "failed";
 export type MessageType =
   | "text"
   | "chat"           // alias for text — standard dispatcher/party message bubble
@@ -395,6 +400,11 @@ export interface NetworkMessageRow {
   created_at: string;
   /** Extensible payload (e.g. reply_to_story for WhatsApp-style story quotes). */
   metadata?: Record<string, unknown> | null;
+  /**
+   * Client-only send lane for optimistic DM rows (sending → sent / failed).
+   * Not a DB column — used so Failed + Retry can persist in the UI.
+   */
+  delivery_status?: MessageDeliveryStatus;
 }
 
 export interface NetworkConversation extends NetworkConversationRow {

@@ -104,7 +104,6 @@ export function NetworkPoolQuoteModal({
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitSubmitting, setCommitSubmitting] = useState(false);
   const [commitError, setCommitError] = useState<string | undefined>();
-  const [fleetCount, setFleetCount] = useState<number | null>(null);
 
   const manifestKey = queryKeys.networkPools.manifest(orgId ?? "", pool?.id ?? "");
   const manifestQ = useQuery({
@@ -292,8 +291,7 @@ export function NetworkPoolQuoteModal({
     setCommitError(undefined);
     setDraftAmount(amount);
     setCommitOpen(true);
-    setFleetCount(fleetQ.data ?? null);
-  }, [fleetQ.data]);
+  }, []);
 
   if (!pool) return null;
 
@@ -302,6 +300,8 @@ export function NetworkPoolQuoteModal({
   const isUpdate = initialAmount != null;
 
   const count = shown?.complete ? shown.quotable_ids.length : null;
+  // One pool-size value for the commit sheet and submit clamp — never diverge.
+  const commitPoolSize = count ?? pool.members.length;
   const loadsLabel =
     count != null
       ? plural(count, "load")
@@ -363,8 +363,8 @@ export function NetworkPoolQuoteModal({
         setDraftAmount(null);
       }}
       amount={draftAmount ?? 0}
-      poolSize={count ?? pool.members.length}
-      fleetVehicleCount={fleetCount ?? fleetQ.data ?? null}
+      poolSize={commitPoolSize}
+      fleetVehicleCount={fleetQ.data ?? null}
       routeLabel={`${pool.key.pickup} → ${pool.key.drop}`}
       submitting={commitSubmitting}
       error={commitError}
@@ -375,11 +375,19 @@ export function NetworkPoolQuoteModal({
           setCommitError("Choose a valid-until date.");
           return;
         }
-        const limit = clampPoolVehicleCommit(
-          vehicleLimit,
-          count ?? pool.members.length,
-          fleetCount ?? fleetQ.data ?? null,
-        );
+        const limit = clampPoolVehicleCommit(vehicleLimit, commitPoolSize);
+        if (limit == null) {
+          setCommitError(
+            "Pool size is unavailable. Wait for the pool to load and try again.",
+          );
+          return;
+        }
+        if (limit !== vehicleLimit) {
+          setCommitError(
+            `This pool has only ${limit} load${limit === 1 ? "" : "s"}. Reduce your vehicle count and try again.`,
+          );
+          return;
+        }
         setCommitSubmitting(true);
         setCommitError(undefined);
         void submitPoolQuote(draftAmount, {

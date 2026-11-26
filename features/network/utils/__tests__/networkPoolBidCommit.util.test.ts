@@ -1,6 +1,7 @@
 import {
   clampPoolVehicleCommit,
   isNetworkPoolCommitLive,
+  poolVehicleCommitCap,
   remainingPoolCommitSlots,
   shipperCanSeePendingPoolQuote,
 } from "@/features/network/utils/networkPoolBidCommit.util";
@@ -47,11 +48,27 @@ describe("networkPoolBidCommit", () => {
   });
 
   it("caps the commit at the pool load count and never above 10", () => {
-    expect(clampPoolVehicleCommit(10, 1, 2)).toBe(1);
-    expect(clampPoolVehicleCommit(3, 2, null)).toBe(2);
-    expect(clampPoolVehicleCommit(0, 33, 8)).toBe(1);
-    expect(clampPoolVehicleCommit(8, 12, null)).toBe(8);
-    expect(clampPoolVehicleCommit(11, 12, null)).toBe(10);
-    expect(clampPoolVehicleCommit(5, undefined, null)).toBe(5);
+    expect(clampPoolVehicleCommit(10, 1)).toBe(1);
+    expect(clampPoolVehicleCommit(3, 2)).toBe(2);
+    expect(clampPoolVehicleCommit(0, 33)).toBe(1);
+    expect(clampPoolVehicleCommit(8, 12)).toBe(8);
+    expect(clampPoolVehicleCommit(11, 12)).toBe(10);
+  });
+
+  it("returns null when pool size is unknown so UI can block the 400 path", () => {
+    expect(poolVehicleCommitCap(undefined)).toBeNull();
+    expect(poolVehicleCommitCap(null)).toBeNull();
+    expect(poolVehicleCommitCap(0)).toBeNull();
+    expect(poolVehicleCommitCap(NaN)).toBeNull();
+    expect(poolVehicleCommitCap(-3)).toBeNull();
+    expect(clampPoolVehicleCommit(5, undefined)).toBeNull();
+    expect(clampPoolVehicleCommit(5, 0)).toBeNull();
+    expect(clampPoolVehicleCommit(5, NaN)).toBeNull();
+    expect(clampPoolVehicleCommit(5, -1)).toBeNull();
+  });
+
+  it("floors fractional pool size for the cap", () => {
+    expect(poolVehicleCommitCap(2.7)).toBe(2);
+    expect(clampPoolVehicleCommit(5, 2.7)).toBe(2);
   });
 });

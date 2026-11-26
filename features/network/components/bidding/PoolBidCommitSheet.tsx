@@ -8,11 +8,11 @@ import { formatINR } from "@/lib/format";
 import {
   clampPoolVehicleCommit,
   defaultPoolBidValidUntilIso,
-  MAX_POOL_VEHICLE_COMMIT,
+  poolVehicleCommitCap,
 } from "@/features/network/utils/networkPoolBidCommit.util";
 import { Calendar as CalendarIcon, Minus, Plus, Truck, X } from "lucide-react-native";
 import { Calendar } from "react-native-calendars";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Modal,
   Platform,
@@ -82,34 +82,64 @@ export function PoolBidCommitSheet({
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const isDesktop = Platform.OS === "web" && width >= Layout.webDesktopMinWidth;
-  const maxCommit = clampPoolVehicleCommit(
-    MAX_POOL_VEHICLE_COMMIT,
-    poolSize,
-    fleetVehicleCount,
-  );
+  const maxCommit = poolVehicleCommitCap(poolSize);
+  const poolReady = maxCommit != null;
   const [count, setCount] = useState(1);
   const [countDraft, setCountDraft] = useState("1");
   const [validUntil, setValidUntil] = useState(defaultPoolBidValidUntilIso());
   const [calOpen, setCalOpen] = useState(false);
+  const wasVisible = useRef(false);
 
-  const applyCount = (next: number) => {
-    const clamped = clampPoolVehicleCommit(next, poolSize, fleetVehicleCount);
+  const applyCount = (next: number): number | null => {
+    const clamped = clampPoolVehicleCommit(next, poolSize);
+    if (clamped == null) {
+      setCount(1);
+      setCountDraft("1");
+      return null;
+    }
     setCount(clamped);
     setCountDraft(String(clamped));
     return clamped;
   };
 
   useEffect(() => {
+    if (!visible) {
+      wasVisible.current = false;
+      return;
+    }
+    if (!wasVisible.current) {
+      setCount(1);
+      setCountDraft("1");
+      setValidUntil(defaultPoolBidValidUntilIso());
+      setCalOpen(false);
+    }
+    wasVisible.current = true;
+  }, [visible]);
+
+  // Keep the shown count at or below the live pool cap if loads drop while open.
+  useEffect(() => {
     if (!visible) return;
-    applyCount(1);
-    setValidUntil(defaultPoolBidValidUntilIso());
-    setCalOpen(false);
-  }, [visible, maxCommit]);
+    setCount((prev) => {
+      const clamped = clampPoolVehicleCommit(prev, poolSize);
+      if (clamped == null) {
+        setCountDraft("1");
+        return 1;
+      }
+      if (clamped !== prev) {
+        setCountDraft(String(clamped));
+      }
+      return clamped;
+    });
+  }, [visible, maxCommit, poolSize]);
 
   const commitCount = () => {
     const parsed = Number.parseInt(countDraft.replace(/[^\d]/g, ""), 10);
     return applyCount(Number.isFinite(parsed) ? parsed : count);
   };
+
+  const draftParsed = Number.parseInt(countDraft.replace(/[^\d]/g, ""), 10);
+  const draftOverMax =
+    poolReady && Number.isFinite(draftParsed) && draftParsed > maxCommit;
 
   const scrollMax = isDesktop
     ? Math.min(height * 0.7, 560)
@@ -183,9 +213,9 @@ export function PoolBidCommitSheet({
         <View style={styles.stepper}>
           <TouchableOpacity
             onPress={() => applyCount(count - 1)}
-            disabled={count <= 1 || submitting}
+            disabled={!poolReady || count <= 1 || submitting}
             activeOpacity={0.75}
-            style={[styles.stepBtn, count <= 1 && styles.stepBtnOff]}
+            style={[styles.stepBtn, (!poolReady || count <= 1) && styles.stepBtnOff]}
             accessibilityRole="button"
             accessibilityLabel="Fewer vehicles"
           >
@@ -194,23 +224,11 @@ export function PoolBidCommitSheet({
           <TextInput
             value={countDraft}
             onChangeText={(raw) => {
-              const digits = raw.replace(/[^\d]/g, "");
-              const parsed = Number.parseInt(digits, 10);
-              if (Number.isFinite(parsed) && parsed > 0) {
-                const clamped = clampPoolVehicleCommit(
-                  parsed,
-                  poolSize,
-                  fleetVehicleCount,
-                );
-                setCount(clamped);
-                setCountDraft(String(clamped));
-              } else {
-                setCountDraft(digits);
-              }
+              setCountDraft(raw.replace(/[^\d]/g, ""));
             }}
             onBlur={commitCount}
             onSubmitEditing={commitCount}
-            editable={!submitting}
+            editable={poolReady && !submitting}
             keyboardType="number-pad"
             inputMode="numeric"
             selectTextOnFocus
@@ -220,15 +238,21 @@ export function PoolBidCommitSheet({
           />
           <TouchableOpacity
             onPress={() => applyCount(count + 1)}
-            disabled={count >= maxCommit || submitting}
+            disabled={!poolReady || count >= maxCommit || submitting}
             activeOpacity={0.75}
-            style={[styles.stepBtn, count >= maxCommit && styles.stepBtnOff]}
+            style={[
+              styles.stepBtn,
+              (!poolReady || count >= maxCommit) && styles.stepBtnOff,
+            ]}
             accessibilityRole="button"
             accessibilityLabel="More vehicles"
           >
             <Plus size={16} color={Theme.primary} strokeWidth={2.4} />
           </TouchableOpacity>
         </View>
+        {draftOverMax ? (
+          <Text style={styles.error}>Max {maxCommit} for this pool</Text>
+        ) : null}
 
         <Text style={styles.fieldLabel}>Accept awards until</Text>
         <Pressable
@@ -261,7 +285,13 @@ export function PoolBidCommitSheet({
         ) : null}
           </>
         )}
-        <Text style={styles.hint}>{copy.countHint(count, maxCommit)}</Text>
+        {poolReady ? (
+          <Text style={styles.hint}>{copy.countHint(count, maxCommit)}</Text>
+        ) : (
+          <Text style={styles.error}>
+            Pool size is unavailable — wait for loads to load before committing.
+          </Text>
+        )}
         <Text style={styles.hint}>{copy.dateHint}</Text>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -270,10 +300,11 @@ export function PoolBidCommitSheet({
       <Pressable
         onPress={() => {
           const limit = commitCount();
+          if (limit == null) return;
           onSubmit({ vehicleLimit: limit, validUntilDate: validUntil });
         }}
-        disabled={submitting}
-        style={[styles.submit, submitting && styles.submitOff]}
+        disabled={!poolReady || submitting}
+        style={[styles.submit, (!poolReady || submitting) && styles.submitOff]}
         accessibilityRole="button"
         accessibilityLabel={copy.submitA11y}
       >

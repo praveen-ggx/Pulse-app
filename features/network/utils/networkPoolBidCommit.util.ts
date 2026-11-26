@@ -65,20 +65,30 @@ export function shipperCanSeePendingPoolQuote(
 export const MAX_POOL_VEHICLE_COMMIT = 10;
 
 /**
+ * Hard cap for committed vehicles from the pool's load count.
+ * Returns null when pool size is unknown/empty so callers can block submit
+ * instead of falling back to 10 (which the server rejects).
+ */
+export function poolVehicleCommitCap(
+  poolSize?: number | null,
+): number | null {
+  if (poolSize == null || !Number.isFinite(poolSize) || poolSize < 1) {
+    return null;
+  }
+  return Math.min(MAX_POOL_VEHICLE_COMMIT, Math.floor(poolSize));
+}
+
+/**
  * Cap committed vehicles at the pool's load count (and never above 10).
- * Fleet size stays a guide only — the server rejects vehicle_limit > member_count.
+ * Returns null when pool size is unknown — do not treat that as "allow 10".
  */
 export function clampPoolVehicleCommit(
   count: number,
-  poolSize?: number,
-  fleetSize?: number | null,
-): number {
+  poolSize?: number | null,
+): number | null {
+  const cap = poolVehicleCommitCap(poolSize);
+  if (cap == null) return null;
   const n = Math.floor(count);
   if (!Number.isFinite(n) || n < 1) return 1;
-  void fleetSize;
-  const poolCap =
-    poolSize != null && Number.isFinite(poolSize) && poolSize >= 1
-      ? Math.floor(poolSize)
-      : MAX_POOL_VEHICLE_COMMIT;
-  return Math.min(n, Math.min(MAX_POOL_VEHICLE_COMMIT, poolCap));
+  return Math.min(n, cap);
 }

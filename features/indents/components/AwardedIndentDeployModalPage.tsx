@@ -3,11 +3,9 @@ import { Text, View } from "react-native";
 import {
   AlertTriangle,
   Calendar,
-  ClipboardList,
   Hash,
   MapPin,
   Scale,
-  Truck,
   Wallet,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
@@ -21,6 +19,8 @@ import { getIndentDisplayNumber } from "@/features/indents/services/indents.serv
 import type { PendingAwardedDeployItem } from "@/features/indents/utils/pendingAwardedDeploy.util";
 import { buildIndentDeployTiming } from "@/features/indents/utils/bidding/indentBidAlert.util";
 import { formatINR, formatIndentTonsToCarry } from "@/lib/format";
+
+const AVATAR_SIZE = 40;
 
 function MetaRow({
   icon: Icon,
@@ -61,13 +61,17 @@ function StatTile({
 }) {
   return (
     <View style={styles.statTile}>
-      <View style={styles.iconWell}>
-        <Icon size={12} color={Theme.primary} strokeWidth={2.2} />
+      <View style={styles.statIconWell}>
+        <Icon size={13} color={Theme.primary} strokeWidth={2.3} />
       </View>
-      <Text style={styles.statTileValue} numberOfLines={1}>
-        {value}
-      </Text>
-      <Text style={styles.statTileLabel}>{label}</Text>
+      <View style={styles.statCopy}>
+        <Text style={styles.statTileValue} numberOfLines={1}>
+          {value}
+        </Text>
+        <Text style={styles.statTileLabel} numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -143,15 +147,21 @@ export const AwardedIndentDeployModalPage = memo(function AwardedIndentDeployMod
     [quote, indent],
   );
 
-  const pickupFact = [pickupDateLabel, pickupTimeLabel].filter(Boolean).join(" · ") || "Date pending";
+  const pickupFact =
+    [pickupDateLabel, pickupTimeLabel].filter(Boolean).join(" · ") || "Date pending";
   const rateFact = awardAmountInr != null ? formatINR(awardAmountInr) : "Rate pending";
   const vehicleFact = vehicleType || "Vehicle required";
   const queueLabel = pageTotal > 1 ? `${pageNumber}/${pageTotal}` : null;
+  const overdueCopy =
+    timing.combinedLabel ||
+    timing.dueByLabel ||
+    "Pickup timing pending";
 
   return (
     <View style={styles.pagerPage}>
       <View style={styles.profileStack}>
-        <View style={styles.avatarStack}>
+        {/* Shipper + status — one compact row */}
+        <View style={styles.identityRow}>
           <View style={styles.heroAvatarRing}>
             <PartyAvatar
               name={shipperName}
@@ -166,29 +176,31 @@ export const AwardedIndentDeployModalPage = memo(function AwardedIndentDeployMod
                   : clientAvatar.isIntegrated
               }
               initialsColorSeed={indent.organization_id ?? shipperName}
-              size={72}
-              shape="circle"
+              size={AVATAR_SIZE}
+              shape="rounded"
               style={styles.heroAvatar}
               borderStyle={styles.heroAvatar}
             />
           </View>
-          <Text style={styles.heroShipperName} numberOfLines={2}>
-            {shipperName}
-          </Text>
-          <View style={styles.statusRow}>
-            <View style={styles.statusPillVerified}>
-              <Text style={styles.statusPillTextOnDark}>Action required</Text>
-            </View>
-            <View style={styles.statusPillRecommended}>
-              <Text style={styles.statusPillTextRecommended}>
-                {queueLabel ? `Deploy ${queueLabel}` : "Deploy"}
-              </Text>
-            </View>
-            {loadType ? (
-              <View style={styles.statusPillSince}>
-                <Text style={styles.statusPillTextSince}>{loadType}</Text>
+          <View style={styles.identityCopy}>
+            <Text style={styles.heroShipperName} numberOfLines={1}>
+              {shipperName}
+            </Text>
+            <View style={styles.statusRow}>
+              <View style={styles.statusPillVerified}>
+                <Text style={styles.statusPillTextOnDark}>Action required</Text>
               </View>
-            ) : null}
+              <View style={styles.statusPillRecommended}>
+                <Text style={styles.statusPillTextRecommended}>
+                  {queueLabel ? `Deploy ${queueLabel}` : "Deploy"}
+                </Text>
+              </View>
+              {loadType ? (
+                <View style={styles.statusPillSince}>
+                  <Text style={styles.statusPillTextSince}>{loadType}</Text>
+                </View>
+              ) : null}
+            </View>
           </View>
         </View>
 
@@ -197,9 +209,10 @@ export const AwardedIndentDeployModalPage = memo(function AwardedIndentDeployMod
           <View style={styles.metaDivider} />
           <MetaRow icon={Calendar} text={`Pickup ${pickupFact}`} />
           <View style={styles.metaDivider} />
-          <MetaRow icon={Hash} text={indentNo || "Indent pending"} />
-          <View style={styles.metaDivider} />
-          <MetaRow icon={Truck} text={vehicleFact} />
+          <MetaRow
+            icon={Hash}
+            text={[indentNo || "Indent pending", vehicleFact].filter(Boolean).join(" · ")}
+          />
           {timing.dueByLabel || timing.combinedLabel ? (
             <>
               <View style={styles.metaDivider} />
@@ -207,25 +220,16 @@ export const AwardedIndentDeployModalPage = memo(function AwardedIndentDeployMod
                 icon={AlertTriangle}
                 alert={timing.tone === "overdue"}
                 text={
-                  timing.combinedLabel ||
-                  timing.dueByLabel ||
-                  "Pickup timing pending"
+                  timing.tone === "overdue"
+                    ? `${overdueCopy} — confirm with shipper`
+                    : overdueCopy
                 }
-              />
-            </>
-          ) : null}
-          {timing.tone === "overdue" ? (
-            <>
-              <View style={styles.metaDivider} />
-              <MetaRow
-                icon={ClipboardList}
-                alert
-                text="Contact the shipper to confirm — the pickup window has passed"
               />
             </>
           ) : null}
         </View>
 
+        {/* Matching horizontal tiles — same shape, aligned */}
         <View style={styles.statsRow}>
           <StatTile icon={Wallet} value={rateFact} label="Agreed rate" />
           <StatTile
@@ -233,18 +237,6 @@ export const AwardedIndentDeployModalPage = memo(function AwardedIndentDeployMod
             value={hasTons ? tonsToCarry : vehicleFact}
             label={hasTons ? "Tons to carry" : "Vehicle"}
           />
-        </View>
-
-        <View style={styles.statusRow}>
-          {pickupDateLabel ? (
-            <View style={styles.statusPillSince}>
-              <Calendar size={11} color={Theme.textSecondary} strokeWidth={2.4} />
-              <Text style={styles.statusPillTextSince}>{pickupDateLabel}</Text>
-            </View>
-          ) : null}
-          <View style={styles.statusPillLive}>
-            <Text style={styles.statusPillLiveText}>{vehicleFact}</Text>
-          </View>
         </View>
       </View>
     </View>

@@ -55,6 +55,8 @@ export type TripMobilePartyFace = {
   name: string;
   roleLabel: string;
   entityType: PartyEntityType;
+  /** Stable id for initials tint (client/supplier/driver id). */
+  initialsColorSeed?: string | null;
   avatarUrl?: string | null;
   avatarSeed?: string | null;
   organizationImageUrl?: string | null;
@@ -706,17 +708,19 @@ export const TripMobileDetail = memo(function TripMobileDetail({
                 style={styles.partyCol}
                 accessibilityLabel={`Client: ${clientFace.name}`}
               >
-                <View style={styles.partyAvatarSlot}>
+                <View style={styles.partyAvatarRing}>
                   <EntityAvatar
                     name={clientFace.name}
                     entityType="client"
                     size={PARTY_FACE}
+                    initialsColorSeed={clientFace.initialsColorSeed}
                     avatarUrl={clientFace.avatarUrl}
                     avatarSeed={clientFace.avatarSeed}
                     organizationImageUrl={clientFace.organizationImageUrl}
                     organizationAvatarSeed={clientFace.organizationAvatarSeed}
                     isIntegrated={clientFace.isIntegrated}
-                    showIntegrationBadge={false}
+                    showIntegrationBadge={!!clientFace.isIntegrated}
+                    badgeOverlay
                   />
                 </View>
                 <Text style={styles.partyRole} numberOfLines={1}>
@@ -742,17 +746,6 @@ export const TripMobileDetail = memo(function TripMobileDetail({
                   {specLine}
                 </Text>
               ) : null}
-              {distanceComparison &&
-              (distanceComparison.odometerDistanceKm != null ||
-                distanceComparison.gpsDistanceKm != null) ? (
-                <View style={styles.distanceCompareWrap}>
-                  <DistanceComparisonCard
-                    odometerDistanceKm={distanceComparison.odometerDistanceKm}
-                    gpsDistanceKm={distanceComparison.gpsDistanceKm}
-                    discrepancyKm={distanceComparison.discrepancyKm}
-                  />
-                </View>
-              ) : null}
             </View>
 
             {costFace ? (
@@ -760,17 +753,19 @@ export const TripMobileDetail = memo(function TripMobileDetail({
                 style={styles.partyCol}
                 accessibilityLabel={`${costFace.roleLabel}: ${costFace.name}`}
               >
-                <View style={styles.partyAvatarSlot}>
+                <View style={styles.partyAvatarRing}>
                   <EntityAvatar
                     name={costFace.name}
                     entityType={costFace.entityType}
                     size={PARTY_FACE}
+                    initialsColorSeed={costFace.initialsColorSeed}
                     avatarUrl={costFace.avatarUrl}
                     avatarSeed={costFace.avatarSeed}
                     organizationImageUrl={costFace.organizationImageUrl}
                     organizationAvatarSeed={costFace.organizationAvatarSeed}
                     isIntegrated={costFace.isIntegrated}
-                    showIntegrationBadge={false}
+                    showIntegrationBadge={!!costFace.isIntegrated}
+                    badgeOverlay
                   />
                 </View>
                 <Text style={styles.partyRole} numberOfLines={1}>
@@ -789,6 +784,18 @@ export const TripMobileDetail = memo(function TripMobileDetail({
               <View style={styles.partyColSpacer} />
             )}
           </View>
+
+          {distanceComparison &&
+          (distanceComparison.odometerDistanceKm != null ||
+            distanceComparison.gpsDistanceKm != null) ? (
+            <View style={styles.distanceCompareWrap}>
+              <DistanceComparisonCard
+                odometerDistanceKm={distanceComparison.odometerDistanceKm}
+                gpsDistanceKm={distanceComparison.gpsDistanceKm}
+                discrepancyKm={distanceComparison.discrepancyKm}
+              />
+            </View>
+          ) : null}
 
           <View style={styles.cardDivider} />
 
@@ -1086,39 +1093,44 @@ const styles = StyleSheet.create({
     minHeight: PARTY_FACE + 36,
   },
   partyCol: {
-    width: 64,
+    width: 68,
     alignItems: "center",
     flexShrink: 0,
   },
   partyColSpacer: {
-    width: 64,
+    width: 68,
     flexShrink: 0,
   },
-  partyAvatarSlot: {
-    width: PARTY_FACE,
-    height: PARTY_FACE,
+  partyAvatarRing: {
+    width: PARTY_FACE + 4,
+    height: PARTY_FACE + 4,
+    borderRadius: (PARTY_FACE + 4) / 2,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 6,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
   },
   partyRole: {
-    fontSize: 9,
-    fontWeight: "600",
+    fontSize: 8,
+    fontWeight: "700",
     color: MUTED,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.5,
     textAlign: "center",
     width: "100%",
-    lineHeight: 11,
+    lineHeight: 10,
   },
   partyName: {
     marginTop: 2,
     fontSize: 11,
-    fontWeight: "600",
+    fontWeight: "700",
     color: INK,
     textAlign: "center",
     width: "100%",
     lineHeight: 14,
+    letterSpacing: -0.1,
   },
   partyVehicle: {
     marginTop: 2,
@@ -1132,27 +1144,28 @@ const styles = StyleSheet.create({
   },
   itemBrand: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
     color: INK,
     lineHeight: 17,
     textAlign: "center",
+    letterSpacing: -0.15,
   },
   itemDesc: {
     marginTop: 2,
     fontSize: 11,
-    fontWeight: "400",
+    fontWeight: "500",
     color: BODY,
     lineHeight: 15,
     textAlign: "center",
   },
   distanceCompareWrap: {
-    marginTop: 10,
+    marginTop: 12,
     width: "100%",
   },
   itemSpec: {
     marginTop: 4,
     fontSize: 10,
-    fontWeight: "400",
+    fontWeight: "500",
     color: MUTED,
     lineHeight: 13,
     textAlign: "center",
@@ -1171,18 +1184,21 @@ const styles = StyleSheet.create({
   },
   priceCol: { flex: 1, minWidth: 0 },
   breakupHit: {
-    paddingVertical: 4,
-    paddingLeft: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: "rgba(40,116,240,0.08)",
     flexShrink: 0,
   },
   price: {
-    fontSize: 12,
-    fontWeight: "500",
+    fontSize: 13,
+    fontWeight: "600",
     color: INK,
+    letterSpacing: -0.1,
   },
   priceHint: {
     fontSize: 10,
-    fontWeight: "400",
+    fontWeight: "500",
     color: MUTED,
   },
   priceActualHint: {
@@ -1192,9 +1208,9 @@ const styles = StyleSheet.create({
     color: MUTED,
   },
   saved: {
-    marginTop: 2,
+    marginTop: 3,
     fontSize: 11,
-    fontWeight: "500",
+    fontWeight: "600",
     color: TEAL,
   },
   savedWarn: {
@@ -1202,7 +1218,7 @@ const styles = StyleSheet.create({
   },
   link: {
     fontSize: 11,
-    fontWeight: "500",
+    fontWeight: "600",
     color: LINK,
   },
 
@@ -1456,9 +1472,9 @@ const styles = StyleSheet.create({
   },
 
   actionRow: {
-    marginTop: 16,
+    marginTop: 14,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "stretch",
     gap: 8,
   },
   actionBtnFlex: {
@@ -1471,26 +1487,29 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     height: BTN_H,
-    borderRadius: 6,
+    borderRadius: 10,
     backgroundColor: Theme.darkBackground,
     alignItems: "center",
     justifyContent: "center",
   },
   primaryBtnText: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
     color: Theme.textOnDark,
+    letterSpacing: -0.1,
   },
   secondaryBtn: {
     height: BTN_H,
-    borderRadius: 6,
-    backgroundColor: "#EEEEEE",
+    borderRadius: 10,
+    backgroundColor: Theme.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
     alignItems: "center",
     justifyContent: "center",
   },
   secondaryBtnText: {
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: "600",
     color: BODY,
   },
   footRow: {
@@ -1504,8 +1523,9 @@ const styles = StyleSheet.create({
   footMuted: {
     flex: 1,
     fontSize: 10,
-    fontWeight: "400",
+    fontWeight: "500",
     color: MUTED,
+    lineHeight: 14,
   },
 
   addrName: {

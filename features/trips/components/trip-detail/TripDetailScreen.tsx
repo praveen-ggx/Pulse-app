@@ -7169,6 +7169,10 @@ export default function TripDetailScreen({
                   name: clientNameForParty,
                   roleLabel: "Client",
                   entityType: "client",
+                  initialsColorSeed:
+                    detail.clientPartyRes?.orgId ??
+                    trip.client_id ??
+                    clientNameForParty,
                   avatarUrl: detail.clientPartyAvatarFields?.avatarUrl,
                   avatarSeed: detail.clientPartyAvatarFields?.avatarSeed,
                   organizationImageUrl:
@@ -7186,6 +7190,7 @@ export default function TripDetailScreen({
                             : detail.driverName?.trim() || "Driver",
                         roleLabel: "Driver",
                         entityType: "driver",
+                        initialsColorSeed: trip.driver_id ?? allocatedDriverName,
                         avatarUrl: detail.driverAvatarUri,
                         avatarSeed: trip.driver_id,
                         isIntegrated: false,
@@ -7194,6 +7199,10 @@ export default function TripDetailScreen({
                         name: supplierNameForParty,
                         roleLabel: "Supplier",
                         entityType: "supplier",
+                        initialsColorSeed:
+                          detail.supplierPartyRes?.orgId ??
+                          trip.supplier_id ??
+                          supplierNameForParty,
                         avatarUrl: detail.supplierPartyAvatarFields?.avatarUrl,
                         avatarSeed: detail.supplierPartyAvatarFields?.avatarSeed,
                         organizationImageUrl:

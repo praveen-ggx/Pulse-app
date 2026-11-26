@@ -32,6 +32,7 @@ import { getSignedAvatarUrl, pickAndUploadOrgLogo, updateOrganizationLogo } from
 import { showAppAlert } from "@/lib/appAlert";
 import { syncBrandingFromOrg } from "@/features/invoicing/services/invoiceBranding.service";
 import { PartyAvatar } from "@/components/PartyAvatar";
+import { PartyOperationsKindStrip } from "@/features/party/components/PartyOperationsKindStrip";
 import { canAccessPartyKind } from "@/lib/capabilities";
 import { useCapabilities } from "@/lib/useCapabilities";
 import { useMemberAccess } from "@/lib/useMemberAccess";
@@ -1098,36 +1099,12 @@ export default function ProfileScreen({
               ) : null}
 
               {visiblePartyTiles.length > 0 ? (
-                <View style={styles.premiumCard}>
-                  <View style={styles.premiumCardInner}>
-                    <View style={styles.managedByHeader}>
-                      <View style={styles.managedByAccent} />
-                      <Text style={styles.managedByEyebrow}>Operations</Text>
-                    </View>
-                    <View style={styles.premiumDivider} />
-                    <View style={styles.opsPartyRow}>
-                      {visiblePartyTiles.map((party) => (
-                        <Pressable
-                          key={party.kind}
-                          style={({ pressed }) => [
-                            styles.opsPartyCell,
-                            pressed && { opacity: 0.8 },
-                          ]}
-                          onPress={() => openPath(ROUTES.partyDirectory(party.kind))}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${party.label} directory`}
-                        >
-                          <View style={styles.profileItemIconBox}>
-                            <FontAwesome name={party.icon} size={14} color={Theme.primary} />
-                          </View>
-                          <Text style={styles.opsPartyLabel} numberOfLines={1}>
-                            {party.label}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </View>
-                </View>
+                <PartyOperationsKindStrip
+                  kinds={visiblePartyTiles.map((p) => p.kind)}
+                  onSelect={(k) => openPath(ROUTES.partyDirectory(k))}
+                  title="Operations"
+                  accentColor={Theme.driverEmerald}
+                />
               ) : null}
 
               {canSurface("team.manage") ? (
@@ -1729,15 +1706,39 @@ const styles = StyleSheet.create({
     minHeight: Layout.minTouchTargetSize,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 8,
     paddingVertical: 10,
     paddingHorizontal: 2,
   },
+  opsPartyIconWell: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  opsPartyIconCustomers: {
+    backgroundColor: Theme.brandBlueWashSubtle,
+    borderColor: Theme.brandBlueRing,
+  },
+  opsPartyIconSuppliers: {
+    backgroundColor: "rgba(217, 119, 6, 0.12)",
+    borderColor: "rgba(217, 119, 6, 0.22)",
+  },
+  opsPartyIconDrivers: {
+    backgroundColor: "rgba(15, 118, 110, 0.12)",
+    borderColor: "rgba(15, 118, 110, 0.22)",
+  },
+  opsPartyIconVehicles: {
+    backgroundColor: "rgba(59, 130, 246, 0.12)",
+    borderColor: "rgba(59, 130, 246, 0.22)",
+  },
   opsPartyLabel: {
-    fontSize: 10,
-    fontWeight: "400",
+    fontSize: 11,
+    fontWeight: "600",
     color: Theme.textPrimary,
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
     textAlign: "center",
   },
 

@@ -136,6 +136,43 @@ describe("buildDriverWalletTransactions", () => {
     expect(rows[0]).toMatchObject({ title: "raju trx", amount: 20 });
     expect(rows[1]).toMatchObject({ title: "Madras Logistics", amount: 1400 });
   });
+
+  it("renames older captures to the trip's tagged party name", () => {
+    const taggedTrip = {
+      id: "t1",
+      client_id: "c-amzg",
+      client_name: "AMzg",
+      notes: "<!--pulse-dco-party:{\"id\":\"c-amzg\",\"name\":\"ADANI GROUPS\"}-->",
+      pickup_area: "A",
+      drop_location: "B",
+    } as TripRow;
+    const rows = buildDriverWalletTransactions({
+      settlements: [],
+      expenses: [],
+      collections: [
+        {
+          id: "self:c1",
+          tripId: "t1",
+          amount: 1600,
+          at: "2026-11-25T10:00:00Z",
+          partyName: "AMzg",
+        },
+        {
+          id: "self:c2",
+          tripId: "t1",
+          amount: 960,
+          at: "2026-11-25T11:00:00Z",
+          partyName: "ADANI GROUPS",
+        },
+      ],
+      tripsById: { t1: taggedTrip },
+      tripDisplay: () => "TRP001",
+      partyNameForTrip: () => "ADANI GROUPS",
+      includeExpenses: false,
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.title === "ADANI GROUPS")).toBe(true);
+  });
 });
 
 describe("filter and group wallet transactions", () => {

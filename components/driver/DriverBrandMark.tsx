@@ -14,7 +14,7 @@ export function DriverBrandMark({ color, style }: Props) {
       word={PULSE_PILOT_BRAND_WORD}
       size="xs"
       wordColor={color}
-      textStyle={[{ marginBottom: 1 }, style]}
+      textStyle={style}
       numberOfLines={1}
     />
   );

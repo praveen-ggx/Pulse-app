@@ -87,7 +87,15 @@ export function TripListAssignerRow({
       {tagged ? (
         <>
           <View style={styles.rule} />
-          <View style={[styles.cellEnd, endSlot ? styles.cellMid : null]}>
+          <Pressable
+            onPress={onTagPress}
+            disabled={!onTagPress}
+            accessibilityRole={onTagPress ? "button" : undefined}
+            accessibilityLabel={
+              onTagPress ? `Bill to ${tagged}. Tap to change party` : `Bill to ${tagged}`
+            }
+            style={[styles.cellEnd, endSlot ? styles.cellMid : null]}
+          >
             <View style={styles.tagGlyph}>
               <Tag size={11} color={Theme.driverEmerald} strokeWidth={2.4} />
             </View>
@@ -113,7 +121,7 @@ export function TripListAssignerRow({
                 {tagged}
               </Text>
             </View>
-          </View>
+          </Pressable>
         </>
       ) : showUntagged ? (
         <>

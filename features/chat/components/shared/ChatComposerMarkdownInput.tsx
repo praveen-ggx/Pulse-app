@@ -149,6 +149,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     position: "relative",
+    justifyContent: "center",
+    alignSelf: "center",
   },
   previewLayer: {
     position: "absolute",

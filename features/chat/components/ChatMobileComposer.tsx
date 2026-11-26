@@ -265,7 +265,7 @@ export function ChatMobileComposer({
               accessibilityRole="button"
               accessibilityLabel="Add attachment or quick action"
             >
-              <Plus size={22} color="#616061" strokeWidth={1.75} />
+              <Plus size={18} color="#616061" strokeWidth={2} />
             </TouchableOpacity>
 
             <ChatComposerMarkdownInput
@@ -276,6 +276,11 @@ export function ChatMobileComposer({
               placeholderTextColor="#9CA3AF"
               pendingFormat={{ bold: boldActive, italic: italicActive }}
               multiline
+              // Keep web textarea at 1 row until content grows — avoids tall
+              // boxes with top-aligned text sitting above the side buttons.
+              {...(Platform.OS === "web"
+                ? ({ rows: Math.min(4, Math.max(1, value.split("\n").length)) } as object)
+                : { numberOfLines: 1 })}
               scrollEnabled
               blurOnSubmit={false}
               returnKeyType="default"
@@ -295,7 +300,15 @@ export function ChatMobileComposer({
               accessibilityRole="button"
               accessibilityLabel="Open emoji picker"
             >
-              <Smile size={20} color={showQuickPanel && quickPanelMode === "emoji" ? Theme.primary : "#616061"} strokeWidth={1.65} />
+              <Smile
+                size={18}
+                color={
+                  showQuickPanel && quickPanelMode === "emoji"
+                    ? Theme.primary
+                    : "#616061"
+                }
+                strokeWidth={1.9}
+              />
             </TouchableOpacity>
 
             <Animated.View style={{ transform: [{ scale: sendScale }] }}>
@@ -310,7 +323,7 @@ export function ChatMobileComposer({
                 {canSend ? (
                   <Text style={sl.sendArrow}>↑</Text>
                 ) : (
-                  <Mic size={17} color="#9CA3AF" strokeWidth={1.65} />
+                  <Mic size={16} color="#9CA3AF" strokeWidth={1.9} />
                 )}
               </TouchableOpacity>
             </Animated.View>
@@ -348,7 +361,7 @@ export function ChatMobileComposer({
                 accessibilityRole="button"
                 accessibilityLabel="Attach file"
               >
-                <Paperclip size={13} color="#9CA3AF" strokeWidth={1.8} />
+                <Paperclip size={14} color="#9CA3AF" strokeWidth={1.9} />
               </TouchableOpacity>
             ) : null}
             {nearLimit ? (
@@ -562,54 +575,67 @@ const sl = withWebSafeShadows(
   },
   composerCard: {
     marginHorizontal: 12,
-    marginTop: 8,
+    marginTop: 6,
     marginBottom: 2,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#DDDDDD",
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#D4D4D8",
     backgroundColor: "#FFFFFF",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
     overflow: "hidden",
   },
   inputRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     paddingHorizontal: 6,
-    paddingTop: 6,
-    paddingBottom: 4,
+    paddingVertical: 6,
     gap: 2,
+    minHeight: 44,
   },
   sideBtn: {
-    width: 36,
-    height: 36,
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 8,
+    flexShrink: 0,
   },
   input: {
-    flex: 1,
+    // Width only — do not use flex:1 here. The markdown wrap is a column;
+    // flex:1 on the TextInput stretches its height on web while textarea
+    // text stays top-aligned, so the caret/text sit above + / send.
+    width: "100%",
     minWidth: 0,
-    minHeight: 36,
+    minHeight: 32,
     maxHeight: CHAT_MOBILE.composerMaxHeight,
-    paddingHorizontal: 6,
-    paddingTop: Platform.OS === "ios" ? 8 : 7,
-    paddingBottom: Platform.OS === "ios" ? 8 : 7,
+    paddingHorizontal: 4,
+    // Optical vertical center for lineHeight 18 inside 32px row.
+    paddingTop: 7,
+    paddingBottom: 7,
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 18,
     color: CHAT_TEXT_PRIMARY,
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
+    ...(Platform.OS === "web"
+      ? ({
+          resize: "none",
+          boxSizing: "border-box",
+          verticalAlign: "middle",
+        } as object)
+      : {}),
   },
   sendBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#F3F4F6",
-    marginBottom: 1,
+    flexShrink: 0,
   },
   sendBtnActive: {
     backgroundColor: Theme.buttonPrimary,
@@ -618,21 +644,22 @@ const sl = withWebSafeShadows(
     borderRadius: Theme.buttonPrimaryRadius,
   },
   sendArrow: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
     color: "#FFFFFF",
-    lineHeight: 22,
+    lineHeight: 18,
     textAlign: "center",
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : {}),
   },
   fmtBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#F0F0F0",
-    gap: 0,
-    minHeight: 28,
+    borderTopColor: "#EFEFEF",
+    gap: 2,
+    minHeight: 32,
   },
   fmtBtn: {
     width: 28,
@@ -640,13 +667,14 @@ const sl = withWebSafeShadows(
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 6,
+    flexShrink: 0,
     ...(Platform.OS === "web" ? ({ display: "flex" } as object) : {}),
   },
   fmtBtnActive: {
     backgroundColor: "rgba(91, 94, 244, 0.1)",
   },
   fmtGlyph: {
-    fontSize: 14,
+    fontSize: 13,
     lineHeight: 16,
     color: "#9CA3AF",
     textAlign: "center",
@@ -664,9 +692,9 @@ const sl = withWebSafeShadows(
   },
   fmtSep: {
     width: StyleSheet.hairlineWidth,
-    height: 18,
+    height: 14,
     backgroundColor: "#E5E7EB",
-    marginHorizontal: 6,
+    marginHorizontal: 4,
     alignSelf: "center",
   },
   charCount: {
@@ -674,6 +702,7 @@ const sl = withWebSafeShadows(
     fontSize: 10,
     fontWeight: "500",
     color: "#9CA3AF",
+    paddingRight: 4,
   },
   charCountOver: {
     color: "#EF4444",

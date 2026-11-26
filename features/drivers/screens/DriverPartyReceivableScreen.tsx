@@ -13,7 +13,10 @@ import {
   buildDriverTripNumberMap,
   getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
-import { receivedByTripFromDriverBooks } from "@/features/drivers/services/driverCapturePayment.service";
+import {
+  listDriverBookCollections,
+  receivedByTripFromDriverBooks,
+} from "@/features/drivers/services/driverCapturePayment.service";
 import * as driversService from "@/features/drivers/services/drivers.service";
 import {
   EMPTY_DRIVER_PARTY_AVATAR,
@@ -24,6 +27,7 @@ import {
 import {
   buildDriverPartyReceivables,
   isTripTaggedToParty,
+  preferPartyDisplayName,
   tripNeedsPartyTag,
   tripReceivablePartyName,
   tripsForDriverParty,
@@ -34,17 +38,19 @@ import { ROUTES } from "@/lib/routes";
 import { useSafeBack } from "@/lib/useSafeBack";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import { ArrowDownLeft, ArrowUpRight, Gauge, Navigation, Tag } from "lucide-react-native";
+import { ArrowDownLeft, ArrowUpRight, Tag, type LucideIcon } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  Easing,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 function inr(n: number): string {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
-}
-
-function formatKm(v: number | null | undefined): string {
-  if (v == null || !Number.isFinite(Number(v)) || Number(v) <= 0) return "—";
-  return `${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 1 })} km`;
 }
 
 function cleanPlace(raw: string | null | undefined): string {
@@ -64,6 +70,99 @@ function decodePartyId(raw: string | string[] | undefined): string {
   }
 }
 
+type ScoreMoneyTone = "received" | "due" | "clear";
+
+function ScoreMoneyCell({
+  label,
+  amount,
+  tone,
+  Icon,
+}: {
+  label: string;
+  amount: string;
+  tone: ScoreMoneyTone;
+  Icon: LucideIcon;
+}) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  const active = tone !== "clear";
+
+  useEffect(() => {
+    if (!active) {
+      pulse.stopAnimation();
+      pulse.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1600,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [active, pulse]);
+
+  const ringScale = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.55],
+  });
+  const ringOpacity = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.45, 0],
+  });
+
+  const accent =
+    tone === "received"
+      ? Theme.driverPrimary
+      : tone === "due"
+        ? Theme.warning
+        : Theme.driverPrimary;
+  const valueColor =
+    tone === "received"
+      ? "#34D399"
+      : tone === "due"
+        ? "#FBBF24"
+        : "#6EE7B7";
+
+  return (
+    <View style={styles.scoreCell}>
+      <View style={styles.scoreCellIconWrap}>
+        {active ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.scoreCellPulse,
+              {
+                borderColor: accent,
+                opacity: ringOpacity,
+                transform: [{ scale: ringScale }],
+              },
+            ]}
+          />
+        ) : null}
+        <View style={styles.scoreCellIcon}>
+          <Icon size={14} color={accent} strokeWidth={2.5} />
+        </View>
+      </View>
+      <View style={styles.scoreCellCopy}>
+        <Text style={styles.scoreGridLabel}>{label}</Text>
+        <Text style={[styles.scoreAmt, { color: valueColor }]} numberOfLines={1}>
+          {amount}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export default function DriverPartyReceivableScreen() {
   const router = useRouter();
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
@@ -74,6 +173,7 @@ export default function DriverPartyReceivableScreen() {
   const [loading, setLoading] = useState(true);
   const [trips, setTrips] = useState<tripsService.TripRow[]>([]);
   const [receivedByTripId, setReceivedByTripId] = useState<Record<string, number>>({});
+  const [partyNameByTripId, setPartyNameByTripId] = useState<Record<string, string>>({});
   const [linkedDrivers, setLinkedDrivers] = useState<driversService.DriverRow[]>([]);
   const [tagTrip, setTagTrip] = useState<tripsService.TripRow | null>(null);
   const hasLoadedRef = useRef(false);
@@ -91,12 +191,14 @@ export default function DriverPartyReceivableScreen() {
       if (drivers.length === 0) {
         setTrips([]);
         setReceivedByTripId({});
+        setPartyNameByTripId({});
         return;
       }
       const driverIds = drivers.map((d) => d.id);
-      const [tRes, ledgerRes] = await Promise.all([
+      const [tRes, ledgerRes, collections] = await Promise.all([
         tripsService.getDriverUiTripsByDriverIds(driverIds),
         driversService.getDriverLedgerByDriverIds(driverIds),
+        listDriverBookCollections().catch(() => []),
       ]);
       // A failed load used to show every trip as fully unpaid (no ledger →
       // nothing received), inviting the driver to collect again. Keep the
@@ -122,6 +224,14 @@ export default function DriverPartyReceivableScreen() {
         byTrip[tripId] = (byTrip[tripId] ?? 0) + amount;
       }
       setReceivedByTripId(byTrip);
+      const nameByTrip: Record<string, string> = {};
+      for (const row of collections) {
+        const tripId = String(row.tripId ?? "").trim();
+        const name = String(row.partyName ?? "").trim();
+        if (!tripId || !name || name === "Party") continue;
+        nameByTrip[tripId] = preferPartyDisplayName(nameByTrip[tripId], name);
+      }
+      setPartyNameByTripId(nameByTrip);
     } finally {
       hasLoadedRef.current = true;
       setLoading(false);
@@ -150,10 +260,13 @@ export default function DriverPartyReceivableScreen() {
 
   const party = useMemo(
     () =>
-      buildDriverPartyReceivables(trips, receivedByTripId, isFleetDispatched).find(
-        (row) => row.id === partyId,
-      ) ?? null,
-    [trips, receivedByTripId, isFleetDispatched, partyId],
+      buildDriverPartyReceivables(
+        trips,
+        receivedByTripId,
+        isFleetDispatched,
+        partyNameByTripId,
+      ).find((row) => row.id === partyId) ?? null,
+    [trips, receivedByTripId, isFleetDispatched, partyNameByTripId, partyId],
   );
 
   const partyTrips = useMemo(
@@ -257,37 +370,18 @@ export default function DriverPartyReceivableScreen() {
           </View>
         </LinearGradient>
         <View style={styles.scoreGrid}>
-          <View style={[styles.scoreCell, styles.scoreCellReceived]}>
-            <View style={styles.scoreCellIcon}>
-              <ArrowDownLeft size={14} color={Theme.positive} strokeWidth={2.5} />
-            </View>
-            <View style={styles.scoreCellCopy}>
-              <Text style={styles.scoreGridLabel}>Received</Text>
-              <Text style={[styles.scoreAmt, { color: Theme.positive }]}>
-                {inr(received)}
-              </Text>
-            </View>
-          </View>
-          <View style={[styles.scoreCell, styles.scoreCellDue]}>
-            <View style={[styles.scoreCellIcon, styles.scoreCellIconDue]}>
-              <ArrowUpRight
-                size={14}
-                color={due > 0 ? Theme.negative : Theme.positive}
-                strokeWidth={2.5}
-              />
-            </View>
-            <View style={styles.scoreCellCopy}>
-              <Text style={styles.scoreGridLabel}>Due</Text>
-              <Text
-                style={[
-                  styles.scoreAmt,
-                  { color: due > 0 ? Theme.negative : Theme.positive },
-                ]}
-              >
-                {inr(due)}
-              </Text>
-            </View>
-          </View>
+          <ScoreMoneyCell
+            label="Received"
+            amount={inr(received)}
+            tone={received > 0 ? "received" : "clear"}
+            Icon={ArrowDownLeft}
+          />
+          <ScoreMoneyCell
+            label="Due"
+            amount={inr(due)}
+            tone={due > 0 ? "due" : "clear"}
+            Icon={ArrowUpRight}
+          />
         </View>
       </View>
 
@@ -297,11 +391,9 @@ export default function DriverPartyReceivableScreen() {
           <View style={styles.missionHead}>
             <Text style={styles.headCell}>Mission</Text>
           </View>
-          <View style={styles.receivedCol}>
-            <Text style={[styles.headCell, styles.headRight]}>Received</Text>
-          </View>
-          <View style={styles.dueActionCol}>
-            <Text style={[styles.headCell, styles.headRight]}>Due</Text>
+          <View style={styles.moneyHead}>
+            <Text style={[styles.headCell, styles.moneyHeadCell]}>Received</Text>
+            <Text style={[styles.headCell, styles.moneyHeadCell]}>Due</Text>
           </View>
         </View>
         {partyTrips.length === 0 ? (
@@ -325,8 +417,6 @@ export default function DriverPartyReceivableScreen() {
               tripAvatarById[line.trip.id] ?? (isMarketplace ? EMPTY_DRIVER_PARTY_AVATAR : avatar);
             const fromPlace = cleanPlace(line.trip.pickup_area) || "—";
             const toPlace = cleanPlace(line.trip.drop_location) || "—";
-            const odoKm = formatKm(line.trip.odometer_distance_km);
-            const gpsKm = formatKm(line.trip.gps_distance_km);
             return (
               <View
                 key={line.trip.id}
@@ -367,33 +457,23 @@ export default function DriverPartyReceivableScreen() {
                     <Text style={styles.missionRouteTo} numberOfLines={1}>
                       → {toPlace}
                     </Text>
-                    <View style={styles.distanceRow}>
-                      <View style={styles.distanceChip}>
-                        <Gauge size={11} color={Theme.textRouteCard} strokeWidth={2} />
-                        <Text style={styles.distanceChipText}>Odo {odoKm}</Text>
-                      </View>
-                      <View style={styles.distanceChip}>
-                        <Navigation size={11} color={Theme.textRouteCard} strokeWidth={2} />
-                        <Text style={styles.distanceChipText}>GPS {gpsKm}</Text>
-                      </View>
-                    </View>
                   </View>
                 </Pressable>
-                <View style={styles.receivedCol}>
-                  <Text style={[styles.amt, { color: Theme.positive }]} numberOfLines={1}>
-                    {inr(line.received)}
-                  </Text>
-                </View>
-                <View style={styles.dueActionCol}>
-                  <Text
-                    style={[
-                      styles.dueAmt,
-                      { color: line.due > 0 ? Theme.negative : Theme.positive },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {inr(line.due)}
-                  </Text>
+                <View style={styles.moneyBlock}>
+                  <View style={styles.moneyRow}>
+                    <Text style={[styles.amt, { color: Theme.positive }]} numberOfLines={1}>
+                      {inr(line.received)}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.dueAmt,
+                        { color: line.due > 0 ? Theme.negative : Theme.positive },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {inr(line.due)}
+                    </Text>
+                  </View>
                   {needsTag ? (
                     <Pressable
                       onPress={() => setTagTrip(line.trip)}
@@ -405,7 +485,7 @@ export default function DriverPartyReceivableScreen() {
                         { opacity: pressed ? 0.82 : 1 },
                       ]}
                     >
-                      <Tag size={13} color={Theme.driverEmerald} strokeWidth={2.4} />
+                      <Tag size={12} color={Theme.driverEmerald} strokeWidth={2.4} />
                       <Text style={styles.tagBtnText}>Tag</Text>
                     </Pressable>
                   ) : canCapture ? (
@@ -457,11 +537,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   scorecard: {
-    borderRadius: 16,
-    borderWidth: 0,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.08)",
     overflow: "hidden",
     marginBottom: 16,
-    backgroundColor: Theme.surfaceLight,
+    backgroundColor: Theme.driverSurface,
   },
   scoreHero: {
     paddingHorizontal: 16,
@@ -515,7 +596,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     padding: 10,
+    paddingTop: 0,
     alignItems: "stretch",
+    backgroundColor: Theme.driverSurface,
   },
   scoreCell: {
     flex: 1,
@@ -523,16 +606,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingVertical: 12,
+    paddingVertical: 13,
     paddingHorizontal: 12,
-    borderRadius: 12,
-    minHeight: 64,
+    borderRadius: 14,
+    minHeight: 68,
+    backgroundColor: "transparent",
+    borderWidth: 0,
   },
-  scoreCellReceived: {
-    backgroundColor: Theme.positiveMuted,
+  scoreCellIconWrap: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  scoreCellDue: {
-    backgroundColor: Theme.negativeMuted,
+  scoreCellPulse: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
+    borderWidth: 1.5,
   },
   scoreCellIcon: {
     width: 28,
@@ -540,10 +630,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Theme.screenBackground,
-  },
-  scoreCellIconDue: {
-    backgroundColor: Theme.screenBackground,
+    backgroundColor: "transparent",
+    borderWidth: 0,
   },
   scoreCellCopy: {
     flex: 1,
@@ -552,15 +640,15 @@ const styles = StyleSheet.create({
   scoreGridLabel: {
     fontSize: 9,
     fontWeight: "800",
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     textTransform: "uppercase",
-    color: Theme.textMuted,
-    marginBottom: 2,
+    color: "rgba(255,255,255,0.48)",
+    marginBottom: 3,
   },
   scoreAmt: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "800",
-    letterSpacing: -0.3,
+    letterSpacing: -0.35,
     fontVariant: ["tabular-nums"],
   },
   sectionTitle: {
@@ -601,48 +689,62 @@ const styles = StyleSheet.create({
     textAlign: "right",
     width: "100%",
   },
-  receivedCol: {
-    width: 72,
-    alignItems: "flex-end",
-    justifyContent: "flex-start",
-    flexShrink: 0,
-    paddingTop: 2,
-  },
-  dueActionCol: {
-    width: 88,
-    alignItems: "flex-end",
-    justifyContent: "flex-start",
+  moneyHead: {
+    width: 132,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
     gap: 8,
     flexShrink: 0,
   },
+  moneyHeadCell: {
+    minWidth: 58,
+    textAlign: "right",
+  },
+  moneyBlock: {
+    width: 132,
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    gap: 6,
+    flexShrink: 0,
+  },
+  moneyRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
   tagBtn: {
-    minHeight: 32,
-    minWidth: 68,
-    paddingHorizontal: 10,
+    height: 28,
+    minWidth: 64,
+    paddingHorizontal: 12,
     borderRadius: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
     backgroundColor: Theme.driverEmeraldMuted,
+    alignSelf: "flex-end",
   },
   tagBtnText: {
-    fontSize: 10,
-    fontWeight: "800",
+    fontSize: 11,
+    fontWeight: "700",
     color: Theme.driverEmeraldDark,
   },
   actionIdle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
     color: Theme.textMuted,
-    paddingRight: 4,
+    lineHeight: 28,
+    paddingRight: 2,
   },
   row: {
     flexDirection: "row",
     alignItems: "flex-start",
     paddingHorizontal: 12,
-    paddingVertical: 14,
-    gap: 8,
+    paddingVertical: 12,
+    gap: 10,
     backgroundColor: Theme.screenBackground,
   },
   missionCell: {
@@ -694,31 +796,9 @@ const styles = StyleSheet.create({
     color: Theme.textRouteCard,
     lineHeight: 15,
   },
-  distanceRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 6,
-  },
-  distanceChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: Theme.surfaceGray,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-  },
-  distanceChipText: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: Theme.textRouteCard,
-    letterSpacing: 0.1,
-  },
   amt: {
     textAlign: "right",
+    minWidth: 58,
     fontSize: 12,
     fontWeight: "800",
     fontVariant: ["tabular-nums"],
@@ -726,11 +806,11 @@ const styles = StyleSheet.create({
   },
   dueAmt: {
     textAlign: "right",
+    minWidth: 58,
     fontSize: 12,
     fontWeight: "800",
     fontVariant: ["tabular-nums"],
     letterSpacing: -0.15,
-    width: "100%",
   },
   empty: {
     padding: 16,

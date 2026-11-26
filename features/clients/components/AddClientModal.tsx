@@ -88,10 +88,6 @@ interface AddClientModalProps {
   initialOrganizationName?: string;
   initialContactPerson?: string;
   initialPhone?: string;
-  /** Saved DCO / org clients — tap to reuse instead of creating another offline party. */
-  existingParties?: Array<{ id: string; name: string; phone?: string | null }>;
-  onSelectExistingParty?: (party: { id: string; name: string }) => void | Promise<void>;
-  existingPartyBusyId?: string | null;
   /** When false, parent owns the success UI after create. */
   showSuccessOnComplete?: boolean;
   /** DCO Self only. User App / Finance still require both company and contact. */
@@ -115,9 +111,6 @@ export function AddClientModal({
   initialOrganizationName = "",
   initialContactPerson = "",
   initialPhone = "",
-  existingParties = [],
-  onSelectExistingParty,
-  existingPartyBusyId = null,
   showSuccessOnComplete = true,
   allowSinglePartyName = false,
 }: AddClientModalProps) {
@@ -202,46 +195,6 @@ export function AddClientModal({
     inviteeMatch && onSendInvitation,
   );
   const hidePrimaryActionForDriverMatch = Boolean(inviteeMatch && inviteeIsDriver);
-
-  const existingPartyPicker =
-    existingParties.length > 0 && onSelectExistingParty ? (
-      <View style={styles.existingWrap}>
-        <Text style={styles.existingTitle}>Your shippers</Text>
-        <Text style={styles.existingHint}>
-          Select a saved client, or add a new offline shipper below. You can
-          fill GST and address later.
-        </Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.existingRow}
-        >
-          {existingParties.map((row) => (
-            <TouchableOpacity
-              key={row.id}
-              style={styles.existingChip}
-              onPress={() => void onSelectExistingParty({ id: row.id, name: row.name })}
-              disabled={!!existingPartyBusyId}
-              accessibilityRole="button"
-              accessibilityLabel={`Use ${row.name}`}
-            >
-              {existingPartyBusyId === row.id ? (
-                <ActivityIndicator size="small" color={Theme.primary} />
-              ) : (
-                <>
-                  <Text style={styles.existingChipName} numberOfLines={1}>
-                    {row.name}
-                  </Text>
-                  <Text style={styles.existingChipMeta} numberOfLines={1}>
-                    {row.phone?.trim() || "Offline"}
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-    ) : null;
 
   // Reset form when modal opens so each open shows empty fields (not previous submission).
   useEffect(() => {
@@ -585,7 +538,6 @@ export function AddClientModal({
           {error}
         </Text>
       ) : null}
-      {existingPartyPicker}
       {!hidePrimaryActionForDriverMatch ? (
         <TouchableOpacity
           style={[
@@ -931,7 +883,6 @@ export function AddClientModal({
               </View>
             ) : null}
 
-            {existingPartyPicker}
           </View>
         </ScrollView>
 
@@ -1525,51 +1476,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Theme.primary,
     textDecorationLine: "underline",
-  },
-  existingWrap: {
-    marginTop: 4,
-    marginBottom: 4,
-    gap: 6,
-  },
-  existingTitle: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.55,
-    textTransform: "uppercase",
-    color: Theme.textMuted,
-  },
-  existingHint: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: Theme.textSecondary,
-    lineHeight: 16,
-  },
-  existingRow: {
-    gap: 8,
-    paddingVertical: 4,
-    paddingRight: 4,
-  },
-  existingChip: {
-    minWidth: 148,
-    maxWidth: 200,
-    minHeight: 56,
-    borderRadius: 12,
-    borderWidth: 0,
-    backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    justifyContent: "center",
-  },
-  existingChipName: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: Theme.textPrimary,
-  },
-  existingChipMeta: {
-    marginTop: 3,
-    fontSize: 11,
-    fontWeight: "600",
-    color: Theme.textMuted,
   },
   screenStatusCard: {
     backgroundColor: Theme.screenBackground,

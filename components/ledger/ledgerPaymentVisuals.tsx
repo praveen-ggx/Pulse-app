@@ -4,7 +4,7 @@ import {
   Clock,
   CreditCard,
   FileText,
-  Smartphone,
+  QrCode,
   Ticket,
   type LucideIcon,
 } from "lucide-react-native";
@@ -48,7 +48,7 @@ export const LEDGER_PAYMENT_MODES: PaymentModeVisual[] = [
     color: "#7c3aed",
     tint: "#ede9fe",
     gradient: ["#f97316", "#7c3aed", "#059669"],
-    Icon: Smartphone,
+    Icon: QrCode,
   },
   {
     id: "BANK",
@@ -165,9 +165,9 @@ export function ledgerPaymentModeLabel(modeId: string): string {
 export type LedgerProtocolStripVariant = "desktop" | "compact";
 
 export const LEDGER_PROTOCOL_STRIP = {
-  iconSlot: 28,
-  logo: { desktop: 20, compact: 18 },
-  tileHeight: { desktop: 54, compact: 48 },
+  iconSlot: 30,
+  logo: { desktop: 22, compact: 22 },
+  tileHeight: { desktop: 60, compact: 58 },
 } as const;
 
 type LedgerProtocolStripTileBaseProps = {
@@ -197,6 +197,7 @@ export const LedgerProtocolStripModeTile = memo(function LedgerProtocolStripMode
 }: LedgerProtocolStripTileBaseProps & { modeId: string }) {
   const mode = ledgerPaymentModeVisual(modeId);
   const dims = stripTileSize(variant);
+  const ink = selected ? mode.color : Theme.textPrimaryDark;
 
   return (
     <Pressable
@@ -208,20 +209,25 @@ export const LedgerProtocolStripModeTile = memo(function LedgerProtocolStripMode
         { minHeight: dims.minHeight },
         width != null && { width },
         variant === "compact" && stripStyles.tileCompact,
-        selected && { borderColor: mode.color, backgroundColor: mode.tint },
+        selected && {
+          borderColor: mode.color,
+          backgroundColor: mode.tint,
+          borderWidth: 2,
+        },
         pressed && stripStyles.tilePressed,
       ]}
     >
       <View style={[stripStyles.iconSlot, { width: dims.iconSlot, height: dims.iconSlot }]}>
-        <PaymentModeLogo modeId={modeId} size={dims.logo} />
+        <PaymentModeLogo modeId={modeId} size={dims.logo} color={ink} />
       </View>
       <Text
         style={[
           stripStyles.label,
           variant === "compact" && stripStyles.labelCompact,
-          selected && { color: mode.color, fontWeight: "800" },
+          { color: ink },
+          selected && stripStyles.labelSelected,
         ]}
-        numberOfLines={2}
+        numberOfLines={1}
       >
         {label}
       </Text>
@@ -275,23 +281,27 @@ export const LedgerProtocolStripTypeTile = memo(function LedgerProtocolStripType
 const stripStyles = StyleSheet.create({
   tile: {
     flexShrink: 0,
-    borderRadius: 11,
+    borderRadius: 12,
     borderWidth: 1.5,
     borderColor: Theme.borderLight,
-    backgroundColor: Theme.surface,
+    backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
-    paddingTop: 7,
-    paddingBottom: 6,
-    paddingHorizontal: 3,
+    gap: 6,
+    paddingTop: 10,
+    paddingBottom: 9,
+    paddingHorizontal: 4,
   },
   tileCompact: {
-    borderRadius: 10,
-    gap: 4,
-    paddingTop: 6,
-    paddingBottom: 5,
-    paddingHorizontal: 2,
+    flex: 1,
+    alignSelf: "stretch",
+    width: "100%",
+    minWidth: 0,
+    borderRadius: 12,
+    gap: 5,
+    paddingTop: 9,
+    paddingBottom: 8,
+    paddingHorizontal: 3,
   },
   tilePressed: {
     opacity: 0.9,
@@ -303,20 +313,22 @@ const stripStyles = StyleSheet.create({
     overflow: "hidden",
   },
   label: {
-    ...FinanceTxnTypography.chipLabel,
-    fontSize: 7.5,
-    lineHeight: 9,
-    fontWeight: "700",
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: "800",
     textAlign: "center",
-    color: Theme.textSecondary,
+    color: Theme.textPrimaryDark,
     textTransform: "uppercase",
-    letterSpacing: 0.2,
+    letterSpacing: 0.35,
     paddingHorizontal: 1,
   },
   labelCompact: {
-    fontSize: 7,
-    lineHeight: 8,
-    letterSpacing: 0.15,
+    fontSize: 10,
+    lineHeight: 12,
+    letterSpacing: 0.3,
+  },
+  labelSelected: {
+    fontWeight: "900",
   },
 });
 

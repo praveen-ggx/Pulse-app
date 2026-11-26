@@ -10,8 +10,7 @@
  * post_id so reboosts and RPC joins cannot double the same load.
  */
 import { CenteredLoadingView } from '@/components/CenteredLoadingView';
-import { DriverBrandMark } from '@/components/driver/DriverBrandMark';
-import { DriverSelfAvatar } from '@/components/driver/DriverSelfAvatar';
+import { DriverShellIdentityBlock } from '@/components/driver/DriverShellIdentityBlock';
 import { PartyAvatar } from '@/components/PartyAvatar';
 import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
@@ -1391,23 +1390,13 @@ export default function DriverStoriesScreen() {
           },
         ]}
       >
-        <View style={styles.headerLeft}>
-          <TouchableOpacity
-            onPress={() => router.push('/(driver)/profile')}
-            style={styles.avatarBtn}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel="Open profile"
-          >
-            <DriverSelfAvatar size={36} uri={avatarUri} borderColor={colors.emerald} />
-          </TouchableOpacity>
-          <View style={styles.headerTextWrap}>
-            <DriverBrandMark color={colors.textMuted} />
-            <Text style={[styles.welcomeTitle, { color: colors.text }]} numberOfLines={1}>
-              load
-            </Text>
-          </View>
-        </View>
+        <DriverShellIdentityBlock
+          avatarUri={avatarUri}
+          title="load"
+          titleColor={colors.text}
+          brandColor={colors.textMuted}
+          avatarBorderColor={colors.emerald}
+        />
       </View>
 
       <StoriesContent />

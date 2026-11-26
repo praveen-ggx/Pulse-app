@@ -38,6 +38,15 @@ import { canAccessPartyKind } from "@/lib/capabilities";
 import { useCapabilities } from "@/lib/useCapabilities";
 import type { MemberSurfaceId } from "@/lib/memberSurfaces";
 import { useMemberAccess } from "@/lib/useMemberAccess";
+import { PartyOperationsKindStrip } from "@/features/party/components/PartyOperationsKindStrip";
+import type { PartyKind } from "@/features/party/types/partyDirectory.types";
+import { isActiveFleetRelationshipDriver } from "@/features/drivers/services/drivers.service";
+import {
+  useClientsQuery,
+  useDriversQuery,
+  useSuppliersQuery,
+  useVehiclesQuery,
+} from "@/lib/queries";
 import { useActiveExpoProductShell } from "@/features/product-shell/PulseProductShell";
 import { buildPulseCommerceUrl, openSuiteProductApp, openSuiteProductAppInNewTab } from "@/lib/suite/suiteAuth";
 import {
@@ -47,8 +56,6 @@ import {
 import { confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { useRouter } from "expo-router";
 import {
-  Building2,
-  Car,
   ChevronRight,
   HelpCircle,
   Lock,
@@ -59,8 +66,6 @@ import {
   Sparkles,
   Store,
   ScanLine,
-  Truck,
-  User,
   Users,
   X,
   Zap,
@@ -372,62 +377,51 @@ export function WorkspaceHubMenu({
     handleComplianceToggle,
   ]);
 
-  const partyRows: HubRow[] = useMemo(() => {
-    const all: {
-      kind: "customers" | "suppliers" | "drivers" | "vehicles";
-      row: HubRow;
-    }[] = [
-      {
-        kind: "customers",
-        row: {
-          id: "party-customers",
-          label: "Customers",
-          icon: hubLucideIcon(Building2),
-          route: ROUTES.partyDirectory("customers"),
-        },
-      },
-      {
-        kind: "suppliers",
-        row: {
-          id: "party-suppliers",
-          label: "Suppliers",
-          icon: hubLucideIcon(Truck),
-          route: ROUTES.partyDirectory("suppliers"),
-        },
-      },
-      {
-        kind: "drivers",
-        row: {
-          id: "party-drivers",
-          label: "Drivers",
-          icon: hubLucideIcon(User),
-          route: ROUTES.partyDirectory("drivers"),
-        },
-      },
-      {
-        kind: "vehicles",
-        row: {
-          id: "party-vehicles",
-          label: "Vehicles",
-          icon: hubLucideIcon(Car),
-          route: ROUTES.partyDirectory("vehicles"),
-        },
-      },
+  const orgId = currentOrganization?.id ?? null;
+  const partySurfaceByKind: Record<PartyKind, MemberSurfaceId> = {
+    customers: "sales.clients.view",
+    suppliers: "sales.suppliers.view",
+    drivers: "fleet.drivers.view",
+    vehicles: "fleet.vehicles.view",
+  };
+  const visiblePartyKinds = useMemo(() => {
+    const order: PartyKind[] = [
+      "customers",
+      "suppliers",
+      "drivers",
+      "vehicles",
     ];
-    const surfaceIdByKind: Record<typeof all[number]["kind"], MemberSurfaceId> = {
-      customers: "sales.clients.view",
-      suppliers: "sales.suppliers.view",
-      drivers: "fleet.drivers.view",
-      vehicles: "fleet.vehicles.view",
-    };
-    return all
-      .filter(
-        ({ kind }) =>
-          canAccessPartyKind(capabilities, kind) &&
-          canSurface(surfaceIdByKind[kind]),
-      )
-      .map(({ row }) => row);
+    return order.filter(
+      (kind) =>
+        canAccessPartyKind(capabilities, kind) &&
+        canSurface(partySurfaceByKind[kind]),
+    );
   }, [capabilities, canSurface]);
+
+  const clientsQ = useClientsQuery(
+    visiblePartyKinds.includes("customers") ? orgId : null,
+  );
+  const suppliersQ = useSuppliersQuery(
+    visiblePartyKinds.includes("suppliers") ? orgId : null,
+  );
+  const driversQ = useDriversQuery(
+    visiblePartyKinds.includes("drivers") ? orgId : null,
+  );
+  const vehiclesQ = useVehiclesQuery(
+    visiblePartyKinds.includes("vehicles") ? orgId : null,
+  );
+
+  const partyCounts = useMemo(
+    () => ({
+      customers: clientsQ.data?.length ?? 0,
+      suppliers: suppliersQ.data?.length ?? 0,
+      drivers: (driversQ.data ?? []).filter(
+        (d) => !d.left_at && isActiveFleetRelationshipDriver(d),
+      ).length,
+      vehicles: vehiclesQ.data?.length ?? 0,
+    }),
+    [clientsQ.data, driversQ.data, suppliersQ.data, vehiclesQ.data],
+  );
 
   const navigate = (path: string) => {
     router.push(path as Parameters<typeof router.push>[0]);
@@ -550,55 +544,6 @@ export function WorkspaceHubMenu({
           </Pressable>
         );
       })}
-    </View>
-  );
-
-  const renderPartyGridSection = (
-    title: string,
-    sectionRows: HubRow[],
-    accentColor: string = HUB_PURPLE,
-  ) =>
-    // No permitted rows → drop the whole card, not an empty titled section.
-    sectionRows.length === 0 ? null : (
-    <View style={hubStyles.sectionCard}>
-      <View style={hubStyles.sectionHeader}>
-        <View style={[hubStyles.sectionAccent, { backgroundColor: accentColor }]} />
-        <Text style={hubStyles.sectionTitle}>{title}</Text>
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={hubStyles.partyRowScrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        {sectionRows.map((row) => (
-          <View key={row.id} style={hubStyles.partyRowCell}>
-            <Pressable
-              onPress={() => {
-                if (row.panelId) {
-                  onSelectPanel(row.panelId);
-                  return;
-                }
-                if (row.route) {
-                  onExit?.();
-                  navigate(row.route);
-                }
-              }}
-              style={({ pressed }) => [
-                hubStyles.partyRowChip,
-                pressed && hubStyles.partyRowChipPressed,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={row.label}
-            >
-              <View style={hubStyles.partyRowIconSlot}>{row.icon}</View>
-              <Text style={hubStyles.partyGridLabel} numberOfLines={1}>
-                {row.label}
-              </Text>
-            </Pressable>
-          </View>
-        ))}
-      </ScrollView>
     </View>
   );
 
@@ -804,7 +749,18 @@ export function WorkspaceHubMenu({
           {renderHubSection("Organization", organizationRows, "#0f766e")}
           {renderHubSection("Workspace", workspaceRows, HUB_PURPLE)}
           {renderHubSection("Products", productRows, "#7c3aed")}
-          {renderPartyGridSection("Operations", partyRows, Theme.driverEmerald)}
+          {visiblePartyKinds.length > 0 ? (
+            <PartyOperationsKindStrip
+              kinds={visiblePartyKinds}
+              counts={partyCounts}
+              onSelect={(kind) => {
+                onExit?.();
+                navigate(ROUTES.partyDirectory(kind));
+              }}
+              title="Operations"
+              accentColor={Theme.driverEmerald}
+            />
+          ) : null}
           {isMobileHub ? footer : null}
         </ScrollView>
 

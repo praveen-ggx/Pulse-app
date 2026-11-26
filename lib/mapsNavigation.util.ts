@@ -14,3 +14,18 @@ export function openExternalNavigation(
   const url = `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}&travelmode=driving`;
   return Linking.openURL(url).then(() => undefined);
 }
+
+/** Opens driving directions between two coordinates in the device map app. */
+export function openExternalRouteDirections(
+  originLatitude: number,
+  originLongitude: number,
+  destinationLatitude: number,
+  destinationLongitude: number,
+): Promise<void> {
+  const url =
+    `https://www.google.com/maps/dir/?api=1` +
+    `&origin=${originLatitude},${originLongitude}` +
+    `&destination=${destinationLatitude},${destinationLongitude}` +
+    `&travelmode=driving`;
+  return Linking.openURL(url).then(() => undefined);
+}

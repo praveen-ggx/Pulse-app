@@ -261,6 +261,10 @@ import {
 } from "../utils/locationPingChatDisplay.util";
 import { ChatLedgerEventCard, ChatSystemEventCard, buildChatRouteContextLabel } from "./ChatEventCard";
 import { ChatLocationSystemCard } from "./ChatLocationSystemCard";
+import { ChatStageRevokeCard } from "./ChatStageRevokeCard";
+import { isStageRevokeChatMessage } from "../utils/stageRevokeChat.util";
+import { ChatPingLocationAction } from "./ChatPingLocationAction";
+import { useChatPingDriverLocation } from "@/features/chat/hooks/useChatPingDriverLocation";
 import { DocumentShareCard } from "./DocumentShareCard";
 import {
   DocumentShareSheet,
@@ -8057,6 +8061,33 @@ function TripConversationDetailLoaded({
     [composeTrips, liveConv.trip_id],
   );
 
+  const canPingDriverLocation =
+    !viewerIsDriver &&
+    Boolean(liveConv.trip_id) &&
+    Boolean(liveConv.driver_id ?? tripCompose?.driver_id) &&
+    !isTerminalTripStatus(liveConv.trip_status ?? tripCompose?.status ?? null);
+  const pingSenderRole =
+    currentOrganization?.id &&
+    liveConv.organization_id &&
+    liveConv.organization_id !== currentOrganization.id
+      ? ("supplier" as const)
+      : ("dispatcher" as const);
+  const {
+    pingLocation,
+    isPinging: isPingingDriverLocation,
+    pingTimedOut: pingDriverLocationTimedOut,
+    lastCityLabel: pingDriverLastCity,
+    pingPhase: pingDriverPhase,
+  } = useChatPingDriverLocation({
+    tripId: liveConv.trip_id,
+    conversationId: liveConv.id,
+    organizationId: liveConv.organization_id,
+    senderRole: pingSenderRole,
+    senderName: selfName,
+    senderUserId: selfUid,
+    enabled: canPingDriverLocation,
+  });
+
   const { data: assignmentAuditRows = [] } = useTripAssignmentAuditHistoryQuery(
     liveConv.trip_id,
   );
@@ -8816,6 +8847,12 @@ function TripConversationDetailLoaded({
       m.message_type === "system_log" ||
       m.message_type === "location_log"
     ) {
+      // Stage revoke uses the same TripProgressEventCard shell as accept/transit.
+      if (isStageRevokeChatMessage(m)) {
+        return (
+          <ChatStageRevokeCard message={m} composeTrip={tripCompose} />
+        );
+      }
       if (isLongHaulLateChatMessage(m)) {
         if (primaryLateMessageId != null && m.id !== primaryLateMessageId) return null;
         return (
@@ -9460,6 +9497,15 @@ function TripConversationDetailLoaded({
             typingNames={typingNames}
             variant={isDesktop ? "desktop" : "mobile"}
           />
+          {canPingDriverLocation ? (
+            <ChatPingLocationAction
+              onPress={pingLocation}
+              isPinging={isPingingDriverLocation}
+              pingTimedOut={pingDriverLocationTimedOut}
+              lastCityLabel={pingDriverLastCity}
+              pingPhase={pingDriverPhase}
+            />
+          ) : null}
           <ChatInputBar
             quickMsgs={quickMsgs}
             messageInput={messageInput}

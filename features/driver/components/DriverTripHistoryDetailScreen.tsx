@@ -29,6 +29,10 @@ import {
   tripNeedsPartyTag,
   tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
+import {
+  buildGpsOdometerCompareModel,
+  resolveDriverDisplayDistanceKm,
+} from "@/features/drivers/utils/driverDisplayDistance.util";
 import { resolveDriverTripPayoutTerms } from "@/features/drivers/utils/driverUtils.util";
 import { isClientSupplierTaggedTrip } from "@/features/drivers/domain/driverOperatingMode";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
@@ -523,38 +527,31 @@ export function DriverTripHistoryDetailScreen({
   }, [trip, routeMetricsByTripId]);
   const distanceDisplay = useMemo(() => {
     if (!trip) return "—";
-    return formatDistance(trip.distance ?? routeFallback?.distance);
+    const resolved = resolveDriverDisplayDistanceKm(trip);
+    return formatDistance(resolved ?? routeFallback?.distance);
   }, [trip, routeFallback]);
   const distanceComparisonHint = useMemo(() => {
     if (!trip) return null;
-    const odo =
-      trip.odometer_distance_km != null && Number.isFinite(Number(trip.odometer_distance_km))
-        ? Number(trip.odometer_distance_km)
-        : trip.start_odometer_km != null &&
-            trip.end_odometer_km != null
-          ? Number(trip.end_odometer_km) - Number(trip.start_odometer_km)
-          : null;
-    const gps =
-      trip.gps_distance_km != null && Number.isFinite(Number(trip.gps_distance_km))
-        ? Number(trip.gps_distance_km)
-        : trip.actual_distance_traveled_km != null &&
-            Number.isFinite(Number(trip.actual_distance_traveled_km))
-          ? Number(trip.actual_distance_traveled_km)
-          : null;
-    if (odo == null && gps == null) return null;
-    const delta =
-      trip.distance_discrepancy_km != null
-        ? Number(trip.distance_discrepancy_km)
-        : odo != null && gps != null
-          ? Math.abs(odo - gps)
-          : null;
-    return [
-      odo != null ? `Odo ${odo.toLocaleString("en-IN", { maximumFractionDigits: 1 })}` : null,
-      gps != null ? `GPS ${gps.toLocaleString("en-IN", { maximumFractionDigits: 1 })}` : null,
-      delta != null ? `Δ ${delta.toLocaleString("en-IN", { maximumFractionDigits: 1 })}` : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    const model = buildGpsOdometerCompareModel(trip);
+    if (model.canCompare) {
+      const bits = [
+        model.odometerKm != null
+          ? `Odo ${model.odometerKm.toLocaleString("en-IN", { maximumFractionDigits: 1 })}`
+          : null,
+        model.gpsKm != null
+          ? `GPS ${model.gpsKm.toLocaleString("en-IN", { maximumFractionDigits: 1 })}`
+          : null,
+        model.discrepancyKm != null
+          ? `Δ ${model.discrepancyKm.toLocaleString("en-IN", { maximumFractionDigits: 1 })}`
+          : null,
+        model.hasConflict ? "mismatch" : null,
+      ];
+      return bits.filter(Boolean).join(" · ");
+    }
+    if (model.gpsKm != null) {
+      return `GPS ${model.gpsKm.toLocaleString("en-IN", { maximumFractionDigits: 1 })}`;
+    }
+    return null;
   }, [trip]);
   const durationDisplay = useMemo(() => {
     if (!trip) return "—";

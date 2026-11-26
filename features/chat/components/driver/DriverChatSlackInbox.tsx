@@ -5,12 +5,8 @@ import {
 } from "@/features/chat/components/mobile/ChatSlackMobileChrome";
 import { stripChatPreviewEmojiPrefix } from "@/features/chat/utils/chatAvatar.util";
 import { resolveDriverInboxListPreview } from "@/features/chat/utils/driverChatInboxPreview.util";
-import {
-  findLatestMissionDebriefMessage,
-  isMissionDebriefPreviewText,
-} from "@/features/chat/utils/missionDebrief.util";
-import { isFeedbackRequestAlreadyRatedMeta } from "@/features/chat/utils/feedbackRequestMeta.util";
-import { parseFeedbackRequestMetadata } from "@/features/chat/utils/feedbackRequestMeta";
+import { resolveDriverChatFeedbackChrome } from "@/features/chat/utils/driverChatTripChrome.util";
+import { findLatestMissionDebriefMessage } from "@/features/chat/utils/missionDebrief.util";
 import { driverChatMessagesQueryKey } from "@/features/chat/utils/driverChatMessageCache.util";
 import type { TripConversation, TripMessageRow } from "@/features/chat/types/chat.types";
 import type { ResolvedPartyAvatarIdentity } from "@/lib/entityIdentity";
@@ -21,6 +17,7 @@ import { memo, useCallback, useState } from "react";
 import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { driverConversationUnreadCount } from "@/features/chat/utils/driverChatUnread.util";
+import { resolveDriverFacingShipperName } from "@/features/chat/utils/driverIncomingShipperMessage.util";
 
 function formatTripDate(iso: string | null | undefined): string {
   const raw = String(iso ?? "").trim();
@@ -40,7 +37,7 @@ function formatTripDate(iso: string | null | undefined): string {
 
 function convListIdentity(conv: TripConversation): ResolvedPartyAvatarIdentity {
   return {
-    displayName: conv.party_name?.trim() || conv.trip_organization_name?.trim() || "Fleet",
+    displayName: resolveDriverFacingShipperName(conv),
     entityType: "client",
   };
 }
@@ -88,17 +85,7 @@ function DriverChatSlackInboxInner({
         listPreview.preview ||
         stripChatPreviewEmojiPrefix(item.last_message_preview?.trim() ?? "") ||
         null;
-      const debriefMsg = findLatestMissionDebriefMessage(item.messages);
-      const showPreviewStar =
-        Boolean(debriefMsg) || isMissionDebriefPreviewText(preview);
-      const debriefMeta = debriefMsg
-        ? parseFeedbackRequestMetadata(debriefMsg)
-        : null;
-      const debriefRaw = (debriefMsg?.metadata ?? {}) as Record<string, unknown>;
-      const previewStarFilled =
-        isFeedbackRequestAlreadyRatedMeta(debriefMeta) ||
-        (typeof debriefRaw.submitted_at === "string" &&
-          debriefRaw.submitted_at.trim().length > 0);
+      const chrome = resolveDriverChatFeedbackChrome(item);
       return (
         <ChatSlackListRow
           identity={convListIdentity(item)}
@@ -111,8 +98,10 @@ function DriverChatSlackInboxInner({
           previewImagePreviews={listPreview.previewImagePreviews}
           active={selectedId === item.id}
           unread={driverConversationUnreadCount(item)}
-          showPreviewStar={showPreviewStar}
-          previewStarFilled={previewStarFilled}
+          tripKind={chrome.tripKind}
+          showPreviewStar={chrome.showStar}
+          previewStarFilled={chrome.starFilled}
+          previewStarScore={chrome.starScore}
           onPressPreviewStar={() => setFeedbackConv(item)}
           onPress={() => onOpenConv(item)}
         />
@@ -124,10 +113,9 @@ function DriverChatSlackInboxInner({
   const feedbackMessage: TripMessageRow | null = feedbackConv
     ? findLatestMissionDebriefMessage(feedbackConv.messages)
     : null;
-  const feedbackTarget =
-    (feedbackConv?.party_name ?? "").trim() ||
-    (feedbackConv?.trip_organization_name ?? "").trim() ||
-    "this shipper";
+  const feedbackTarget = feedbackConv
+    ? resolveDriverFacingShipperName(feedbackConv)
+    : "this shipper";
 
   return (
     <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
@@ -169,7 +157,9 @@ function DriverChatSlackInboxInner({
         <FlashList
           data={conversations}
           keyExtractor={(c) => c.id}
-          extraData={feedbackConv?.id}
+          extraData={`${feedbackConv?.id}:${conversations
+            .map((c) => `${c.id}:${c.trip_feedback_status}:${c.trip_status}`)
+            .join("|")}`}
           contentContainerStyle={{ paddingBottom: Math.max(bottomInset, 12) }}
           renderItem={renderConvItem}
         />
@@ -181,11 +171,16 @@ function DriverChatSlackInboxInner({
         message={feedbackMessage}
         targetName={feedbackTarget}
         onSubmitted={() => {
-          if (feedbackConv?.id) {
+          const convId = feedbackConv?.id;
+          if (convId) {
             void queryClient.invalidateQueries({
-              queryKey: driverChatMessagesQueryKey(feedbackConv.id),
+              queryKey: driverChatMessagesQueryKey(convId),
             });
           }
+          void queryClient.invalidateQueries({
+            queryKey: ["q", "driver-chat", "conversations"],
+          });
+          setFeedbackConv(null);
         }}
       />
     </View>

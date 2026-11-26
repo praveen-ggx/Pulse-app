@@ -5,6 +5,7 @@
  */
 
 import * as driversService from "@/features/drivers/services/drivers.service";
+import { resolveDriverDisplayDistanceKm } from "@/features/drivers/utils/driverDisplayDistance.util";
 import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -17,6 +18,9 @@ export interface TripWithSupplier {
   distance?: string | number | null;
   odometer_distance_km?: number | null;
   gps_distance_km?: number | null;
+  actual_distance_traveled_km?: number | null;
+  start_odometer_km?: number | null;
+  end_odometer_km?: number | null;
   operating_mode?: string | null;
   dco_payee_id?: string | null;
   trip_payout_mode?: string | null;
@@ -28,13 +32,7 @@ export interface DriverTripPayoutTerms {
 }
 
 function pickTripDistanceKm(trip: TripWithSupplier): number {
-  const odometer = Number(trip.odometer_distance_km ?? 0);
-  if (Number.isFinite(odometer) && odometer > 0) return odometer;
-  const gps = Number(trip.gps_distance_km ?? 0);
-  if (Number.isFinite(gps) && gps > 0) return gps;
-  const fallback = Number(trip.distance ?? 0);
-  if (Number.isFinite(fallback) && fallback > 0) return fallback;
-  return 0;
+  return resolveDriverDisplayDistanceKm(trip) ?? 0;
 }
 
 /** Trip shape for roster detection (source + driver/vehicle from org). */

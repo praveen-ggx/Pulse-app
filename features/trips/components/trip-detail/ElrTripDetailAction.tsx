@@ -420,63 +420,34 @@ export function ElrTripDetailAction({
     <>
       <View style={styles.block}>
         {hasExisting && storedSnapshot ? (
-          <>
-            <TouchableOpacity
-              style={styles.btn}
-              onPress={() => {
-                setFormOpen(false);
-                setPreviewNeedsSave(false);
-                setPreview(storedSnapshot);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="View E-LR"
-            >
-              <Text style={styles.btnText}>View E-LR</Text>
-            </TouchableOpacity>
-            {status.hint && status.hint !== "View E-LR" ? (
-              <Text style={styles.hint}>{status.hint}</Text>
-            ) : null}
-            <View style={styles.subActions}>
-              <TouchableOpacity onPress={() => void openCompletion()} accessibilityRole="button">
-                <Text style={styles.subActionText}>Edit E-LR</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => void presentFormattedPdf("share", storedSnapshot)}
-                accessibilityRole="button"
-              >
-                <Text style={styles.subActionText}>Share E-LR</Text>
-              </TouchableOpacity>
-            </View>
-          </>
+          <TouchableOpacity
+            style={styles.btn}
+            onPress={() => {
+              setFormOpen(false);
+              setPreviewNeedsSave(false);
+              setPreview(storedSnapshot);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="View E-LR"
+          >
+            <Text style={styles.btnText}>View E-LR</Text>
+          </TouchableOpacity>
         ) : (
-          <>
-            <TouchableOpacity
-              style={styles.btn}
-              onPress={() => void run()}
-              disabled={busy}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={label}
-            >
-              {busy ? (
-                <ActivityIndicator size="small" color={Theme.primary} />
-              ) : (
-                <Text style={styles.btnText}>{label}</Text>
-              )}
-            </TouchableOpacity>
-            {status.hint && status.hint !== label ? (
-              <Text style={styles.hint}>{status.hint}</Text>
-            ) : null}
-            {hasDraft && missingCount > 0 ? (
-              <Text style={styles.hint}>{missingCount} required fields remaining</Text>
-            ) : null}
-          </>
+          <TouchableOpacity
+            style={styles.btn}
+            onPress={() => void run()}
+            disabled={busy}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+          >
+            {busy ? (
+              <ActivityIndicator size="small" color={Theme.primary} />
+            ) : (
+              <Text style={styles.btnText}>{label}</Text>
+            )}
+          </TouchableOpacity>
         )}
-        {vehicleChanged ? (
-          <Text style={styles.hint}>
-            Still shows the vehicle from when it was generated.
-          </Text>
-        ) : null}
       </View>
       <Modal
         visible={preview != null}
@@ -649,31 +620,30 @@ const styles = StyleSheet.create({
   block: {
     alignItems: "center",
     justifyContent: "center",
-    maxWidth: 200,
-    gap: 2,
+    alignSelf: "center",
+    flexShrink: 0,
   },
   hint: {
     color: Theme.textSecondary,
     fontSize: 10,
-    textAlign: "right",
+    textAlign: "center",
     letterSpacing: 0,
   },
-  subActions: { flexDirection: "row", gap: 10, marginTop: 2 },
-  subActionText: { color: Theme.textSecondary, fontSize: 10, fontWeight: "600" },
   btn: {
-    minHeight: 32,
-    paddingHorizontal: 12,
+    minHeight: 36,
+    paddingHorizontal: 14,
     borderRadius: 999,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.borderLight,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Theme.surface,
+    backgroundColor: Theme.cardWhite,
   },
   btnText: {
     color: Theme.textPrimaryDark,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
+    letterSpacing: -0.1,
   },
   modal: {
     flex: 1,

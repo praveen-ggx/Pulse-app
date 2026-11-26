@@ -354,6 +354,17 @@ export interface TripConversation extends TripConversationRow {
   pickup_area: string;
   drop_location: string;
   messages: TripMessageRow[];
+  /**
+   * Client-only: who wrote the current inbox preview. Used so the driver
+   * inbound toast ignores the driver’s own sends.
+   */
+  last_message_sender_role?: MessageSenderRole | null;
+  /**
+   * Driver inbox peer branding (shipper / fleet org). Filled by
+   * `getConversationsByDriverIds` — drivers cannot read `organizations` RLS.
+   */
+  peer_logo_url?: string | null;
+  peer_avatar_seed?: string | null;
 }
 
 // ── Network (org-to-org) chat ─────────────────────────────────────────────────────

@@ -5,12 +5,17 @@ import { TRACKING_BROADCAST_EVENT } from '@/features/tracking/constants';
 import type {
   TrackingBroadcastPayload,
   TrackingBroadcastEventName,
+  TrackingPingStatusPayload,
   TrackingPositionPayload,
 } from '@/features/tracking/types/broadcast.types';
-import { isTrackingPositionPayload } from '@/features/tracking/types/broadcast.types';
+import {
+  isTrackingPingStatusPayload,
+  isTrackingPositionPayload,
+} from '@/features/tracking/types/broadcast.types';
 
 export type TripBroadcastHandlers = {
   onPosition?: (payload: TrackingPositionPayload) => void;
+  onPingStatus?: (payload: TrackingPingStatusPayload) => void;
   onReseed?: () => void;
   onSessionEnded?: () => void;
 };
@@ -35,6 +40,11 @@ function dispatch(tripId: string, event: TrackingBroadcastEventName, payload: un
         isTrackingPositionPayload(payload as TrackingBroadcastPayload)
       ) {
         h.onPosition?.(payload as TrackingPositionPayload);
+      } else if (
+        event === TRACKING_BROADCAST_EVENT.PING_STATUS &&
+        isTrackingPingStatusPayload(payload)
+      ) {
+        h.onPingStatus?.(payload);
       } else if (event === TRACKING_BROADCAST_EVENT.RESEED) {
         h.onReseed?.();
       } else if (event === TRACKING_BROADCAST_EVENT.SESSION_ENDED) {
@@ -61,6 +71,9 @@ export function subscribeTrackingTripBroadcast(
     channel
       .on('broadcast', { event: TRACKING_BROADCAST_EVENT.POSITION }, ({ payload }) => {
         dispatch(tripId, TRACKING_BROADCAST_EVENT.POSITION, payload);
+      })
+      .on('broadcast', { event: TRACKING_BROADCAST_EVENT.PING_STATUS }, ({ payload }) => {
+        dispatch(tripId, TRACKING_BROADCAST_EVENT.PING_STATUS, payload);
       })
       .on('broadcast', { event: TRACKING_BROADCAST_EVENT.RESEED }, () => {
         dispatch(tripId, TRACKING_BROADCAST_EVENT.RESEED, { v: 1, tripId, reason: 'reconnect' });

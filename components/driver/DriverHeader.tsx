@@ -1,8 +1,10 @@
 import Layout from '@/constants/Layout';
 import Typography from '@/constants/Typography';
+import Theme from '@/constants/Theme';
 import { DriverBrandMark } from '@/components/driver/DriverBrandMark';
 import { DriverHeaderTripOpsButtons } from '@/components/driver/DriverHeaderTripOpsButtons';
 import { DriverSelfAvatar } from '@/components/driver/DriverSelfAvatar';
+import { useDriverIncomingMessageUnread } from '@/features/chat/components/driver/DriverIncomingMessageHost';
 import { useOptionalLanguage } from '@/contexts/LanguageContext';
 import { ROUTES } from '@/lib/routes';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
@@ -82,6 +84,7 @@ export function DriverHeader({
 
   const title =
     variant === 'assigned' ? driverName : `Welcome, ${driverName}`;
+  const chatUnread = useDriverIncomingMessageUnread();
 
   const ringPulse = useSharedValue(1);
 
@@ -159,7 +162,7 @@ export function DriverHeader({
         </TouchableOpacity>
 
         <View style={styles.headerTextWrap}>
-          <DriverBrandMark color={colors.textMuted} />
+          <DriverBrandMark color={colors.textMuted} style={styles.brandMark} />
           <Text style={[styles.welcomeTitle, { color: colors.text }]} numberOfLines={1}>
             {title}
           </Text>
@@ -207,9 +210,8 @@ export function DriverHeader({
           />
         ) : null}
 
-        {/* Trip-message inbox. Only entry point for drivers with no active trip —
-            the per-trip Chat buttons live on trip cards, which aren't rendered
-            when the driver is idle. */}
+        {/* Trip-message inbox. Unread badge uses local last-seen map until a
+            driver-side unread column exists (see DriverIncomingMessageHost). */}
         <TouchableOpacity
           onPress={onPressChat ?? (() => router.push('/(driver)/chat'))}
           style={[
@@ -218,23 +220,25 @@ export function DriverHeader({
           ]}
           activeOpacity={0.8}
           accessibilityRole="button"
-          accessibilityLabel="Trip messages"
+          accessibilityLabel={
+            chatUnread > 0
+              ? `Trip messages, ${chatUnread} unread`
+              : 'Trip messages'
+          }
           accessibilityHint="Opens your trip conversations"
         >
-          {/* lucide MessageSquare — matches DriverChatScreen's own icon and the
-              stroke weight of the rest of the driver shell.
-
-              No unread badge here on purpose: trip_conversations only tracks
-              `unread_dispatcher_count`, which the DB increments for messages
-              where sender_role NOT IN ('dispatcher','system') — i.e. the
-              DISPATCHER's unread count, not the driver's. Showing it here read
-              as "1 unread" while the driver had nothing new to open. A real
-              driver-side badge needs a driver unread source first. */}
           <MessageSquare
             size={Layout.driverHeaderActionIconSize}
             color={colors.text}
             strokeWidth={2.25}
           />
+          {chatUnread > 0 ? (
+            <View style={styles.chatUnreadBadge}>
+              <Text style={styles.chatUnreadBadgeText}>
+                {chatUnread > 9 ? '9+' : String(chatUnread)}
+              </Text>
+            </View>
+          ) : null}
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -284,10 +288,17 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     justifyContent: 'center',
+    gap: 2,
+  },
+  brandMark: {
+    marginBottom: 0,
   },
   avatarBtn: {
-    padding: 2,
-    alignSelf: 'flex-start',
+    width: ONLINE_RING_SIZE,
+    height: ONLINE_RING_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   avatarStack: {
     width: ONLINE_RING_SIZE,
@@ -336,6 +347,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  chatUnreadBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    backgroundColor: Theme.driverLime,
+    borderWidth: 1.5,
+    borderColor: Theme.driverDock,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatUnreadBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: Theme.driverLimeInk,
+    lineHeight: 11,
   },
 });
 

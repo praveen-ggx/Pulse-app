@@ -12,6 +12,7 @@ import { DriverAvatarProvider } from '@/contexts/DriverAvatarContext';
 import { DriverThemeProvider } from '@/contexts/DriverThemeContext';
 import { DriverCommunicationProvider } from '@/features/driver/communication';
 import { DriverTripCompletedHost } from '@/features/driver/components/DriverTripCompletedModal';
+import { DriverIncomingMessageProvider } from '@/features/chat/components/driver/DriverIncomingMessageHost';
 import { DcoEmploymentConflictModal } from '@/features/drivers/components/DcoEmploymentConflictModal';
 import { useDriverIndieOutboxFlush } from '@/features/driver-indie/hooks/useDriverIndieOutboxFlush';
 import {
@@ -51,10 +52,12 @@ function DriverTabsNavigator() {
           backgroundColor: 'transparent',
           borderTopWidth: 0,
           elevation: 0,
+          shadowOpacity: 0,
           bottom: 0,
           left: 0,
           right: 0,
         },
+        tabBarBackground: () => null,
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Dashboard' }} />
@@ -262,13 +265,15 @@ export default function DriverAppLayout() {
     <DriverThemeProvider>
       <DriverAvatarProvider>
         <DriverCommunicationProvider>
-          <DriverInviteModalProvider>
-            <DriverTripOpsProvider>
-              <DriverTabsNavigator />
-              <DriverTripCompletedHost />
-              <DcoEmploymentConflictModal />
-            </DriverTripOpsProvider>
-          </DriverInviteModalProvider>
+          <DriverIncomingMessageProvider>
+            <DriverInviteModalProvider>
+              <DriverTripOpsProvider>
+                <DriverTabsNavigator />
+                <DriverTripCompletedHost />
+                <DcoEmploymentConflictModal />
+              </DriverTripOpsProvider>
+            </DriverInviteModalProvider>
+          </DriverIncomingMessageProvider>
         </DriverCommunicationProvider>
       </DriverAvatarProvider>
     </DriverThemeProvider>

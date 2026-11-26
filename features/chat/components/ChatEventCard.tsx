@@ -17,6 +17,7 @@ import {
   Clock,
   Send,
   Package,
+  Undo2,
 } from "lucide-react-native";
 import {
   CHAT_ACCENT,
@@ -126,6 +127,14 @@ const STATUS_ICON_MAP: Record<
     rightWord: "VOID",
     rightColor: "#be123c",
   },
+  revoked: {
+    Icon: Undo2,
+    color: Theme.warning,
+    bg: Theme.warningMuted,
+    sheetLabel: "Rolled back",
+    rightWord: "UNDO",
+    rightColor: Theme.warning,
+  },
   pending: {
     Icon: Clock,
     color: "#94a3b8",
@@ -162,6 +171,7 @@ const STATUS_ICON_MAP: Record<
 
 function inferStatusFromContent(content: string): keyof typeof STATUS_ICON_MAP {
   const c = content.toLowerCase();
+  if (c.includes("stage revoked") || c.includes("stepped back")) return "revoked";
   if (c.includes("accepted") || c.includes("heading to pickup")) return "in_progress";
   if (c.includes("pickup point") || c.includes("reached the pickup")) return "picked_up";
   if (c.includes("in transit") || c.includes("departed")) return "in_transit";
@@ -1355,6 +1365,18 @@ export function ChatSystemEventCard({
   composeTrip?: SystemUpdateDriverContext["composeTrip"];
   driverProfiles?: SystemUpdateDriverContext["driverProfiles"];
 }) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- avoid cycle with revoke card
+  const { isStageRevokeChatMessage } = require("../utils/stageRevokeChat.util") as {
+    isStageRevokeChatMessage: (m: TripMessageRow) => boolean;
+  };
+  if (isStageRevokeChatMessage(message)) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ChatStageRevokeCard } = require("./ChatStageRevokeCard");
+    return (
+      <ChatStageRevokeCard message={message} composeTrip={composeTrip} />
+    );
+  }
+
   const statusKey = inferStatusFromContent(message.content);
   const cfg = STATUS_ICON_MAP[statusKey] ?? STATUS_ICON_MAP.default;
   const dateUpper = formatTripEventSheetDate(message.created_at);

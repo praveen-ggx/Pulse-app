@@ -9,7 +9,8 @@ export type TrackingBroadcastEventName =
   | 'session_ended'
   | 'checkpoint'
   | 'reseed'
-  | 'ping_request';
+  | 'ping_request'
+  | 'ping_status';
 
 export type TrackingPositionPayload = {
   v: 1;
@@ -57,6 +58,13 @@ export type TrackingPingRequestPayload = {
   requestedAt: string;
 };
 
+export type TrackingPingStatusPayload = {
+  v: 1;
+  tripId: string;
+  status: 'gps_denied' | 'sharing';
+  recordedAt: string;
+};
+
 export type FleetPositionPayload = {
   v: 1;
   orgId: string;
@@ -76,10 +84,24 @@ export type TrackingBroadcastPayload =
   | TrackingCheckpointPayload
   | TrackingReseedPayload
   | TrackingPingRequestPayload
+  | TrackingPingStatusPayload
   | FleetPositionPayload;
 
 export function isTrackingPositionPayload(
   p: TrackingBroadcastPayload,
 ): p is TrackingPositionPayload {
   return 'latitude' in p && 'tripId' in p && 'sessionId' in p && !('checkpointId' in p);
+}
+
+export function isTrackingPingStatusPayload(
+  p: unknown,
+): p is TrackingPingStatusPayload {
+  if (!p || typeof p !== 'object') return false;
+  const row = p as Record<string, unknown>;
+  return (
+    row.v === 1 &&
+    typeof row.tripId === 'string' &&
+    (row.status === 'gps_denied' || row.status === 'sharing') &&
+    typeof row.recordedAt === 'string'
+  );
 }

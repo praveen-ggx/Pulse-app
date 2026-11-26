@@ -1,0 +1,157 @@
+## merge/driver-ui-polish-v101
+ M .github/ci-baseline.json
+ M app/_layout.tsx
+ M app/auth/reset-password.tsx
+ M components/AppLoadingSplash.tsx
+ M docs/RBAC_OPERATING_MODEL_CHANGELOG.md
+ M features/auth/services/auth.service.ts
+ M features/chat/components/ChatMobileComposer.tsx
+ M features/chat/components/ChatScreen.tsx
+ M features/chat/components/ChatTripRoomInboxSection.tsx
+ M features/chat/components/DocumentPreviewModal.tsx
+ M features/chat/components/DocumentShareSheet.tsx
+ M features/chat/components/MessageTick.tsx
+ M features/chat/components/SmartChatImage.tsx
+ M features/chat/components/TripChatRoomSheet.tsx
+ M features/chat/components/desktop/ChatSlackDesktopChrome.tsx
+ M features/chat/components/desktop/ChatSlackDesktopComposer.tsx
+ M features/chat/components/desktop/chatSlackDesktop.styles.ts
+ M features/chat/components/driver/DriverChatSlackInbox.tsx
+ M features/chat/components/mobile/ChatSlackMobileChrome.tsx
+ M features/chat/components/mobile/chatSlackMobile.styles.ts
+ M features/chat/components/shared/ChatComposerMarkdownInput.tsx
+ M features/chat/components/shared/ChatMediaGalleryLightbox.tsx
+ M features/chat/components/shared/ChatSlackMirrorToggle.tsx
+ M features/chat/components/shared/chatSlackStreamTabs.ts
+ M features/chat/constants/chatPlatform.flags.ts
+ M features/chat/contexts/DriverChatContext.tsx
+ M features/chat/contexts/IntegratedChatContext.tsx
+ M features/chat/contexts/TripChatContext.tsx
+ M features/chat/hooks/useChatThreadRealtime.ts
+ M features/chat/hooks/useDriverChatConversationsQuery.ts
+ M features/chat/services/chat.service.ts
+ M features/chat/services/chatAssignmentBridge.service.ts
+ M features/chat/services/chatPlatform.service.ts
+ M features/chat/store/chatStore.ts
+ M features/chat/store/useChatStore.ts
+ M features/chat/types/chat.types.ts
+ M features/chat/utils/chatAvatar.util.ts
+ M features/chat/utils/fitImageInViewport.util.ts
+ M features/chat/utils/tripPartyPeopleKey.util.ts
+ M features/drivers/components/DriverDetailScreen.tsx
+ M features/drivers/components/DriversTab.tsx
+ M features/drivers/screens/DriverPartyReceivableScreen.tsx
+ M features/drivers/screens/DriverWalletScreen.tsx
+ M features/drivers/services/__tests__/financeLedgerDrivers.test.ts
+ M features/drivers/services/drivers.service.ts
+ M features/finance/aggregation/__tests__/aggregateDrivers.test.ts
+ M features/finance/aggregation/aggregateDrivers.ts
+ M features/finance/aggregation/aggregateDriversFromRpc.ts
+ M features/finance/aggregation/index.ts
+ M features/finance/aggregation/types.ts
+ M features/finance/components/EntityDetailOverlay.tsx
+ M features/finance/components/FinanceScreen.tsx
+ M features/finance/components/FinanceSummarySection.tsx
+ M features/finance/components/PartyRegistrationPortal.tsx
+ M features/finance/components/TreasurySummaryCard.tsx
+ M features/finance/lib/__tests__/partyRosterReport.util.test.ts
+ M features/finance/lib/partyRosterReport.util.ts
+ M features/network/components/StoryReel.tsx
+ M features/ratings/services/ratings.service.ts
+ M features/trips/components/trip-detail/TripAuditLogContent.tsx
+ M features/trips/hooks/useReassignTrip.ts
+ M lib/database.types.ts
+ M lib/emailValidation.ts
+ M lib/memberSurfaces.ts
+ M lib/navigationPolicy/registry/org.ts
+ M lib/navigationPolicy/registry/routeInventory.ts
+ M lib/queryKeys.ts
+ M lib/routes.ts
+ M lib/trips/__tests__/buildTripAuditLog.compliance.test.ts
+ M lib/trips/buildTripAuditLog.util.ts
+ M scripts/__tests__/supabaseProject.test.ts
+ M scripts/supabaseProject.cjs
+?? .worktrees/
+?? app/finance-pay-run/
+?? changes/evidence/
+?? changes/vasanth-driver-pay-run-b4-read-remediation.md
+?? changes/vasanth-driver-pay-run-migration-hygiene.md
+?? changes/vasanth-driver-pay-run-phase1-audit.md
+?? changes/vasanth-driver-pay-run-phase1-release-checklist.md
+?? changes/vasanth-driver-pay-run-phase1-remediation.md
+?? changes/vasanth-driver-pay-run-phase1.md
+?? changes/vasanth-driver-pay-run-preprod-certification.md
+?? changes/vasanth-driver-pay-run-preprod-smoke.md
+?? changes/vasanth-driver-pay-run-preprod-validation.md
+?? changes/vasanth-driver-pay-run-typecheck-baseline-reconciliation.md
+?? changes/vasanth-typecheck-baseline-governance-349.md
+?? docs/PULSE_CHAT_V2_PHASE_A_DELIVERY.md
+?? docs/PULSE_CHAT_V2_PHASE_A_PLAN.md
+?? docs/PULSE_CHAT_V2_PHASE_B_DELIVERY.md
+?? docs/PULSE_CHAT_V2_PHASE_B_SECURITY_AUDIT.md
+?? docs/PULSE_CHAT_V2_PREPROD_DELIVERY.md
+?? docs/PULSE_CHAT_V2_RELEASE_READINESS.md
+?? docs/PULSE_CHAT_V2_SECURITY_ACCEPTANCE.md
+?? docs/PULSE_CHAT_V2_THREE_SCOPE_AUDIT.md
+?? docs/PULSE_CHAT_V2_TYPECHECK_REMEDIATION.md
+?? features/auth/utils/
+?? features/chat/components/DispatcherUnreadAlertToast.tsx
+?? features/chat/components/shared/ChatListSkeleton.tsx
+?? features/chat/components/shared/ChatThreadSkeleton.tsx
+?? features/chat/components/shared/__tests__/chatSlackStreamTabs.test.ts
+?? features/chat/components/team/
+?? features/chat/constants/__tests__/
+?? features/chat/hooks/__tests__/useDispatcherIncomingUnreadAlert.test.ts
+?? features/chat/hooks/useDispatcherIncomingUnreadAlert.ts
+?? features/chat/hooks/useTeamChannels.ts
+?? features/chat/hooks/useTeamConversations.ts
+?? features/chat/services/__tests__/
+?? features/chat/services/teamChannel.service.ts
+?? features/chat/services/teamChat.service.ts
+?? features/chat/store/__tests__/
+?? features/chat/utils/__tests__/teamChannelSlug.util.test.ts
+?? features/chat/utils/__tests__/tripPartyPeopleKey.util.test.ts
+?? features/chat/utils/__tests__/whatsappStyleLoad.util.test.ts
+?? features/chat/utils/formatChatInboxTime.util.ts
+?? features/chat/utils/teamChannelSlug.util.ts
+?? features/chat/utils/whatsappStyleLoad.util.ts
+?? features/drivers/components/TerminateDriverContractModal.tsx
+?? features/drivers/utils/__tests__/driversRosterFilter.util.test.ts
+?? features/finance/aggregation/__tests__/driverFinanceDisplay.util.test.ts
+?? features/finance/aggregation/driverFinanceDisplay.util.ts
+?? features/pay-run/
+?? hooks/useSafeBack.ts
+?? lib/__tests__/emailValidation.undeliverable.test.ts
+?? lib/navigationPolicy/__tests__/financePayRunHardDeny.test.ts
+?? pr109-accept/
+?? supabase/migrations/20261125175937_driver_monthly_pay_run.sql
+?? supabase/migrations/20261125180000_org_terminate_driver_contract.sql
+?? supabase/migrations/20261125182118_driver_pay_run_phase1_remediation.sql
+?? supabase/migrations/20261125183310_driver_pay_run_settlement_and_payment.sql
+?? supabase/migrations/20261125183444_driver_pay_run_settlement_effective_fix.sql
+?? supabase/migrations/20261125192456_driver_pay_run_read_finance_authority.sql
+?? supabase/migrations/20261125203127_driver_pay_run_active_roster_withhold_carry.sql
+?? supabase/migrations/20261125203838_driver_pay_run_bootstrap_bundles.sql
+?? supabase/migrations/20261125210000_driver_pay_party_asset_only.sql
+?? supabase/migrations/20271125183000_driver_monthly_pay_run.sql
+?? supabase/migrations/20271125201500_driver_pay_run_phase1_remediation.sql
+?? supabase/migrations/20271125224500_driver_pay_run_settlement_and_payment.sql
+?? supabase/migrations/20271125225500_driver_pay_run_settlement_effective_fix.sql
+?? supabase/migrations/20271126104530_chat_v2_phase_b_rls_hardening.sql
+?? supabase/migrations/20271126193045_driver_pay_run_read_finance_authority.sql
+?? supabase/migrations/20271126210000_team_chat_channel_management.sql
+?? supabase/migrations/20271126221530_sync_trip_conversation_driver_on_reassign.sql
+?? supabase/migrations/20271126223045_trip_chat_preserve_human_preview_on_system_log.sql
+?? supabase/migrations/20271126224500_chat_v2_phase_b_conversation_acl_followup.sql
+?? supabase/migrations/20271126231500_trip_driver_reassign_null_and_live_acl.sql
+?? supabase/migrations/20271126232000_chat_conversations_immutable_allow_legacy_fk.sql
+?? supabase/migrations/20271126234015_driver_pay_run_active_roster_withhold_carry.sql
+?? supabase/migrations/20271126235045_chat_v2_channel_update_acl_and_archive.sql
+?? supabase/migrations/20271126235530_ensure_direct_chat_requires_auth_user.sql
+?? supabase/migrations/20271127021530_driver_pay_run_bootstrap_bundles.sql
+?? supabase/migrations/20271127054500_driver_pay_party_asset_only.sql
+?? supabase/migrations/__tests__/preprodDriverPayPartyAssetOnlySet.test.ts
+?? supabase/release-sets/preprod-driver-pay-party-asset-only.versions
+?? supabase/release-sets/preprod-driver-pay-run-phase1-remediation.versions
+?? supabase/release-sets/prod-driver-pay-run-phase1.versions
+?? supabase/tests/chat_v2_phase_b_security.sql

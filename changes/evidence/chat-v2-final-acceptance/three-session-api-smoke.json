@@ -1,0 +1,227 @@
+{
+  "ranAt": "2026-11-26T06:58:03.603Z",
+  "orgId": "3d27f76a-7f79-49a2-87b6-4032c3f51fa8",
+  "sessions": [
+    {
+      "email": "chatv2.smoke.1.1795676173448@example.com",
+      "userId": "e3ae4cb5-5ac2-40d7-aca3-24c0f02f0655"
+    },
+    {
+      "email": "chatv2.smoke.2.1795676173448@example.com",
+      "userId": "22e5be59-07e4-45b0-aa47-dfd541cbb4dd"
+    },
+    {
+      "email": "chatv2.smoke.3.1795676173448@example.com",
+      "userId": "6dba3a2b-fc77-46bd-b92c-fb40c1845a6b"
+    }
+  ],
+  "createChannel": {
+    "status": 200,
+    "json": {
+      "id": "6a39d485-289f-4d2b-aef5-022beadaf600",
+      "organization_id": "3d27f76a-7f79-49a2-87b6-4032c3f51fa8",
+      "conversation_type": "channel",
+      "title": "Smoke Channel",
+      "trip_id": null,
+      "client_id": null,
+      "supplier_id": null,
+      "driver_id": null,
+      "channel_key": "smoke-1795676282935",
+      "created_by": "e3ae4cb5-5ac2-40d7-aca3-24c0f02f0655",
+      "is_archived": false,
+      "last_message_at": null,
+      "last_message_preview": null,
+      "message_count": 0,
+      "metadata": {
+        "topic": "three-session smoke",
+        "purpose": "three-session smoke",
+        "visibility": "public",
+        "created_via": "team_channel_ui"
+      },
+      "legacy_trip_conversation_id": null,
+      "legacy_network_conversation_id": null,
+      "created_at": "2026-11-26T06:58:02.980132+00:00",
+      "updated_at": "2026-11-26T06:58:02.980132+00:00"
+    }
+  },
+  "teamDm": {
+    "status": 200,
+    "json": {
+      "id": "2f6aa35b-3ab8-4170-8fbd-812e4a461467",
+      "organization_id": "3d27f76a-7f79-49a2-87b6-4032c3f51fa8",
+      "conversation_type": "direct",
+      "title": null,
+      "trip_id": null,
+      "client_id": null,
+      "supplier_id": null,
+      "driver_id": null,
+      "channel_key": "dm:6dba3a2b-fc77-46bd-b92c-fb40c1845a6b:e3ae4cb5-5ac2-40d7-aca3-24c0f02f0655",
+      "created_by": "e3ae4cb5-5ac2-40d7-aca3-24c0f02f0655",
+      "is_archived": false,
+      "last_message_at": null,
+      "last_message_preview": null,
+      "message_count": 0,
+      "metadata": {},
+      "legacy_trip_conversation_id": null,
+      "legacy_network_conversation_id": null,
+      "created_at": "2026-11-26T06:58:03.067547+00:00",
+      "updated_at": "2026-11-26T06:58:03.067547+00:00"
+    }
+  },
+  "simultaneousHubProbes": [
+    {
+      "email": "chatv2.smoke.1.1795676173448@example.com",
+      "role": "owner",
+      "teamChannels": {
+        "status": 200,
+        "count": 1,
+        "sample": [
+          {
+            "id": "6a39d485-289f-4d2b-aef5-022beadaf600",
+            "organization_id": "3d27f76a-7f79-49a2-87b6-4032c3f51fa8",
+            "channel_key": "smoke-1795676282935",
+            "title": "Smoke Channel",
+            "topic": "three-session smoke",
+            "visibility": "public",
+            "is_archived": false,
+            "is_member": true,
+            "is_admin": true,
+            "member_count": 3,
+            "last_message_at": null,
+            "last_message_preview": null,
+            "created_at": "2026-11-26T06:58:02.980132+00:00",
+            "created_by": "e3ae4cb5-5ac2-40d7-aca3-24c0f02f0655"
+          }
+        ]
+      },
+      "eligible": {
+        "status": 200,
+        "count": 2
+      },
+      "trips": {
+        "status": 200,
+        "count": 0
+      },
+      "network": {
+        "status": 200,
+        "count": 0
+      }
+    },
+    {
+      "email": "chatv2.smoke.2.1795676173448@example.com",
+      "role": "admin",
+      "teamChannels": {
+        "status": 200,
+        "count": 1,
+        "sample": [
+          {
+            "id": "6a39d485-289f-4d2b-aef5-022beadaf600",
+            "organization_id": "3d27f76a-7f79-49a2-87b6-4032c3f51fa8",
+            "channel_key": "smoke-1795676282935",
+            "title": "Smoke Channel",
+            "topic": "three-session smoke",
+            "visibility": "public",
+            "is_archived": false,
+            "is_member": true,
+            "is_admin": false,
+            "member_count": 3,
+            "last_message_at": null,
+            "last_message_preview": null,
+            "created_at": "2026-11-26T06:58:02.980132+00:00",
+            "created_by": "e3ae4cb5-5ac2-40d7-aca3-24c0f02f0655"
+          }
+        ]
+      },
+      "eligible": {
+        "status": 200,
+        "count": 2
+      },
+      "trips": {
+        "status": 200,
+        "count": 0
+      },
+      "network": {
+        "status": 200,
+        "count": 0
+      }
+    },
+    {
+      "email": "chatv2.smoke.3.1795676173448@example.com",
+      "role": "member",
+      "teamChannels": {
+        "status": 200,
+        "count": 1,
+        "sample": [
+          {
+            "id": "6a39d485-289f-4d2b-aef5-022beadaf600",
+            "organization_id": "3d27f76a-7f79-49a2-87b6-4032c3f51fa8",
+            "channel_key": "smoke-1795676282935",
+            "title": "Smoke Channel",
+            "topic": "three-session smoke",
+            "visibility": "public",
+            "is_archived": false,
+            "is_member": true,
+            "is_admin": false,
+            "member_count": 3,
+            "last_message_at": null,
+            "last_message_preview": null,
+            "created_at": "2026-11-26T06:58:02.980132+00:00",
+            "created_by": "e3ae4cb5-5ac2-40d7-aca3-24c0f02f0655"
+          }
+        ]
+      },
+      "eligible": {
+        "status": 200,
+        "count": 2
+      },
+      "trips": {
+        "status": 200,
+        "count": 0
+      },
+      "network": {
+        "status": 200,
+        "count": 0
+      }
+    }
+  ],
+  "crossOrgChannelList": [
+    {
+      "email": "chatv2.smoke.1.1795676173448@example.com",
+      "status": 403,
+      "count": null,
+      "err": "Not authorized for organization"
+    },
+    {
+      "email": "chatv2.smoke.2.1795676173448@example.com",
+      "status": 403,
+      "count": null,
+      "err": "Not authorized for organization"
+    },
+    {
+      "email": "chatv2.smoke.3.1795676173448@example.com",
+      "status": 403,
+      "count": null,
+      "err": "Not authorized for organization"
+    }
+  ],
+  "verdict": {
+    "threeDistinctSessions": true,
+    "createChannelOk": true,
+    "teamDmOk": true,
+    "allSeeTeamChannels": true,
+    "allTeamRosterVisible": true,
+    "allTripsLaneOk": true,
+    "allDmStoreOk": true,
+    "crossOrgDeniedOrEmpty": true,
+    "pass": true,
+    "eligibleExcludesSelf": true
+  },
+  "notes": [
+    "Three independent password sessions signed in concurrently against preprod.",
+    "Team channel created by owner; all three sessions listed the same channel (member_count=3).",
+    "Team DM ensure_direct_chat succeeded between owner and member.",
+    "Trips lane (trip_conversations) and DM store (network_conversations) readable (empty org expected).",
+    "Cross-org list_team_chat_channels denied 403 for all three.",
+    "list_team_chat_eligible_user_ids returns peers only (2), excluding self — accepted."
+  ]
+}

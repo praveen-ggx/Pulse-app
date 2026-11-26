@@ -17,6 +17,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+source "$ROOT/scripts/lib/refuse-prod-link.sh"
+refuse_prod_link "$ROOT" || exit 1
+
+
 # shellcheck source=lib/migration-release-set.sh
 source "$ROOT/scripts/lib/migration-release-set.sh"
 

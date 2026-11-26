@@ -1,0 +1,3 @@
+6aca47b6f Contain Chat V2 typecheck regression to at or below V1 baseline.
+6cf33799f Lock pulse-preprod Netlify site to preprod Supabase.
+3c3954ffb Isolate Chat V2 for preprod deploy (DM|Trips|Team).
